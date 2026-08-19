@@ -119,42 +119,81 @@ class SessionManager:
     def refresh_token(self, refresh_token: str) -> tuple[str, str]:
         """用 refresh token 换取新 access + refresh token 对。"""
         logger.info("刷新令牌请求")
+        logger.debug("  token 前缀: %.20s...", refresh_token[:40])
 
+        # 1. 解码并验证 token
         payload = decode_token(refresh_token)
-        if payload is None or payload.get("type") != "refresh":
-            logger.warning("刷新令牌失败: token 无效或类型不匹配")
+        if payload is None:
+            logger.warning("刷新令牌失败: token 解码结果为 None（可能已过期或签名无效）")
             raise TokenError("无效的 refresh token")
 
+        token_type = payload.get("type")
+        token_jti = payload.get("jti", "N/A")
+        token_exp = payload.get("exp", 0)
+        import time as _time
+        time_left = token_exp - _time.time()
+        logger.debug("  token type=%s jti=%s 剩余有效期=%.1fs", token_type, token_jti, time_left)
+
+        if token_type != "refresh":
+            logger.warning(
+                "刷新令牌失败: type=%s != 'refresh'（可能是 access token 误用）", token_type
+            )
+            raise TokenError("无效的 refresh token")
+
+        # 2. 校验用户状态
         username = payload.get("sub")
-        logger.info("刷新令牌: username=%s", username)
+        logger.debug("  解析用户: username=%s", username)
 
         if username not in self._users:
             logger.warning("刷新令牌失败: 用户不存在 '%s'", username)
             raise TokenError("用户不存在")
 
         user = self._users[username]
+        logger.debug(
+            "  用户状态: is_active=%s roles=%s last_login=%s",
+            user.is_active, user.roles, user.last_login,
+        )
         if not user.is_active:
             logger.warning("刷新令牌失败: 账号已禁用 '%s'", username)
             raise AuthorizationError("账号已被禁用")
 
-        # 撤销旧 refresh token
+        # 3. 撤销旧 refresh token
+        old_token_count = len(self._user_tokens.get(username, []))
+        logger.debug(
+            "  活跃 refresh tokens: %d 个（用户 %s）", old_token_count, username
+        )
+
         if username in self._user_tokens:
             user_tokens = self._user_tokens[username]
             if refresh_token in user_tokens:
                 user_tokens.remove(refresh_token)
-                logger.info("旧 refresh token 已撤销: user=%s", username)
+                logger.info(
+                    "旧 refresh token 已撤销: user=%s jti=%s tokens剩余=%d",
+                    username, token_jti, len(user_tokens),
+                )
             else:
-                logger.warning("刷新令牌失败: token 不在活跃列表中")
+                logger.warning(
+                    "刷新令牌失败: token 不在活跃列表中（可能被登出或踢出）"
+                )
                 raise TokenError("token 已被撤销")
         else:
             logger.warning("刷新令牌失败: 用户无 token 记录 '%s'", username)
             raise TokenError("token 已被撤销")
 
+        # 4. 签发新 token
         new_access = encode_token({"sub": username, "type": "access", "roles": user.roles})
         new_refresh = encode_refresh_token({"sub": username, "type": "refresh"})
-        self._user_tokens.setdefault(username, []).append(new_refresh)
 
-        logger.info("令牌刷新成功: user=%s", username)
+        # 提取新 token 的 jti 用于日志
+        new_payload = decode_token(new_refresh)
+        new_jti = new_payload.get("jti", "N/A") if new_payload else "N/A"
+
+        self._user_tokens.setdefault(username, []).append(new_refresh)
+        new_token_count = len(self._user_tokens[username])
+        logger.info(
+            "令牌刷新成功: user=%s jti=%s -> new_jti=%s tokens=%d",
+            username, token_jti, new_jti, new_token_count,
+        )
         return new_access, new_refresh
 
     # ------------------------------------------------------------------
