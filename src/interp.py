@@ -124,67 +124,7 @@ def _build_domain_builtins() -> dict:
         ("src.domains.metaverse_arch", "_register_metaverse_arch"),
         ("src.domains.digital_rights", "_register_digital_rights"),
         ("src.domains.acoustics", "_register_acoustics"),
-        ("src.domains.aerospace", "_register_aerospace"),
-        ("src.domains.ai_data_science", "_register_ai_data_science"),
-        ("src.domains.algo_trading", "_register_algo_trading"),
-        ("src.domains.anatomy", "_register_anatomy"),
-        ("src.domains.architecture", "_register_architecture"),
-        ("src.domains.audio_video", "_register_audio_video"),
-        ("src.domains.automation", "_register_automation"),
-        ("src.domains.autonomous", "_register_autonomous"),
-        ("src.domains.bio_computing", "_register_bio_computing"),
-        ("src.domains.biology", "_register_biology"),
-        ("src.domains.blockchain", "_register_blockchain"),
-        ("src.domains.building_struct", "_register_building_struct"),
-        ("src.domains.celestial", "_register_celestial"),
-        ("src.domains.chaos_fractal", "_register_chaos_fractal"),
-        ("src.domains.chemistry", "_register_chemistry"),
-        ("src.domains.comp_chem", "_register_comp_chem"),
-        ("src.domains.computer_science", "_register_computer_science"),
-        ("src.domains.creative_coding", "_register_creative_coding"),
-        ("src.domains.digital_rights", "_register_digital_rights"),
-        ("src.domains.dynamics", "_register_dynamics"),
-        ("src.domains.economics", "_register_economics"),
-        ("src.domains.electrical", "_register_electrical"),
-        ("src.domains.em", "_register_em"),
-        ("src.domains.embedded", "_register_embedded"),
-        ("src.domains.extended_modeling", "_register_structural"),
-        ("src.domains.fintech", "_register_fintech"),
-        ("src.domains.fluid", "_register_fluid"),
-        ("src.domains.fluid_exp", "_register_fluid_exp"),
-        ("src.domains.game_dev", "_register_game_dev"),
-        ("src.domains.genetic_algo", "_register_genetic_algo"),
-        ("src.domains.graphics", "_register_graphics"),
         ("src.domains.graph", "_register_graph"),
-        ("src.domains.green_tech", "_register_green_tech"),
-        ("src.domains.hardware", "_register_hardware"),
-        ("src.domains.hardware_reverse", "_register_hardware_reverse"),
-        ("src.domains.hpc", "_register_hpc"),
-        ("src.domains.iot_hardware", "_register_iot_hardware"),
-        ("src.domains.kernel_math", "_register_kernel_builtins"),
-        ("src.domains.mech_design", "_register_mech_design"),
-        ("src.domains.mechanics", "_register_mechanics"),
-        ("src.domains.medical", "_register_medical"),
-        ("src.domains.medtools", "_register_medtools"),
-        ("src.domains.metaverse_arch", "_register_metaverse_arch"),
-        ("src.domains.nuclear", "_register_nuclear"),
-        ("src.domains.optics", "_register_optics"),
-        ("src.domains.os_network", "_register_os_network"),
-        ("src.domains.quantum", "_register_quantum"),
-        ("src.domains.quantum_compute", "_register_quantum_compute"),
-        ("src.domains.real_hardware", "_register_real_hardware"),
-        ("src.domains.software_app", "_register_software_app"),
-        ("src.domains.spatial_meta", "_register_spatial_meta"),
-        ("src.domains.statmech", "_register_statmech"),
-        ("src.domains.structural", "_register_structural"),
-        ("src.domains.thermo", "_register_thermo"),
-        # 硬件控制与嵌入式
-        ("src.domains.hardware", "_register_hardware"),
-        ("src.domains.embedded", "_register_embedded"),
-        # 扩展建模（结构/流体/热/电力/控制/材料）
-        ("src.domains.extended_modeling", "_register_extended_modeling"),
-        # 真实硬件驱动
-        ("src.domains.real_hardware", "_register_real_hardware"),
     ]
     for mod_path, fn_name in _domain_registers:
         mod = __import__(mod_path, fromlist=[fn_name])
@@ -1055,6 +995,7 @@ class Interpreter:
 
     def _eval_variable(self, node: ast.Variable) -> object:
         name = node.name
+        # 统一查找：env → funcs → builtins → constructors
         if name in self.env:
             v = self.env[name]
             self._log(logging.DEBUG,
@@ -1165,6 +1106,7 @@ class Interpreter:
 
     def _call_lambda(self, lam: ast.Lambda, captured: dict, args: list) -> object:
         params = lam.params
+        # 完整应用时也需要拷贝：递归函数会写入局部变量，共享 captured 会导致错误
         local = dict(captured)
         if len(args) < len(params):
             for p, a in zip(params, args):
@@ -1202,8 +1144,6 @@ class Interpreter:
                 self._depth = max(0, self._depth - 1)
         self._log(logging.DEBUG,
                   f"lambda exit → {self._fmt(result)}")
-        # 仅当 lambda 有参数时才应用额外参数
-        # 无参 lambda 的额外参数（如 () 解析为 0）应被忽略
         if params:
             for a in extra:
                 self._log(logging.DEBUG, "lambda apply extra arg")
