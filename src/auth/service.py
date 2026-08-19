@@ -1,9 +1,12 @@
 """会话管理器 — 内存存储用户与会话。"""
 from __future__ import annotations
 
+import logging
 import uuid
 import time
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from src.auth.models import User, Session
 from src.auth.jwt import encode_token, encode_refresh_token, decode_token
@@ -20,9 +23,10 @@ class SessionManager:
     """内存会话管理器。支持多用户注册、登录、登出、令牌刷新。"""
 
     def __init__(self) -> None:
-        self._users: dict[str, User] = {}       # username -> User
-        self._sessions: dict[str, Session] = {}  # session_id -> Session
-        self._user_tokens: dict[str, list[str]] = {}  # username -> [refresh_token, ...]
+        self._users: dict[str, User] = {}
+        self._sessions: dict[str, Session] = {}
+        self._user_tokens: dict[str, list[str]] = {}
+        logger.info("SessionManager 初始化完成")
 
     # ------------------------------------------------------------------
     # 用户注册
@@ -36,16 +40,22 @@ class SessionManager:
         roles: list[str] | None = None,
     ) -> User:
         """注册新用户。重复用户名抛出 RegistrationError。"""
+        logger.info("注册请求: username=%s email=%s roles=%s", username, email, roles)
+
         if not username or not username.strip():
             raise RegistrationError("用户名不能为空")
         username = username.strip().lower()
+
         if not email or "@" not in email:
             raise RegistrationError("邮箱格式无效")
+
         if username in self._users:
+            logger.warning("注册失败: 用户名已存在 '%s'", username)
             raise RegistrationError(f"用户名 '{username}' 已存在")
 
         pw_valid, msg = _validate_password(password)
         if not pw_valid:
+            logger.warning("注册失败: 密码强度不足 '%s': %s", username, msg)
             raise RegistrationError(msg)
 
         hashed = hash_password(password)
@@ -56,6 +66,7 @@ class SessionManager:
             roles=roles or [],
         )
         self._users[username] = user
+        logger.info("注册成功: username=%s roles=%s", username, user.roles)
         return user
 
     # ------------------------------------------------------------------
@@ -64,12 +75,21 @@ class SessionManager:
 
     def login(self, username: str, password: str) -> Session:
         """验证凭据并创建新会话。失败抛出 AuthenticationError。"""
+        logger.info("登录请求: username=%s", username)
+
         username = username.strip().lower()
         user = self._users.get(username)
-        if user is None or not verify_password(password, user.password_hash):
+
+        if user is None:
+            logger.warning("登录失败: 用户不存在 '%s'", username)
+            raise AuthenticationError()
+
+        if not verify_password(password, user.password_hash):
+            logger.warning("登录失败: 密码错误 user=%s", username)
             raise AuthenticationError()
 
         if not user.is_active:
+            logger.warning("登录失败: 账号已禁用 user=%s", username)
             raise AuthenticationError("账号已被禁用")
 
         user.last_login = time.time()
@@ -85,6 +105,11 @@ class SessionManager:
         )
         self._sessions[session_id] = session
         self._user_tokens.setdefault(username, []).append(refresh)
+
+        logger.info(
+            "登录成功: username=%s session_id=%s roles=%s",
+            username, session_id, user.roles,
+        )
         return session
 
     # ------------------------------------------------------------------
@@ -93,16 +118,23 @@ class SessionManager:
 
     def refresh_token(self, refresh_token: str) -> tuple[str, str]:
         """用 refresh token 换取新 access + refresh token 对。"""
+        logger.info("刷新令牌请求")
+
         payload = decode_token(refresh_token)
         if payload is None or payload.get("type") != "refresh":
+            logger.warning("刷新令牌失败: token 无效或类型不匹配")
             raise TokenError("无效的 refresh token")
 
         username = payload.get("sub")
+        logger.info("刷新令牌: username=%s", username)
+
         if username not in self._users:
+            logger.warning("刷新令牌失败: 用户不存在 '%s'", username)
             raise TokenError("用户不存在")
 
         user = self._users[username]
         if not user.is_active:
+            logger.warning("刷新令牌失败: 账号已禁用 '%s'", username)
             raise AuthorizationError("账号已被禁用")
 
         # 撤销旧 refresh token
@@ -110,13 +142,19 @@ class SessionManager:
             user_tokens = self._user_tokens[username]
             if refresh_token in user_tokens:
                 user_tokens.remove(refresh_token)
+                logger.info("旧 refresh token 已撤销: user=%s", username)
             else:
+                logger.warning("刷新令牌失败: token 不在活跃列表中")
                 raise TokenError("token 已被撤销")
+        else:
+            logger.warning("刷新令牌失败: 用户无 token 记录 '%s'", username)
+            raise TokenError("token 已被撤销")
 
         new_access = encode_token({"sub": username, "type": "access", "roles": user.roles})
         new_refresh = encode_refresh_token({"sub": username, "type": "refresh"})
         self._user_tokens.setdefault(username, []).append(new_refresh)
 
+        logger.info("令牌刷新成功: user=%s", username)
         return new_access, new_refresh
 
     # ------------------------------------------------------------------
@@ -125,11 +163,18 @@ class SessionManager:
 
     def logout(self, session_id: str) -> bool:
         """登出指定会话。"""
+        logger.info("登出请求: session_id=%s", session_id)
+
         session = self._sessions.pop(session_id, None)
         if session is None:
+            logger.warning("登出失败: session 不存在 '%s'", session_id)
             return False
+
         session.is_valid = False
         username = session.username
+        logger.info("登出成功: username=%s session_id=%s", username, session_id)
+
+        # 清理该用户的所有 token
         if username in self._user_tokens:
             self._user_tokens[username] = [
                 t for t in self._user_tokens[username]
@@ -140,13 +185,17 @@ class SessionManager:
     def invalidate_all_sessions(self, username: str) -> int:
         """踢出用户所有会话（密码修改等场景）。"""
         username = username.strip().lower()
+        logger.info("踢出所有会话: username=%s", username)
+
         count = 0
         for sid, session in list(self._sessions.items()):
             if session.username == username:
                 session.is_valid = False
                 del self._sessions[sid]
                 count += 1
+
         self._user_tokens.pop(username, None)
+        logger.info("踢出完成: user=%s 踢出 %d 个会话", username, count)
         return count
 
     # ------------------------------------------------------------------
@@ -154,12 +203,16 @@ class SessionManager:
     # ------------------------------------------------------------------
 
     def get_user(self, username: str) -> Optional[User]:
-        return self._users.get(username.strip().lower())
+        username_lower = username.strip().lower()
+        logger.debug("查询用户: username=%s", username_lower)
+        return self._users.get(username_lower)
 
     def get_session(self, session_id: str) -> Optional[Session]:
+        logger.debug("查询会话: session_id=%s", session_id)
         session = self._sessions.get(session_id)
         if session and session.is_expired():
             del self._sessions[session_id]
+            logger.debug("会话已过期，已清理: session_id=%s", session_id)
             return None
         return session
 
@@ -167,19 +220,24 @@ class SessionManager:
         """验证 access token 并返回 payload。"""
         payload = decode_token(token)
         if payload is None:
+            logger.debug("验证 token 失败: token 无效")
             return None
         username = payload.get("sub")
         user = self._users.get(username) if username else None
         if user is None or not user.is_active:
+            logger.debug("验证 token 失败: 用户不存在或已禁用 '%s'", username)
             return None
+        logger.debug("验证 token 成功: username=%s", username)
         return payload
 
     def get_active_session_count(self, username: str) -> int:
         username = username.strip().lower()
-        return sum(
+        count = sum(
             1 for s in self._sessions.values()
             if s.username == username and not s.is_expired()
         )
+        logger.debug("活跃会话数: username=%s count=%d", username, count)
+        return count
 
     def get_all_usernames(self) -> list[str]:
         return list(self._users.keys())

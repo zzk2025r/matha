@@ -5,20 +5,21 @@ Matha 认证模块。
 
 用法:
     from src.auth.service import SessionManager
+    from src.auth.rbac import RBACMiddleware, Permission
 
     mgr = SessionManager()
-    user = mgr.register("张三", "zhangsan@example.com", "Pass1234")
+    user = mgr.register("张三", "zhangsan@example.com", "Pass1234", roles=["viewer"])
     session = mgr.login("zhangsan", "Pass1234")
-    print(session.token)          # JWT access token
-    print(session.refresh_token)  # JWT refresh token
 
-    new_access, new_refresh = mgr.refresh_token(session.refresh_token)
-    mgr.logout(session.session_id)
+    rbac = RBACMiddleware()
+    rbac.authorize(user.roles, "doc:read")  # OK
+    rbac.authorize(user.roles, "doc:write") # raises AuthorizationError
 """
 from src.auth.models import User, Session
 from src.auth.jwt import encode_token, decode_token, encode_refresh_token, decode_refresh_token
 from src.auth.password import hash_password, verify_password, validate_password_strength
 from src.auth.service import SessionManager
+from src.auth.rbac import RBACMiddleware, Permission, get_rbac, reset_rbac
 from src.auth.exceptions import (
     AuthError,
     AuthenticationError,
@@ -43,6 +44,11 @@ __all__ = [
     "validate_password_strength",
     # Service
     "SessionManager",
+    # RBAC
+    "RBACMiddleware",
+    "Permission",
+    "get_rbac",
+    "reset_rbac",
     # Exceptions
     "AuthError",
     "AuthenticationError",
