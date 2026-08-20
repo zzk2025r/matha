@@ -1322,6 +1322,22 @@ class Interpreter:
         b["转译_Python"] = self._curry(1, self._b_transpile_python)
         b["转译_JS"] = self._curry(1, self._b_transpile_js)
         b["导出_符号表"] = self._curry(1, self._b_export_symtab)
+        # 网络安全内建（威胁检测 · 病毒清杀 · 防火墙联动）
+        b["威胁检测"] = self._curry(1, self._b_net_scan)
+        b["检测病毒"] = self._curry(1, self._b_net_detect_virus)
+        b["隔离威胁"] = self._curry(1, self._b_net_quarantine)
+        b["清杀威胁"] = self._curry(1, self._b_net_eliminate)
+        b["清杀全部"] = self._curry(0, self._b_net_eliminate_all)
+        b["生成防火墙规则"] = self._curry(0, self._b_net_fw_rules)
+        b["风险评估"] = self._curry(1, self._b_net_risk_assess)
+        b["风险报告"] = self._curry(0, self._b_net_risk_report)
+        b["威胁报告"] = self._curry(1, self._b_net_threat_report)
+        b["添加威胁签名"] = self._curry(5, self._b_net_add_sig)
+        b["列出签名"] = self._curry(0, self._b_net_list_sigs)
+        b["威胁数量"] = self._curry(0, self._b_net_threat_count)
+        b["已清杀数量"] = self._curry(0, self._b_net_eliminated_count)
+        b["防火墙规则列表"] = self._curry(0, self._b_net_fw_list)
+        b["威胁状态"] = self._curry(1, self._b_net_threat_status)
 
     # ---- 状态化内建实现（返回普通容器，供 Matha 侧消费） ----
 
@@ -1535,6 +1551,86 @@ class Interpreter:
         if fmt in ("python", "py"):
             return export_symtab_python(self)
         return export_symtab_json(self)
+
+    # ============================================================
+    # 网络安全内建实现（威胁检测 · 病毒清杀 · 防火墙联动）
+    # ============================================================
+
+    def _b_net_scan(self, source_ips: list) -> list:
+        """威胁检测(IP列表) → 威胁列表。"""
+        from src.net_security import _get_engine
+        return _get_engine().scan_threats(source_ips)
+
+    def _b_net_detect_virus(self, behavior: str) -> list:
+        """检测病毒(行为描述) → 匹配签名列表。"""
+        from src.net_security import _get_engine
+        return _get_engine().detect_virus(behavior)
+
+    def _b_net_quarantine(self, threat_id: str) -> dict:
+        """隔离威胁(威胁ID) → 操作结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().quarantine(threat_id)
+
+    def _b_net_eliminate(self, threat_id: str) -> dict:
+        """清杀威胁(威胁ID) → 操作结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().eliminate(threat_id)
+
+    def _b_net_eliminate_all(self, _=None) -> dict:
+        """清杀全部(级别?) → 批量清杀结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().eliminate_all()
+
+    def _b_net_fw_rules(self, _=None) -> list:
+        """生成防火墙规则(威胁列表?) → 规则列表。"""
+        from src.net_security import _get_engine
+        return _get_engine().generate_firewall_rules()
+
+    def _b_net_risk_assess(self, ip: str) -> dict:
+        """风险评估(IP) → 风险评估结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().assess_risk(ip)
+
+    def _b_net_risk_report(self, _=None) -> dict:
+        """风险报告() → 整体风险报告。"""
+        from src.net_security import _get_engine
+        return _get_engine().get_risk_report()
+
+    def _b_net_threat_report(self, threat_id: str) -> dict:
+        """威胁报告(威胁ID) → 威胁详情。"""
+        from src.net_security import _get_engine
+        return _get_engine().get_threat_report(threat_id)
+
+    def _b_net_add_sig(self, name: str, pattern: str, level: str,
+                       category: str, description: str) -> bool:
+        """添加威胁签名(名称,模式,等级,分类,描述) → 是否成功。"""
+        from src.net_security import _get_engine
+        return _get_engine().add_signature(name, pattern, level, category, description)
+
+    def _b_net_list_sigs(self, _=None) -> list:
+        """列出签名() → 所有威胁签名。"""
+        from src.net_security import _get_engine
+        return _get_engine().list_signatures()
+
+    def _b_net_threat_count(self, _=None) -> int:
+        """威胁数量() → 当前威胁总数。"""
+        from src.net_security import _get_engine
+        return _get_engine().threat_count()
+
+    def _b_net_eliminated_count(self, _=None) -> int:
+        """已清杀数量() → 已清杀威胁数。"""
+        from src.net_security import _get_engine
+        return _get_engine().eliminated_count()
+
+    def _b_net_fw_list(self, _=None) -> list:
+        """防火墙规则列表() → 已生成规则。"""
+        from src.net_security import _get_engine
+        return _get_engine().get_firewall_rules()
+
+    def _b_net_threat_status(self, threat_id: str) -> dict:
+        """威胁状态(威胁ID) → 威胁当前状态。"""
+        from src.net_security import _get_engine
+        return _get_engine().threat_status(threat_id)
 
 
 # 延迟初始化：_curry 已定义，现在可以安全地构建缓存
