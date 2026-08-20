@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Matha AI 助手 — 小白友好型数学计算</title>
+  <style>
+    :root {
+      --primary: #4F46E5;
+      --primary-light: #818CF8;
+      --success: #10B981;
+      --warning: #F59E0B;
+      --error: #EF4444;
+      --bg: #F8FAFC;
+      --card: #FFFFFF;
+      --text: #1E293B;
+      --text-light: #64748B;
+      --border: #E2E8F0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 顶部导航 */
+    .header {
+      background: linear-gradient(135deg, var(--primary), var(--primary-light));
+      color: white;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(79,70,229,0.3);
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header .subtitle { font-size: 12px; opacity: 0.8; }
+    .header-controls { display: flex; gap: 8px; }
+    .header-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.2s;
+    }
+    .header-btn:hover { background: rgba(255,255,255,0.3); }
+
+    /* 主布局 */
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* 侧边栏 */
+    .sidebar {
+      width: 220px;
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-section {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-section h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-light);
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+    .quick-action {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 12px;
+      border: none;
+      background: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text);
+      transition: background 0.15s;
+      margin-bottom: 2px;
+    }
+    .quick-action:hover { background: #EEF2FF; color: var(--primary); }
+    .quick-action .icon { margin-right: 6px; }
+
+    /* 聊天区 */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .message {
+      display: flex;
+      gap: 12px;
+      max-width: 85%;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.assistant { align-self: flex-start; }
+    .avatar {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .message.user .avatar { background: var(--primary); color: white; }
+    .message.assistant .avatar { background: var(--success); color: white; }
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .message.user .bubble {
+      background: var(--primary);
+      color: white;
+      border-radius: 12px 12px 4px 12px;
+    }
+    .message.assistant .bubble {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px 12px 12px 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .bubble.error { border-left: 3px solid var(--error); }
+    .bubble.code {
+      background: #1E293B;
+      color: #E2E8F0;
+      font-family: 'Fira Code', 'Consolas', monospace;
+      font-size: 13px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 8px;
+      overflow-x: auto;
+    }
+    .bubble .step-list {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+    .bubble .step-list li {
+      margin: 4px 0;
+      font-size: 13px;
+    }
+    .bubble .hint-box {
+      background: #FEF3C7;
+      border: 1px solid #F59E0B;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .bubble .hint-box strong { color: #92400E; }
+
+    /* 输入区 */
+    .input-area {
+      padding: 16px 20px;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+    }
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    .input-wrapper {
+      flex: 1;
+      position: relative;
+    }
+    #chatInput {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      font-size: 15px;
+      resize: none;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+      min-height: 48px;
+      max-height: 120px;
+    }
+    #chatInput:focus { border-color: var(--primary); }
+    #chatInput::placeholder { color: var(--text-light); }
+    .send-btn {
+      width: 48px; height: 48px;
+      background: var(--primary);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .send-btn:hover { background: #4338CA; }
+    .send-btn:active { transform: scale(0.95); }
+    .send-btn:disabled { background: #CBD5E1; cursor: not-allowed; }
+
+    /* 右侧面板（任务/概念） */
+    .right-panel {
+      width: 280px;
+      background: var(--card);
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      display: none;
+    }
+    .right-panel.open { display: block; }
+    .panel-section {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-section h3 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+    .task-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+      font-size: 13px;
+    }
+    .task-item:hover { background: #F1F5F9; }
+    .task-item.done { opacity: 0.5; text-decoration: line-through; }
+    .task-checkbox {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .task-checkbox.checked {
+      background: var(--success);
+      border-color: var(--success);
+      color: white;
+      font-size: 11px;
+    }
+    .concept-tag {
+      display: inline-block;
+      padding: 4px 10px;
+      background: #EEF2FF;
+      color: var(--primary);
+      border-radius: 12px;
+      font-size: 12px;
+      cursor: pointer;
+      margin: 2px;
+      transition: background 0.15s;
+    }
+    .concept-tag:hover { background: var(--primary); color: white; }
+
+    /* 加载动画 */
+    .typing-indicator {
+      display: flex;
+      gap: 4px;
+      padding: 12px 16px;
+    }
+    .typing-indicator span {
+      width: 8px; height: 8px;
+      background: var(--text-light);
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+
+    /* 响应式 */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .right-panel { position: fixed; right: 0; top: 0; bottom: 0; z-index: 100; width: 300px; box-shadow: -4px 0 16px rgba(0,0,0,0.1); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>🧮 Matha AI 助手</h1>
+    <div class="subtitle">小白友好 · 自然语言计算 · 零编程门槛</div>
+  </div>
+  <div class="header-controls">
+    <button class="header-btn" onclick="togglePanel()">📋 任务面板</button>
+    <button class="header-btn" onclick="showHelp()">❓ 帮助</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- 侧边栏 -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <h3>快速开始</h3>
+      <button class="quick-action" onclick="sendQuick('计算 3 加 5')">
+        <span class="icon">➕</span>计算 3 加 5
+      </button>
+      <button class="quick-action" onclick="sendQuick('找出 1 到 100 的素数')">
+        <span class="icon">🔢</span>找 1~100 的素数
+      </button>
+      <button class="quick-action" onclick="sendQuick('求 [1,2,3,4,5] 的平均值')">
+        <span class="icon">📊</span>求平均值
+      </button>
+      <button class="quick-action" onclick="sendQuick('自由落体 3 秒')">
+        <span class="icon">🍎</span>自由落体 3 秒
+      </button>
+      <button class="quick-action" onclick="sendQuick('计算 5 的阶乘')">
+        <span class="icon">❗</span>5 的阶乘
+      </button>
+      <button class="quick-action" onclick="sendQuick('什么是素数')">
+        <span class="icon">📖</span>什么是素数
+      </button>
+    </div>
+    <div class="sidebar-section">
+      <h3>数学概念</h3>
+      <button class="quick-action" onclick="sendQuick('解释加法')">➕ 加法</button>
+      <button class="quick-action" onclick="sendQuick('解释乘法')">✖️ 乘法</button>
+      <button class="quick-action" onclick="sendQuick('解释除法')">➗ 除法</button>
+      <button class="quick-action" onclick="sendQuick('解释平方')">🟨 平方</button>
+      <button class="quick-action" onclick="sendQuick('解释开方')">√ 开方</button>
+      <button class="quick-action" onclick="sendQuick('解释三角函数')">📐 三角函数</button>
+    </div>
+  </div>
+
+  <!-- 聊天区 -->
+  <div class="chat-area">
+    <div class="chat-messages" id="chatMessages">
+      <!-- 欢迎消息 -->
+      <div class="message assistant">
+        <div class="avatar">🤖</div>
+        <div class="bubble">
+你好！我是 Matha AI 助手 👋
+
+你可以直接用中文描述你的计算需求，我会帮你：
+• 分解计算步骤
+• 生成代码并执行
+• 解释结果和数学概念
+
+试试说：<strong>「计算 3 加 5」</strong> 或 <strong>「找出 1 到 100 的素数」</strong>
+
+输入 <strong>help</strong> 查看更多功能。
+        </div>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="input-row">
+        <div class="input-wrapper">
+          <textarea id="chatInput" rows="1" placeholder="输入你的问题，例如：计算 3 加 5..."
+                    onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
+        </div>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧面板 -->
+  <div class="right-panel" id="rightPanel">
+    <div class="panel-section">
+      <h3>📋 我的任务</h3>
+      <div id="taskList">
+        <div style="color:var(--text-light);font-size:13px;text-align:center;padding:20px;">
+          暂无任务<br>计算后会自动保存
+        </div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>📚 数学概念速查</h3>
+      <div id="conceptTags">
+        <span class="concept-tag" onclick="sendQuick('解释加法')">加法</span>
+        <span class="concept-tag" onclick="sendQuick('解释乘法')">乘法</span>
+        <span class="concept-tag" onclick="sendQuick('解释除法')">除法</span>
+        <span class="concept-tag" onclick="sendQuick('解释平方')">平方</span>
+        <span class="concept-tag" onclick="sendQuick('解释开方')">开方</span>
+        <span class="concept-tag" onclick="sendQuick('解释平均值')">平均值</span>
+        <span class="concept-tag" onclick="sendQuick('解释素数')">素数</span>
+        <span class="concept-tag" onclick="sendQuick('解释三角函数')">三角函数</span>
+        <span class="concept-tag" onclick="sendQuick('解释阶乘')">阶乘</span>
+        <span class="concept-tag" onclick="sendQuick('解释物理公式')">物理公式</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Matha AI 助手前端 ────────────────────────────────────────
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const rightPanel = document.getElementById('rightPanel');
+const taskList = document.getElementById('taskList');
+
+let tasks = [];
+let isProcessing = false;
+
+// 自动调整输入框高度
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// 回车发送
+function handleKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+// 发送消息
+async function sendMessage() {
+  const text = chatInput.value.trim();
+  if (!text || isProcessing) return;
+
+  // 显示用户消息
+  appendMessage('user', text);
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+
+  isProcessing = true;
+  sendBtn.disabled = true;
+
+  // 显示加载动画
+  const loadingId = appendLoading();
+
+  try {
+    // 调用后端 API
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text })
+    });
+
+    removeMessage(loadingId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    appendAssistantMessage(data);
+
+    // 保存任务
+    if (data.type === 'result' && data.steps && data.steps.length > 0) {
+      saveTask(text, data.steps, data.result);
+    }
+  } catch (err) {
+    removeMessage(loadingId);
+    appendAssistantMessage({
+      reply: `❌ 连接错误：${err.message}\n\n请确保后端服务已启动。`,
+      type: 'error'
+    });
+  } finally {
+    isProcessing = false;
+    sendBtn.disabled = false;
+    chatInput.focus();
+  }
+}
+
+// 快速发送
+function sendQuick(text) {
+  chatInput.value = text;
+  sendMessage();
+}
+
+// 切换面板
+function togglePanel() {
+  rightPanel.classList.toggle('open');
+}
+
+// 显示帮助
+function showHelp() {
+  sendQuick('help');
+}
+
+// ── 消息渲染 ─────────────────────────────────────────────────
+
+function appendMessage(role, content, extraClass = '') {
+  const msg = document.createElement('div');
+  msg.className = `message ${role}`;
+  const avatar = role === 'user' ? '👤' : '🤖';
+  msg.innerHTML = `
+    <div class="avatar">${avatar}</div>
+    <div class="bubble ${extraClass}">${escapeHtml(content)}</div>
+  `;
+  chatMessages.appendChild(msg);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return msg;
+}
+
+function appendAssistantMessage(data) {
+  const msg = document.createElement('div');
+  msg.className = 'message assistant';
+  const bubbleClass = data.type === 'error' ? 'error' : '';
+  let html = formatReply(data.reply, data);
+  msg.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble ${bubbleClass}">${html}</div>
+  `;
+  chatMessages.appendChild(msg);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return msg;
+}
+
+function formatReply(text, data) {
+  let html = escapeHtml(text);
+
+  // 添加代码块
+  if (data.code) {
+    html += `<div class="code">${escapeHtml(data.code)}</div>`;
+  }
+
+  // 添加步骤列表
+  if (data.steps && data.steps.length > 0) {
+    html += `<ul class="step-list">`;
+    data.steps.forEach((s, i) => { html += `<li>${escapeHtml(String(i+1))}. ${escapeHtml(s)}</li>`; });
+    html += `</ul>`;
+  }
+
+  // 添加错误提示
+  if (data.explanation) {
+    html += `<div class="hint-box"><strong>💡 ${escapeHtml(data.explanation.what || '')}</strong><br>`;
+    html += `${escapeHtml(data.explanation.how || '')}</div>`;
+  }
+
+  return html;
+}
+
+function appendLoading() {
+  const id = 'loading-' + Date.now();
+  const msg = document.createElement('div');
+  msg.className = 'message assistant';
+  msg.id = id;
+  msg.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble">
+      <div class="typing-indicator"><span></span><span></span><span></span></div>
+      思考中...
+    </div>
+  `;
+  chatMessages.appendChild(msg);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return id;
+}
+
+function removeMessage(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ── 任务管理 ─────────────────────────────────────────────────
+
+function saveTask(title, steps, result) {
+  const task = {
+    id: Date.now(),
+    title: title.substring(0, 30) + (title.length > 30 ? '...' : ''),
+    status: 'done',
+    result: result,
+  };
+  tasks.unshift(task);
+  renderTasks();
+}
+
+function renderTasks() {
+  if (tasks.length === 0) {
+    taskList.innerHTML = '<div style="color:var(--text-light);font-size:13px;text-align:center;padding:20px;">暂无任务</div>';
+    return;
+  }
+  taskList.innerHTML = tasks.map(t => `
+    <div class="task-item ${t.status === 'done' ? 'done' : ''}" onclick="toggleTask(${t.id})">
+      <div class="task-checkbox ${t.status === 'done' ? 'checked' : ''}">${t.status === 'done' ? '✓' : ''}</div>
+      <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+        ${escapeHtml(t.title)}
+        ${t.result !== undefined ? `<br><small style="color:var(--success)">= ${t.result}</small>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleTask(id) {
+  const task = tasks.find(t => t.id === id);
+  if (task) {
+    task.status = task.status === 'done' ? 'pending' : 'done';
+    renderTasks();
+  }
+}
+
+// ── 启动时聚焦输入框 ─────────────────────────────────────────
+chatInput.focus();
+</script>
+
+</body>
+</html>
