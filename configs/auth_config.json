@@ -1,0 +1,88 @@
+{
+  "auth": {
+    "jwt": {
+      "secret_key": "matha-auth-jwt-secret-key-2024-v2",
+      "access_token": {
+        "exp_hours": 1.0,
+        "alg": "HS256"
+      },
+      "refresh_token": {
+        "exp_days": 7.0,
+        "alg": "HS256"
+      }
+    },
+    "password": {
+      "min_length": 6,
+      "max_length": 128,
+      "require_alpha": true,
+      "require_digit": true,
+      "pbkdf2_rounds": 12,
+      "hash_algorithm": "sha256"
+    },
+    "roles": {
+      "admin": {
+        "display_name": "管理员",
+        "description": "拥有所有权限",
+        "permissions": ["doc:*", "user:*", "code:*", "system:*"]
+      },
+      "editor": {
+        "display_name": "编辑者",
+        "description": "可读写文档，执行代码",
+        "permissions": ["doc:read", "doc:write", "code:run"]
+      },
+      "viewer": {
+        "display_name": "查看者",
+        "description": "只读文档，可执行代码",
+        "permissions": ["doc:read", "code:run"]
+      },
+      "guest": {
+        "display_name": "访客",
+        "description": "只能阅读文档",
+        "permissions": ["doc:read"]
+      }
+    },
+    "permissions": {
+      "doc": {
+        "read": "读取文档",
+        "write": "创建/编辑文档",
+        "delete": "删除文档"
+      },
+      "user": {
+        "read": "查看用户信息",
+        "write": "编辑用户信息",
+        "delete": "删除用户",
+        "manage": "用户管理（含角色变更）"
+      },
+      "code": {
+        "run": "执行代码",
+        "debug": "调试/断点执行"
+      },
+      "system": {
+        "restart": "重启服务",
+        "shutdown": "关闭服务"
+      }
+    },
+    "session": {
+      "max_concurrent_per_user": 10,
+      "idle_timeout_hours": 24,
+      "cleanup_interval_seconds": 300
+    },
+    "logging": {
+      "level": "INFO",
+      "format": "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+      "handlers": [
+        { "type": "console" },
+        { "type": "file", "path": "logs/auth.log", "max_size_mb": 10, "backup_count": 5 }
+      ]
+    },
+    "security": {
+      "max_login_attempts": 5,
+      "lockout_duration_minutes": 15,
+      "rate_limit": {
+        "login_per_minute": 10,
+        "register_per_minute": 5,
+        "token_refresh_per_minute": 30
+      }
+    }
+  }
+}

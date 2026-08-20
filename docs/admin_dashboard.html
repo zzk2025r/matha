@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Matha 用户权限管理后台</title>
+<style>
+  :root {
+    --primary: #4f46e5; --primary-light: #6366f1; --danger: #ef4444;
+    --success: #22c55e; --warning: #f59e0b; --bg: #f8fafc;
+    --surface: #ffffff; --border: #e2e8f0; --text: #1e293b;
+    --text-muted: #64748b; --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+  /* Layout */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar { width: 240px; background: #1e1b4b; color: #c7d2fe; flex-shrink: 0; display: flex; flex-direction: column; }
+  .sidebar-header { padding: 20px 16px; border-bottom: 1px solid #312e81; }
+  .sidebar-header h1 { font-size: 16px; font-weight: 700; color: #e0e7ff; }
+  .sidebar-header p { font-size: 11px; color: #a5b4fc; margin-top: 4px; }
+  .sidebar-nav { flex: 1; padding: 8px; }
+  .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 6px; color: #c7d2fe; text-decoration: none; font-size: 13px; transition: background .15s; }
+  .sidebar-nav a:hover, .sidebar-nav a.active { background: #312e81; color: #e0e7ff; }
+  .sidebar-nav a .icon { font-size: 16px; width: 20px; text-align: center; }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar-title { font-size: 18px; font-weight: 600; }
+  .topbar-user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
+  .content { flex: 1; padding: 24px; overflow-y: auto; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+  .card-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .card-title .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e0e7ff; color: var(--primary); font-weight: 500; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; }
+  .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
+  .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; background: #f8fafc; }
+  tr:hover td { background: #f8fafc; }
+  .role-tag { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; margin: 1px 2px; }
+  .role-admin { background: #fef3c7; color: #92400e; }
+  .role-editor { background: #dbeafe; color: #1e40af; }
+  .role-viewer { background: #d1fae5; color: #065f46; }
+  .role-guest { background: #f1f5f9; color: #475569; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .status-active { background: var(--success); }
+  .status-inactive { background: var(--danger); }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover { background: var(--primary-light); }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { background: var(--bg); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-group { display: flex; gap: 6px; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border-radius: 12px; width: 520px; max-width: 90vw; max-height: 85vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.2); transform: translateY(20px); transition: transform .2s; }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-header h2 { font-size: 16px; font-weight: 600; }
+  .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-muted); }
+  .modal-body { padding: 20px 24px; }
+  .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* Form */
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .form-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; transition: border-color .15s; }
+  .form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+  .form-hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
+  .checkbox-item { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all .15s; font-size: 13px; }
+  .checkbox-item input { display: none; }
+  .checkbox-item.checked { border-color: var(--primary); background: #eef2ff; color: var(--primary); }
+  .checkbox-item .check-icon { width: 16px; height: 16px; border: 2px solid var(--border); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; transition: all .15s; }
+  .checkbox-item.checked .check-icon { background: var(--primary); border-color: var(--primary); color: white; }
+
+  /* Toast */
+  .toast-container { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+  .toast { padding: 12px 20px; border-radius: 8px; color: white; font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,.15); animation: slideIn .3s ease; display: flex; align-items: center; gap: 8px; }
+  .toast-success { background: #16a34a; }
+  .toast-error { background: #dc2626; }
+  .toast-info { background: var(--primary); }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+  .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .15s; }
+  .tab:hover { color: var(--primary); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Audit Log */
+  .audit-entry { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .audit-entry:last-child { border-bottom: none; }
+  .audit-time { color: var(--text-muted); font-size: 12px; white-space: nowrap; min-width: 140px; }
+  .audit-type { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 8px; }
+  .audit-type-add { background: #d1fae5; color: #065f46; }
+  .audit-type-remove { background: #fee2e2; color: #991b1b; }
+  .audit-type-set { background: #dbeafe; color: #1e40af; }
+  .audit-type-update { background: #fef3c7; color: #92400e; }
+  .audit-detail { color: var(--text); }
+  .audit-operator { color: var(--text-muted); font-size: 12px; }
+
+  /* Search */
+  .search-bar { display: flex; gap: 10px; margin-bottom: 16px; }
+  .search-bar .form-input { max-width: 280px; }
+  .search-bar select { padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: white; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h1>🔐 Matha Admin</h1>
+      <p>权限管理系统 v3.1</p>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="active" data-tab="users"><span class="icon">👥</span> 用户管理</a>
+      <a href="#" data-tab="roles"><span class="icon">🛡️</span> 角色管理</a>
+      <a href="#" data-tab="audit"><span class="icon">📋</span> 审计日志</a>
+      <a href="#" data-tab="config"><span class="icon">⚙️</span> 系统配置</a>
+    </nav>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="page-title">用户管理</div>
+      <div class="topbar-user">
+        <div class="avatar" id="admin-avatar">A</div>
+        <span id="admin-name">Admin</span>
+        <span style="margin-left:8px">
+          <span class="role-tag role-admin">admin</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Stats -->
+      <div class="stats">
+        <div class="stat-card"><div class="stat-value" id="stat-users">0</div><div class="stat-label">总用户数</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-online">0</div><div class="stat-label">在线会话</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-roles">4</div><div class="stat-label">角色数量</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-audit">0</div><div class="stat-label">审计记录</div></div>
+      </div>
+
+      <!-- Users Tab -->
+      <div class="tab-content active" id="tab-users">
+        <div class="card">
+          <div class="card-title">用户列表 <span class="badge" id="user-count-badge">0 人</span></div>
+          <div class="search-bar">
+            <input class="form-input" id="user-search" placeholder="搜索用户名 / 邮箱...">
+            <select id="user-role-filter">
+              <option value="">全部角色</option>
+              <option value="admin">admin</option>
+              <option value="editor">editor</option>
+              <option value="viewer">viewer</option>
+              <option value="guest">guest</option>
+            </select>
+            <button class="btn btn-primary" onclick="openAddUserModal()">+ 添加用户</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>用户名</th><th>邮箱</th><th>角色</th><th>状态</th><th>最后登录</th><th>操作</th>
+              </tr></thead>
+              <tbody id="user-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Roles Tab -->
+      <div class="tab-content" id="tab-roles">
+        <div class="card">
+          <div class="card-title">角色权限矩阵</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>角色</th><th>文档</th><th>用户管理</th><th>代码执行</th><th>系统管理</th><th>操作</th></tr></thead>
+              <tbody id="role-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">自定义角色 <button class="btn btn-outline btn-sm" onclick="openAddRoleModal()" style="margin-left:auto">+ 新建角色</button></div>
+          <div id="custom-roles-list"></div>
+        </div>
+      </div>
+
+      <!-- Audit Tab -->
+      <div class="tab-content" id="tab-audit">
+        <div class="card">
+          <div class="card-title">审计日志 <button class="btn btn-outline btn-sm" onclick="clearAuditLog()" style="margin-left:auto">清空日志</button></div>
+          <div id="audit-log-list"></div>
+        </div>
+      </div>
+
+      <!-- Config Tab -->
+      <div class="tab-content" id="tab-config">
+        <div class="card">
+          <div class="card-title">系统配置</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div class="form-group">
+              <label class="form-label">Access Token 有效期 (小时)</label>
+              <input class="form-input" type="number" id="cfg-access-exp" value="1" min="0.1" max="720">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Refresh Token 有效期 (天)</label>
+              <input class="form-input" type="number" id="cfg-refresh-exp" value="7" min="1" max="365">
+            </div>
+            <div class="form-group">
+              <label class="form-label">密码最小长度</label>
+              <input class="form-input" type="number" id="cfg-min-pw" value="6" min="4" max="20">
+            </div>
+            <div class="form-group">
+              <label class="form-label">单用户最大会话数</label>
+              <input class="form-input" type="number" id="cfg-max-sessions" value="10" min="1" max="50">
+            </div>
+            <div class="form-group">
+              <label class="form-label">登录失败锁定次数</label>
+              <input class="form-input" type="number" id="cfg-lock-attempts" value="5" min="1" max="20">
+            </div>
+            <div class="form-group">
+              <label class="form-label">锁定持续时间 (分钟)</label>
+              <input class="form-input" type="number" id="cfg-lock-duration" value="15" min="1" max="1440">
+            </div>
+          </div>
+          <div style="margin-top:16px">
+            <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="user-modal-title">添加用户</h2>
+      <button class="modal-close" onclick="closeModal('user-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">用户名</label>
+        <input class="form-input" id="um-username" placeholder="zhangsan">
+        <div class="form-hint">小写字母、数字、下划线</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">邮箱</label>
+        <input class="form-input" id="um-email" type="email" placeholder="user@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">密码</label>
+        <input class="form-input" id="um-password" type="password" placeholder="至少 6 位，含字母和数字">
+      </div>
+      <div class="form-group">
+        <label class="form-label">角色</label>
+        <div class="checkbox-group" id="um-roles">
+          <label class="checkbox-item" data-role="admin"><input type="checkbox" value="admin"><span class="check-icon">✓</span> admin</label>
+          <label class="checkbox-item" data-role="editor"><input type="checkbox" value="editor"><span class="check-icon">✓</span> editor</label>
+          <label class="checkbox-item" data-role="viewer"><input type="checkbox" value="viewer"><span class="check-icon">✓</span> viewer</label>
+          <label class="checkbox-item" data-role="guest"><input type="checkbox" value="guest"><span class="check-icon">✓</span> guest</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('user-modal')">取消</button>
+      <button class="btn btn-primary" onclick="submitUserForm()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Role Modal -->
+<div class="modal-overlay" id="role-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="role-modal-title">新建角色</h2>
+      <button class="modal-close" onclick="closeModal('role-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">角色名称</label>
+        <input class="form-input" id="rm-name" placeholder="developer">
+      </div>
+      <div class="form-group">
+        <label class="form-label">权限选择</label>
+        <div class="checkbox-group" id="rm-permissions" style="flex-direction:column;align-items:flex-start;gap:6px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px">文档权限</div>
+          <label class="checkbox-item" data-role="doc:read"><input type="checkbox" value="doc:read"><span class="check-icon">✓</span> 读取文档</label>
+          <label class="checkbox-item" data-role="doc:write"><input type="checkbox" value="doc:write"><span class="check-icon">✓</span> 编辑文档</label>
+          <label class="checkbox-item" data-role="doc:delete"><input type="checkbox" value="doc:delete"><span class="check-icon">✓</span> 删除文档</label>
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:8px 0 4px">用户管理</div>
+          <label class="checkbox-item" data-role="user:manage"><input type="checkbox" value="user:manage"><span class="check-icon">✓</span> 管理用户</label>
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:8px 0 4px">代码执行</div>
+          <label class="checkbox-item" data-role="code:run"><input type="checkbox" value="code:run"><span class="check-icon">✓</span> 运行代码</label>
+          <label class="checkbox-item" data-role="code:debug"><input type="checkbox" value="code:debug"><span class="check-icon">✓</span> 调试代码</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('role-modal')">取消</button>
+      <button class="btn btn-primary" onclick="submitRoleForm()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ============================================================
+// Matha Auth Admin Frontend Prototype
+// 基于 src/auth/api.py PermissionChangeAPI
+// ============================================================
+
+// ---- Mock API (对接 PermissionChangeAPI) ----
+const API = {
+  // 模拟注册
+  register(username, email, password, roles) {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (state.users[username]) reject({ message: `用户名 '${username}' 已存在` });
+        else if (password.length < 6) reject({ message: '密码长度至少 6 位' });
+        else if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) reject({ message: '密码必须包含字母和数字' });
+        else {
+          state.users[username] = { username, email, roles, active: true, lastLogin: Date.now() };
+          addAudit('add_role', username, { roles });
+          resolve();
+        }
+      }, 80);
+    });
+  },
+  // 模拟登录
+  login(username, password) {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        const user = state.users[username];
+        if (!user) reject({ message: '用户不存在' });
+        else if (!user.active) reject({ message: '账号已被禁用' });
+        else { user.lastLogin = Date.now(); resolve({ roles: user.roles, username }); }
+      }, 60);
+    });
+  },
+  // 添加角色
+  addRole(username, roles, operator) {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        const user = state.users[username];
+        if (!user) reject({ message: '用户不存在' });
+        else if (operator && !state.users[operator]?.roles.includes('admin')) reject({ message: '无管理员权限' });
+        else {
+          roles.forEach(r => { if (!user.roles.includes(r)) user.roles.push(r); });
+          addAudit('add_role', username, { roles });
+          resolve();
+        }
+      }, 100);
+    });
+  },
+  // 移除角色
+  removeRole(username, roles, operator) {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        const user = state.users[username];
+        if (!user) reject({ message: '用户不存在' });
+        else if (operator && !state.users[operator]?.roles.includes('admin')) reject({ message: '无管理员权限' });
+        else {
+          roles.forEach(r => { const i = user.roles.indexOf(r); if (i > -1) user.roles.splice(i, 1); });
+          addAudit('remove_role', username, { roles });
+          resolve();
+        }
+      }, 100);
+    });
+  },
+  // 设置角色
+  setRoles(username, roles, operator) {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        const user = state.users[username];
+        if (!user) reject({ message: '用户不存在' });
+        else if (operator && !state.users[operator]?.roles.includes('admin')) reject({ message: '无管理员权限' });
+        else { user.roles = [...roles]; addAudit('set_role', username, { roles }); resolve(); }
+      }, 100);
+    });
+  },
+  // 更新用户状态
+  updateUser(username, props, operator) {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        const user = state.users[username];
+        if (!user) reject({ message: '用户不存在' });
+        else if (operator && !state.users[operator]?.roles.includes('admin')) reject({ message: '无管理员权限' });
+        else {
+          Object.assign(user, props);
+          addAudit('update_user', username, props);
+          resolve();
+        }
+      }, 80);
+    });
+  },
+  // 获取所有用户
+  getUsers() {
+    return Promise.resolve(Object.values(state.users));
+  },
+  // 获取自定义角色
+  getRoles() {
+    return Promise.resolve([...state.roles, ...Object.values(state.customRoles)]);
+  },
+  // 获取审计日志
+  getAuditLog() {
+    return Promise.resolve([...state.auditLog]);
+  },
+};
+
+// ---- State ----
+const state = {
+  users: {
+    admin_user: { username: 'admin_user', email: 'admin@test.com', roles: ['admin'], active: true, lastLogin: Date.now() },
+    editor_user: { username: 'editor_user', email: 'editor@test.com', roles: ['editor'], active: true, lastLogin: Date.now() - 3600000 },
+    viewer_user: { username: 'viewer_user', email: 'viewer@test.com', roles: ['viewer'], active: true, lastLogin: Date.now() - 7200000 },
+    guest_user: { username: 'guest_user', email: 'guest@test.com', roles: ['guest'], active: false, lastLogin: null },
+  },
+  roles: [
+    { name: 'admin',    perms: ['doc:*', 'user:*', 'code:*', 'system:*'] },
+    { name: 'editor',   perms: ['doc:read', 'doc:write', 'code:run'] },
+    { name: 'viewer',   perms: ['doc:read', 'code:run'] },
+    { name: 'guest',    perms: ['doc:read'] },
+  ],
+  customRoles: {},
+  auditLog: [],
+  config: {
+    accessExp: 1, refreshExp: 7, minPw: 6, maxSessions: 10,
+    lockAttempts: 5, lockDuration: 15,
+  },
+};
+
+// ---- Audit ----
+function addAudit(type, target, data) {
+  state.auditLog.unshift({
+    time: new Date().toLocaleString('zh-CN'),
+    type, target, data,
+    operator: 'admin_user',
+  });
+  if (state.auditLog.length > 200) state.auditLog.length = 200;
+  renderAudit();
+  updateStats();
+}
+
+// ---- Toast ----
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+// ---- Modal ----
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ---- Checkbox Toggle ----
+document.querySelectorAll('.checkbox-item').forEach(el => {
+  el.addEventListener('click', e => {
+    if (e.target.tagName === 'INPUT') return;
+    const cb = el.querySelector('input[type=checkbox]');
+    cb.checked = !cb.checked;
+    el.classList.toggle('checked', cb.checked);
+  });
+});
+
+// ---- Tab Navigation ----
+document.querySelectorAll('.sidebar-nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('.sidebar-nav a').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
+    document.getElementById('tab-' + a.dataset.tab).classList.add('active');
+    const titles = { users: '用户管理', roles: '角色管理', audit: '审计日志', config: '系统配置' };
+    document.getElementById('page-title').textContent = titles[a.dataset.tab] || '';
+    if (a.dataset.tab === 'audit') renderAudit();
+    if (a.dataset.tab === 'roles') renderRoles();
+    if (a.dataset.tab === 'config') loadConfig();
+  });
+});
+
+// ---- Render Users ----
+function renderUsers(filter = '', roleFilter = '') {
+  const tbody = document.getElementById('user-table-body');
+  let users = Object.values(state.users);
+  if (filter) users = users.filter(u => u.username.includes(filter) || u.email.includes(filter));
+  if (roleFilter) users = users.filter(u => u.roles.includes(roleFilter));
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td><strong>${u.username}</strong></td>
+      <td>${u.email}</td>
+      <td>${u.roles.map(r => `<span class="role-tag role-${r}">${r}</span>`).join('')}</td>
+      <td><span class="status-dot ${u.active ? 'status-active' : 'status-inactive'}"></span>${u.active ? '启用' : '禁用'}</td>
+      <td>${u.lastLogin ? new Date(u.lastLogin).toLocaleString('zh-CN') : '从未'}</td>
+      <td>
+        <div class="btn-group">
+          <button class="btn btn-outline btn-sm" onclick="editUser('${u.username}')">编辑</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleUser('${u.username}')">${u.active ? '禁用' : '启用'}</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.username}')">删除</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  document.getElementById('user-count-badge').textContent = users.length + ' 人';
+  updateStats();
+}
+
+document.getElementById('user-search').addEventListener('input', e => renderUsers(e.target.value, document.getElementById('user-role-filter').value));
+document.getElementById('user-role-filter').addEventListener('change', e => renderUsers(document.getElementById('user-search').value, e.target.value));
+
+async function editUser(username) {
+  const user = state.users[username];
+  if (!user) return;
+  document.getElementById('user-modal-title').textContent = `编辑用户: ${username}`;
+  document.getElementById('um-username').value = user.username;
+  document.getElementById('um-username').disabled = true;
+  document.getElementById('um-email').value = user.email;
+  document.getElementById('um-password').value = '';
+  document.querySelectorAll('#um-roles .checkbox-item').forEach(el => {
+    const cb = el.querySelector('input');
+    cb.checked = user.roles.includes(cb.value);
+    el.classList.toggle('checked', cb.checked);
+  });
+  openModal('user-modal');
+}
+
+async function openAddUserModal() {
+  document.getElementById('user-modal-title').textContent = '添加用户';
+  document.getElementById('um-username').value = '';
+  document.getElementById('um-username').disabled = false;
+  document.getElementById('um-email').value = '';
+  document.getElementById('um-password').value = '';
+  document.querySelectorAll('#um-roles .checkbox-item').forEach(el => {
+    const cb = el.querySelector('input');
+    cb.checked = false;
+    el.classList.remove('checked');
+  });
+  openModal('user-modal');
+}
+
+async function submitUserForm() {
+  const username = document.getElementById('um-username').value.trim().toLowerCase();
+  const email = document.getElementById('um-email').value.trim();
+  const password = document.getElementById('um-password').value;
+  const roles = [...document.querySelectorAll('#um-roles input:checked')].map(i => i.value);
+
+  if (!username || !email || !password) { toast('请填写完整信息', 'error'); return; }
+  try {
+    if (document.getElementById('um-username').disabled) {
+      // Edit mode
+      await API.setRoles(username, roles, 'admin_user');
+      state.users[username].email = email;
+      toast(`已更新 ${username}`, 'success');
+    } else {
+      await API.register(username, email, password, roles);
+      toast(`已创建用户 ${username}`, 'success');
+    }
+    closeModal('user-modal');
+    renderUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function toggleUser(username) {
+  try {
+    await API.updateUser(username, { active: !state.users[username].active }, 'admin_user');
+    renderUsers();
+    toast(`已${state.users[username].active ? '启用' : '禁用'} ${username}`, 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteUser(username) {
+  if (!confirm(`确定删除用户 "${username}"？此操作不可撤销。`)) return;
+  try {
+    await API.removeRole(username, [...state.users[username].roles], 'admin_user');
+    delete state.users[username];
+    renderUsers();
+    toast(`已删除用户 ${username}`, 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ---- Render Roles ----
+function renderRoles() {
+  const tbody = document.getElementById('role-table-body');
+  const allPerms = [
+    { key: 'doc:read',    label: '读取文档' },
+    { key: 'doc:write',   label: '编辑文档' },
+    { key: 'doc:delete',  label: '删除文档' },
+    { key: 'user:manage', label: '管理用户' },
+    { key: 'code:run',    label: '运行代码' },
+    { key: 'code:debug',  label: '调试代码' },
+    { key: 'system:*',    label: '系统管理' },
+  ];
+  const defaultRoles = ['admin', 'editor', 'viewer', 'guest'];
+
+  tbody.innerHTML = [...defaultRoles, ...Object.keys(state.customRoles)].map(name => {
+    const role = state.customRoles[name] || state.roles.find(r => r.name === name);
+    if (!role) return '';
+    return `<tr>
+      <td><strong>${name}</strong></td>
+      ${allPerms.map(p => {
+        const has = role.perms.includes(p.key) || (p.key === 'system:*' && role.perms.includes('system:*')) ||
+                    role.perms.some(pm => pm.endsWith(':*') && pm.split(':')[0] === p.key.split(':')[0]);
+        return `<td style="text-align:center">${has ? '<span style="color:var(--success)">✓</span>' : '<span style="color:var(--text-muted)">—</span>'}</td>`;
+      }).join('')}
+      <td>
+        ${defaultRoles.includes(name) ? '<span style="color:var(--text-muted);font-size:12px">内置</span>' :
+          `<button class="btn btn-danger btn-sm" onclick="deleteCustomRole('${name}')">删除</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Custom roles list
+  const list = document.getElementById('custom-roles-list');
+  const custom = Object.entries(state.customRoles);
+  if (custom.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-muted);font-size:13px">暂无自定义角色，点击"新建角色"添加。</p>';
+  } else {
+    list.innerHTML = custom.map(([name, role]) => `
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <strong>${name}</strong>
+        <span style="font-size:12px;color:var(--text-muted)">${role.perms.join(', ')}</span>
+        <button class="btn btn-outline btn-sm" onclick="editCustomRole('${name}')">编辑</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCustomRole('${name}')">删除</button>
+      </div>
+    `).join('');
+  }
+}
+
+function openAddRoleModal() {
+  document.getElementById('role-modal-title').textContent = '新建角色';
+  document.getElementById('rm-name').value = '';
+  document.querySelectorAll('#rm-permissions input').forEach(i => { i.checked = false; i.closest('.checkbox-item').classList.remove('checked'); });
+  openModal('role-modal');
+}
+
+function editCustomRole(name) {
+  const role = state.customRoles[name];
+  document.getElementById('role-modal-title').textContent = `编辑角色: ${name}`;
+  document.getElementById('rm-name').value = name;
+  document.getElementById('rm-name').disabled = true;
+  document.querySelectorAll('#rm-permissions .checkbox-item').forEach(el => {
+    const cb = el.querySelector('input');
+    cb.checked = role.perms.includes(cb.value);
+    el.classList.toggle('checked', cb.checked);
+  });
+  openModal('role-modal');
+}
+
+function submitRoleForm() {
+  const name = document.getElementById('rm-name').value.trim().toLowerCase();
+  const perms = [...document.querySelectorAll('#rm-permissions input:checked')].map(i => i.value);
+  if (!name) { toast('请输入角色名称', 'error'); return; }
+  if (!/^[a-z][a-z0-9_]{1,20}$/.test(name)) { toast('角色名需小写字母开头，仅含字母数字下划线', 'error'); return; }
+  if (state.roles.find(r => r.name === name) || state.customRoles[name]) { toast('角色已存在', 'error'); return; }
+  state.customRoles[name] = { name, perms };
+  addAudit('set_role', `[role:${name}]`, { perms });
+  closeModal('role-modal');
+  renderRoles();
+  toast(`角色 "${name}" 已创建`, 'success');
+}
+
+function deleteCustomRole(name) {
+  if (!confirm(`删除角色 "${name}"？此操作不可撤销。`)) return;
+  delete state.customRoles[name];
+  // Remove from all users
+  Object.values(state.users).forEach(u => {
+    const i = u.roles.indexOf(name);
+    if (i > -1) u.roles.splice(i, 1);
+  });
+  addAudit('remove_role', `[role:${name}]`, {});
+  renderRoles();
+  renderUsers();
+  toast(`已删除角色 "${name}"`, 'success');
+}
+
+// ---- Render Audit ----
+function renderAudit() {
+  const list = document.getElementById('audit-log-list');
+  if (state.auditLog.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:20px 0">暂无审计记录。</p>';
+    return;
+  }
+  list.innerHTML = state.auditLog.map(a => {
+    const typeClass = { add_role: 'audit-type-add', remove_role: 'audit-type-remove', set_role: 'audit-type-set', update_user: 'audit-type-update' };
+    const typeLabel = { add_role: '添加角色', remove_role: '移除角色', set_role: '设置角色', update_user: '更新用户' };
+    return `<div class="audit-entry">
+      <span class="audit-time">${a.time}</span>
+      <span class="audit-type ${typeClass[a.type] || ''}">${typeLabel[a.type] || a.type}</span>
+      <span class="audit-detail">目标: <strong>${a.target}</strong> ${a.data.roles ? `→ ${JSON.stringify(a.data.roles)}` : ''} ${a.data.is_active !== undefined ? `→ 启用=${a.data.is_active}` : ''}</span>
+      <span class="audit-operator">操作者: ${a.operator}</span>
+    </div>`;
+  }).join('');
+}
+
+function clearAuditLog() {
+  if (!confirm('清空所有审计日志？')) return;
+  state.auditLog = [];
+  renderAudit();
+  updateStats();
+  toast('审计日志已清空', 'info');
+}
+
+// ---- Config ----
+function loadConfig() {
+  document.getElementById('cfg-access-exp').value = state.config.accessExp;
+  document.getElementById('cfg-refresh-exp').value = state.config.refreshExp;
+  document.getElementById('cfg-min-pw').value = state.config.minPw;
+  document.getElementById('cfg-max-sessions').value = state.config.maxSessions;
+  document.getElementById('cfg-lock-attempts').value = state.config.lockAttempts;
+  document.getElementById('cfg-lock-duration').value = state.config.lockDuration;
+}
+
+function saveConfig() {
+  state.config = {
+    accessExp: parseFloat(document.getElementById('cfg-access-exp').value),
+    refreshExp: parseFloat(document.getElementById('cfg-refresh-exp').value),
+    minPw: parseInt(document.getElementById('cfg-min-pw').value),
+    maxSessions: parseInt(document.getElementById('cfg-max-sessions').value),
+    lockAttempts: parseInt(document.getElementById('cfg-lock-attempts').value),
+    lockDuration: parseInt(document.getElementById('cfg-lock-duration').value),
+  };
+  toast('配置已保存', 'success');
+}
+
+// ---- Stats ----
+function updateStats() {
+  document.getElementById('stat-users').textContent = Object.keys(state.users).length;
+  document.getElementById('stat-online').textContent = Object.values(state.users).filter(u => u.active).length;
+  document.getElementById('stat-roles').textContent = Object.keys(state.customRoles).length + 4;
+  document.getElementById('stat-audit').textContent = state.auditLog.length;
+}
+
+// ---- Init ----
+renderUsers();
+renderRoles();
+updateStats();
+</script>
+</body>
+</html>

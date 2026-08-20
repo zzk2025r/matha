@@ -266,6 +266,14 @@ class SessionManager:
         if user is None or not user.is_active:
             logger.debug("验证 token 失败: 用户不存在或已禁用 '%s'", username)
             return None
+        # 检查是否存在有效会话（防止已登出但仍持有效 token 的情况）
+        has_valid_session = any(
+            s.username == username and s.is_valid and not s.is_expired()
+            for s in self._sessions.values()
+        )
+        if not has_valid_session:
+            logger.debug("验证 token 失败: 用户无活跃会话 '%s'", username)
+            return None
         logger.debug("验证 token 成功: username=%s", username)
         return payload
 

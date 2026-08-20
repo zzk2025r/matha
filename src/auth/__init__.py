@@ -20,6 +20,7 @@ from src.auth.jwt import encode_token, decode_token, encode_refresh_token, decod
 from src.auth.password import hash_password, verify_password, validate_password_strength
 from src.auth.service import SessionManager
 from src.auth.rbac import RBACMiddleware, Permission, get_rbac, reset_rbac
+from src.auth.api import PermissionChangeAPI
 from src.auth.exceptions import (
     AuthError,
     AuthenticationError,
@@ -49,6 +50,8 @@ __all__ = [
     "Permission",
     "get_rbac",
     "reset_rbac",
+    # API
+    "PermissionChangeAPI",
     # Exceptions
     "AuthError",
     "AuthenticationError",

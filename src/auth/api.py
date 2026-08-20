@@ -89,148 +89,84 @@ class PermissionChangeAPI:
             print(entry)
     """
 
-    def __init__(self, rbac: RBACMiddleware) -> None:
+    def __init__(self, rbac: RBACMiddleware, mgr = None) -> None:
         self._rbac = rbac
+        self._mgr = mgr
         self._audit_log: list[dict] = []
 
     # ------------------------------------------------------------------
     # 变更操作
     # ------------------------------------------------------------------
 
-    def add_role(
-        self,
-        username: str,
-        roles: list[str],
-        operator: str,
-        reason: str = "",
-    ) -> PermissionChangeResult:
-        """给指定用户添加角色（不移除已有角色）。"""
-        logger.info("添加角色请求: user=%s roles=%s operator=%s", username, roles, operator)
-
-        # 权限检查：操作者需有 user:manage 权限
-        self._check_admin_permission(operator)
-
-        result = PermissionChangeResult(
-            success=True,
-            change_type=ChangeType.ADD_ROLE.value,
-            operator=operator,
-        )
-
-        # 从 SessionManager 获取用户
+    def add_role(self, username, roles, operator, reason=""):
         from src.auth.service import SessionManager
-        # roles 直接追加到用户
+        mgr = self._mgr if self._mgr else SessionManager()
+        logger.info("添加角色请求: user=%s roles=%s operator=%s", username, roles, operator)
+        self._check_admin_permission(operator)
+        result = PermissionChangeResult(success=True, change_type=ChangeType.ADD_ROLE.value, operator=operator)
+        user = mgr.get_user(username)
+        if user is None:
+            result.errors.append(f"{username}: 用户不存在")
+            return result
+        for r in roles:
+            if r not in user.roles:
+                user.roles.append(r)
         result.changed.append(username)
-
-        self._audit_log.append({
-            "type": result.change_type,
-            "operator": operator,
-            "target": username,
-            "new_roles": roles,
-            "reason": reason,
-            "timestamp": time.time(),
-        })
+        self._audit_log.append({"type": result.change_type, "operator": operator, "target": username, "new_roles": roles, "reason": reason, "timestamp": time.time()})
         logger.info("添加角色成功: operator=%s target=%s roles=%s", operator, username, roles)
         return result
 
-    def remove_role(
-        self,
-        username: str,
-        roles: list[str],
-        operator: str,
-        reason: str = "",
-    ) -> PermissionChangeResult:
-        """从指定用户移除角色。"""
+    def remove_role(self, username, roles, operator, reason=""):
+        from src.auth.service import SessionManager
+        mgr = self._mgr if self._mgr else SessionManager()
         logger.info("移除角色请求: user=%s roles=%s operator=%s", username, roles, operator)
         self._check_admin_permission(operator)
-
-        result = PermissionChangeResult(
-            success=True,
-            change_type=ChangeType.REMOVE_ROLE.value,
-            operator=operator,
-        )
+        result = PermissionChangeResult(success=True, change_type=ChangeType.REMOVE_ROLE.value, operator=operator)
+        user = mgr.get_user(username)
+        if user is None:
+            result.errors.append(f"{username}: 用户不存在")
+            return result
+        for r in roles:
+            if r in user.roles:
+                user.roles.remove(r)
         result.changed.append(username)
-
-        self._audit_log.append({
-            "type": result.change_type,
-            "operator": operator,
-            "target": username,
-            "removed_roles": roles,
-            "reason": reason,
-            "timestamp": time.time(),
-        })
+        self._audit_log.append({"type": result.change_type, "operator": operator, "target": username, "removed_roles": roles, "reason": reason, "timestamp": time.time()})
         logger.info("移除角色成功: operator=%s target=%s roles=%s", operator, username, roles)
         return result
 
-    def set_roles(
-        self,
-        username: str,
-        roles: list[str],
-        operator: str,
-        reason: str = "",
-    ) -> PermissionChangeResult:
-        """完全替换用户角色列表。"""
+    def set_roles(self, username, roles, operator, reason=""):
+        from src.auth.service import SessionManager
+        mgr = self._mgr if self._mgr else SessionManager()
         logger.info("设置角色请求: user=%s roles=%s operator=%s", username, roles, operator)
         self._check_admin_permission(operator)
-
-        result = PermissionChangeResult(
-            success=True,
-            change_type=ChangeType.SET_ROLE.value,
-            operator=operator,
-        )
+        result = PermissionChangeResult(success=True, change_type=ChangeType.SET_ROLE.value, operator=operator)
+        user = mgr.get_user(username)
+        if user is None:
+            result.errors.append(f"{username}: 用户不存在")
+            return result
+        user.roles = list(roles)
         result.changed.append(username)
-
-        self._audit_log.append({
-            "type": result.change_type,
-            "operator": operator,
-            "target": username,
-            "new_roles": roles,
-            "reason": reason,
-            "timestamp": time.time(),
-        })
+        self._audit_log.append({"type": result.change_type, "operator": operator, "target": username, "new_roles": roles, "reason": reason, "timestamp": time.time()})
         logger.info("设置角色成功: operator=%s target=%s roles=%s", operator, username, roles)
         return result
 
-    def update_users(
-        self,
-        usernames: list[str],
-        *,
-        is_active: Optional[bool] = None,
-        operator: str = "",
-        reason: str = "",
-    ) -> PermissionChangeResult:
-        """批量更新用户属性。"""
-        logger.info(
-            "批量更新请求: users=%s is_active=%s operator=%s",
-            usernames, is_active, operator,
-        )
+    def update_users(self, usernames, *, is_active=None, operator="", reason=""):
+        from src.auth.service import SessionManager
+        mgr = self._mgr if self._mgr else SessionManager()
+        logger.info("批量更新请求: users=%s is_active=%s operator=%s", usernames, is_active, operator)
         self._check_admin_permission(operator)
-
-        result = PermissionChangeResult(
-            success=True,
-            change_type=ChangeType.UPDATE_USER.value,
-            operator=operator,
-        )
-
+        result = PermissionChangeResult(success=True, change_type=ChangeType.UPDATE_USER.value, operator=operator)
         for username in usernames:
-            try:
-                if is_active is not None:
-                    result.changed.append(username)
-                else:
-                    result.skipped.append(username)
-            except Exception as e:
-                result.errors.append(f"{username}: {e}")
+            user = mgr.get_user(username)
+            if user is None:
+                result.errors.append(f"{username}: 用户不存在")
                 result.skipped.append(username)
-
-        self._audit_log.append({
-            "type": result.change_type,
-            "operator": operator,
-            "targets": usernames,
-            "is_active": is_active,
-            "reason": reason,
-            "timestamp": time.time(),
-        })
-        logger.info("批量更新完成: %d 成功, %d 跳过, %d 错误",
-                     len(result.changed), len(result.skipped), len(result.errors))
+            else:
+                if is_active is not None:
+                    user.is_active = is_active
+                result.changed.append(username)
+        self._audit_log.append({"type": result.change_type, "operator": operator, "targets": usernames, "is_active": is_active, "reason": reason, "timestamp": time.time()})
+        logger.info("批量更新完成: %d 成功, %d 跳过, %d 错误", len(result.changed), len(result.skipped), len(result.errors))
         return result
 
     # ------------------------------------------------------------------
@@ -272,9 +208,12 @@ class PermissionChangeAPI:
         if not operator:
             raise AuthorizationError("操作者不能为空")
 
-        # 简化检查：操作者必须有 admin 角色或 user:manage 权限
-        from src.auth.service import SessionManager
-        mgr = SessionManager()
+        # 优先使用传入的 SessionManager
+        mgr = self._mgr
+        if mgr is None:
+            from src.auth.service import SessionManager
+            mgr = SessionManager()
+
         user = mgr.get_user(operator)
         if user is None:
             raise AuthorizationError(f"操作者不存在: {operator}")
