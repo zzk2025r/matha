@@ -1,0 +1,192 @@
+# matha-auth GitLab CI/CD Pipeline
+# 兼容 GitLab CI/CD (.gitlab-ci.yml)
+# 适用于 GitLab 15.0+
+
+stages:
+  - lint
+  - test
+  - build
+  - publish
+  - deploy-staging
+  - deploy-production
+
+variables:
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  DOCKER_REGISTRY: "docker.your-company.com"
+  IMAGE_NAME: "matha-auth"
+  CHART_DIR: "./charts/matha-auth"
+  PKG_DIR: "./packages"
+
+# ── Job: Lint ────────────────────────────────────────────────────────────────
+lint:
+  stage: lint
+  image: python:3.14-slim
+  tags:
+    - docker
+  before_script:
+    - pip install -q black mypy ruff pip-tools
+  script:
+    - black --check ${PKG_DIR}/matha_auth ${PKG_DIR}/tests
+    - ruff check ${PKG_DIR}/matha_auth ${PKG_DIR}/tests || true
+    - mypy ${PKG_DIR}/matha_auth --ignore-missing-imports || true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+
+# ── Job: Test (多 Python 版本矩阵) ────────────────────────────────────────────
+test:
+  stage: test
+  image: python:${CI_JOB_VARIABLES:-3.14}
+  tags:
+    - docker
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+  before_script:
+    - pip install -q "pip-tools>=7.0"
+    - cd ${PKG_DIR}
+    - pip install -e ".[dev]"
+  script:
+    - |
+      # 验证依赖锁定文件一致性
+      cd ${PKG_DIR}
+      pip-compile pyproject.toml --output-file requirements.lock --quiet
+      if ! git diff --exit-code requirements.lock; then
+        echo "::error::requirements.lock 与 pyproject.toml 不一致"
+        exit 1
+      fi
+      # 从锁定文件安装
+      pip install -q -r requirements.lock
+      # 运行测试
+      python -m unittest \
+        tests.test_session_manager \
+        tests.test_rbac_middleware \
+        tests.test_permission_api \
+        tests.test_concurrent \
+        tests.test_integration \
+        -v
+  artifacts:
+    when: always
+    paths:
+      - ${PKG_DIR}/.coverage
+      - ${PKG_DIR}/requirements.lock
+    expire_in: 30 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+
+# ── Job: Docker Build ────────────────────────────────────────────────────────
+docker-build:
+  stage: build
+  image: docker:24-dind
+  tags:
+    - docker
+  services:
+    - docker:24-docker
+  before_script:
+    - docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD" $DOCKER_REGISTRY
+  script:
+    - |
+      VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+      IMAGE="${DOCKER_REGISTRY}/${IMAGE_NAME}:${VERSION}"
+      docker build -t "${IMAGE}" -f ${PKG_DIR}/Dockerfile .
+      docker push "${IMAGE}"
+      # 同时推送 latest 标签到 main 分支
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        docker tag "${IMAGE}" "${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
+        docker push "${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+/'
+
+# ── Job: Publish to PyPI ─────────────────────────────────────────────────────
+publish:
+  stage: publish
+  image: python:3.14-slim
+  tags:
+    - docker
+  needs: [lint, test, docker-build]
+  before_script:
+    - pip install -q build twine
+  script:
+    - cd ${PKG_DIR}
+    - python -m build
+    - ls -la dist/
+    - |
+      twine upload dist/* \
+        --repository-url https://pypi.your-company.com/simple/ \
+        --skip-existing
+    - |
+      VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')
+      cat > ../docs/RELEASE_${VERSION}.md << EOF
+      # Release ${VERSION}
+      - 发布时间: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+      - 构建文件: $(ls dist/)
+      - PyPI: https://pypi.your-company.com/simple/matha-auth/
+      EOF
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+/'
+
+# ── Job: Deploy to Staging ───────────────────────────────────────────────────
+deploy-staging:
+  stage: deploy-staging
+  image: alpine:3.19
+  tags:
+    - k8s
+  needs: [lint, test]
+  before_script:
+    - apk add --no-cache curl bash
+    - helm version --short
+  script:
+    - |
+      VERSION=${CI_COMMIT_SHORT_SHA}
+      helm upgrade --install matha-auth ${CHART_DIR} \
+        --namespace matha-auth-staging \
+        --create-namespace \
+        --values ${CHART_DIR}/values-test.yaml \
+        --set image.tag="${VERSION}" \
+        --timeout 5m
+      kubectl rollout status deployment/matha-auth \
+        --namespace matha-auth-staging --timeout=300s
+      kubectl get pods -n matha-auth-staging -l app=matha-auth
+  environment:
+    name: staging
+    url: https://auth-staging.your-company.com
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+
+# ── Job: Deploy to Production ────────────────────────────────────────────────
+deploy-production:
+  stage: deploy-production
+  image: alpine:3.19
+  tags:
+    - k8s-prod
+  needs: [lint, test, docker-build, publish]
+  before_script:
+    - apk add --no-cache curl bash
+    - helm version --short
+  script:
+    - |
+      VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')
+      helm upgrade --install matha-auth ${CHART_DIR} \
+        --namespace matha-auth \
+        --values ${CHART_DIR}/values-prod.yaml \
+        --set image.tag="${VERSION}" \
+        --set "jwtSecret=${JWT_SECRET}" \
+        --timeout 5m
+      kubectl rollout status deployment/matha-auth \
+        --namespace matha-auth --timeout=300s
+      kubectl get pods -n matha-auth -l app=matha-auth
+      # 健康检查
+      sleep 10
+      kubectl port-forward svc/matha-auth 8000:8000 -n matha-auth &
+      curl -sf https://auth.your-company.com/health || exit 1
+  environment:
+    name: production
+    url: https://auth.your-company.com
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+/'

@@ -1,0 +1,336 @@
+name: matha-auth CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_DEFAULT_TRUSTED_HOST: "pypi.your-company.com"
+  REGISTRY: docker.your-company.com
+  IMAGE_NAME: matha-auth
+
+jobs:
+  # ── Job 1: 代码检查 ────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install linting tools
+        run: pip install -q black mypy ruff
+
+      - name: Black format check
+        run: black --check packages/matha_auth packages/tests || (
+          echo "::error::代码格式不合规，请运行: black packages/"
+          exit 1
+        )
+
+      - name: Ruff linter
+        run: ruff check packages/matha_auth packages/tests || true
+
+      - name: Mypy type check
+        run: mypy packages/matha_auth --ignore-missing-imports || true
+
+  # ── Job 2: 单元测试（多 Python 版本矩阵）────────────────────────────────────
+  test:
+    name: Unit Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install package
+        run: |
+          cd packages
+          pip install -e ".[dev]"
+          pip install -q pip-tools
+
+      # Step 1: 验证依赖锁定文件一致性
+      - name: Verify locked dependencies
+        run: |
+          cd packages
+          pip-compile pyproject.toml --output-file requirements.lock --quiet --generate-hashes
+          git diff --exit-code requirements.lock || (
+            echo "::error::requirements.lock 与 pyproject.toml 不一致"
+            echo "请运行: pip-compile pyproject.toml --output-file requirements.lock"
+            exit 1
+          )
+
+      # Step 2: 从锁定文件安装依赖（确保构建环境一致性）
+      - name: Install from locked requirements
+        run: |
+          cd packages
+          pip install -q -r requirements.lock
+
+      # Step 3: 单元测试
+      - name: Run unit tests
+        run: |
+          cd packages
+          python -m unittest \
+            tests.test_session_manager \
+            tests.test_rbac_middleware \
+            tests.test_permission_api \
+            tests.test_concurrent \
+            -v
+
+      # Step 4: 集成测试（关键阻断点）
+      - name: Run integration tests
+        run: |
+          cd packages
+          python -m unittest tests.test_integration -v
+
+      # Step 5: 全量测试
+      - name: Run full test suite
+        run: |
+          cd packages
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      # Step 6: 上传测试覆盖率
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-python-${{ matrix.python }}
+          path: packages/.coverage
+        if: always()
+
+  # ── Job 3: Docker 镜像构建 ─────────────────────────────────────────────────
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to private registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,suffix=
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Job 4: 性能基准测试 ────────────────────────────────────────────────────
+  benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install package
+        run: |
+          cd packages
+          pip install -e .
+
+      - name: Run stress test
+        run: |
+          cd scripts
+          python stress_test_rbac.py
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: docs/BENCHMARK_REPORT_v*.md
+
+  # ── Job 5: 发布到 PyPI ─────────────────────────────────────────────────────
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [lint, test, docker-build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build package
+        run: |
+          cd packages
+          python -m build
+          ls -la dist/
+
+      - name: Upload to private PyPI
+        run: |
+          cd packages
+          twine upload dist/* \
+            --repository-url https://pypi.your-company.com/simple/ \
+            --skip-existing
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Generate release report
+        run: |
+          cd packages
+          python -c "
+          import datetime, json, subprocess
+          version = subprocess.check_output(['git', 'describe', '--tags', '--abbrev=0']).decode().strip().lstrip('v')
+          report = {
+            'version': version,
+            'published_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'files': subprocess.check_output(['ls', 'dist']).decode().strip().split(),
+          }
+          print(json.dumps(report, indent=2))
+          " > ../docs/release_report.json
+
+      - name: Notify
+        if: always()
+        run: |
+          echo "发布完成: ${{ github.ref_name }}"
+          echo "PyPI: https://pypi.your-company.com/simple/matha-auth/"
+
+  # ── Job 6: Helm Chart 部署到测试环境 ───────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          kubeconfig: ${{ secrets.STAGING_KUBECONFIG }}
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install matha-auth ./charts/matha-auth \
+            --namespace matha-auth-staging \
+            --create-namespace \
+            --values charts/matha-auth/values-test.yaml \
+            --set image.tag="${{ github.sha }}" \
+            --timeout 5m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/matha-auth \
+            --namespace matha-auth-staging --timeout=300s
+
+      - name: Health check
+        run: |
+          kubectl get pods -n matha-auth-staging -l app=matha-auth
+          kubectl port-forward svc/matha-auth 8000:8000 -n matha-auth-staging &
+          sleep 5
+          curl -sf http://localhost:8000/health || exit 1
+
+  # ── Job 7: Helm Chart 部署到生产环境 ───────────────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [lint, test, docker-build, publish]
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          kubeconfig: ${{ secrets.PROD_KUBECONFIG }}
+
+      - name: Deploy with Helm
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          helm upgrade --install matha-auth ./charts/matha-auth \
+            --namespace matha-auth \
+            --values charts/matha-auth/values-prod.yaml \
+            --set image.tag="${VERSION}" \
+            --set jwtSecret="${{ secrets.JWT_SECRET }}" \
+            --timeout 5m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/matha-auth \
+            --namespace matha-auth --timeout=300s
+
+      - name: Health check
+        run: |
+          kubectl get pods -n matha-auth -l app=matha-auth
+          kubectl port-forward svc/matha-auth 8000:8000 -n matha-auth &
+          sleep 5
+          curl -sf https://auth.your-company.com/health || exit 1
+
+      - name: Failover drill
+        run: |
+          python scripts/k8s_failover_drill.py \
+            --namespace matha-auth \
+            --replicas 3 \
+            --rounds 3
+
+      - name: Generate deployment report
+        run: |
+          kubectl get all -n matha-auth > docs/DEPLOY_REPORT_${GITHUB_REF_NAME}.md
+          kubectl logs -l app=matha-auth -n matha-auth --tail=100 \
+            > docs/DEPLOY_LOGS_${GITHUB_REF_NAME}.txt

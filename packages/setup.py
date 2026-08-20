@@ -11,7 +11,7 @@ from pathlib import Path
 from setuptools import find_packages, setup
 
 PKG_DIR = Path(__file__).parent / "matha_auth"
-README = (Path(__file__).parent / "README.md").read_text(encoding="utf-8")
+README = (Path(__file__).parent / "matha_auth" / "README.md").read_text(encoding="utf-8")
 VERSION = {}
 exec((PKG_DIR / "_version.py").read_text(encoding="utf-8"), VERSION)
 
