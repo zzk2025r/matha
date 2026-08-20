@@ -101,6 +101,7 @@ class RBACMiddleware:
     def register_role(self, name: str, permissions: Collection[str]) -> None:
         """注册或更新角色及其权限集合。"""
         self._roles[name] = set(permissions)
+        self._perm_cache.clear()
         logger.info("注册角色: %s (权限=%d)", name, len(permissions))
 
     def remove_role(self, name: str) -> bool:

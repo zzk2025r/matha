@@ -175,8 +175,10 @@ class PermissionChangeAPI:
 
     def get_user_roles(self, username: str) -> list[str]:
         """查询用户当前角色列表。"""
-        from matha_auth.service import SessionManager
-        mgr = SessionManager()
+        mgr = self._mgr
+        if mgr is None:
+            from matha_auth.service import SessionManager
+            mgr = SessionManager()
         user = mgr.get_user(username)
         return user.roles if user else []
 

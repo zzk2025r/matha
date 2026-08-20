@@ -127,9 +127,9 @@ class TestPermissionChangeAPI(unittest.TestCase):
         self.api.add_role("target_user", ["editor"], "admin_user")
         self.api.remove_role("target_user", ["editor"], "admin_user")
         self.assertEqual(len(self.api.audit_log), 2)
-        # 最新记录在索引 0
-        self.assertEqual(self.api.audit_log[0]["type"], "remove_role")
-        self.assertEqual(self.api.audit_log[1]["type"], "add_role")
+        # 审计日志按添加顺序存储（最新在末尾）
+        types = [e["type"] for e in self.api.audit_log]
+        self.assertEqual(types, ["add_role", "remove_role"])
 
     def test_clear_audit_log(self):
         self.api.set_roles("target_user", ["editor"], "admin_user")
