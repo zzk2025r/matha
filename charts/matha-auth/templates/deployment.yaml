@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matha-auth-config
+  namespace: auth
+data:
+  JWT_SECRET: ""  # 请通过 Secret 注入
+  JWT_ALG: "HS256"
+  ACCESS_TOKEN_EXP: "3600"
+  REFRESH_TOKEN_EXP: "604800"
+  PASSWORD_PBKDF2_ROUNDS: "12"
+  MAX_SESSIONS_PER_USER: "10"
+  LOG_LEVEL: "INFO"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: matha-auth-secret
+  namespace: auth
+type: Opaque
+stringData:
+  jwt-secret: "changeme-in-production-use-32-char-min"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matha-auth
+  namespace: auth
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: matha-auth
+  template:
+    metadata:
+      labels:
+        app: matha-auth
+    spec:
+      containers:
+        - name: matha-auth
+          image: docker.your-company.com/matha-auth:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: matha-auth-config
+            - secretRef:
+                name: matha-auth-secret
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: matha-auth
+  namespace: auth
+spec:
+  selector:
+    app: matha-auth
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: matha-auth
+  namespace: auth
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - auth.example.com
+      secretName: auth-tls
+  rules:
+    - host: auth.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: matha-auth
+                port:
+                  number: 80

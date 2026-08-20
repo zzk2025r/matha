@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: |
+          cd packages
+          pip install -e .
+
+      - name: Run unit tests
+        run: |
+          python -m unittest packages.tests.test_session_manager
+          python -m unittest packages.tests.test_rbac_middleware
+          python -m unittest packages.tests.test_permission_api
+          python -m unittest packages.tests.test_concurrent
+
+      - name: Run integration tests
+        run: |
+          python -m unittest tests.test_auth tests.test_rbac tests.test_rbac_integration tests.test_rbac_denials
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install build twine
+      - run: |
+          cd packages
+          python -m build
+          twine upload dist/* --repository-url https://pypi.your-company.com/simple/
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}

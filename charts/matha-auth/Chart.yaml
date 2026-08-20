@@ -1,0 +1,14 @@
+name: matha-auth
+description: Matha Auth - Authentication & RBAC service
+version: 1.0.0
+apiVersion: v2
+type: application
+keywords:
+  - auth
+  - rbac
+  - jwt
+  - security
+maintainers:
+  - name: Matha Team
+    email: matha@example.com
+dependencies: []

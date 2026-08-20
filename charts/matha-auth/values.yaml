@@ -1,0 +1,37 @@
+# Default values for matha-auth.
+
+replicaCount: 2
+
+image:
+  repository: docker.your-company.com/matha-auth
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+jwtSecret: "changeme-in-production-use-32-char-min"
+
+accessTokenExp: "3600"         # 1 hour
+refreshTokenExp: "604800"      # 7 days
+pbkdf2Rounds: 12
+maxSessionsPerUser: 10
+logLevel: "INFO"
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: auth.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: auth-tls
+      hosts:
+        - auth.example.com

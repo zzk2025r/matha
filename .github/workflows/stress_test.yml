@@ -1,0 +1,189 @@
+name: HAL Stress Test
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # 每天 UTC 00:00 运行（北京时间 08:00）
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+# ============================================================
+# 钉钉通知配置（从共享配置加载）
+# 参考: .github/configs/dingtalk_notify.yml
+# ============================================================
+env:
+  DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+  DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+  MATHA_ENV: ${{ matrix.env }}
+  MATHA_WORKERS: 4  # 默认 4 Worker（根据实际 CPU 核数自动调整）
+
+# 多环境矩阵
+strategy:
+  matrix:
+    env: [dev, staging]
+    os: [ubuntu-latest]
+
+jobs:
+  stress-test:
+    name: HAL 10kHz 压力测试 (${{ matrix.env }})
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt 2>/dev/null || true
+
+      - name: 运行单元测试
+        run: |
+          python -m unittest tests.test_intent_decomposer tests.test_hardware_hal tests.test_language_adapters -v
+
+      - name: 运行 10kHz 压力测试
+        run: |
+          python tests/stress_test_10khz.py --frequency 10000 --duration 5 --channels 4
+
+      - name: 运行 Multiprocessing 压力测试（${{ env.MATHA_WORKERS }} Worker）
+        run: |
+          python tests/test_hal_multiprocessing.py --workers ${{ env.MATHA_WORKERS }} --iterations 3000
+
+      - name: 运行 pytest 性能测试
+        run: |
+          pip install pytest -q
+          python -m pytest tests/test_hal_perf.py -v --benchmark
+
+      - name: 运行突发写入测试
+        run: |
+          python tests/stress_test_10khz.py --burst --burst-count 10000
+
+      - name: 运行跑马灯 Demo
+        run: |
+          python demos/multi_led_breathing.py --mode chase --speed 0.1
+
+      - name: 运行同步呼吸灯 Demo
+        run: |
+          python demos/multi_led_breathing.py --mode sync --duration 2
+
+      - name: 上传测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-results-${{ matrix.env }}
+          path: |
+            *.log
+            tests/test_*.xml
+          retention-days: 30
+
+      # ============================================================
+      # 钉钉通知（引用共享配置）
+      # 参考: .github/configs/dingtalk_templates.sh
+      # ============================================================
+      - name: 钉钉通知 - 成功
+        if: success()
+        run: bash .github/configs/dingtalk_templates.sh success
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MATHA_ENV: ${{ matrix.env }}
+
+      - name: 钉钉通知 - 失败
+        if: failure()
+        run: bash .github/configs/dingtalk_templates.sh failure
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MATHA_ENV: ${{ matrix.env }}
+
+  regression-test:
+    name: 回归测试 (${{ matrix.env }})
+    runs-on: ${{ matrix.os }}
+    needs: stress-test
+    if: always()
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 运行全量回归测试
+        run: |
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      # ============================================================
+      # 钉钉通知（引用共享配置）
+      # ============================================================
+      - name: 钉钉通知
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            bash .github/configs/dingtalk_templates.sh success
+          else
+            bash .github/configs/dingtalk_templates.sh failure
+          fi
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MATHA_ENV: ${{ matrix.env }}
+
+  # ============================================================
+  # 性能告警检测
+  # ============================================================
+  performance-alert:
+    name: 性能告警检测
+    runs-on: ubuntu-latest
+    needs: stress-test
+    if: always() && needs.stress-test.result == 'success'
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 运行性能基准测试
+        id: benchmark
+        run: |
+          pip install pytest -q
+          python -m pytest tests/test_hal_perf.py::TestBenchmark -v --benchmark
+          echo "baseline=$(python -c "import sys; sys.path.insert(0, '.'); from tests.test_hal_perf import *; import time; ops=SystemUnderTest().ops; t=time.perf_counter(); [ops.写入('gpio_18', True) for _ in range(10000)]; print(int(10000/(time.perf_counter()-t)))")" >> $GITHUB_OUTPUT
+
+      - name: 钉钉通知 - 性能告警
+        if: steps.benchmark.outputs.baseline < 100000
+        run: bash .github/configs/dingtalk_templates.sh performance_alert
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          CURRENT_THROUGHPUT: ${{ steps.benchmark.outputs.baseline }}
+          BASELINE_THROUGHPUT: "100000"
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          MATHA_ENV: production

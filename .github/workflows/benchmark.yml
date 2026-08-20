@@ -1,0 +1,142 @@
+name: HAL Performance Benchmark
+
+on:
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'  # 每周一 UTC 06:00（北京时间 14:00）
+  workflow_dispatch:
+
+# ============================================================
+# 钉钉通知配置（从共享配置加载）
+# 参考: .github/configs/dingtalk_notify.yml
+# ============================================================
+env:
+  DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+  DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+  MATHA_ENV: production
+
+jobs:
+  benchmark:
+    name: 性能基准测试
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt 2>/dev/null || true
+
+      - name: 运行性能基准测试
+        id: benchmark
+        run: |
+          python -c "
+          import time
+          import logging
+          logging.disable(logging.CRITICAL)
+          import sys
+          sys.path.insert(0, '.')
+          from src.hardware.hal import HardwareAbstractionLayer, MathaHardwareOps, GPIODevice
+
+          h = HardwareAbstractionLayer()
+          ops = MathaHardwareOps(h)
+          pins = [18, 19, 20, 21]
+          for p in pins:
+              h.register(GPIODevice(p))
+
+          # 测试 1: 单次写入
+          t = time.perf_counter()
+          for _ in range(10000):
+              ops.写入('gpio_18', True)
+          t1 = (time.perf_counter() - t) * 1000
+
+          # 测试 2: 批量写入
+          batch_ops = [(f'gpio_{p}', True) for p in pins]
+          t = time.perf_counter()
+          for _ in range(10000):
+              ops.批量写入(batch_ops)
+          t2 = (time.perf_counter() - t) * 1000
+
+          rate1 = int(10000 / (t1 / 1000))
+          rate2 = int(10000 * 4 / (t2 / 1000))
+
+          print('=' * 50)
+          print('HAL 性能基准测试结果')
+          print('=' * 50)
+          print(f'单次写入: {t1/10000*1000:.2f} μs')
+          print(f'批量写入(4路): {t2/10000*1000:.2f} μs')
+          print(f'单次写入速率: {rate1:,} ops/sec')
+          print(f'批量写入速率: {rate2:,} ops/sec')
+          print('=' * 50)
+
+          # 输出为 GitHub Actions 步骤输出
+          echo \"single_rate={rate1}\" >> $GITHUB_OUTPUT
+          echo \"batch_rate={rate2}\" >> $GITHUB_OUTPUT
+          echo \"single_latency_us={t1/10000:.2f}\" >> $GITHUB_OUTPUT
+          echo \"batch_latency_us={t2/10000:.2f}\" >> $GITHUB_OUTPUT
+          "
+
+      - name: 记录性能数据
+        run: |
+          mkdir -p .benchmarks
+          date "+%Y-%m-%d %H:%M:%S" > .benchmarks/latest.txt
+          echo "SHA: $(git rev-parse --short HEAD)" >> .benchmarks/latest.txt
+          echo "single_rate: ${{ steps.benchmark.outputs.single_rate }}" >> .benchmarks/latest.txt
+          echo "batch_rate: ${{ steps.benchmark.outputs.batch_rate }}" >> .benchmarks/latest.txt
+          echo "single_latency_us: ${{ steps.benchmark.outputs.single_latency_us }}" >> .benchmarks/latest.txt
+          echo "batch_latency_us: ${{ steps.benchmark.outputs.batch_latency_us }}" >> .benchmarks/latest.txt
+
+      - name: 上传基准测试数据
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-data
+          path: .benchmarks/
+          retention-days: 90
+
+      # ============================================================
+      # 钉钉通知（引用共享配置）
+      # ============================================================
+      - name: 钉钉通知 - 成功
+        if: success()
+        run: bash .github/configs/dingtalk_templates.sh success
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MATHA_ENV: ${{ env.MATHA_ENV }}
+          CURRENT_THROUGHPUT: ${{ steps.benchmark.outputs.single_rate }}
+          BASELINE_THROUGHPUT: "100000"
+
+      - name: 钉钉通知 - 失败
+        if: failure()
+        run: bash .github/configs/dingtalk_templates.sh failure
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MATHA_ENV: ${{ env.MATHA_ENV }}
+
+      - name: 钉钉通知 - 性能告警
+        if: always() && steps.benchmark.outputs.single_rate < 50000
+        run: bash .github/configs/dingtalk_templates.sh performance_alert
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          CURRENT_THROUGHPUT: ${{ steps.benchmark.outputs.single_rate }}
+          BASELINE_THROUGHPUT: "100000"
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          MATHA_ENV: production
