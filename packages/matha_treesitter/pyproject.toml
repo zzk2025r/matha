@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "matha-treesitter"
+version = "0.1.0"
+description = "Matha 高性能树形解析器 — Rust/Go/JS/C 绑定（支持 C 扩展加速）"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Matha Team", email = "matha@example.com"}]
+keywords = ["tree-sitter", "parser", "rust", "go", "javascript", "c", "ast"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Linguistic",
+]
+
+[project.optional-dependencies]
+cext = [
+    "tree-sitter>=0.23.0",
+    "tree-sitter-rust>=0.21.0",
+    "tree-sitter-go>=0.23.0",
+    "tree-sitter-javascript>=0.21.0",
+    "tree-sitter-c>=0.21.0",
+]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["matha_treesitter*"]
