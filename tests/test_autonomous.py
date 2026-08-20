@@ -96,6 +96,20 @@ def test_optimize_memoize():
     print(f"  ✓ 特化函数 双倍_特化0(0)={v}")
 
 
+def test_optimize_memoize_dynamic_args():
+    """记忆化特化：验证使用采样时的实际参数（非硬编码 [5]）。"""
+    print("\n--- 自主优化: 动态参数特化 ---")
+    i = _interp_with('func 加十(x: Int) -> Int = (x) => x + 10')
+    opt = PerformanceOptimizer(i)
+    opt.profile('加十', [7], runs=3)  # 采样参数为 7
+    r = opt.optimize_memoize('加十')
+    assert r.成功 is True, r
+    assert '加十_特化0' in r.变更.get('新函数', []), r
+    v = i.call('加十_特化0', 0)
+    assert v == 17, v  # 7+10=17，证明使用了采样参数 7 而非硬编码 5
+    print(f"  ✓ 动态参数特化: 加十_特化0(0)={v}（采样参数=7）")
+
+
 # ============================================================
 # 3) SelfGrower
 # ============================================================
@@ -190,6 +204,7 @@ def main():
         test_debug_unfixable,
         test_optimize_profile_and_hotspot,
         test_optimize_memoize,
+        test_optimize_memoize_dynamic_args,
         test_grow_learn_from_source,
         test_grow_learn_from_file,
         test_grow_specialize,

@@ -213,10 +213,11 @@ class SelfEvolution:
 
 class _Sample:
     """性能采样结果。"""
-    def __init__(self, calls, avg_ms, times):
+    def __init__(self, calls, avg_ms, times, args=None):
         self.calls = calls
         self.avg_ms = avg_ms
         self.times = times
+        self.args = args or []
 
 
 class _OptResult:
@@ -326,6 +327,7 @@ class PerformanceOptimizer:
             calls=runs,
             avg_ms=sum(times) / len(times) * 1000,
             times=times,
+            args=args,
         )
 
     def hotspot(self):
@@ -342,17 +344,13 @@ class PerformanceOptimizer:
         if not sample:
             return _OptResult(成功=False, 变更={})
 
-        # 从采样中获取参数和结果
-        test_args = [5]  # 默认测试参数
-        # 尝试从样本中提取实际参数
-        if hasattr(sample, 'times') and sample.times:
-            # 使用第一次采样的参数
-            pass
+        # 使用采样时的实际参数（而非硬编码 [5]）
+        test_args = sample.args if sample.args else [5]
+        args_str = ", ".join(str(a) for a in test_args)
+        result_expr = f"{func_name}({args_str})"
 
         spec_name = f"{func_name}_特化0"
-        # 生成特化版本：直接返回采样结果
-        # 由于 Matha 不支持直接返回常量函数，我们生成一个忽略参数的版本
-        spec_src = f"func {spec_name}(x: Int) -> Int = (x) => {func_name}(5)"
+        spec_src = f"func {spec_name}(x: Int) -> Int = (x) => {result_expr}"
         try:
             program = matha_parse(spec_src)
             self._interp.run(program)
