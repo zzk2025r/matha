@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from src.auth.models import User
-from src.auth.rbac import RBACMiddleware, AuthorizationError
+from matha_auth.models import User
+from matha_auth.rbac import RBACMiddleware, AuthorizationError
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class PermissionChangeAPI:
     # ------------------------------------------------------------------
 
     def add_role(self, username, roles, operator, reason=""):
-        from src.auth.service import SessionManager
+        from matha_auth.service import SessionManager
         mgr = self._mgr if self._mgr else SessionManager()
         logger.info("添加角色请求: user=%s roles=%s operator=%s", username, roles, operator)
         self._check_admin_permission(operator)
@@ -117,7 +117,7 @@ class PermissionChangeAPI:
         return result
 
     def remove_role(self, username, roles, operator, reason=""):
-        from src.auth.service import SessionManager
+        from matha_auth.service import SessionManager
         mgr = self._mgr if self._mgr else SessionManager()
         logger.info("移除角色请求: user=%s roles=%s operator=%s", username, roles, operator)
         self._check_admin_permission(operator)
@@ -135,7 +135,7 @@ class PermissionChangeAPI:
         return result
 
     def set_roles(self, username, roles, operator, reason=""):
-        from src.auth.service import SessionManager
+        from matha_auth.service import SessionManager
         mgr = self._mgr if self._mgr else SessionManager()
         logger.info("设置角色请求: user=%s roles=%s operator=%s", username, roles, operator)
         self._check_admin_permission(operator)
@@ -151,7 +151,7 @@ class PermissionChangeAPI:
         return result
 
     def update_users(self, usernames, *, is_active=None, operator="", reason=""):
-        from src.auth.service import SessionManager
+        from matha_auth.service import SessionManager
         mgr = self._mgr if self._mgr else SessionManager()
         logger.info("批量更新请求: users=%s is_active=%s operator=%s", usernames, is_active, operator)
         self._check_admin_permission(operator)
@@ -175,7 +175,7 @@ class PermissionChangeAPI:
 
     def get_user_roles(self, username: str) -> list[str]:
         """查询用户当前角色列表。"""
-        from src.auth.service import SessionManager
+        from matha_auth.service import SessionManager
         mgr = SessionManager()
         user = mgr.get_user(username)
         return user.roles if user else []
@@ -211,7 +211,7 @@ class PermissionChangeAPI:
         # 优先使用传入的 SessionManager
         mgr = self._mgr
         if mgr is None:
-            from src.auth.service import SessionManager
+            from matha_auth.service import SessionManager
             mgr = SessionManager()
 
         user = mgr.get_user(operator)
@@ -230,7 +230,7 @@ class PermissionChangeAPI:
 def example_usage() -> None:
     """权限变更 API 使用示例。"""
     from src.auth import SessionManager
-    from src.auth.rbac import RBACMiddleware
+    from matha_auth.rbac import RBACMiddleware
 
     mgr = SessionManager()
     rbac = RBACMiddleware()

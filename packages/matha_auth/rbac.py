@@ -7,7 +7,7 @@
   - 支持通配符权限匹配： "doc:*" 匹配所有 doc 操作
 
 用法:
-    from src.auth.rbac import RBACMiddleware, Permission
+    from matha_auth.rbac import RBACMiddleware, Permission
 
     rbac = RBACMiddleware()
     rbac.register_role("admin", {"doc:read", "doc:write", "user:manage"})
@@ -257,4 +257,4 @@ def reset_rbac() -> None:
 # ----------------------------------------------------------------------
 # 重新导出异常
 # ----------------------------------------------------------------------
-from src.auth.exceptions import AuthorizationError  # noqa: E402
+from matha_auth.exceptions import AuthorizationError  # noqa: E402

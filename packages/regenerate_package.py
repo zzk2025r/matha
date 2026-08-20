@@ -1,4 +1,28 @@
-"""
+"""从 src/auth 重新生成 matha-auth 包，修正导入路径。"""
+import shutil
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+PKG = ROOT / "packages" / "matha_auth"
+SRC = ROOT / "src" / "auth"
+
+PKG.mkdir(parents=True, exist_ok=True)
+
+MODULES = ["models.py", "jwt.py", "password.py", "exceptions.py", "rbac.py", "service.py", "api.py"]
+
+for mod in MODULES:
+    src = SRC / mod
+    if src.exists():
+        dst = PKG / mod
+        content = src.read_text(encoding="utf-8")
+        # 替换导入路径
+        content = content.replace("from src.auth.", "from matha_auth.")
+        content = content.replace("import src.auth.", "import matha_auth.")
+        dst.write_text(content, encoding="utf-8")
+        print(f"  ✓ {mod}")
+
+# 写 __init__.py
+init_content = '''"""
 Matha Auth — 认证与 RBAC 权限包
 
 提供：
@@ -71,3 +95,8 @@ __all__ = [
     "TokenError",
     "RegistrationError",
 ]
+'''
+(PKG / "__init__.py").write_text(init_content, encoding="utf-8")
+print("  ✓ __init__.py")
+
+print("Done!")

@@ -8,10 +8,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from src.auth.models import User, Session
-from src.auth.jwt import encode_token, encode_refresh_token, decode_token
-from src.auth.password import hash_password, verify_password
-from src.auth.exceptions import (
+from matha_auth.models import User, Session
+from matha_auth.jwt import encode_token, encode_refresh_token, decode_token
+from matha_auth.password import hash_password, verify_password
+from matha_auth.exceptions import (
     AuthenticationError,
     AuthorizationError,
     TokenError,

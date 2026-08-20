@@ -8,7 +8,7 @@ import json
 import time
 from typing import Optional
 
-from src.auth.exceptions import TokenError
+from matha_auth.exceptions import TokenError
 
 _JWT_SECRET = "matha-auth-jwt-secret-key-2024-v2"
 
