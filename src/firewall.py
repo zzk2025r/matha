@@ -251,8 +251,13 @@ class MathaFirewall:
                 if hasattr(_fn, '__self__') and hasattr(_fn, '__func__'):
                     _fn_to_name[id(_fn.__func__)] = _name
 
+        logger.info(f"防火墙初始化: level={self.level.value}, "
+                     f"builtin_count={len(self._interp.builtins)}, "
+                     f"deny_rules={len([r for r in self.policy._deny_rules if r.applies_to(self.level.value)])}")
+
         def wrapped_call(name: str, *args) -> object:
             """call 只负责名称查找，不拦截——拦截在 _apply 中统一处理。"""
+            logger.debug(f"防火墙 call(name={name!r}, args={args!r})")
             return original_call(name, *args)
 
         def wrapped_apply(func, arg) -> object:
@@ -261,15 +266,28 @@ class MathaFirewall:
                 fn_name = _fn_to_name.get(id(func))
                 if fn_name is None and hasattr(func, '__func__'):
                     fn_name = _fn_to_name.get(id(func.__func__))
+
                 if fn_name:
+                    # 记录所有 builtin 调用（DEBUG 级别）
+                    logger.debug(f"防火墙 apply: fn={fn_name}, arg={arg!r}")
                     blocked, reason = self.policy.is_blocked(fn_name)
                     if blocked:
+                        logger.warning(
+                            f"🛡️ 防火墙拦截: builtin={fn_name}, level={self.level.value}, "
+                            f"reason={reason}, arg={arg!r}"
+                        )
                         self._blocked_count += 1
                         raise MathaFirewallException(fn_name, self.level.value, reason)
+                    else:
+                        logger.debug(f"  → 放行: {fn_name}")
+                else:
+                    logger.debug(f"防火墙 apply: 未映射builtin (fn_type={type(func).__name__})")
+
             return original_apply(func, arg)
 
         self._interp.call = wrapped_call
         self._interp._apply = wrapped_apply
+        logger.info(f"防火墙拦截器已挂载: call={wrapped_call.__name__}, _apply={wrapped_apply.__name__}")
 
     # ── 执行入口 ─────────────────────────────────────────
 
@@ -393,6 +411,35 @@ def _install_firewall_builtins(interp: Interpreter) -> None:
     interp.builtins["防火墙_级别"] = lambda: "沙箱"  # 简化：返回当前级别
     interp.builtins["防火墙_被拦截"] = lambda: []  # 简化：返回被拦截列表
     interp.builtins["防火墙_状态"] = lambda: {}
+
+
+# ============================================================
+# 日志配置
+# ============================================================
+
+def configure_logging(level: int = logging.DEBUG) -> None:
+    """配置防火墙日志输出到 stderr。
+
+    用法：
+        from src.firewall import configure_logging
+        configure_logging()          # DEBUG 级别（详细）
+        configure_logging(logging.WARNING)  # 仅警告
+
+    也可通过环境变量：
+        $env:MATHA_FIREWALL_DEBUG = "1"
+    """
+    import os
+    if os.environ.get("MATHA_FIREWALL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+        level = logging.DEBUG
+
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            "[%(levelname)s] %(name)s:%(lineno)d %(message)s"
+        ))
+        logger.addHandler(handler)
+        logger.setLevel(level)
+        logger.info(f"防火墙日志已启用 (level={logging.getLevelName(level)})")
 
 
 # ============================================================
