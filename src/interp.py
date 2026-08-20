@@ -256,8 +256,11 @@ def builtin_parse_json(text: str):
     """
     import json
     try:
-        return json.loads(str(text))
+        result = json.loads(str(text))
+        logging.getLogger("matha.interp").debug(f"parse_json: {text!r} → {result!r}")
+        return result
     except (json.JSONDecodeError, TypeError) as e:
+        logging.getLogger("matha.interp").debug(f"parse_json FAILED: {text!r} → {e}")
         raise MathaRuntimeError(f"JSON 解析失败: {e}")
 
 
@@ -554,12 +557,18 @@ class Interpreter:
             return self._call_func(self.funcs[name], list(args))
         if name in self.builtins:
             result = self.builtins[name]
+            self._log(logging.DEBUG, f"call builtin '{name}'({args}) → {type(result).__name__}")
             if args:
                 for a in args:
                     result = self._apply(result, a)
             elif callable(result):
-                # 无参调用：Matha 级别的 0 参（如 list()）
-                result = result()
+                # 无参调用：仅允许安全的 0 参内建（list/dict/.../bool）和绑定方法（探针_* 等）
+                _ZERO_ARG_BUILTINS = {list, dict, set, tuple, str, int, float, bool}
+                if result in _ZERO_ARG_BUILTINS or hasattr(result, '__self__'):
+                    result = result()
+                    self._log(logging.DEBUG, f"  builtin '{name}'() → {result!r}")
+                else:
+                    raise MathaRuntimeError(f"内建 '{name}'({type(result).__name__}) 需要参数，不可无参调用")
             return result
         raise MathaRuntimeError(f"未定义函数 '{name}'")
 
@@ -1021,7 +1030,10 @@ class Interpreter:
         r = self._eval(node.right)
         op = node.op
         if op == "+":
+            if l is None or r is None:
+                raise MathaRuntimeError(f"+ 操作数含 None: left={l!r}, right={r!r}")
             result = l + r
+            self._log(logging.DEBUG, f"  + 结果: {result!r}")
         elif op == "-":
             if isinstance(l, (str, list)) or isinstance(r, (str, list)):
                 raise MathaRuntimeError(f"- 不适用于字符串/列表")
@@ -1034,39 +1046,51 @@ class Interpreter:
             elif isinstance(l, int) and isinstance(r, str):
                 result = l * r
             else:
-                raise MathaRuntimeError(f"* 操作数类型不支持")
+                raise MathaRuntimeError(f"* 操作数类型不支持: left={l!r}({type(l).__name__}), right={r!r}({type(r).__name__})")
+            self._log(logging.DEBUG, f"  * 结果: {result!r}")
         elif op == "/":
-            # 除法统一使用精确除法（float），整数除法需用 //
             if r == 0:
-                raise MathaRuntimeError("除零错误")
+                raise MathaRuntimeError(f"除零错误: {l!r} / 0")
             result = l / r
+            self._log(logging.DEBUG, f"  / 结果: {result!r}")
         elif op == "^":
             if l is None or r is None:
                 raise MathaRuntimeError(f"^ 操作数含 None")
             result = l ** r
         elif op == "%":
             if r == 0:
-                raise MathaRuntimeError("取模除零错误")
+                raise MathaRuntimeError(f"取模除零错误: {l!r} % 0")
             if l is None or r is None:
-                raise MathaRuntimeError(f"% 操作数含 None")
+                raise MathaRuntimeError(f"% 操作数含 None: left={l!r}, right={r!r}")
             result = l % r
+            self._log(logging.DEBUG, f"  % 结果: {result!r}")
         elif op == "<":
             result = l < r
+            self._log(logging.DEBUG, f"  < 结果: {result!r}")
         elif op == ">":
             result = l > r
+            self._log(logging.DEBUG, f"  > 结果: {result!r}")
         elif op == "<=":
             result = l <= r
+            self._log(logging.DEBUG, f"  <= 结果: {result!r}")
         elif op == ">=":
             result = l >= r
+            self._log(logging.DEBUG, f"  >= 结果: {result!r}")
         elif op == "=":
             result = l == r
+            self._log(logging.DEBUG, f"  == 结果: {result!r}")
         elif op == "!=":
             result = l != r
+            self._log(logging.DEBUG, f"  != 结果: {result!r}")
         elif op == "and":
             result = l and r
+            self._log(logging.DEBUG, f"  and 结果: {result!r}")
         elif op == "or":
             result = l or r
+            self._log(logging.DEBUG, f"  or 结果: {result!r}")
         elif op == "→":
+            if l is None:
+                raise MathaRuntimeError(f"→ 左操作数含 None")
             # 右箭头：等价于函数应用 a → b → a(b)
             if callable(l):
                 result = l(r)
