@@ -1,0 +1,92 @@
+# matha-auth 生产环境 Helm 覆盖配置
+# 用于替换默认 values.yaml 中的测试参数，适配生产部署
+---
+# ── 基础配置 ───────────────────────────────────────────────────────────────────
+# 生产环境至少 2 副本，避免单点故障
+replicaCount: 3
+
+# 使用公司私有镜像仓库的正式版本
+image:
+  repository: docker.your-company.com/matha-auth
+  tag: "1.0.0"
+  pullPolicy: Always
+
+# ── JWT 安全配置 ──────────────────────────────────────────────────────────────
+# 生产密钥必须 ≥ 32 字符，建议 64 字符以上，通过 Kubernetes Secret 注入
+jwtSecret: "CHANGE_ME_PLEASE_USE_K8S_SECRET_MANAGER"
+
+# Access Token 2 小时，适合企业 API 场景
+accessTokenExp: "7200"           # 2 小时（生产默认 3600s，适当放宽减少刷新频率）
+
+# Refresh Token 7 天，平衡安全与用户体验
+refreshTokenExp: "604800"        # 7 天（默认值）
+
+# ── 密码哈希 ──────────────────────────────────────────────────────────────────
+# 生产环境 pbkdf2Rounds: 12，每轮哈希时间约 100-150ms（含并发 CPU）
+# 低于 10 存在暴力破解风险，高于 14 可能影响登录性能
+pbkdf2Rounds: 12
+
+# ── 会话管理 ──────────────────────────────────────────────────────────────────
+# 单用户最多同时登录 10 个会话（多设备场景）
+maxSessionsPerUser: 10
+
+# 会话空闲超时：30 分钟无操作自动失效，防止长时间未使用会话泄露
+idleSessionTimeout: 1800         # 30 分钟
+
+# 后台自动清理间隔：每 5 分钟扫描过期会话
+sessionCleanupInterval: 300      # 5 分钟
+
+# ── 日志 ──────────────────────────────────────────────────────────────────────
+# 生产环境 INFO 级别，屏蔽 DEBUG 噪音，保留关键审计信息
+logLevel: "INFO"
+
+# ── 资源限制 ──────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
+
+# ── Ingress（生产必须启用 TLS）────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: auth.your-company.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: auth-tls-secret
+      hosts:
+        - auth.your-company.com
+
+# ── 健康检查 ──────────────────────────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+# ── 密钥注入（使用 K8s Secret）────────────────────────────────────────────────
+# 建议通过 external-secrets-operator 或 Sealed Secrets 管理
+secrets:
+  jwtSecret:
+    existingSecret: "matha-auth-secrets"
+    secretKey: "jwt-secret"
+  # 如需 Redis 后端会话存储，可在此配置
+  # redisPassword:
+  #   existingSecret: "matha-auth-secrets"
+  #   secretKey: "redis-password"

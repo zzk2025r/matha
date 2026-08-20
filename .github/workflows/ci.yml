@@ -1,3 +1,6 @@
+# matha-auth CI/CD Pipeline
+# 自动化测试 → 构建 → 发布流程
+
 name: CI
 
 on:
@@ -6,10 +9,16 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
+  # ── 测试 Job（所有测试失败时阻断后续流程）──────────────────────────────────
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
@@ -24,37 +33,61 @@ jobs:
       - name: Install package
         run: |
           cd packages
-          pip install -e .
+          pip install -e ".[dev]"
 
+      # Step 1: 单元测试
       - name: Run unit tests
         run: |
-          python -m unittest packages.tests.test_session_manager
-          python -m unittest packages.tests.test_rbac_middleware
-          python -m unittest packages.tests.test_permission_api
-          python -m unittest packages.tests.test_concurrent
+          cd packages
+          python -m unittest \
+            tests.test_session_manager \
+            tests.test_rbac_middleware \
+            tests.test_permission_api \
+            tests.test_concurrent \
+            -v
 
+      # Step 2: 集成测试（关键阻断点）
+      # 失败时 fail-fast 立即终止，publish 不会执行
       - name: Run integration example tests
         run: |
           cd packages
           python -m unittest tests.test_integration -v
 
+      # Step 3: 单元测试总集（确保无回归）
+      - name: Run full test suite
+        run: |
+          cd packages
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+  # ── 构建 Job（仅在 test 全部通过且是 tag 推送时执行）────────────────────────
   publish:
-    needs: test
+    needs: test                       # ← 依赖 test，test 失败则此 Job 跳过
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v')   # 仅 tag 触发发布
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: pip install build twine
-      - run: |
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build package
+        run: |
           cd packages
           python -m build
-          twine upload dist/* --repository-url https://pypi.your-company.com/simple/
+
+      - name: Publish to private PyPI
+        run: |
+          cd packages
+          twine upload dist/* \
+            --repository-url https://pypi.your-company.com/simple/
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
