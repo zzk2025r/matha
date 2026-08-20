@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Any
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __author__ = "Matha Team"
 __email__ = "matha@example.com"
 
@@ -36,14 +36,17 @@ try:
 except ImportError:
     pass
 
-# ── 加载内联 Python 解析器 ───────────────────────────────────────────────────
+# ── 内联后端（自包含，无需 src 目录）────────────────────────────────────────
 
-from src.tree_sitter_backends import (
+from ._backends import (
     RustParser as _InlineRustParser,
     GoParser as _InlineGoParser,
     JSParser as _InlineJSParser,
     CParser as _InlineCParser,
     ASTNode,
+    get_parser as _get_parser,
+    parse_source as _parse_source,
+    is_cext_available as _is_cext_available,
 )
 
 # ── 公共 API ──────────────────────────────────────────────────────────────────
@@ -119,31 +122,21 @@ class CParser:
 
 def get_parser(language: str) -> Any:
     """根据语言返回对应的解析器实例。"""
-    parsers = {
-        "rust": RustParser,
-        "go": GoParser,
-        "javascript": JSParser,
-        "c": CParser,
-    }
-    parser_cls = parsers.get(language)
-    if parser_cls is None:
-        raise ValueError(f"不支持的语言: {language}，支持: {list(parsers.keys())}")
-    return parser_cls()
+    return _get_parser(language)
 
 
 def is_cext_available() -> bool:
     """检查 C 扩展是否可用。"""
-    return _CEXT_AVAILABLE
+    return _CEXT_AVAILABLE or _is_cext_available()
 
 
 def parse_source(language: str, source: str) -> ASTNode:
     """便捷函数：解析指定语言的源码。"""
-    return get_parser(language).parse(source)
+    return _parse_source(language, source)
 
 
 # ── 兼容性导出 ───────────────────────────────────────────────────────────────
 
-# 兼容旧的 tree_sitter_backends 接口
 __all__ = [
     "RustParser",
     "GoParser",

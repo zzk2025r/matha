@@ -1010,7 +1010,7 @@ class Interpreter:
         if name in self.constructors:
             self._log(logging.DEBUG, f"eval Var '{name}' → ctor '{name}'")
             return name
-        raise MathaRuntimeError(f"未定义的函数或变量 '{name}'")
+        raise MathaRuntimeError(f"未定义变量 '{name}'")
 
     def _eval_binary(self, node: ast.BinaryOp) -> object:
         self._log_enter("eval Binary", f"'{node.op}'")
@@ -1077,7 +1077,12 @@ class Interpreter:
 
     def _eval_func_app(self, node: ast.FuncApp) -> object:
         self._log_enter("eval FuncApp")
-        func = self._eval(node.func)
+        try:
+            func = self._eval(node.func)
+        except MathaRuntimeError as e:
+            if "未定义变量" in str(e):
+                raise MathaRuntimeError(f"未定义函数 '{node.func.name}'") from e
+            raise
         arg = self._eval(node.arg)
         self._log(logging.DEBUG,
                   f"apply {self._fmt(func)} ← {self._fmt(arg)}")

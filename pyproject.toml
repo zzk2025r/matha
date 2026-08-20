@@ -1,0 +1,185 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "matha"
+version = "1.0.0"
+description = "A high-performance symbolic calculus and matrix computation library"
+readme = "README.md"
+license = {text = "BSD-2-Clause"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Matha Team"}
+]
+keywords = ["mathematics", "calculus", "linear-algebra", "symbolic-computation", "svd"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "sympy>=1.14.0",
+]
+
+[project.optional-dependencies]
+# 性能优化依赖（强烈推荐）
+performance = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "numba>=0.57.0",
+]
+
+# 开发依赖
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+]
+
+# 完整安装
+all = [
+    "matha[performance,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/matha-project/matha"
+Documentation = "https://matha.readthedocs.io/"
+Repository = "https://github.com/matha-project/matha"
+Issues = "https://github.com/matha-project/matha/issues"
+Changelog = "https://github.com/matha-project/matha/blob/main/CHANGELOG.md"
+
+[project.scripts]
+matha = "src.repl:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+exclude = ["tests*", "examples*"]
+
+[tool.setuptools.package-data]
+matha = ["*.pyi", "**/*.pyi"]
+
+# ============================================================
+# pytest 配置
+# ============================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m 'not slow')",
+    "performance: marks performance benchmark tests",
+    "numpy: marks tests requiring numpy",
+    "sparse: marks tests for sparse matrix operations",
+]
+
+# ============================================================
+# black 配置
+# ============================================================
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312", "py313", "py314"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.pytest_cache
+  | \.ruff_cache
+  | build
+  | dist
+  | venv
+  | __pycache__
+)/
+'''
+
+# ============================================================
+# flake8 配置
+# ============================================================
+[tool.flake8]
+max-line-length = 100
+max-doc-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".venv",
+    "venv",
+    "node_modules",
+]
+per-file-ignores = [
+    "__init__.py: F401",
+]
+count = true
+statistics = true
+show-source = true
+
+# ============================================================
+# mypy 配置
+# ============================================================
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+strict_optional = true
+
+[[tool.mypy.overrides]]
+module = ["numpy.*", "scipy.*", "sympy.*", "numba.*"]
+ignore_missing_imports = true
+
+# ============================================================
+# ruff 配置
+# ============================================================
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501", "W191"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+# ============================================================
+# 环境配置
+# ============================================================
+[tool.matha]
+env = "development"
+log_level = "INFO"
+cache_max_size = 1000
+sparse_threshold = 0.9
+svd_max_iter = 100
+parallel_workers = 4

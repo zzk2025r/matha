@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "matha-treesitter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Matha 高性能树形解析器 — Rust/Go/JS/C 绑定（支持 C 扩展加速）"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [{name = "Matha Team", email = "matha@example.com"}]
 keywords = ["tree-sitter", "parser", "rust", "go", "javascript", "c", "ast"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -25,6 +25,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing :: Linguistic",
 ]
+
+[project.scripts]
+matha-treesitter = "matha_treesitter.__main__:main"
 
 [project.optional-dependencies]
 cext = [

@@ -264,10 +264,10 @@ class AutoDebugger:
                     name = func_match.group(1)
                     if not (name.isupper() or name.startswith('_')):
                         applied_fix = f"func {name}() -> Int = () => 0"
-                         # 直接注入 interpreter：添加恒零函数到 funcs 表
-                         from src.ast_nodes import FuncDef
-                         zero_body = pyast.IntegerLit(value=0)
-                         func_def = FuncDef(name=name, params=[], return_type="Int", body=zero_body)
+                        # 直接注入 interpreter：添加恒零函数到 funcs 表
+                        from src.ast_nodes import FuncDef, IntegerLit, Lambda
+                        zero_body = Lambda(params=[], body=IntegerLit(value=0))
+                        func_def = FuncDef(name=name, body=zero_body)
                         self._interp.funcs[name] = func_def
                         # 重新运行原始源码（不含 fix）
                         try:
