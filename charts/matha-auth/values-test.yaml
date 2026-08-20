@@ -1,0 +1,49 @@
+# matha-auth 测试环境覆盖配置
+# 用于快速部署验证，覆盖默认 values.yaml
+---
+# 单副本，适合测试
+replicaCount: 1
+
+# 使用本地构建镜像（开发环境）
+image:
+  repository: localhost:5000/matha-auth
+  tag: "dev-latest"
+  pullPolicy: IfNotPresent
+
+# 测试用短密钥（仅本地验证）
+jwtSecret: "test-secret-key-for-dev-env-only"
+
+# 测试环境放宽配置
+accessTokenExp: "86400"          # 24 小时（方便测试）
+refreshTokenExp: "2592000"       # 30 天
+pbkdf2Rounds: 4                  # 降低哈希强度加快测试
+maxSessionsPerUser: 100          # 允许更多并发会话
+logLevel: "DEBUG"                # 详细日志
+
+# 资源限制降低（测试环境）
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "500m"
+
+# 测试环境无需 Ingress（通过 port-forward 访问）
+ingress:
+  enabled: false
+
+# 健康检查路径（使用 /health）
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 3
+  periodSeconds: 5
