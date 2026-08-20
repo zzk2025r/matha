@@ -1,0 +1,198 @@
+{
+  "timestamp": "2026-08-20 14:27:19",
+  "versions": {
+    "token_verify": [
+      {
+        "users": 50,
+        "rounds": 5,
+        "total_ops": 250,
+        "avg_ms_per_op": 0.05300399998668581,
+        "ops_per_sec": 18866.500646200137
+      },
+      {
+        "users": 200,
+        "rounds": 5,
+        "total_ops": 1000,
+        "avg_ms_per_op": 0.050443300016922876,
+        "ops_per_sec": 19824.238296553096
+      },
+      {
+        "users": 500,
+        "rounds": 5,
+        "total_ops": 2500,
+        "avg_ms_per_op": 0.030888200004119425,
+        "ops_per_sec": 32374.822743527766
+      },
+      {
+        "users": 1000,
+        "rounds": 5,
+        "total_ops": 5000,
+        "avg_ms_per_op": 0.0343888400006108,
+        "ops_per_sec": 29079.20127524623
+      },
+      {
+        "users": 2000,
+        "rounds": 5,
+        "total_ops": 10000,
+        "avg_ms_per_op": 0.04234592999855522,
+        "ops_per_sec": 23615.020381749047
+      }
+    ],
+    "rbac_check": [
+      {
+        "checks": 500,
+        "rounds": 5,
+        "total_ops": 5000,
+        "avg_us_per_op": 0.43741199886426335,
+        "ops_per_sec": 457234.8278494837
+      },
+      {
+        "checks": 2000,
+        "rounds": 5,
+        "total_ops": 20000,
+        "avg_us_per_op": 0.4543389999889768,
+        "ops_per_sec": 440199.9388228886
+      },
+      {
+        "checks": 10000,
+        "rounds": 5,
+        "total_ops": 100000,
+        "avg_us_per_op": 0.46691180003108457,
+        "ops_per_sec": 428346.424285454
+      },
+      {
+        "checks": 50000,
+        "rounds": 5,
+        "total_ops": 500000,
+        "avg_us_per_op": 0.43776711999671536,
+        "ops_per_sec": 456863.91431476315
+      }
+    ],
+    "concurrent_login": [
+      {
+        "users": 50,
+        "workers": 50,
+        "passed": 50,
+        "elapsed_s": 0.025425200001336634,
+        "ops_per_sec": 1966.552868703941
+      },
+      {
+        "users": 200,
+        "workers": 50,
+        "passed": 200,
+        "elapsed_s": 0.07590939998044632,
+        "ops_per_sec": 2634.7198114004123
+      },
+      {
+        "users": 500,
+        "workers": 50,
+        "passed": 500,
+        "elapsed_s": 0.33916380000300705,
+        "ops_per_sec": 1474.2139343749745
+      },
+      {
+        "users": 1000,
+        "workers": 50,
+        "passed": 1000,
+        "elapsed_s": 0.3386216000071727,
+        "ops_per_sec": 2953.1488835290425
+      },
+      {
+        "users": 2000,
+        "workers": 50,
+        "passed": 2000,
+        "elapsed_s": 0.6522553999966476,
+        "ops_per_sec": 3066.2835447744537
+      }
+    ],
+    "concurrent_refresh": [
+      {
+        "users": 50,
+        "workers": 50,
+        "passed": 50,
+        "elapsed_s": 0.039258800010429695,
+        "ops_per_sec": 1273.599804036719
+      },
+      {
+        "users": 200,
+        "workers": 50,
+        "passed": 200,
+        "elapsed_s": 0.1593523999908939,
+        "ops_per_sec": 1255.0799361128472
+      },
+      {
+        "users": 500,
+        "workers": 50,
+        "passed": 500,
+        "elapsed_s": 0.4024259999860078,
+        "ops_per_sec": 1242.4644531351971
+      },
+      {
+        "users": 1000,
+        "workers": 50,
+        "passed": 1000,
+        "elapsed_s": 0.7914759000123013,
+        "ops_per_sec": 1263.4623492445667
+      },
+      {
+        "users": 2000,
+        "workers": 50,
+        "passed": 2000,
+        "elapsed_s": 1.5159293000178877,
+        "ops_per_sec": 1319.3227414869548
+      }
+    ],
+    "concurrent_rbac": [
+      {
+        "requests": 500,
+        "workers": 50,
+        "passed": 500,
+        "elapsed_s": 0.03037729999050498,
+        "ops_per_sec": 16459.659026848494
+      },
+      {
+        "requests": 2000,
+        "workers": 50,
+        "passed": 2000,
+        "elapsed_s": 0.07871189998695627,
+        "ops_per_sec": 25409.118574592023
+      },
+      {
+        "requests": 5000,
+        "workers": 50,
+        "passed": 5000,
+        "elapsed_s": 0.15022069998667575,
+        "ops_per_sec": 33284.360946550565
+      },
+      {
+        "requests": 10000,
+        "workers": 50,
+        "passed": 10000,
+        "elapsed_s": 0.27305069999420084,
+        "ops_per_sec": 36623.23517285392
+      }
+    ],
+    "reverse_index": [
+      {
+        "users": 50,
+        "avg_us_per_lookup": 0.11365999234840274
+      },
+      {
+        "users": 200,
+        "avg_us_per_lookup": 0.10617499792715536
+      },
+      {
+        "users": 500,
+        "avg_us_per_lookup": 0.11421200004406273
+      },
+      {
+        "users": 1000,
+        "avg_us_per_lookup": 0.11650599946733564
+      },
+      {
+        "users": 2000,
+        "avg_us_per_lookup": 0.11547199959750286
+      }
+    ]
+  }
+}
