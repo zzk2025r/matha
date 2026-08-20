@@ -255,7 +255,10 @@ def builtin_parse_json(text: str):
     供 codegen 的规格树使用。
     """
     import json
-    return json.loads(str(text))
+    try:
+        return json.loads(str(text))
+    except (json.JSONDecodeError, TypeError) as e:
+        raise MathaRuntimeError(f"JSON 解析失败: {e}")
 
 
 # ============================================================
@@ -1038,8 +1041,14 @@ class Interpreter:
                 raise MathaRuntimeError("除零错误")
             result = l / r
         elif op == "^":
+            if l is None or r is None:
+                raise MathaRuntimeError(f"^ 操作数含 None")
             result = l ** r
         elif op == "%":
+            if r == 0:
+                raise MathaRuntimeError("取模除零错误")
+            if l is None or r is None:
+                raise MathaRuntimeError(f"% 操作数含 None")
             result = l % r
         elif op == "<":
             result = l < r

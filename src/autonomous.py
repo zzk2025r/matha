@@ -306,6 +306,8 @@ class PerformanceOptimizer:
 
     def profile(self, func_name, args, runs=5):
         """性能采样。"""
+        if runs <= 0:
+            runs = 1
         times = []
         for _ in range(runs):
             start = time.perf_counter()
