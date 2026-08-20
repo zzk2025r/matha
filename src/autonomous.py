@@ -250,16 +250,20 @@ class AutoDebugger:
         import re
 
         applied_fix = ""
+        i = _Interp()
         for attempt in range(max_attempts):
             try:
                 program = matha_parse(src)
-                i = _Interp()
                 i.run(program)
+                # 成功后将修复同步到本体 interpreter
+                for name, fdef in i.funcs.items():
+                    self._interp.funcs[name] = fdef
+                for name, val in i.env.items():
+                    self._interp.env[name] = val
                 return {"成功": True, "修复方案": applied_fix, "错误类型": None}
             except Exception as e:
                 err_msg = str(e)
-                import re
-                # 检测未定义函数：优先于变量（函数调用时可能报"未定义的函数或变量"）
+                # 检测未定义函数：优先于变量
                 func_match = re.search(r"'(\w+)'", err_msg)
                 if func_match and ("未定义的函数" in err_msg or "未定义函数" in err_msg or "func" in err_msg.lower()):
                     name = func_match.group(1)
@@ -269,15 +273,8 @@ class AutoDebugger:
                         from src.ast_nodes import FuncDef, IntegerLit, Lambda
                         zero_body = Lambda(params=[], body=IntegerLit(value=0))
                         func_def = FuncDef(name=name, body=zero_body)
-                        self._interp.funcs[name] = func_def
-                        # 重新运行原始源码（不含 fix）
-                        try:
-                            program = matha_parse(src)
-                            self._interp.run(program)
-                            return {"成功": True, "修复方案": applied_fix, "错误类型": None}
-                        except Exception:
-                            pass  # 继续尝试下一轮
-                        continue
+                        i.funcs[name] = func_def
+                        continue  # 同一 interpreter 继续尝试
                 # 检测未定义变量
                 if "未定义" in err_msg or "undefined" in err_msg.lower():
                     m = re.search(r"'(\w+)'", err_msg)
@@ -286,16 +283,8 @@ class AutoDebugger:
                         if name.isupper() or name.startswith('_'):
                             continue
                         applied_fix = f"@：{name}=0"
-                        # 直接注入 interpreter：添加变量到 env
-                        self._interp.env[name] = 0
-                        # 重新运行原始源码
-                        try:
-                            program = matha_parse(src)
-                            self._interp.run(program)
-                            return {"成功": True, "修复方案": applied_fix, "错误类型": None}
-                        except Exception:
-                            pass  # 继续尝试下一轮
-                        continue
+                        i.env[name] = 0
+                        continue  # 同一 interpreter 继续尝试
                 return {"成功": False, "修复方案": applied_fix, "错误类型": err_msg}
         return {"成功": False, "修复方案": applied_fix, "错误类型": "超过最大修复尝试"}
 
@@ -386,13 +375,18 @@ class SelfGrower:
             return _GrowResult(成功=False, 新能力=[], 名称=name)
 
     def learn_from_file(self, filepath):
-        """从文件学习。"""
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                src = f.read()
-            return self.learn(src, filepath)
-        except Exception as e:
-            return _GrowResult(成功=False, 新能力=[], 名称=filepath)
+        """从文件学习。优先 utf-8，失败时 fallback 到 gb18030。"""
+        src = None
+        for enc in ("utf-8", "gb18030", "utf-16"):
+            try:
+                with open(filepath, "r", encoding=enc) as f:
+                    src = f.read()
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if src is None:
+            return _GrowResult(成功=False, 新能力=[], 名称=filepath, 错误="无法解码文件")
+        return self.learn(src, filepath)
 
     def specialize(self, func_name, args):
         """为常用参数特化。"""

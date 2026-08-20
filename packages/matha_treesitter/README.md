@@ -238,6 +238,36 @@ python setup.py build_ext --inplace
 
 ---
 
+## CLI 命令行工具
+
+安装后可直接使用 `matha-treesitter` 命令：
+
+```bash
+# 查看版本
+matha-treesitter --version
+# → matha-treesitter 1.0.0
+
+# 解析 Rust 源码（树形输出）
+matha-treesitter rust "fn add(a:i32,b:i32)->i32{return a+b}"
+
+# 输出 JSON 格式
+matha-treesitter go "func add(a float64,b float64) float64 {return a+b}" --output dict
+
+# 从 stdin 读取
+echo "function add(a,b){return a+b}" | matha-treesitter javascript
+```
+
+**命令参数：**
+
+| 参数 | 说明 |
+|---|---|
+| `language` | 语言：`rust` / `go` / `javascript` / `c` |
+| `source` | 源码字符串（可选，默认从 stdin 读取） |
+| `-o, --output` | 输出格式：`tree`（默认）/ `dict`（JSON） |
+| `--version` | 显示版本号 |
+
+---
+
 ## 许可证
 
 MIT License — 见 [LICENSE](LICENSE) 文件。
