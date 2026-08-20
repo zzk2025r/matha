@@ -87,10 +87,12 @@ DEFAULT_ROLES: dict[str, set[str]] = {
 # ----------------------------------------------------------------------
 
 class RBACMiddleware:
-    """基于角色的访问控制中间件。"""
+    """基于角色的访问控制中间件。支持权限缓存加速多角色合并。"""
 
     def __init__(self) -> None:
-        self._roles: dict[str, set[str]] = dict(DEFAULT_ROLES)
+        self._roles: dict[str, frozenset] = {k: frozenset(v) for k, v in DEFAULT_ROLES.items()}
+        # 权限缓存：冻结的角色元组 → 合并后的权限 frozenset
+        self._perm_cache: dict[tuple, frozenset] = {}
 
     # ------------------------------------------------------------------
     # 角色管理
@@ -105,13 +107,14 @@ class RBACMiddleware:
         """删除角色。"""
         if name in self._roles:
             del self._roles[name]
+            self._perm_cache.clear()
             logger.info("删除角色: %s", name)
             return True
         return False
 
-    def get_role_permissions(self, role: str) -> set[str]:
+    def get_role_permissions(self, role: str) -> frozenset:
         """获取角色的权限集合。"""
-        return self._roles.get(role, set())
+        return self._roles.get(role, frozenset())
 
     def list_roles(self) -> list[str]:
         """列出所有角色。"""
@@ -135,17 +138,27 @@ class RBACMiddleware:
         roles: list[str],
         permission: str,
     ) -> bool:
-        """检查用户角色是否拥有指定权限。"""
+        """检查用户角色是否拥有指定权限（使用缓存加速多角色合并）。"""
         if not roles:
             return False
-        for role in roles:
-            if not role:
-                continue
-            role_perms = self._roles.get(role, set())
-            for perm in role_perms:
-                if self._match(perm, permission):
-                    return True
+        # 获取合并后的权限集合（带缓存）
+        perm_set = self._get_merged_permissions(roles)
+        for perm in perm_set:
+            if self._match(perm, permission):
+                return True
         return False
+
+    def _get_merged_permissions(self, roles: list[str]) -> frozenset:
+        """获取角色合并后的权限集合，使用缓存加速。"""
+        # 过滤空值并排序，保证缓存 key 一致
+        clean = tuple(sorted(r for r in roles if r))
+        if not clean:
+            return frozenset()
+        if clean in self._perm_cache:
+            return self._perm_cache[clean]
+        merged = frozenset().union(*(self._roles.get(r, frozenset()) for r in clean))
+        self._perm_cache[clean] = merged
+        return merged
 
     # ------------------------------------------------------------------
     # 公开 API
@@ -178,12 +191,9 @@ class RBACMiddleware:
             )
         logger.debug("授权通过: roles=%s perm=%s", roles, permission)
 
-    def get_effective_permissions(self, roles: list[str]) -> set[str]:
-        """获取用户所有角色合并后的权限集合。"""
-        result: set[str] = set()
-        for role in roles:
-            result.update(self._roles.get(role, set()))
-        return result
+    def get_effective_permissions(self, roles: list[str]) -> frozenset:
+        """获取用户所有角色合并后的权限集合（使用缓存）。"""
+        return self._get_merged_permissions(roles)
 
     # ------------------------------------------------------------------
     # 装饰器

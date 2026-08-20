@@ -112,7 +112,7 @@ class PermissionChangeAPI:
             if r not in user.roles:
                 user.roles.append(r)
         result.changed.append(username)
-        self._audit_log.append({"type": result.change_type, "operator": operator, "target": username, "new_roles": roles, "reason": reason, "timestamp": time.time()})
+        self._audit_log.append({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "type": result.change_type, "operator": operator, "target": username, "data": {"new_roles": roles, "reason": reason}})
         logger.info("添加角色成功: operator=%s target=%s roles=%s", operator, username, roles)
         return result
 
@@ -130,7 +130,7 @@ class PermissionChangeAPI:
             if r in user.roles:
                 user.roles.remove(r)
         result.changed.append(username)
-        self._audit_log.append({"type": result.change_type, "operator": operator, "target": username, "removed_roles": roles, "reason": reason, "timestamp": time.time()})
+        self._audit_log.append({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "type": result.change_type, "operator": operator, "target": username, "data": {"removed_roles": roles, "reason": reason}})
         logger.info("移除角色成功: operator=%s target=%s roles=%s", operator, username, roles)
         return result
 
@@ -146,7 +146,7 @@ class PermissionChangeAPI:
             return result
         user.roles = list(roles)
         result.changed.append(username)
-        self._audit_log.append({"type": result.change_type, "operator": operator, "target": username, "new_roles": roles, "reason": reason, "timestamp": time.time()})
+        self._audit_log.append({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "type": result.change_type, "operator": operator, "target": username, "data": {"new_roles": roles, "reason": reason}})
         logger.info("设置角色成功: operator=%s target=%s roles=%s", operator, username, roles)
         return result
 
@@ -165,7 +165,7 @@ class PermissionChangeAPI:
                 if is_active is not None:
                     user.is_active = is_active
                 result.changed.append(username)
-        self._audit_log.append({"type": result.change_type, "operator": operator, "targets": usernames, "is_active": is_active, "reason": reason, "timestamp": time.time()})
+        self._audit_log.append({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "type": result.change_type, "operator": operator, "targets": usernames, "data": {"is_active": is_active, "reason": reason}})
         logger.info("批量更新完成: %d 成功, %d 跳过, %d 错误", len(result.changed), len(result.skipped), len(result.errors))
         return result
 

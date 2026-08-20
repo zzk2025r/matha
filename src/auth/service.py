@@ -26,6 +26,8 @@ class SessionManager:
         self._users: dict[str, User] = {}
         self._sessions: dict[str, Session] = {}
         self._user_tokens: dict[str, list[str]] = {}
+        # 反向索引：username → list[session_id]，加速 verify_access_token
+        self._user_sessions: dict[str, list[str]] = {}
         logger.info("SessionManager 初始化完成")
 
     # ------------------------------------------------------------------
@@ -105,6 +107,8 @@ class SessionManager:
         )
         self._sessions[session_id] = session
         self._user_tokens.setdefault(username, []).append(refresh)
+        # 维护反向索引：username → [session_id]
+        self._user_sessions.setdefault(username, []).append(session_id)
 
         logger.info(
             "登录成功: username=%s session_id=%s roles=%s",
@@ -213,6 +217,14 @@ class SessionManager:
         username = session.username
         logger.info("登出成功: username=%s session_id=%s", username, session_id)
 
+        # 清理反向索引
+        if username in self._user_sessions:
+            sids = self._user_sessions[username]
+            if session_id in sids:
+                sids.remove(session_id)
+            if not sids:
+                del self._user_sessions[username]
+
         # 清理该用户的所有 token
         if username in self._user_tokens:
             self._user_tokens[username] = [
@@ -227,9 +239,10 @@ class SessionManager:
         logger.info("踢出所有会话: username=%s", username)
 
         count = 0
-        for sid, session in list(self._sessions.items()):
-            if session.username == username:
-                session.is_valid = False
+        user_sids = self._user_sessions.pop(username, [])
+        for sid in user_sids:
+            if sid in self._sessions:
+                self._sessions[sid].is_valid = False
                 del self._sessions[sid]
                 count += 1
 
@@ -266,10 +279,11 @@ class SessionManager:
         if user is None or not user.is_active:
             logger.debug("验证 token 失败: 用户不存在或已禁用 '%s'", username)
             return None
-        # 检查是否存在有效会话（防止已登出但仍持有效 token 的情况）
+        # 检查是否存在有效会话（反向索引 O(k)，k = 该用户会话数）
+        user_session_ids = self._user_sessions.get(username, [])
         has_valid_session = any(
-            s.username == username and s.is_valid and not s.is_expired()
-            for s in self._sessions.values()
+            sid in self._sessions and self._sessions[sid].is_valid and not self._sessions[sid].is_expired()
+            for sid in user_session_ids
         )
         if not has_valid_session:
             logger.debug("验证 token 失败: 用户无活跃会话 '%s'", username)
