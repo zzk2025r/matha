@@ -1,0 +1,98 @@
+# Matha 认证模块配置
+# 可直接加载到 RBACMiddleware 和 SessionManager
+
+auth:
+  # ---------- JWT 配置 ----------
+  jwt:
+    secret_key: "matha-auth-jwt-secret-key-2024-v2"
+    access_token:
+      exp_hours: 1.0          # Access Token 有效期
+      alg: HS256
+    refresh_token:
+      exp_days: 7.0           # Refresh Token 有效期
+      alg: HS256
+
+  # ---------- 密码策略 ----------
+  password:
+    min_length: 6
+    max_length: 128
+    require_alpha: true       # 必须包含字母
+    require_digit: true       # 必须包含数字
+    pbkdf2_rounds: 12
+    hash_algorithm: sha256
+
+  # ---------- 角色权限定义 ----------
+  roles:
+    admin:
+      display_name: "管理员"
+      description: "拥有所有权限"
+      permissions:
+        - "doc:*"
+        - "user:*"
+        - "code:*"
+        - "system:*"
+
+    editor:
+      display_name: "编辑者"
+      description: "可读写文档，执行代码"
+      permissions:
+        - "doc:read"
+        - "doc:write"
+        - "code:run"
+
+    viewer:
+      display_name: "查看者"
+      description: "只读文档，可执行代码"
+      permissions:
+        - "doc:read"
+        - "code:run"
+
+    guest:
+      display_name: "访客"
+      description: "只能阅读文档"
+      permissions:
+        - "doc:read"
+
+  # ---------- 权限常量定义 ----------
+  permissions:
+    doc:
+      read:    "读取文档"
+      write:   "创建/编辑文档"
+      delete:  "删除文档"
+    user:
+      read:     "查看用户信息"
+      write:    "编辑用户信息"
+      delete:   "删除用户"
+      manage:   "用户管理（含角色变更）"
+    code:
+      run:   "执行代码"
+      debug: "调试/断点执行"
+    system:
+      restart: "重启服务"
+      shutdown: "关闭服务"
+
+  # ---------- 会话配置 ----------
+  session:
+    max_concurrent_per_user: 10     # 单用户最大并发会话数
+    idle_timeout_hours: 24          # 空闲超时踢出
+    cleanup_interval_seconds: 300   # 会话清理间隔
+
+  # ---------- 日志配置 ----------
+  logging:
+    level: INFO            # DEBUG / INFO / WARNING / ERROR
+    format: "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    handlers:
+      - type: console
+      - type: file
+        path: logs/auth.log
+        max_size_mb: 10
+        backup_count: 5
+
+  # ---------- 安全限制 ----------
+  security:
+    max_login_attempts: 5          # 登录失败锁定次数
+    lockout_duration_minutes: 15   # 锁定持续时间
+    rate_limit:
+      login_per_minute: 10         # 登录接口限流
+      register_per_minute: 5       # 注册接口限流
+      token_refresh_per_minute: 30 # Token 刷新限流

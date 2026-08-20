@@ -136,7 +136,11 @@ class RBACMiddleware:
         permission: str,
     ) -> bool:
         """检查用户角色是否拥有指定权限。"""
+        if not roles:
+            return False
         for role in roles:
+            if not role:
+                continue
             role_perms = self._roles.get(role, set())
             for perm in role_perms:
                 if self._match(perm, permission):
@@ -164,6 +168,8 @@ class RBACMiddleware:
         resource: str = "",
     ) -> None:
         """授权检查，无权限时抛出 AuthorizationError。"""
+        if not isinstance(roles, (list, tuple)):
+            raise TypeError(f"roles 必须是 list 或 tuple，收到 {type(roles).__name__}")
         if not self._user_has_permission(roles, permission):
             ctx = f" [resource={resource}]" if resource else ""
             logger.warning("授权拒绝: roles=%s perm=%s%s", roles, permission, ctx)
