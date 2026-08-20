@@ -257,7 +257,18 @@ class AutoDebugger:
                 return {"成功": True, "修复方案": applied_fix, "错误类型": None}
             except Exception as e:
                 err_msg = str(e)
-                # 检测未定义变量
+                import re
+                # 先检测未定义函数（函数调用错误消息包含 "未定义的函数或变量"）
+                # 注意：优先检查"函数"关键词，因为函数调用时也可能报"未定义变量"
+                func_match = re.search(r"'(\w+)'", err_msg)
+                if func_match and ("未定义的函数" in err_msg or "未定义函数" in err_msg or "func" in err_msg.lower()):
+                    name = func_match.group(1)
+                    if not (name.isupper() or name.startswith('_')):
+                        fix = f"func {name}() -> Int = () => 0\n"
+                        src = fix + src
+                        applied_fix = fix
+                        continue
+                # 再检测未定义变量
                 if "未定义" in err_msg or "undefined" in err_msg.lower():
                     m = re.search(r"'(\w+)'", err_msg)
                     if m:
@@ -266,17 +277,6 @@ class AutoDebugger:
                             continue
                         fix = f"@：{name}=0"
                         src = fix + "\n" + src
-                        applied_fix = fix
-                        continue
-                # 检测未定义函数
-                if "函数" in err_msg or "func" in err_msg.lower():
-                    m = re.search(r"'(\w+)'", err_msg)
-                    if m:
-                        name = m.group(1)
-                        if name.isupper() or name.startswith('_'):
-                            continue
-                        fix = f"func {name}() -> Int = () => 0\n"
-                        src = fix + src
                         applied_fix = fix
                         continue
                 return {"成功": False, "修复方案": applied_fix, "错误类型": err_msg}
