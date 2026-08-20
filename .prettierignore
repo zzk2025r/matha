@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.pyc
+__pycache__/
+.env
+.env.local
+.trae/
+.matha_cache/
+matha_flame_chart.*
+*.csv
+*.jsonl
+.DS_Store
+*.log
