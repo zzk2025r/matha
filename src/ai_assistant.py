@@ -83,8 +83,7 @@ class FriendlyIntentParser:
     # 关键词映射表（用于分类）
     KEYWORD_MAP = {
         IntentType.算术: [
-            "加", "减", "乘", "除", "计算", "算", "求", "结果",
-            "等于", "多少", "一共", "总和", "合计",
+            "加", "减", "乘", "除",
             "+", "-", "×", "÷", "*", "/",
         ],
         IntentType.数学函数: [
@@ -169,19 +168,20 @@ class FriendlyIntentParser:
     def classify(self, text: str) -> tuple[IntentType, float]:
         """根据关键词分类，返回 (类型, 置信度)。
 
-        关键词加权：精确关键词（如"阶乘"、"素数"、"自由落体"）得分更高，
-        通用关键词（如"计算"、"求"）得分较低，避免误分类。
+        策略：按关键词长度降序排列后匹配，长关键词优先（如"阶乘"优先于"乘"），
+        避免短词误匹配长词内含的片段。
         """
         text_lower = text.lower()
         scores: dict[IntentType, float] = {}
 
-        # 精确关键词权重 2，通用关键词权重 1
         for intent_type, keywords in self.KEYWORD_MAP.items():
             score = 0.0
-            for kw in keywords:
+            # 按长度降序排列，确保长关键词优先匹配
+            sorted_kw = sorted(keywords, key=len, reverse=True)
+            for kw in sorted_kw:
                 if kw in text_lower:
-                    # 短关键词（精确）权重高，长关键词（通用）权重低
-                    weight = 2.0 if len(kw) <= 2 else 1.0
+                    # 关键词越长越精确，权重越高
+                    weight = 3.0 if len(kw) >= 3 else 2.0 if len(kw) == 2 else 1.0
                     score += weight
             if score > 0:
                 scores[intent_type] = score
