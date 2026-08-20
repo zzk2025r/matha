@@ -139,7 +139,7 @@ def run(host: str = '127.0.0.1', port: int = 8080):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Matha AI Assistant')
-    parser.add_argument('--host', default='127.0.0.1', help='监听地址')
+    parser.add_argument('--host', default='0.0.0.0', help='监听地址（0.0.0.0=所有网卡，手机可访问）')
     parser.add_argument('--port', type=int, default=8080, help='监听端口')
     args = parser.parse_args()
     run(args.host, args.port)
