@@ -249,6 +249,25 @@ class FriendlyIntentParser:
         # 冷门三角表达
         "cot": IntentType.三角函数, "csc": IntentType.三角函数, "sec": IntentType.三角函数,
         "arcsin": IntentType.三角函数, "arccos": IntentType.三角函数, "arctan": IntentType.三角函数,
+        # 概率表达
+        "概率": IntentType.概率统计, "几率": IntentType.概率统计, "期望": IntentType.概率统计,
+        "期望值": IntentType.概率统计, "可能性": IntentType.概率统计,
+        # 数列表达
+        "等差": IntentType.数列, "等比": IntentType.数列,
+        "等差数列": IntentType.数列, "等比数列": IntentType.数列,
+        # 几何表达
+        "面积": IntentType.几何, "周长": IntentType.几何,
+        "长方形面积": IntentType.几何, "圆的面积": IntentType.几何,
+        # 财务表达
+        "单利": IntentType.财务, "复利": IntentType.财务,
+        "利息": IntentType.财务, "年利率": IntentType.财务,
+        "存款利率": IntentType.财务, "贷款利率": IntentType.财务,
+        # 浓度表达
+        "浓度": IntentType.配置浓度, "配比": IntentType.配置浓度,
+        "稀释": IntentType.配置浓度, "溶质": IntentType.配置浓度,
+        # 时间计算表达
+        "配速": IntentType.时间计算, "每公里": IntentType.时间计算,
+        "时速": IntentType.时间计算, "倒计时": IntentType.时间计算,
         # 冷门单位换算
         "多少尺": IntentType.单位换算, "多少丈": IntentType.单位换算,
         "多少里": IntentType.单位换算, "多少寸": IntentType.单位换算,
@@ -309,6 +328,16 @@ class FriendlyIntentParser:
         {"pattern": r".*(尺|丈|里|寸|亩|公顷|英里|英尺|英寸|磅|盎司|加仑|海里|焦耳|瓦特|牛顿|马力|卡路里).*", "intent": IntentType.单位换算, "reason": "冷门单位"},
         {"pattern": r".*(光年|天文单位).*", "intent": IntentType.单位换算, "reason": "天文单位"},
         {"pattern": r".*(公升|公升|毫升).*", "intent": IntentType.单位换算, "reason": "体积单位"},
+        # 新意图类型规则（高权重优先）
+        {"pattern": r".*(概率|几率|可能性).*", "intent": IntentType.概率统计, "reason": "概率表达", "weight": 5.0},
+        {"pattern": r".*(期望|期望值).*", "intent": IntentType.概率统计, "reason": "期望值", "weight": 5.0},
+        {"pattern": r".*(等差|等比).*数列.*", "intent": IntentType.数列, "reason": "数列表达", "weight": 5.0},
+        {"pattern": r".*(面积|周长|半径|边长).*", "intent": IntentType.几何, "reason": "几何计算", "weight": 5.0},
+        {"pattern": r".*(利息|单利|复利|年利率|存款|理财|银行).*", "intent": IntentType.财务, "reason": "财务计算", "weight": 5.0},
+        {"pattern": r".*(浓度|配比|稀释|溶质|溶在|溶\d).*", "intent": IntentType.配置浓度, "reason": "浓度计算", "weight": 5.0},
+        {"pattern": r".*(配速|每公里|时速|倒计时|跑.*公里).*", "intent": IntentType.时间计算, "reason": "时间计算", "weight": 6.0},
+        {"pattern": r"\d+\s*的?\s*(平方|立方).*", "intent": IntentType.数学函数, "reason": "平方/立方→数学函数", "weight": 5.0},
+        {"pattern": r".*(厘).*", "intent": IntentType.财务, "reason": "厘→利息单位"},
     ]
 
     # 错误解释模板
@@ -1205,6 +1234,10 @@ class MathaAIAssistant:
             "intent": intent_type.value,
             "confidence": round(confidence, 2),
         }
+
+    def get_growth_report(self) -> dict:
+        """返回成长分析报告。"""
+        return self.parser.get_growth_stats()
 
     def help(self) -> str:
         return """

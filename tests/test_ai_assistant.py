@@ -183,6 +183,25 @@ def test_commonsense_edge_cases():
         ("120 秒等于多少分", "unit_convert", "秒→分"),
         ("2 的 64 次方", "math_func", "超大幂"),
         ("sqrt 等于多少", "unknown", "不完整表达兜底"),
+        # v1.2.15 新增意图类型边界用例
+        ("掷骰子期望值", "probability", "期望值"),
+        ("2的10次方概率", "probability", "概率表达"),
+        ("等差数列 2 5 8", "sequence", "等差数列"),
+        ("等比数列 2 6 18", "sequence", "等比数列"),
+        ("长方形面积 5乘3", "geometry", "长方形面积"),
+        ("圆的面积半径3", "geometry", "圆的面积"),
+        ("10000存银行3年5厘", "finance", "单利计算"),
+        ("复利10000年利率5", "finance", "复利计算"),
+        ("打八折 200元", "arithmetic", "打折计算"),
+        ("10克盐溶90克水", "concentration", "配比浓度"),
+        ("跑10公里50分钟", "time_calc", "配速计算"),
+        ("帮我算一下 100的平方根", "math_func", "泛化+根号"),
+        ("帮我算一下 sin(0.5)", "trig", "泛化+三角"),
+        ("帮我算一下 2的阶乘", "number_theory", "泛化+阶乘"),
+        ("帮我算一下 1加2加3加4", "arithmetic", "连加表达"),
+        ("帮我算一下 3的立方", "math_func", "泛化+立方"),
+        ("帮我算一下 5的平方", "math_func", "泛化+平方"),
+        ("帮我算一下 2的10次方", "math_func", "泛化+幂"),
     ]
 
     print("\n── 意图分类 ──")
@@ -279,7 +298,7 @@ def main():
     test_commonsense_edge_cases()
     test_logging_trace()
     print("\n" + "=" * 50)
-    print("v1.2.15 边界测试全部完成！")
+    print("v1.2.16 边界测试全部完成！")
     print("=" * 50)
 
 
