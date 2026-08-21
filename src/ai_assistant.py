@@ -155,7 +155,7 @@ class FriendlyIntentParser:
         # 算术变体
         "帮我算一下": IntentType.算术, "算算": IntentType.算术,
         "怎么算": IntentType.算术, "等于几": IntentType.算术,
-        "等于多少": IntentType.算术, "是多少": IntentType.算术,
+        "是多少": IntentType.算术,
         "结果是": IntentType.算术, "求结果": IntentType.算术,
         # 加法变体
         "一共有": IntentType.算术, "总共": IntentType.算术,
@@ -192,10 +192,18 @@ class FriendlyIntentParser:
         "立方根": IntentType.数学函数, "对数": IntentType.数学函数,
         "指数": IntentType.数学函数, "幂": IntentType.数学函数,
         "绝对值": IntentType.数学函数, "正负": IntentType.数学函数,
+        "开根": IntentType.数学函数,
         # 单位换算变体
         "多少米": IntentType.单位换算, "多少千米": IntentType.单位换算,
         "多少克": IntentType.单位换算, "多少千克": IntentType.单位换算,
+        "多少公斤": IntentType.单位换算, "多少吨": IntentType.单位换算,
         "多少华氏度": IntentType.单位换算, "多少摄氏度": IntentType.单位换算,
+        "多少毫升": IntentType.单位换算, "多少升": IntentType.单位换算,
+        "等于多少米": IntentType.单位换算, "等于多少千米": IntentType.单位换算,
+        "等于多少克": IntentType.单位换算, "等于多少千克": IntentType.单位换算,
+        "等于多少升": IntentType.单位换算, "等于多少毫升": IntentType.单位换算,
+        "等于多少分": IntentType.单位换算, "等于多少小时": IntentType.单位换算,
+        "等于多少天": IntentType.单位换算,
     }
 
     # 生活常识推理规则
@@ -213,8 +221,11 @@ class FriendlyIntentParser:
         {"pattern": r"(\d+)\s*(的)?\s*(因数|因子)", "intent": IntentType.素数因数, "reason": "因数"},
         {"pattern": r"(\d+)\s*(的)?\s*(平方根|根号)", "intent": IntentType.数学函数, "reason": "平方根"},
         {"pattern": r"(\d+)\s*(的)?\s*(次方|幂|指数)", "intent": IntentType.数学函数, "reason": "次方→幂运算"},
+        {"pattern": r"(\d+)\s*(的)?\s*(次方|幂|指数).*?(等于|几|多少)", "intent": IntentType.数学函数, "reason": "次方+等于→幂运算优先"},
         {"pattern": r"(\d+)\s*(平均|均值)", "intent": IntentType.统计, "reason": "平均→统计"},
         {"pattern": r"(\d+)\s*(对折|对折再)", "intent": IntentType.算术, "reason": "对折→除法/乘法"},
+        {"pattern": r"(abs|sqrt|log)\s*\(", "intent": IntentType.数学函数, "reason": "英文函数名"},
+        {"pattern": r".*(次方|幂|指数).*", "intent": IntentType.数学函数, "reason": "含次方词优先数学函数"},
     ]
 
     # 错误解释模板
@@ -454,32 +465,40 @@ class FriendlyIntentParser:
             nums = [0]
         steps = []
         if "平方" in text:
+            _logger.debug("  [math_func分解] 检测到平方")
             steps.append(Step("计算平方", f"#1：[{nums[0]} * {nums[0]}]",
                               "平方 = 这个数乘以自己"))
         if "立方" in text:
+            _logger.debug("  [math_func分解] 检测到立方")
             steps.append(Step("计算立方", f"#1：[{nums[0]} * {nums[0]} * {nums[0]}]",
                               "立方 = 这个数乘自己三次"))
         if "开方" in text or "根号" in text:
+            _logger.debug("  [math_func分解] 检测到开方/根号")
             steps.append(Step("计算平方根", f"#1：[sqrt({nums[0]})]",
                               "平方根 = 哪个数乘自己等于这个数"))
         if "绝对值" in text:
+            _logger.debug("  [math_func分解] 检测到绝对值")
             steps.append(Step("计算绝对值", f"#1：[abs({nums[0]})]",
                               "绝对值 = 去掉负号，只看大小"))
         if "阶乘" in text:
+            _logger.debug("  [math_func分解] 检测到阶乘")
             n = int(nums[0]) if nums else 5
             steps.append(Step(f"计算 {n} 的阶乘",
                               f"#1：[阶乘({n})]",
                               f"{n}! = {n}×{n-1}×...×1"))
         if "次方" in text:
             if len(nums) >= 2:
+                _logger.debug("  [math_func分解] 检测到次方(双数字): base=%s exp=%s", nums[0], nums[1])
                 base, exp = nums[0], nums[1]
                 steps.append(Step(f"计算 {base} 的 {exp} 次方",
                                   f"#1：[{base} ^ {exp}]",
                                   f"{base}^{exp} = {base ** int(exp) if exp == int(exp) else base ** exp}"))
             elif len(nums) == 1:
+                _logger.debug("  [math_func分解] 检测到次方(单数字→平方)")
                 n = nums[0]
                 steps.append(Step(f"计算 {n} 的平方",
                                   f"#1：[{n} * {n}]", f"{n} 的平方 = {n} × {n}"))
+        _logger.debug("  [math_func分解] 生成 %d 步", len(steps))
         return steps or [Step("请选择要计算的函数", "", "可以计算：平方、立方、开方、绝对值、阶乘、次方")]
 
     def _decompose_statistics(self, text: str, nums: list[float]) -> list[Step]:
@@ -576,13 +595,16 @@ class FriendlyIntentParser:
         return steps or [Step("三角函数", "", "支持：sin、cos、tan（输入弧度）")]
 
     def _decompose_number_theory(self, text: str, rng: Optional[tuple], nums: list[float]) -> list[Step]:
+        _logger.debug("  [数论分解] text='%s' rng=%s nums=%s", text, rng, nums)
         steps = []
         if "阶乘" in text:
+            _logger.debug("  [数论分解] 检测到阶乘")
             n = int(nums[0]) if nums else 5
             steps.append(Step(f"计算 {n}! = ?",
                               f"#1：[阶乘({n})]",
                               f"{n}! = {n}×{n-1}×...×1"))
         if "素数" in text or "质数" in text:
+            _logger.debug("  [数论分解] 检测到素数(范围=%s)", rng)
             if rng:
                 a, b = rng
                 steps.append(Step(f"找出 {a} 到 {b} 的素数",

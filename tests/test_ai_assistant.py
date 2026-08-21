@@ -104,7 +104,7 @@ def test_concept_explanation():
 
 def test_commonsense_edge_cases():
     """测试常识推理边界：冷门表达/变体说法/fallback/替代方案。"""
-    print("\n=== 常识边界测试 (v1.2.10) ===")
+    print("\n=== 常识边界测试 (v1.2.12) ===")
     parser = FriendlyIntentParser()
     assistant = MathaAIAssistant()
     interp = Interpreter()
@@ -133,6 +133,31 @@ def test_commonsense_edge_cases():
         ("2 的翻倍", "arithmetic", "翻倍"),
         ("平均分成 4 份", "arithmetic", "均分"),
         ("5 减 3 还剩多少", "arithmetic", "减法表达"),
+        # 新增 v1.2.12 边界用例
+        ("99 对折一次是多少", "arithmetic", "单数字对折"),
+        ("10 的立方", "math_func", "立方"),
+        ("根号 144 是多少", "math_func", "根号表达"),
+        ("abs(-7) 等于多少", "math_func", "绝对值"),
+        ("100 公里等于多少米", "unit_convert", "公里→米"),
+        ("3000 克等于多少千克", "unit_convert", "克→千克"),
+        ("36 小时等于多少天", "unit_convert", "小时→天"),
+        ("120 分等于多少小时", "unit_convert", "分→小时"),
+        ("7 的平方根", "math_func", "平方根"),
+        ("3 的 5 次方等于几", "math_func", "次方+等于"),
+        ("0 是不是素数", "number_theory", "边界数素数判断"),
+        ("97 是质数吗", "number_theory", "质数口语表达"),
+        ("帮我算一下 2 的 8 次方", "math_func", "泛化+8次方"),
+        ("对折三次剩多少", "arithmetic", "对折三次"),
+        ("10 除以 3 余几", "arithmetic", "取余运算"),
+        ("sqrt(64) 等于多少", "math_func", "英文sqrt"),
+        ("log(1000) 是多少", "math_func", "对数表达"),
+        ("3 的 3 次方", "math_func", "3^3"),
+        ("帮我算一下 2*3+4", "arithmetic", "混合表达式"),
+        ("1 到 10 的素数", "number_theory", "小范围素数"),
+        ("7 的因子", "number_theory", "因子同义词"),
+        ("25 开根", "math_func", "开根表达"),
+        ("1 公斤等于多少克", "unit_convert", "公斤→克"),
+        ("500 毫升等于多少升", "unit_convert", "体积换算"),
     ]
 
     print("\n── 意图分类 ──")
@@ -229,7 +254,7 @@ def main():
     test_commonsense_edge_cases()
     test_logging_trace()
     print("\n" + "=" * 50)
-    print("v1.2.11 边界测试全部完成！")
+    print("v1.2.12 边界测试全部完成！")
     print("=" * 50)
 
 
