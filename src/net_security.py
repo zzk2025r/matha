@@ -665,7 +665,7 @@ class NetSecurityEngine:
             mitigation=f"隔离并清杀 {name}",
         )
         # 创建威胁实例
-        self._create_threat(
+        threat = self._create_threat(
             source_ip=source_ip,
             dest_ip=target_ip,
             dest_port=random.randint(1024, 65535),
@@ -676,7 +676,8 @@ class NetSecurityEngine:
             matched_pattern=behavior,
             risk_score=virus["risk_score"],
         )
-        logger.info(f"创建测试病毒: {virus_id} ({name}) [{level}]")
+        virus["threat_id"] = threat.threat_id
+        logger.info(f"创建测试病毒: {virus_id} ({name}) [{level}] → 威胁{threat.threat_id}")
         return {"success": True, **virus}
 
     def create_virus_batch(self, count: int, categories: Optional[list] = None) -> list:
@@ -731,8 +732,21 @@ class NetSecurityEngine:
 
         返回: 病毒分析报告
         """
-        # 先检查是否在威胁列表中
-        if virus_id in self._threats:
+        # 支持 THREAT_ 和 VIRUS_ 两种ID格式
+        threat_id = virus_id
+        if virus_id.startswith("VIRUS_"):
+            # 尝试从名称查找对应的威胁
+            threat_id = None
+            for tid, t in self._threats.items():
+                if t.threat_name in virus_id or virus_id.split("_")[-1] in tid:
+                    threat_id = tid
+                    break
+            if threat_id is None:
+                return {"error": f"病毒 {virus_id} 不存在或未创建"}
+        if virus_id not in self._threats and threat_id:
+            threat_id = virus_id
+
+        if threat_id in self._threats:
             t = self._threats[virus_id]
             return {
                 "id": virus_id,
@@ -846,33 +860,71 @@ class NetSecurityEngine:
 
         返回: 中和结果
         """
+        logger.info(f"🛡️ 高级中和开始: threat_id={threat_id}, method={method}")
+
         if threat_id not in self._threats:
+            logger.warning(f"🛡️ 高级中和中止: 威胁 {threat_id} 不存在")
             return {"success": False, "error": f"威胁 {threat_id} 不存在"}
 
         threat = self._threats[threat_id]
+        logger.info(f"  📋 威胁信息: name={threat.threat_name}, "
+                     f"level={threat.threat_level.value}, "
+                     f"category={threat.category}, "
+                     f"source={threat.source_ip}:{threat.source_port}, "
+                     f"risk_score={threat.risk_score}")
 
         # 分析威胁特征
         analysis = self._analyze_behavior(threat.matched_pattern)
+        logger.info(f"  🔍 行为分析: severity={analysis['severity']}, "
+                     f"kill_chain_stage={analysis['kill_chain_stage']}, "
+                     f"persistence={analysis['persistence']}, "
+                     f"data_exfiltration={analysis['data_exfiltration']}")
 
         steps = []
         if method == "quarantine_first":
             # 先隔离再清杀
+            logger.info(f"  📦 [步骤1/3] 隔离威胁 → {threat_id}")
             q = self.quarantine(threat_id)
             if q["success"]:
                 steps.append({"step": "quarantine", "status": "success"})
+                logger.info(f"  ✅ 隔离成功: {threat_id} 已放入隔离区")
+            else:
+                logger.warning(f"  ⚠️ 隔离失败: {threat_id}")
+                steps.append({"step": "quarantine", "status": "failed", "reason": str(q.get("error", ""))})
 
         # 清杀
+        logger.info(f"  🔥 [步骤2/3] 清杀威胁 → {threat_id}")
         e = self.eliminate(threat_id)
         if e["success"]:
             steps.append({"step": "eliminate", "status": "success"})
+            logger.info(f"  ✅ 清杀成功: {threat_id} ({threat.threat_name}) 已清除")
+        else:
+            logger.warning(f"  ⚠️ 清杀失败: {threat_id}")
+            steps.append({"step": "eliminate", "status": "failed", "reason": str(e.get("error", ""))})
 
         # 生成防御规则
+        logger.info(f"  🛡️ [步骤3/3] 生成防火墙防御规则 → {threat.threat_name}")
         rules = self.generate_firewall_rules([threat.to_dict()])
-        steps.append({
-            "step": "firewall_rules",
-            "rules_generated": len(rules),
-            "status": "success" if rules else "skipped",
-        })
+        if rules:
+            steps.append({
+                "step": "firewall_rules",
+                "rules_generated": len(rules),
+                "status": "success",
+            })
+            for rule in rules:
+                logger.info(f"    规则: {rule['action'].upper()} {rule['source_ip']} "
+                            f"- {rule['description']}")
+            logger.info(f"  ✅ 防火墙规则生成: {len(rules)} 条防御规则已部署")
+        else:
+            steps.append({
+                "step": "firewall_rules",
+                "rules_generated": 0,
+                "status": "skipped",
+            })
+            logger.warning(f"  ⚠️ 防火墙规则生成: 无有效规则")
+
+        logger.info(f"  📝 中和完成: {threat.threat_name} via {method}, "
+                     f"成功步骤: {len([s for s in steps if s.get('status') == 'success'])}/{len(steps)}")
 
         result = {
             "success": True,
@@ -881,9 +933,11 @@ class NetSecurityEngine:
             "method": method,
             "analysis": analysis,
             "steps": steps,
-            "summary": f"已中和 {threat.threat_name}: 隔离→清杀→生成{len(rules)}条规则",
+            "summary": f"已中和 {threat.threat_name}: "
+                       f"隔离→清杀→生成{len(rules)}条规则",
         }
-        logger.info(f"🛡️ 高级中和: {threat_id} ({threat.threat_name}) via {method}")
+        logger.info(f"🛡️ 高级中和结束: {threat_id} ({threat.threat_name}) [{method}] "
+                     f"→ {len(rules)} 条防御规则")
         return result
 
     def quarantine_all(self) -> dict:
@@ -942,10 +996,11 @@ class NetSecurityEngine:
         cats, level, behavior = scenarios[name]
         viruses = self.create_virus_batch(virus_count, categories=cats)
 
-        # 传播模拟
+        # 传播模拟（使用threat_id）
         spread_results = []
         for v in viruses:
-            s = self.simulate_spread(v["id"], network_size)
+            tid = v.get("threat_id", v["id"])
+            s = self.simulate_spread(tid, network_size)
             spread_results.append(s)
 
         # 风险评估
