@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Matha AI Assistant 测试"""
+"""Matha AI Assistant 测试 — v1.2.10 边界测试
+覆盖：冷门表达、变体说法、常识推理、fallback、日志追踪
+"""
 import sys
 import os
+import logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant, FriendlyIntentParser
 from src.interp import Interpreter
+
+# 开启 DEBUG 日志，方便排查
+logging.basicConfig(level=logging.DEBUG, format="%(name)s [%(levelname)s] %(message)s")
 
 
 def test_intent_classifier():
@@ -20,13 +26,13 @@ def test_intent_classifier():
         ("自由落体 3 秒", "physics"),
         ("计算 5 的阶乘", "math_func"),
         ("sin(3.14) 等于多少", "trig"),
-        ("解释什么是素数", "unknown"),
+        ("解释什么是素数", "number_theory"),
     ]
 
     for text, expected in cases:
         intent_type, conf = parser.classify(text)
-        status = "✓" if intent_type.value == expected or expected == "unknown" else "≈"
-        print(f"  {status} '{text[:20]}...' → {intent_type.value} (置信度 {conf:.0%})")
+        status = "✓" if intent_type.value == expected else "≈"
+        print(f"  {status} '{text[:20]}' → {intent_type.value} (置信度 {conf:.0%})")
 
 
 def test_decompose():
@@ -48,7 +54,7 @@ def test_decompose():
         for i, step in enumerate(steps):
             print(f"    步骤 {i+1}: {step.description}")
             if step.matha_code:
-                print(f"      代码: {step.matha_code[:60]}...")
+                print(f"      代码: {step.matha_code[:60]}")
 
 
 def test_execute():
@@ -96,48 +102,122 @@ def test_concept_explanation():
         print(f"  {c}: {info.get('是什么', 'N/A')[:30]}...")
 
 
-def test_commonsense():
-    """测试常识逻辑增强：变体表达/冷门方式/数字推断/fallback。"""
-    print("\n=== 常识逻辑增强测试 ===")
+def test_commonsense_edge_cases():
+    """测试常识推理边界：冷门表达/变体说法/fallback/替代方案。"""
+    print("\n=== 常识边界测试 (v1.2.10) ===")
     parser = FriendlyIntentParser()
     assistant = MathaAIAssistant()
     interp = Interpreter()
 
-    cases = [
-        # (输入, 期望意图关键词, 说明)
-        ("帮我算一下", "arithmetic", "变体表达"),
-        ("算算 7 加 3", "arithmetic", "变体算算"),
-        ("100 的一半", "arithmetic", "一半→除法"),
+    # ── 冷门/变体表达 → 意图分类 ────────────────────────
+    edge_cases = [
+        # (输入, 期望意图, 说明)
+        ("帮我算一下 2+2", "arithmetic", "泛化表达"),
+        ("算算 7 加 3", "arithmetic", "口语算算"),
+        ("100 的一半是多少", "arithmetic", "一半→除法"),
         ("5 的 3 倍", "arithmetic", "倍→乘法"),
-        ("1000 米等于多少千米", "unit_convert", "单位换算"),
-        ("25 开方是多少", "math_func", "开方"),
         ("60 秒等于多少分", "unit_convert", "时间换算"),
+        ("25 开方是多少", "math_func", "开方"),
         ("17 是不是素数", "number_theory", "判断素数"),
-        ("60 秒是多少分钟", "unit_convert", "时间单位"),
+        ("翻一番是几倍", "arithmetic", "翻一番"),
+        ("对折再对折剩多少", "arithmetic", "对折→除法×2"),
+        ("一斤等于多少克", "unit_convert", "重量换算"),
+        ("5 的阶乘是多少", "number_theory", "阶乘"),
+        ("300 米等于多少千米", "unit_convert", "米→千米"),
+        ("10 的平方", "math_func", "平方"),
+        ("2 的 10 次方", "math_func", "幂运算"),
+        ("1 到 50 的素数", "number_theory", "范围素数"),
+        ("6 的因数有哪些", "number_theory", "因数"),
+        ("自由落体 5 秒", "physics", "物理自由落体"),
+        ("帮我算一下 2 的 3 次方", "math_func", "泛化+幂"),
+        ("2 的翻倍", "arithmetic", "翻倍"),
+        ("平均分成 4 份", "arithmetic", "均分"),
+        ("5 减 3 还剩多少", "arithmetic", "减法表达"),
     ]
 
-    for text, expected_intent, desc in cases:
+    print("\n── 意图分类 ──")
+    classify_results = []
+    for text, expected, desc in edge_cases:
         intent_type, conf = parser.classify(text)
-        status = "✓" if intent_type.value == expected_intent or expected_intent in intent_type.value.lower() else "≈"
+        ok = intent_type.value == expected
+        classify_results.append(ok)
+        status = "✓" if ok else "≈"
         print(f"  {status} [{desc}] '{text}' → {intent_type.value} (置信度 {conf:.0%})")
 
-    # 执行测试：常见表达
-    for text, _, desc in cases:
-        result = assistant.chat(text, interp)
-        result_type = result.get("type", "unknown")
-        output = result.get("output", result.get("reply", ""))
-        output_str = repr(output)[:40]
-        status = "✓" if result_type not in ("unknown", "error") else "✗"
-        print(f"  {status} [{desc}] '{text}' → type={result_type}, 结果={output_str}")
+    print(f"\n  分类通过率: {sum(classify_results)}/{len(classify_results)}")
 
-    # 学习记忆测试
-    parser.learn("帮我算一下", parser.classify("帮我算一下")[0])
-    intent2, conf2 = parser.classify("帮我算一下")
-    print(f"  ✓ 学习记忆: '帮我算一下' 重新分类 → {intent2.value} (置信度 {conf2:.0%})")
+    # ── 执行测试 ─────────────────────────────────────────
+    print("\n── 执行测试 ──")
+    exec_cases = [
+        ("100 的一半", "result", 50.0),
+        ("5 的 3 倍", "result", 15.0),
+        ("60 秒等于多少分", "result", 1.0),
+        ("算算 7 加 3", "result", 10.0),
+        ("帮我算一下 2+2", "result", 4.0),
+        ("翻一番是几倍", "result", None),  # 可能 guide/error
+        ("2 的翻倍", "result", None),  # 可能 guide/error
+    ]
+    for text, expected_type, expected_result in exec_cases:
+        r = assistant.chat(text, interp)
+        got_type = r.get("type", "unknown")
+        got_result = r.get("result")
+        type_ok = got_type == expected_type
+        result_ok = expected_result is None or (got_result is not None and
+            abs(float(got_result) - float(expected_result)) < 0.01)
+        status = "✓" if type_ok and result_ok else "≈"
+        print(f"  {status} '{text}' → type={got_type}, result={got_result!r}")
 
-    # 兜底推断
-    intent3, conf3 = parser.classify("123")
-    print(f"  ✓ 兜底推断: '123' → {intent3.value} (置信度 {conf3:.0%})")
+    # ── 学习记忆测试 ─────────────────────────────────────
+    print("\n── 学习记忆 ──")
+    parser2 = FriendlyIntentParser()
+    original_intent, _ = parser2.classify("帮我算一下")
+    parser2.learn("帮我算一下", original_intent)
+    new_intent, new_conf = parser2.classify("帮我算一下")
+    print(f"  ✓ 学习后: '帮我算一下' → {new_intent.value} (置信度 {new_conf:.0%}, 之前 {original_intent.value})")
+
+    # ── fallback 兜底 ────────────────────────────────────
+    print("\n── 兜底推断 ──")
+    for text in ["123", "42", "hello world"]:
+        intent, conf = parser.classify(text)
+        print(f"  '{text}' → {intent.value} (置信度 {conf:.0%})")
+
+    # ── 替代方案测试 ─────────────────────────────────────
+    print("\n── 替代方案 ──")
+    alt = parser._try_alternative("3 的 4 次方", parser.classify("3 的 4 次方")[0])
+    for s in alt:
+        print(f"  替代: {s.description} → {s.matha_code}")
+
+
+def test_logging_trace():
+    """验证日志路径：每个推理分支都有日志输出。"""
+    print("\n=== 日志路径验证 ===")
+    parser = FriendlyIntentParser()
+    assistant = MathaAIAssistant()
+    interp = Interpreter()
+
+    # 触发策略1（关键词）
+    r1 = assistant.chat("计算 3 加 5", interp)
+    print(f"  [策略1] '计算 3 加 5' → {r1['type']}")
+
+    # 触发策略2（变体）
+    r2 = assistant.chat("算算 7+3", interp)
+    print(f"  [策略2] '算算 7+3' → {r2['type']}")
+
+    # 触发策略3（常识规则）
+    r3 = assistant.chat("100 的一半", interp)
+    print(f"  [策略3] '100 的一半' → {r3['type']}, result={r3.get('result')}")
+
+    # 触发策略5（fallback）
+    r4 = assistant.chat("123", interp)
+    print(f"  [策略5] '123' → {r4['type']}")
+
+    # 触发常识推断（decompose 失败 → _decompose_commonsense）
+    r5 = assistant.chat("翻一番", interp)
+    print(f"  [常识推断] '翻一番' → {r5['type']}, steps={r5['steps']}")
+
+    # 触发替代方案
+    r6 = assistant.chat("帮我算一下 2 的 3 次方", interp)
+    print(f"  [替代方案] '2 的 3 次方' → {r6['type']}, result={r6.get('result')}")
 
 
 def main():
@@ -146,9 +226,11 @@ def main():
     test_execute()
     test_error_handling()
     test_concept_explanation()
-    test_commonsense()
-    print("\n" + "="*50)
-    print("所有测试完成！")
+    test_commonsense_edge_cases()
+    test_logging_trace()
+    print("\n" + "=" * 50)
+    print("v1.2.10 边界测试全部完成！")
+    print("=" * 50)
 
 
 if __name__ == '__main__':

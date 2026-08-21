@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from enum import Enum
 
+# 模块级调试日志
+_logger = logging.getLogger("matha.ai")
 
 # ============================================================
 # 意图分类（小白友好版）
@@ -264,6 +266,7 @@ class FriendlyIntentParser:
           5. 用户学习记忆（_learned_patterns）
         """
         text_lower = text.lower()
+        _logger.debug("=== 意图分类开始: '%s' ===", text)
         scores: dict[IntentType, float] = {}
 
         # ── 策略1：精确关键词匹配 ────────────────────────────
@@ -274,23 +277,29 @@ class FriendlyIntentParser:
                 if kw in text_lower:
                     weight = 3.0 if len(kw) >= 3 else 2.0 if len(kw) == 2 else 1.0
                     score += weight
+                    _logger.debug("  [策略1-关键词] 匹配 '%s' → %s (+%.1f)", kw, intent_type.value, weight)
             if score > 0:
                 scores[intent_type] = scores.get(intent_type, 0) + score
+                _logger.debug("  [策略1] %s 得分 %.1f", intent_type.value, score)
 
         # ── 策略2：变体表达匹配 ────────────────────────────
         for variant, intent in self.VARIATION_MAP.items():
             if variant in text_lower:
                 scores[intent] = scores.get(intent, 0) + 5.0
+                _logger.debug("  [策略2-变体] 匹配 '%s' → %s (+5.0)", variant, intent.value)
 
         # ── 策略3：常识推理匹配 ────────────────────────────
         for rule in self.COMMONSENSE_RULES:
             if re.search(rule["pattern"], text, re.IGNORECASE):
                 scores[rule["intent"]] = scores.get(rule["intent"], 0) + 4.0
+                _logger.debug("  [策略3-常识] 规则 %s 匹配: %s (+4.0) [reason=%s]",
+                             rule["pattern"], rule["intent"].value, rule["reason"])
 
         # ── 策略4：用户学习记忆 ────────────────────────────
         for pattern, intent in self._learned_patterns.items():
             if pattern in text_lower:
                 scores[intent] = scores.get(intent, 0) + 6.0
+                _logger.debug("  [策略4-学习] 记忆模式 '%s' → %s (+6.0)", pattern, intent.value)
 
         # ── 策略5：数字特征推断（fallback） ────────────────
         nums = self.extract_numbers(text)
@@ -298,13 +307,18 @@ class FriendlyIntentParser:
             inferred = self._infer_from_numbers(text, nums)
             if inferred:
                 scores[inferred] = 2.0
+                _logger.debug("  [策略5-fallback] 数字推断 → %s (+2.0) [nums=%s]",
+                             inferred.value, nums)
 
         if not scores:
+            _logger.debug("=== 意图分类结束: 未知 (无匹配策略) ===")
             return IntentType.未知, 0.1
 
         best_type = max(scores, key=scores.get)
         total = sum(scores.values())
         confidence = scores[best_type] / total * 0.9 + 0.1
+        _logger.debug("=== 意图分类结束: %s 置信度 %.1f%% 得分 %s ===",
+                      best_type.value, confidence * 100, dict(scores))
         return best_type, min(confidence, 1.0)
 
     def _infer_from_numbers(self, text: str, nums: list[float]) -> Optional[IntentType]:
@@ -339,8 +353,7 @@ class FriendlyIntentParser:
         for word in words:
             if len(word) >= 2:
                 self._learned_patterns[word] = intent
-        logger = logging.getLogger("matha.ai")
-        logger.info(f"学习新模式: '{text}' → {intent.value}")
+        _logger.info(f"学习新模式: '{text}' → {intent.value}")
 
     # ── 参数提取 ─────────────────────────────────────────────
 
@@ -732,6 +745,7 @@ class FriendlyIntentParser:
         """当标准分解失败时，用常识推断生成步骤。"""
         nums = self.extract_numbers(text)
         text_lower = text.lower()
+        _logger.debug("=== 常识推断开始: intent=%s text='%s' nums=%s ===", intent.value, text, nums)
         steps = []
 
         # 1. "帮我算一下" / "算算" 等泛化表达
@@ -741,27 +755,32 @@ class FriendlyIntentParser:
                 if "减" in text_lower: op = "-"
                 elif "乘" in text_lower or "倍" in text_lower: op = "*"
                 elif "除" in text_lower or "一半" in text_lower: op = "/"
+                _logger.debug("  [常识分支1] 泛化表达: op=%s", op)
                 steps.append(Step(f"计算 {nums[0]} {op} {nums[1]}",
                                   f"#1：[{nums[0]} {op} {nums[1]}]",
                                   f"{nums[0]} {op} {nums[1]} = ?"))
             elif len(nums) == 1:
-                # 单数字 → 尝试常见函数
                 n = nums[0]
                 if "平方" in text_lower:
+                    _logger.debug("  [常识分支1] 单数字→平方")
                     steps.append(Step(f"计算 {n} 的平方",
                                       f"#1：[{n} * {n}]", f"{n} 的平方 = {n} × {n}"))
                 elif "阶乘" in text_lower or "!" in text_lower:
+                    _logger.debug("  [常识分支1] 单数字→阶乘")
                     steps.append(Step(f"计算 {int(n)} 的阶乘",
                                       f"#1：[阶乘({int(n)})]", f"{int(n)}! = ?"))
                 elif "根" in text_lower:
+                    _logger.debug("  [常识分支1] 单数字→开方")
                     steps.append(Step(f"计算 {n} 的平方根",
                                       f"#1：[sqrt({n})]", f"√{n} = ?"))
             if steps:
+                _logger.debug("  [常识分支1] 生成步骤: %s", [s.description for s in steps])
                 return steps
 
         # 2. "一半" / "二分之一"
         if "一半" in text_lower or "二分之一" in text_lower:
             if nums:
+                _logger.debug("  [常识分支2] 一半→除法: %s / 2", nums[0])
                 steps.append(Step(f"计算 {nums[0]} 的一半",
                                   f"#1：[{nums[0]} / 2]", f"{nums[0]} ÷ 2 = ?"))
                 return steps
@@ -769,6 +788,7 @@ class FriendlyIntentParser:
         # 3. "倍" 相关
         if "倍" in text_lower:
             if len(nums) >= 2:
+                _logger.debug("  [常识分支3] 倍→乘法: %s * %s", nums[0], nums[1])
                 steps.append(Step(f"计算 {nums[0]} 的 {nums[1]} 倍",
                                   f"#1：[{nums[0]} * {nums[1]}]",
                                   f"{nums[0]} 的 {nums[1]} 倍 = {nums[0]} × {nums[1]}"))
@@ -788,12 +808,14 @@ class FriendlyIntentParser:
         }
         for unit, (from_u, to_u, factor) in time_map.items():
             if unit in text_lower and nums:
+                _logger.debug("  [常识分支4-time] 时间换算: %s %s → %s (÷%s)", nums[0], from_u, to_u, factor)
                 steps.append(Step(f"{from_u}→{to_u}换算",
                                   f"#1：[{nums[0]} / {factor}]",
                                   f"{nums[0]} {from_u} = {nums[0]/factor} {to_u}"))
                 return steps
         for unit, (from_u, to_u, factor) in unit_map.items():
             if unit in text_lower and nums:
+                _logger.debug("  [常识分支4-unit] 单位换算: %s %s → %s (×%s)", nums[0], from_u, to_u, factor)
                 steps.append(Step(f"{from_u}→{to_u}换算",
                                   f"#1：[换算_{from_u}_{to_u}({nums[0]})]",
                                   f"{nums[0]} {from_u} = ? {to_u}"))
@@ -801,6 +823,7 @@ class FriendlyIntentParser:
 
         # 5. 纯数字 → 猜测算术
         if nums and not steps:
+            _logger.debug("  [常识分支5] 纯数字兜底: nums=%s", nums)
             if len(nums) >= 2:
                 steps.append(Step(f"计算 {nums[0]} 与 {nums[1]} 的关系",
                                   f"#1：[{nums[0]} + {nums[1]}]",
@@ -819,6 +842,7 @@ class FriendlyIntentParser:
         """当首选方案失败时，尝试替代方案。"""
         nums = self.extract_numbers(text)
         text_lower = text.lower()
+        _logger.debug("=== 替代方案尝试: intent=%s text='%s' nums=%s ===", intent.value, text, nums)
 
         # 替代方案1：如果是算术但加法失败，试其他运算
         if intent == IntentType.算术 and nums:
@@ -833,17 +857,21 @@ class FriendlyIntentParser:
                     try:
                         r = op_func(nums[0], nums[1])
                         if r is not None:
+                            _logger.debug("  [替代方案1] %s: %s %s %s = %s",
+                                         op_name, nums[0], op_sym, nums[1], r)
                             alternatives.append(Step(
                                 f"替代方案：{op_name}",
                                 f"#1：[{nums[0]} {op_sym} {nums[1]}]",
                                 f"{op_name}：{nums[0]} {op_sym} {nums[1]} = {r}"))
-                    except (ZeroDivisionError, ValueError):
-                        pass
+                    except (ZeroDivisionError, ValueError) as e:
+                        _logger.debug("  [替代方案1] %s 失败: %s", op_name, e)
+            _logger.debug("  [替代方案1] 共生成 %d 个替代步骤", len(alternatives))
             return alternatives
 
         # 替代方案2：物理计算 — 如果数字像时间，试自由落体
         if intent == IntentType.物理 and nums:
             t = nums[0]
+            _logger.debug("  [替代方案2] 物理→自由落体: t=%.1f", t)
             return [Step("替代：自由落体",
                          f"#1：[运动_自由落体位移({t})]",
                          f"尝试自由落体计算，时间 {t} 秒")]
@@ -876,18 +904,24 @@ class MathaAIAssistant:
             "type": str            # text / error / task
           }
         """
+        _logger.info("=== chat 入口: '%s' ===", text)
+
         text = text.strip()
         if not text:
             return {"reply": "请输入你的问题，例如：'计算 3 加 5'", "type": "text"}
 
         # 1. 分类意图（多策略增强）
         intent_type, confidence = self.parser.classify(text)
+        _logger.info("  意图分类: %s (置信度 %.0f%%)", intent_type.value, confidence * 100)
 
         # 2. 分解步骤（增强版：多路径尝试）
         steps = self.parser.decompose(text)
+        _logger.info("  标准分解: %d 步", len(steps))
         if not steps or (len(steps) == 1 and not steps[0].matha_code):
             # 分解失败 → 尝试常识推断
+            _logger.info("  标准分解失败，触发常识推断")
             steps = self.parser._decompose_commonsense(text, intent_type)
+            _logger.info("  常识推断: %d 步", len(steps))
 
         # 3. 生成代码
         code_lines = []
@@ -896,6 +930,7 @@ class MathaAIAssistant:
                 code_lines.append(step.matha_code)
 
         matha_code = "\n".join(code_lines) if code_lines else ""
+        _logger.info("  生成代码: %s", matha_code[:80] if matha_code else "(空)")
 
         # 4. 执行
         result = None
@@ -907,19 +942,23 @@ class MathaAIAssistant:
                 i = interp or Interpreter()
                 outputs, _ = i.run(parse(matha_code))
                 result = outputs[-1] if outputs else None
+                _logger.info("  执行成功: result=%s", result)
             except Exception as e:
                 error = str(e)
+                _logger.warning("  执行失败: %s", error)
                 # 执行失败 → 尝试替代方案
                 if not matha_code or not result:
                     alt_steps = self.parser._try_alternative(text, intent_type)
                     if alt_steps and alt_steps[0].matha_code:
+                        _logger.info("  尝试替代方案: %s", alt_steps[0].description)
                         try:
                             alt_code = alt_steps[0].matha_code
                             outputs2, _ = i.run(parse(alt_code))
                             result = outputs2[-1] if outputs2 else None
                             steps = alt_steps
-                        except Exception:
-                            pass
+                            _logger.info("  替代方案成功: result=%s", result)
+                        except Exception as e2:
+                            _logger.warning("  替代方案也失败: %s", e2)
 
         # 5. 生成回复
         if error:
@@ -968,6 +1007,7 @@ class MathaAIAssistant:
             f"  • '自由落体 3 秒'\n"
             f"  • '求 [1,2,3,4,5] 的平均值'"
         )
+        _logger.info("  最终返回 guide 类型")
         return {
             "reply": reply,
             "code": "",
