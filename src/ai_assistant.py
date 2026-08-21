@@ -170,7 +170,8 @@ class FriendlyIntentParser:
         # 除法变体
         "平均分成": IntentType.算术, "一人分": IntentType.算术,
         "每份": IntentType.算术, "一半": IntentType.算术,
-        "二分之一": IntentType.算术,
+        "二分之一": IntentType.算术, "对折": IntentType.算术,
+        "对折再对折": IntentType.算术,
         # 统计变体
         "这组数": IntentType.统计, "这些数": IntentType.统计,
         "数据": IntentType.统计, "统计数据": IntentType.统计,
@@ -211,7 +212,9 @@ class FriendlyIntentParser:
         {"pattern": r"(\d+)\s*(的)?\s*(阶乘|!)", "intent": IntentType.素数因数, "reason": "阶乘"},
         {"pattern": r"(\d+)\s*(的)?\s*(因数|因子)", "intent": IntentType.素数因数, "reason": "因数"},
         {"pattern": r"(\d+)\s*(的)?\s*(平方根|根号)", "intent": IntentType.数学函数, "reason": "平方根"},
+        {"pattern": r"(\d+)\s*(的)?\s*(次方|幂|指数)", "intent": IntentType.数学函数, "reason": "次方→幂运算"},
         {"pattern": r"(\d+)\s*(平均|均值)", "intent": IntentType.统计, "reason": "平均→统计"},
+        {"pattern": r"(\d+)\s*(对折|对折再)", "intent": IntentType.算术, "reason": "对折→除法/乘法"},
     ]
 
     # 错误解释模板
@@ -388,8 +391,10 @@ class FriendlyIntentParser:
         steps = []
 
         if intent_type == IntentType.算术:
+            _logger.debug("  [decompose] 算术分支: text='%s' nums=%s", text, numbers)
             steps = self._decompose_arithmetic(text, numbers)
         elif intent_type == IntentType.数学函数:
+            _logger.debug("  [decompose] 数学函数分支: text='%s' nums=%s", text, numbers)
             steps = self._decompose_math_func(text, numbers)
         elif intent_type == IntentType.统计:
             steps = self._decompose_statistics(text, numbers)
@@ -398,14 +403,17 @@ class FriendlyIntentParser:
         elif intent_type == IntentType.数组:
             steps = self._decompose_array(text, numbers)
         elif intent_type == IntentType.物理:
+            _logger.debug("  [decompose] 物理分支: text='%s' nums=%s", text, numbers)
             steps = self._decompose_physics(text, numbers)
         elif intent_type == IntentType.三角函数:
             steps = self._decompose_trig(text, numbers)
         elif intent_type == IntentType.素数因数:
             steps = self._decompose_number_theory(text, rng, numbers)
         elif intent_type == IntentType.单位换算:
+            _logger.debug("  [decompose] 单位换算分支: text='%s' nums=%s", text, numbers)
             steps = self._decompose_unit_convert(text, numbers)
         else:
+            _logger.debug("  [decompose] 未知意图，返回引导步骤")
             steps = [Step(
                 description="无法理解，请重新描述",
                 matha_code="",
@@ -462,7 +470,17 @@ class FriendlyIntentParser:
             steps.append(Step(f"计算 {n} 的阶乘",
                               f"#1：[阶乘({n})]",
                               f"{n}! = {n}×{n-1}×...×1"))
-        return steps or [Step("请选择要计算的函数", "", "可以计算：平方、立方、开方、绝对值、阶乘")]
+        if "次方" in text:
+            if len(nums) >= 2:
+                base, exp = nums[0], nums[1]
+                steps.append(Step(f"计算 {base} 的 {exp} 次方",
+                                  f"#1：[{base} ^ {exp}]",
+                                  f"{base}^{exp} = {base ** int(exp) if exp == int(exp) else base ** exp}"))
+            elif len(nums) == 1:
+                n = nums[0]
+                steps.append(Step(f"计算 {n} 的平方",
+                                  f"#1：[{n} * {n}]", f"{n} 的平方 = {n} × {n}"))
+        return steps or [Step("请选择要计算的函数", "", "可以计算：平方、立方、开方、绝对值、阶乘、次方")]
 
     def _decompose_statistics(self, text: str, nums: list[float]) -> list[Step]:
         if not nums:
@@ -584,6 +602,7 @@ class FriendlyIntentParser:
         return steps or [Step("数论计算", "", "支持：素数判定、找素数、阶乘、因数分解")]
 
     def _decompose_unit_convert(self, text: str, nums: list[float]) -> list[Step]:
+        _logger.debug("  [单位换算分解] text='%s' nums=%s", text, nums)
         if not nums:
             nums = [1]
         return [Step("单位换算",

@@ -229,7 +229,7 @@ def main():
     test_commonsense_edge_cases()
     test_logging_trace()
     print("\n" + "=" * 50)
-    print("v1.2.10 边界测试全部完成！")
+    print("v1.2.11 边界测试全部完成！")
     print("=" * 50)
 
 
