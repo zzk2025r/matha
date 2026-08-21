@@ -40,6 +40,13 @@ class IntentType(str, Enum):
     单位换算 = "unit_convert"
     素数因数 = "number_theory"
     三角函数 = "trig"
+    概率统计 = "probability"
+    数列 = "sequence"
+    几何 = "geometry"
+    财务 = "finance"
+    烹饪 = "cooking"
+    时间计算 = "time_calc"
+    配置浓度 = "concentration"
     未知 = "unknown"
 
 
@@ -149,7 +156,14 @@ class FriendlyIntentParser:
         "单位": ["换算", "转换", "换算成", "变成"],
         "下落": ["下落", "落下", "掉下来", "扔下去", "自由下落"],
         "射程": ["射程", "飞多远", "飞多高", "落点", "飞行距离"],
-        "打折": ["打折", "折扣", "打X折", "优惠", "降价", "贵了", "便宜了", "贵多少", "便宜多少"],
+        "打折": ["打折", "折扣", "打X折", "优惠", "降价", "贵了", "便宜了", "贵多少", "便宜多少", "满减"],
+        "利息": ["利息", "单利", "复利", "利滚利", "年化利率", "存款利率", "贷款利率"],
+        "面积": ["面积", "平方", "平方米", "平方厘米", "平方千米", "亩"],
+        "概率": ["概率", "可能性", "几率", "概率论", "期望", "期望值"],
+        "数列": ["等差", "等比", "数列", "递推", "通项", "求和"],
+        "浓度": ["浓度", "配比", "稀释", "溶质", "溶液", "百分比浓度"],
+        "配速": ["配速", "每公里", "每分钟", "跑速", "时速"],
+        "体积": ["体积", "容积", "升", "毫升", "立方米", "立方厘米"],
         "凑整": ["凑整", "补齐", "差额", "盈亏", "盈了", "亏了"],
         "三角": ["正弦", "余弦", "正切", "cot", "csc", "sec", "反三角"],
         "单位": ["里", "丈", "尺", "寸", "亩", "公顷", "英里", "英尺", "磅", "盎司", "加仑", "焦耳", "瓦特", "马力"],
@@ -437,7 +451,69 @@ class FriendlyIntentParser:
         for word in words:
             if len(word) >= 2:
                 self._learned_patterns[word] = intent
+        # 持久化到已知表达库
+        self._known_expressions[text] = intent.value
         _logger.info(f"学习新模式: '{text}' → {intent.value}")
+        self._growth_log.append({
+            "action": "learn", "text": text,
+            "intent": intent.value, "time": time.time()
+        })
+        _logger.info(f"  [成长] 学习记录已保存，累计 {len(self._growth_log)} 条")
+
+    def record_failure(self, text: str, error: str, intent: IntentType) -> None:
+        """记录执行失败，用于后续自动学习修复。"""
+        entry = {"text": text, "error": error[:100],
+                 "intent": intent.value, "time": time.time()}
+        self._failure_log.append(entry)
+        _logger.warning(f"  [成长] 记录失败: '{text}' → {error[:50]}")
+        self._auto_learn_from_failure(text, error)
+
+    def _auto_learn_from_failure(self, text: str, error: str) -> None:
+        """从失败中自动学习，生成修复建议。"""
+        if "未定义函数" in error:
+            m = re.search(r"[未定义]+(?:函数|变量)?\s*['\"]?([^'\"]+)['\"]?", error)
+            if m:
+                fn = m.group(1).strip()
+                _logger.info(f"  [自动学习] 发现未定义函数: '{fn}'，建议添加内建")
+                self._growth_log.append({"action": "auto_learn_func",
+                                         "suggestion": fn, "time": time.time()})
+        if "未定义变量" in error:
+            m = re.search(r"[未定义]+(?:变量)?\s*['\"]?([^'\"]+)['\"]?", error)
+            if m:
+                var = m.group(1).strip()
+                _logger.info(f"  [自动学习] 发现未定义变量: '{var}'，建议添加常量")
+                self._growth_log.append({"action": "auto_learn_var",
+                                         "suggestion": var, "time": time.time()})
+
+    def record_correction(self, original_text: str, original_intent: str,
+                          corrected_intent: str) -> None:
+        """记录用户纠正，用于提升分类准确度。"""
+        entry = {"original": original_text, "original_intent": original_intent,
+                 "corrected_intent": corrected_intent, "time": time.time()}
+        self._correction_log.append(entry)
+        self._known_expressions[original_text] = corrected_intent
+        _logger.info(f"  [成长] 用户纠正: '{original_text}' {original_intent}→{corrected_intent}")
+        words = re.findall(r'[\u4e00-\u9fa5]+', original_text)
+        for word in words:
+            if len(word) >= 2:
+                try:
+                    self._learned_patterns[word] = IntentType(corrected_intent)
+                except ValueError:
+                    pass
+        self._growth_log.append({"action": "correction", "text": original_text,
+                                 "from": original_intent, "to": corrected_intent,
+                                 "time": time.time()})
+
+    def get_growth_stats(self) -> dict:
+        """返回成长统计数据。"""
+        return {
+            "total_learned": len(self._learned_patterns),
+            "total_failures": len(self._failure_log),
+            "total_corrections": len(self._correction_log),
+            "total_growth_records": len(self._growth_log),
+            "known_expressions": len(self._known_expressions),
+            "recent_growth": self._growth_log[-5:] if self._growth_log else []
+        }
 
     # ── 参数提取 ─────────────────────────────────────────────
 
