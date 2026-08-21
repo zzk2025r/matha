@@ -611,6 +611,366 @@ class NetSecurityEngine:
         import random
         return random.randint(1024, 65535)
 
+    # ── 病毒创造（模拟，用于安全测试）──────────────────────
+
+    def create_virus(self, name: str, category: str, level: str,
+                     behavior: str, payload: str,
+                     source_ip: str = "10.0.0.1",
+                     target_ip: str = "192.168.1.1") -> dict:
+        """
+        创建测试病毒（模拟，用于安全测试）。
+
+        参数:
+            name: 病毒名称（如 "TestWorm_001"）
+            category: 分类（worm/trojan/ransomware/spyware）
+            level: 风险等级（low/medium/high/critical）
+            behavior: 行为描述（如 "port scan + self replicate"）
+            payload: 载荷描述（如 "encrypt files, demand bitcoin"）
+            source_ip: 来源IP
+            target_ip: 目标IP
+
+        返回: 病毒定义字典
+        """
+        import random
+        # 验证参数
+        valid_levels = {"low", "medium", "high", "critical"}
+        valid_categories = {"worm", "trojan", "ransomware", "spyware", "dos", "apt"}
+        if level.lower() not in valid_levels:
+            return {"success": False, "error": f"无效等级，可选: {valid_levels}"}
+        if category.lower() not in valid_categories:
+            return {"success": False, "error": f"无效分类，可选: {valid_categories}"}
+
+        virus_id = f"VIRUS_{uuid.uuid4().hex[:8].upper()}"
+        virus = {
+            "id": virus_id,
+            "name": name,
+            "category": category.lower(),
+            "level": level.lower(),
+            "behavior": behavior,
+            "payload": payload,
+            "source_ip": source_ip,
+            "target_ip": target_ip,
+            "risk_score": self._calc_risk(ThreatLevel(level.lower())),
+            "created_at": time.time(),
+            "active": True,
+            "signature_hash": hashlib.md5((name + behavior).encode()).hexdigest()[:12],
+        }
+        # 自动注册为威胁签名
+        self.add_signature(
+            name=f"测试病毒_{name}",
+            pattern=behavior.split()[0] if behavior else "test",
+            level=level,
+            category=category,
+            description=f"测试病毒: {payload}",
+            mitigation=f"隔离并清杀 {name}",
+        )
+        # 创建威胁实例
+        self._create_threat(
+            source_ip=source_ip,
+            dest_ip=target_ip,
+            dest_port=random.randint(1024, 65535),
+            name=name,
+            level=ThreatLevel(level.lower()),
+            category=category.lower(),
+            description=payload,
+            matched_pattern=behavior,
+            risk_score=virus["risk_score"],
+        )
+        logger.info(f"创建测试病毒: {virus_id} ({name}) [{level}]")
+        return {"success": True, **virus}
+
+    def create_virus_batch(self, count: int, categories: Optional[list] = None) -> list:
+        """
+        批量创建测试病毒。
+
+        参数:
+            count: 创建数量
+            categories: 指定分类列表，None 则随机
+
+        返回: 创建的病毒列表
+        """
+        import random
+        cats = categories or ["worm", "trojan", "ransomware", "spyware", "dos"]
+        levels = ["low", "medium", "high", "critical"]
+        behaviors = [
+            "port scan self replicate",
+            "reverse shell establish connection",
+            "encrypt files demand payment",
+            "exfiltrate data credential harvest",
+            "ddos flood bandwidth consumption",
+            "c2 beacon command control channel",
+            "backdoor install persistence mechanism",
+            "ransomware lock files Bitcoin demand",
+        ]
+        payloads = [
+            "steals SSH keys and private certificates",
+            "establishes persistent backdoor access",
+            "encrypts all documents and demands ransom",
+            "harvests browser credentials and cookies",
+            "floods target with SYN packets causing DoS",
+            "sends C2 beacons via DNS tunneling",
+            "creates scheduled task for persistence",
+            "copies itself to all reachable hosts",
+        ]
+        results = []
+        for i in range(count):
+            cat = random.choice(cats)
+            level = random.choice(levels)
+            behavior = random.choice(behaviors)
+            payload = random.choice(payloads)
+            name = f"{cat.capitalize()}_Sim_{i+1:03d}"
+            r = self.create_virus(name, cat, level, behavior, payload)
+            if r.get("success"):
+                results.append(r)
+        logger.info(f"批量创建测试病毒: {len(results)}/{count} 成功")
+        return results
+
+    def analyze_virus(self, virus_id: str) -> dict:
+        """
+        分析病毒特征。
+
+        返回: 病毒分析报告
+        """
+        # 先检查是否在威胁列表中
+        if virus_id in self._threats:
+            t = self._threats[virus_id]
+            return {
+                "id": virus_id,
+                "name": t.threat_name,
+                "category": t.category,
+                "level": t.threat_level.value,
+                "risk_score": t.risk_score,
+                "behavior_pattern": t.matched_pattern,
+                "source": f"{t.source_ip}:{t.source_port}",
+                "target": f"{t.destination_ip}:{t.destination_port}",
+                "status": "quarantined" if t.quarantined else "active",
+                "analysis": self._analyze_behavior(t.matched_pattern),
+            }
+        # 不在威胁列表，返回错误
+        return {"error": f"病毒 {virus_id} 不存在或未创建"}
+
+    def _analyze_behavior(self, behavior: str) -> dict:
+        """分析行为特征。"""
+        analysis = {
+            "severity": "unknown",
+            "kill_chain_stage": "unknown",
+            "detection_evasion": False,
+            "persistence": False,
+            "lateral_movement": False,
+            "data_exfiltration": False,
+        }
+        b = behavior.lower()
+        if "encrypt" in b or "ransom" in b:
+            analysis["severity"] = "critical"
+            analysis["kill_chain_stage"] = "impact"
+        elif "reverse shell" in b or "backdoor" in b:
+            analysis["severity"] = "critical"
+            analysis["kill_chain_stage"] = "installation"
+            analysis["persistence"] = True
+        elif "exfil" in b or "data theft" in b or "credential" in b:
+            analysis["severity"] = "high"
+            analysis["kill_chain_stage"] = "actions on objectives"
+            analysis["data_exfiltration"] = True
+        elif "scan" in b or "recon" in b:
+            analysis["severity"] = "medium"
+            analysis["kill_chain_stage"] = "reconnaissance"
+        elif "flood" in b or "ddos" in b:
+            analysis["severity"] = "high"
+            analysis["kill_chain_stage"] = "impact"
+        else:
+            analysis["severity"] = "low"
+        return analysis
+
+    def patch_vulnerability(self, vuln_id: str, severity: str = "high") -> dict:
+        """
+        修补漏洞（模拟）。
+
+        参数:
+            vuln_id: 漏洞ID
+            severity: 漏洞严重程度
+
+        返回: 修补结果
+        """
+        import random
+        patch_id = f"PATCH_{uuid.uuid4().hex[:6].upper()}"
+        status = random.choice(["success", "success", "success", "partial"])
+        result = {
+            "patch_id": patch_id,
+            "vulnerability_id": vuln_id,
+            "severity": severity,
+            "status": status,
+            "description": f"修补漏洞 {vuln_id}，风险等级 {severity}",
+            "timestamp": time.time(),
+        }
+        logger.info(f"修补漏洞: {patch_id} → {vuln_id} [{severity}] → {status}")
+        return result
+
+    def simulate_spread(self, virus_id: str, network_size: int = 10) -> dict:
+        """
+        模拟病毒传播。
+
+        参数:
+            virus_id: 病毒ID
+            network_size: 网络节点数量
+
+        返回: 传播模拟结果
+        """
+        import random
+        if virus_id not in self._threats:
+            return {"error": f"病毒 {virus_id} 不存在"}
+
+        t = self._threats[virus_id]
+        # 模拟传播
+        infected = min(network_size, max(1, int(network_size * (t.risk_score / 10) * random.uniform(0.3, 0.9))))
+        spread_rate = infected / network_size * 100
+        result = {
+            "virus_id": virus_id,
+            "virus_name": t.threat_name,
+            "network_size": network_size,
+            "infected_count": infected,
+            "spread_rate": round(spread_rate, 1),
+            "risk_score": t.risk_score,
+            "estimated_containment_time": max(1, int((10 - t.risk_score) * 5)),
+            "simulation": f"{infected}/{network_size} 节点被感染 ({spread_rate:.1f}%)",
+        }
+        logger.info(f"传播模拟: {virus_id} → {infected}/{network_size} 节点")
+        return result
+
+    def neutralize(self, threat_id: str, method: str = "automatic") -> dict:
+        """
+        高级中和病毒（比清杀更彻底）。
+
+        参数:
+            threat_id: 威胁ID
+            method: 清杀方法（automatic/manual/quarantine_first）
+
+        返回: 中和结果
+        """
+        if threat_id not in self._threats:
+            return {"success": False, "error": f"威胁 {threat_id} 不存在"}
+
+        threat = self._threats[threat_id]
+
+        # 分析威胁特征
+        analysis = self._analyze_behavior(threat.matched_pattern)
+
+        steps = []
+        if method == "quarantine_first":
+            # 先隔离再清杀
+            q = self.quarantine(threat_id)
+            if q["success"]:
+                steps.append({"step": "quarantine", "status": "success"})
+
+        # 清杀
+        e = self.eliminate(threat_id)
+        if e["success"]:
+            steps.append({"step": "eliminate", "status": "success"})
+
+        # 生成防御规则
+        rules = self.generate_firewall_rules([threat.to_dict()])
+        steps.append({
+            "step": "firewall_rules",
+            "rules_generated": len(rules),
+            "status": "success" if rules else "skipped",
+        })
+
+        result = {
+            "success": True,
+            "threat_id": threat_id,
+            "threat_name": threat.threat_name,
+            "method": method,
+            "analysis": analysis,
+            "steps": steps,
+            "summary": f"已中和 {threat.threat_name}: 隔离→清杀→生成{len(rules)}条规则",
+        }
+        logger.info(f"🛡️ 高级中和: {threat_id} ({threat.threat_name}) via {method}")
+        return result
+
+    def quarantine_all(self) -> dict:
+        """隔离所有活跃威胁。"""
+        active_ids = [tid for tid, t in self._threats.items() if not t.quarantined]
+        results = []
+        for tid in active_ids:
+            r = self.quarantine(tid)
+            if r["success"]:
+                results.append(r)
+        logger.info(f"隔离全部威胁: {len(results)}/{len(active_ids)}")
+        return {"quarantined": len(results), "total_active": len(active_ids), "results": results}
+
+    def get_virus_library(self) -> list[dict]:
+        """获取病毒库（所有已创建/已清杀的测试病毒）。"""
+        viruses = []
+        for t in self._threats.values():
+            viruses.append({
+                "id": t.threat_id,
+                "name": t.threat_name,
+                "category": t.category,
+                "level": t.threat_level.value,
+                "behavior": t.matched_pattern,
+                "risk_score": t.risk_score,
+                "active": not t.eliminated,
+                "quarantined": t.quarantined,
+                "eliminated": t.eliminated,
+            })
+        return viruses
+
+    def create_test_scenario(self, name: str,
+                             virus_count: int = 5,
+                             network_size: int = 20) -> dict:
+        """
+        创建完整测试场景。
+
+        参数:
+            name: 场景名称
+            virus_count: 创建病毒数量
+            network_size: 网络节点数
+
+        返回: 场景摘要
+        """
+        import random
+        scenarios = {
+            "worm_attack": (["worm"], "high", "port scan self replicate"),
+            "ransomware_attack": (["ransomware"], "critical", "encrypt files demand bitcoin"),
+            "apt_attack": (["trojan", "spyware"], "critical", "c2 beacon reverse shell exfil"),
+            "ddos_attack": (["dos"], "high", "ddos syn flood bandwidth consumption"),
+            "mixed_attack": (["worm", "trojan", "ransomware", "spyware"], "high", "multi-vector attack"),
+        }
+
+        if name not in scenarios:
+            return {"error": f"未知场景，可选: {list(scenarios.keys())}"}
+
+        cats, level, behavior = scenarios[name]
+        viruses = self.create_virus_batch(virus_count, categories=cats)
+
+        # 传播模拟
+        spread_results = []
+        for v in viruses:
+            s = self.simulate_spread(v["id"], network_size)
+            spread_results.append(s)
+
+        # 风险评估
+        risk = self.get_risk_report()
+
+        result = {
+            "scenario_name": name,
+            "viruses_created": len(viruses),
+            "network_size": network_size,
+            "spread_simulations": spread_results,
+            "risk_report": risk,
+            "created_at": time.time(),
+        }
+        logger.info(f"测试场景 '{name}' 创建完成: {len(viruses)} 病毒, "
+                     f"{network_size} 节点网络")
+        return result
+
+    def get_quarantine_log(self) -> list[dict]:
+        """获取隔离操作日志。"""
+        return list(self._quarantine_log)
+
+    def get_elimination_log(self) -> list[dict]:
+        """获取清杀操作日志。"""
+        return list(self._elimination_log)
+
 
 # ============================================================
 # Matha 内建函数（注册到解释器）

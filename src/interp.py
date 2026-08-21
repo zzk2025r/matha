@@ -1338,6 +1338,18 @@ class Interpreter:
         b["已清杀数量"] = self._curry(0, self._b_net_eliminated_count)
         b["防火墙规则列表"] = self._curry(0, self._b_net_fw_list)
         b["威胁状态"] = self._curry(1, self._b_net_threat_status)
+        # 病毒创造与高级清杀
+        b["创造病毒"] = self._curry(5, self._b_net_create_virus)
+        b["批量创造病毒"] = self._curry(2, self._b_net_create_virus_batch)
+        b["分析病毒"] = self._curry(1, self._b_net_analyze_virus)
+        b["修补漏洞"] = self._curry(2, self._b_net_patch_vuln)
+        b["模拟传播"] = self._curry(2, self._b_net_simulate_spread)
+        b["高级中和"] = self._curry(2, self._b_net_neutralize)
+        b["隔离全部"] = self._curry(0, self._b_net_quarantine_all)
+        b["病毒库列表"] = self._curry(0, self._b_net_virus_library)
+        b["创建测试场景"] = self._curry(3, self._b_net_create_scenario)
+        b["隔离日志"] = self._curry(0, self._b_net_quarantine_log)
+        b["清杀日志"] = self._curry(0, self._b_net_elimination_log)
 
     # ---- 状态化内建实现（返回普通容器，供 Matha 侧消费） ----
 
@@ -1631,6 +1643,65 @@ class Interpreter:
         """威胁状态(威胁ID) → 威胁当前状态。"""
         from src.net_security import _get_engine
         return _get_engine().threat_status(threat_id)
+
+    # ── 病毒创造与高级清杀 ─────────────────────────────────
+
+    def _b_net_create_virus(self, name: str, category: str, level: str,
+                            behavior: str, payload: str) -> dict:
+        """创造病毒(名称,分类,等级,行为,载荷) → 病毒定义。"""
+        from src.net_security import _get_engine
+        return _get_engine().create_virus(name, category, level, behavior, payload)
+
+    def _b_net_create_virus_batch(self, count: int, categories: list = None) -> list:
+        """批量创造病毒(数量,分类列表?) → 病毒列表。"""
+        from src.net_security import _get_engine
+        return _get_engine().create_virus_batch(count, categories)
+
+    def _b_net_analyze_virus(self, virus_id: str) -> dict:
+        """分析病毒(病毒ID) → 病毒分析报告。"""
+        from src.net_security import _get_engine
+        return _get_engine().analyze_virus(virus_id)
+
+    def _b_net_patch_vuln(self, vuln_id: str, severity: str = "high") -> dict:
+        """修补漏洞(漏洞ID,等级?) → 修补结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().patch_vulnerability(vuln_id, severity)
+
+    def _b_net_simulate_spread(self, virus_id: str, network_size: int = 10) -> dict:
+        """模拟传播(病毒ID,节点数?) → 传播模拟结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().simulate_spread(virus_id, network_size)
+
+    def _b_net_neutralize(self, threat_id: str, method: str = "automatic") -> dict:
+        """高级中和(威胁ID,方法?) → 中和结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().neutralize(threat_id, method)
+
+    def _b_net_quarantine_all(self, _=None) -> dict:
+        """隔离全部() → 隔离结果。"""
+        from src.net_security import _get_engine
+        return _get_engine().quarantine_all()
+
+    def _b_net_virus_library(self, _=None) -> list:
+        """病毒库列表() → 所有病毒列表。"""
+        from src.net_security import _get_engine
+        return _get_engine().get_virus_library()
+
+    def _b_net_create_scenario(self, name: str, virus_count: int = 5,
+                               network_size: int = 20) -> dict:
+        """创建测试场景(场景名,病毒数,节点数?) → 场景摘要。"""
+        from src.net_security import _get_engine
+        return _get_engine().create_test_scenario(name, virus_count, network_size)
+
+    def _b_net_quarantine_log(self, _=None) -> list:
+        """隔离日志() → 隔离操作记录。"""
+        from src.net_security import _get_engine
+        return _get_engine().get_quarantine_log()
+
+    def _b_net_elimination_log(self, _=None) -> list:
+        """清杀日志() → 清杀操作记录。"""
+        from src.net_security import _get_engine
+        return _get_engine().get_elimination_log()
 
 
 # 延迟初始化：_curry 已定义，现在可以安全地构建缓存
