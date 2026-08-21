@@ -149,6 +149,10 @@ class FriendlyIntentParser:
         "单位": ["换算", "转换", "换算成", "变成"],
         "下落": ["下落", "落下", "掉下来", "扔下去", "自由下落"],
         "射程": ["射程", "飞多远", "飞多高", "落点", "飞行距离"],
+        "打折": ["打折", "折扣", "打X折", "优惠", "降价", "贵了", "便宜了", "贵多少", "便宜多少"],
+        "凑整": ["凑整", "补齐", "差额", "盈亏", "盈了", "亏了"],
+        "三角": ["正弦", "余弦", "正切", "cot", "csc", "sec", "反三角"],
+        "单位": ["里", "丈", "尺", "寸", "亩", "公顷", "英里", "英尺", "磅", "盎司", "加仑", "焦耳", "瓦特", "马力"],
     }
 
     # 冷门/变体表达 → 标准意图映射
@@ -206,6 +210,45 @@ class FriendlyIntentParser:
         "等于多少分": IntentType.单位换算, "等于多少小时": IntentType.单位换算,
         "等于多少天": IntentType.单位换算,
         "等于多少秒": IntentType.单位换算, "等于多少毫秒": IntentType.单位换算,
+        # 冷门算术表达
+        "凑整": IntentType.算术, "补齐": IntentType.算术,
+        "差额": IntentType.算术, "差多少": IntentType.算术,
+        "盈亏": IntentType.算术, "赚了多少": IntentType.算术,
+        "亏了多少": IntentType.算术, "贵了多少": IntentType.算术,
+        "便宜多少": IntentType.算术, "贵了": IntentType.算术, "便宜了": IntentType.算术,
+        "打八折": IntentType.算术, "打七折": IntentType.算术,
+        "打九折": IntentType.算术, "打折": IntentType.算术,
+        "翻两番": IntentType.算术, "翻了三番": IntentType.算术,
+        # 冷门统计表达
+        "排第几": IntentType.统计, "排名第几": IntentType.统计,
+        "第几名": IntentType.统计, "最高分": IntentType.统计, "最低分": IntentType.统计,
+        "众数": IntentType.统计, "占比": IntentType.统计, "比例": IntentType.统计,
+        "取整": IntentType.算术, "取余": IntentType.算术,
+        "求余": IntentType.算术, "模运算": IntentType.算术,
+        # 冷门物理表达
+        "摔下来": IntentType.物理, "砸下来": IntentType.物理,
+        "掉到地上": IntentType.物理, "扔多远": IntentType.物理,
+        "多快": IntentType.物理, "跑多快": IntentType.物理,
+        # 冷门数论表达
+        "质因数分解": IntentType.素数因数, "分解质因数": IntentType.素数因数,
+        "公约数": IntentType.素数因数, "公倍数": IntentType.素数因数,
+        # 冷门三角表达
+        "cot": IntentType.三角函数, "csc": IntentType.三角函数, "sec": IntentType.三角函数,
+        "arcsin": IntentType.三角函数, "arccos": IntentType.三角函数, "arctan": IntentType.三角函数,
+        # 冷门单位换算
+        "多少尺": IntentType.单位换算, "多少丈": IntentType.单位换算,
+        "多少里": IntentType.单位换算, "多少寸": IntentType.单位换算,
+        "多少亩": IntentType.单位换算, "多少公顷": IntentType.单位换算,
+        "多少平方公里": IntentType.单位换算, "多少英里": IntentType.单位换算,
+        "多少英尺": IntentType.单位换算, "多少英寸": IntentType.单位换算,
+        "多少磅": IntentType.单位换算, "多少盎司": IntentType.单位换算,
+        "多少加仑": IntentType.单位换算, "多少海里": IntentType.单位换算,
+        "多少光年": IntentType.单位换算, "多少焦耳": IntentType.单位换算,
+        "多少瓦特": IntentType.单位换算, "多少牛顿": IntentType.单位换算,
+        "多少马力": IntentType.单位换算, "多少卡路里": IntentType.单位换算,
+        "等于多少尺": IntentType.单位换算, "等于多少丈": IntentType.单位换算,
+        "等于多少里": IntentType.单位换算, "等于多少磅": IntentType.单位换算,
+        "等于多少盎司": IntentType.单位换算, "等于多少英里": IntentType.单位换算,
     }
 
     # 生活常识推理规则
@@ -232,6 +275,26 @@ class FriendlyIntentParser:
         {"pattern": r"(sin|cos|tan)\s*\(", "intent": IntentType.三角函数, "reason": "英文三角函数(宽)"},
         {"pattern": r"(abs|sqrt|log)\s*\(", "intent": IntentType.数学函数, "reason": "英文函数名"},
         {"pattern": r".*(次方|幂|指数).*", "intent": IntentType.数学函数, "reason": "含次方词优先数学函数"},
+        # 冷门算术
+        {"pattern": r".*(打折|折扣).*\d+", "intent": IntentType.算术, "reason": "打折→算术"},
+        {"pattern": r".*(翻(fan)?(番|一番)).*", "intent": IntentType.算术, "reason": "翻番→乘法"},
+        {"pattern": r".*(赚|亏|贵|便宜)(了|多少).*", "intent": IntentType.算术, "reason": "盈亏/价差→算术"},
+        {"pattern": r".*(凑|补齐|差额).*", "intent": IntentType.算术, "reason": "凑整→算术"},
+        # 冷门物理
+        {"pattern": r".*(摔|砸|掉|落).*(下来|到).*", "intent": IntentType.物理, "reason": "摔落→自由落体"},
+        {"pattern": r".*(扔|抛).*(多远|多高|出去).*", "intent": IntentType.物理, "reason": "抛射→物理"},
+        # 冷门数论
+        {"pattern": r".*(质因数|分解质因数).*", "intent": IntentType.素数因数, "reason": "质因数分解"},
+        {"pattern": r".*(公约数|公倍数).*", "intent": IntentType.素数因数, "reason": "公约数公倍数"},
+        # 冷门统计
+        {"pattern": r".*(排|排名|第几).*", "intent": IntentType.统计, "reason": "排名→统计"},
+        {"pattern": r".*(最高|最低|最大|最小).*", "intent": IntentType.统计, "reason": "极值→统计"},
+        {"pattern": r".*(占比|比例|百分).*", "intent": IntentType.统计, "reason": "占比→统计"},
+        {"pattern": r".*(众数|中位数).*", "intent": IntentType.统计, "reason": "统计量"},
+        # 冷门单位换算
+        {"pattern": r".*(尺|丈|里|寸|亩|公顷|英里|英尺|英寸|磅|盎司|加仑|海里|焦耳|瓦特|牛顿|马力|卡路里).*", "intent": IntentType.单位换算, "reason": "冷门单位"},
+        {"pattern": r".*(光年|天文单位).*", "intent": IntentType.单位换算, "reason": "天文单位"},
+        {"pattern": r".*(公升|公升|毫升).*", "intent": IntentType.单位换算, "reason": "体积单位"},
     ]
 
     # 错误解释模板
