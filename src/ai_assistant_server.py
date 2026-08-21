@@ -106,7 +106,9 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, 404)
 
     def _serve_file(self, path: str, content_type: str):
-        full_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+        # web/ 在 src/ 的上一级，从项目根目录拼接路径
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        full_path = os.path.join(project_root, path)
         try:
             with open(full_path, 'r', encoding='utf-8') as f:
                 content = f.read()
