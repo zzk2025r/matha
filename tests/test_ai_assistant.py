@@ -158,6 +158,31 @@ def test_commonsense_edge_cases():
         ("25 开根", "math_func", "开根表达"),
         ("1 公斤等于多少克", "unit_convert", "公斤→克"),
         ("500 毫升等于多少升", "unit_convert", "体积换算"),
+        # 新增 v1.2.13 边界用例
+        ("sin(30) 等于多少", "trig", "英文sin函数"),
+        ("cos(60) 是多少", "trig", "英文cos函数"),
+        ("tan(45) 等于几", "trig", "英文tan函数"),
+        ("5 的阶乘是多少", "number_theory", "阶乘+是多少"),
+        ("π 的近似值", "trig", "圆周率符号"),
+        ("帮我算一下 sin(0)", "trig", "泛化+三角"),
+        ("100 毫秒等于多少秒", "unit_convert", "毫秒→秒"),
+        ("5 公里等于多少米", "unit_convert", "公里→米"),
+        ("2 的 16 次方", "math_func", "大幂运算"),
+        ("求 7 的立方", "math_func", "求立方表达"),
+        ("1 到 20 的素数有哪些", "number_theory", "范围素数口语"),
+        ("帮我算一下 2*3 加 4", "arithmetic", "混合运算口语"),
+        ("100 对折两次是多少", "arithmetic", "对折两次"),
+        ("abs(-42) 等于多少", "math_func", "绝对值负数"),
+        ("sqrt(16) 等于多少", "math_func", "英文sqrt"),
+        ("log(100) 是多少", "math_func", "对数表达"),
+        ("0 的阶乘等于几", "number_theory", "边界阶乘"),
+        ("100 厘米等于多少米", "unit_convert", "厘米→米"),
+        ("1 吨等于多少千克", "unit_convert", "吨→千克"),
+        ("50 度等于多少弧度", "trig", "角度弧度换算"),
+        ("帮我算一下 根号 16", "math_func", "泛化+根号"),
+        ("120 秒等于多少分", "unit_convert", "秒→分"),
+        ("2 的 64 次方", "math_func", "超大幂"),
+        ("sqrt 等于多少", "unknown", "不完整表达兜底"),
     ]
 
     print("\n── 意图分类 ──")
@@ -254,7 +279,7 @@ def main():
     test_commonsense_edge_cases()
     test_logging_trace()
     print("\n" + "=" * 50)
-    print("v1.2.12 边界测试全部完成！")
+    print("v1.2.13 边界测试全部完成！")
     print("=" * 50)
 
 

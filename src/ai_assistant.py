@@ -126,6 +126,7 @@ class FriendlyIntentParser:
         IntentType.单位换算: [
             "换算", "转换", "千米", "米", "厘米", "毫米",
             "千克", "克", "吨", "摄氏度", "华氏度",
+            "秒", "分", "小时", "天", "毫秒",
         ],
     }
 
@@ -204,6 +205,7 @@ class FriendlyIntentParser:
         "等于多少升": IntentType.单位换算, "等于多少毫升": IntentType.单位换算,
         "等于多少分": IntentType.单位换算, "等于多少小时": IntentType.单位换算,
         "等于多少天": IntentType.单位换算,
+        "等于多少秒": IntentType.单位换算, "等于多少毫秒": IntentType.单位换算,
     }
 
     # 生活常识推理规则
@@ -214,16 +216,20 @@ class FriendlyIntentParser:
         {"pattern": r"(\d+)\s*(减|减去|减掉)", "intent": IntentType.算术, "reason": "减→减法"},
         {"pattern": r"(\d+)\s*(平方|自乘)", "intent": IntentType.数学函数, "reason": "平方→平方运算"},
         {"pattern": r"(\d+)\s*(开方|根号|开根)", "intent": IntentType.数学函数, "reason": "开方→平方根"},
+        {"pattern": r"自由落体\s*\d+", "intent": IntentType.物理, "reason": "自由落体→物理"},
+        {"pattern": r"(\d+)\s*(秒|秒钟).*?(等于|多少|换算)", "intent": IntentType.单位换算, "reason": "秒→单位换算优先于物理"},
         {"pattern": r"(\d+)\s*(秒|秒钟)", "intent": IntentType.物理, "reason": "秒→物理时间"},
         {"pattern": r"(\d+)\s*(米|公尺)", "intent": IntentType.单位换算, "reason": "米→单位换算"},
         {"pattern": r"(\d+)\s*(到|至)\s*(\d+)\s*(的)?\s*(素数|质数)", "intent": IntentType.素数因数, "reason": "范围+素数"},
-        {"pattern": r"(\d+)\s*(的)?\s*(阶乘|!)", "intent": IntentType.素数因数, "reason": "阶乘"},
-        {"pattern": r"(\d+)\s*(的)?\s*(因数|因子)", "intent": IntentType.素数因数, "reason": "因数"},
-        {"pattern": r"(\d+)\s*(的)?\s*(平方根|根号)", "intent": IntentType.数学函数, "reason": "平方根"},
-        {"pattern": r"(\d+)\s*(的)?\s*(次方|幂|指数)", "intent": IntentType.数学函数, "reason": "次方→幂运算"},
-        {"pattern": r"(\d+)\s*(的)?\s*(次方|幂|指数).*?(等于|几|多少)", "intent": IntentType.数学函数, "reason": "次方+等于→幂运算优先"},
-        {"pattern": r"(\d+)\s*(平均|均值)", "intent": IntentType.统计, "reason": "平均→统计"},
-        {"pattern": r"(\d+)\s*(对折|对折再)", "intent": IntentType.算术, "reason": "对折→除法/乘法"},
+        {"pattern": r"\d+\s*的?\s*阶乘", "intent": IntentType.素数因数, "reason": "阶乘→数论(高权重)", "weight": 5.0},
+        {"pattern": r"\d+\s*的?\s*(因数|因子)", "intent": IntentType.素数因数, "reason": "因数"},
+        {"pattern": r"\d+\s*的?\s*(平方根|根号)", "intent": IntentType.数学函数, "reason": "平方根"},
+        {"pattern": r"\d+\s*的?\s*(次方|幂|指数)", "intent": IntentType.数学函数, "reason": "次方→幂运算"},
+        {"pattern": r"\d+\s*的?\s*(次方|幂|指数).*?(等于|几|多少)", "intent": IntentType.数学函数, "reason": "次方+等于→幂运算优先"},
+        {"pattern": r"\d+\s*(平均|均值)", "intent": IntentType.统计, "reason": "平均→统计"},
+        {"pattern": r"\d+\s*(对折|对折再)", "intent": IntentType.算术, "reason": "对折→除法/乘法"},
+        {"pattern": r"\b(sin|cos|tan)\s*\(", "intent": IntentType.三角函数, "reason": "英文三角函数"},
+        {"pattern": r"(sin|cos|tan)\s*\(", "intent": IntentType.三角函数, "reason": "英文三角函数(宽)"},
         {"pattern": r"(abs|sqrt|log)\s*\(", "intent": IntentType.数学函数, "reason": "英文函数名"},
         {"pattern": r".*(次方|幂|指数).*", "intent": IntentType.数学函数, "reason": "含次方词优先数学函数"},
     ]
@@ -305,8 +311,9 @@ class FriendlyIntentParser:
         # ── 策略3：常识推理匹配 ────────────────────────────
         for rule in self.COMMONSENSE_RULES:
             if re.search(rule["pattern"], text, re.IGNORECASE):
-                scores[rule["intent"]] = scores.get(rule["intent"], 0) + 4.0
-                _logger.debug("  [策略3-常识] 规则 %s 匹配: %s (+4.0) [reason=%s]",
+                rule_weight = rule.get("weight", 4.0)
+                scores[rule["intent"]] = scores.get(rule["intent"], 0) + rule_weight
+                _logger.debug("  [策略3-常识] 规则 %s 匹配: %s (+%.1f) [reason=%s]",
                              rule["pattern"], rule["intent"].value, rule["reason"])
 
         # ── 策略4：用户学习记忆 ────────────────────────────
