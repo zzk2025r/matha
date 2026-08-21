@@ -13,6 +13,8 @@ Matha AI Assistant — 小白友好的数学计算助手
 from __future__ import annotations
 import re
 import json
+import math
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -125,6 +127,91 @@ class FriendlyIntentParser:
         ],
     }
 
+    # ============================================================
+    # 常识知识库（解决"不懂变通"和"冷门应用"问题）
+    # ============================================================
+
+    # 近义词/俗语映射表
+    SYNONYM_MAP: dict[str, list[str]] = {
+        "加": ["加", "加上", "加起来", "求和", "合计", "一共", "添", "并"],
+        "减": ["减", "减去", "差", "少了", "剩下", "扣", "去掉"],
+        "乘": ["乘", "乘以", "的倍", "几倍", "翻倍", "扩大", "乘积"],
+        "除": ["除", "除以", "除法", "平均", "分成", "份", "均分"],
+        "算": ["算", "计算", "求", "得", "等于", "多少", "结果", "答案"],
+        "素数": ["素数", "质数", "质因数", "因数分解", "素因数"],
+        "阶乘": ["阶乘", "!", "连乘"],
+        "平均": ["平均", "平均值", "均值", "平均数"],
+        "平方": ["平方", "平方数", "二次方", "自乘"],
+        "开方": ["开方", "平方根", "根号", "开根", "反平方"],
+        "单位": ["换算", "转换", "换算成", "变成"],
+        "下落": ["下落", "落下", "掉下来", "扔下去", "自由下落"],
+        "射程": ["射程", "飞多远", "飞多高", "落点", "飞行距离"],
+    }
+
+    # 冷门/变体表达 → 标准意图映射
+    VARIATION_MAP: dict[str, IntentType] = {
+        # 算术变体
+        "帮我算一下": IntentType.算术, "算算": IntentType.算术,
+        "怎么算": IntentType.算术, "等于几": IntentType.算术,
+        "等于多少": IntentType.算术, "是多少": IntentType.算术,
+        "结果是": IntentType.算术, "求结果": IntentType.算术,
+        # 加法变体
+        "一共有": IntentType.算术, "总共": IntentType.算术,
+        "合计": IntentType.算术, "加起来": IntentType.算术,
+        "总共多少": IntentType.算术, "全部加起来": IntentType.算术,
+        # 减法变体
+        "剩下多少": IntentType.算术, "还差": IntentType.算术,
+        "少了多少": IntentType.算术, "相差": IntentType.算术,
+        # 乘法变体
+        "几倍": IntentType.算术, "翻倍": IntentType.算术,
+        "三倍": IntentType.算术, "乘以": IntentType.算术,
+        # 除法变体
+        "平均分成": IntentType.算术, "一人分": IntentType.算术,
+        "每份": IntentType.算术, "一半": IntentType.算术,
+        "二分之一": IntentType.算术,
+        # 统计变体
+        "这组数": IntentType.统计, "这些数": IntentType.统计,
+        "数据": IntentType.统计, "统计数据": IntentType.统计,
+        "最大": IntentType.统计, "最小": IntentType.统计,
+        "极差": IntentType.统计, "方差": IntentType.统计, "中位数": IntentType.统计,
+        # 物理变体
+        "掉下去": IntentType.物理, "扔出去": IntentType.物理,
+        "抛出去": IntentType.物理, "飞行": IntentType.物理,
+        "速度": IntentType.物理, "加速度": IntentType.物理,
+        # 数论变体
+        "判断": IntentType.素数因数, "是不是": IntentType.素数因数,
+        "能不能整除": IntentType.素数因数, "因数": IntentType.素数因数,
+        "因子": IntentType.素数因数, "分解": IntentType.素数因数, "整除": IntentType.素数因数,
+        # 三角函数变体
+        "正弦": IntentType.三角函数, "余弦": IntentType.三角函数, "正切": IntentType.三角函数,
+        # 数学函数变体
+        "根号": IntentType.数学函数, "平方根": IntentType.数学函数,
+        "立方根": IntentType.数学函数, "对数": IntentType.数学函数,
+        "指数": IntentType.数学函数, "幂": IntentType.数学函数,
+        "绝对值": IntentType.数学函数, "正负": IntentType.数学函数,
+        # 单位换算变体
+        "多少米": IntentType.单位换算, "多少千米": IntentType.单位换算,
+        "多少克": IntentType.单位换算, "多少千克": IntentType.单位换算,
+        "多少华氏度": IntentType.单位换算, "多少摄氏度": IntentType.单位换算,
+    }
+
+    # 生活常识推理规则
+    COMMONSENSE_RULES: list[dict] = [
+        {"pattern": r"\d+\s*(半|一半|二分之一)", "intent": IntentType.算术, "reason": "一半→除法"},
+        {"pattern": r"(\d+)\s*(倍|倍)", "intent": IntentType.算术, "reason": "倍→乘法"},
+        {"pattern": r"(\d+)\s*(加|加上|加起来)", "intent": IntentType.算术, "reason": "加→加法"},
+        {"pattern": r"(\d+)\s*(减|减去|减掉)", "intent": IntentType.算术, "reason": "减→减法"},
+        {"pattern": r"(\d+)\s*(平方|自乘)", "intent": IntentType.数学函数, "reason": "平方→平方运算"},
+        {"pattern": r"(\d+)\s*(开方|根号|开根)", "intent": IntentType.数学函数, "reason": "开方→平方根"},
+        {"pattern": r"(\d+)\s*(秒|秒钟)", "intent": IntentType.物理, "reason": "秒→物理时间"},
+        {"pattern": r"(\d+)\s*(米|公尺)", "intent": IntentType.单位换算, "reason": "米→单位换算"},
+        {"pattern": r"(\d+)\s*(到|至)\s*(\d+)\s*(的)?\s*(素数|质数)", "intent": IntentType.素数因数, "reason": "范围+素数"},
+        {"pattern": r"(\d+)\s*(的)?\s*(阶乘|!)", "intent": IntentType.素数因数, "reason": "阶乘"},
+        {"pattern": r"(\d+)\s*(的)?\s*(因数|因子)", "intent": IntentType.素数因数, "reason": "因数"},
+        {"pattern": r"(\d+)\s*(的)?\s*(平方根|根号)", "intent": IntentType.数学函数, "reason": "平方根"},
+        {"pattern": r"(\d+)\s*(平均|均值)", "intent": IntentType.统计, "reason": "平均→统计"},
+    ]
+
     # 错误解释模板
     ERROR_EXPLANATIONS = {
         "未定义变量": {
@@ -162,29 +249,55 @@ class FriendlyIntentParser:
     def __init__(self):
         self._tasks: dict[str, Task] = {}
         self._messages: list[ChatMessage] = []
+        self._learned_patterns: dict[str, IntentType] = {}  # 学习用户表达
 
     # ── 意图分类 ─────────────────────────────────────────────
 
     def classify(self, text: str) -> tuple[IntentType, float]:
         """根据关键词分类，返回 (类型, 置信度)。
 
-        策略：按关键词长度降序排列后匹配，长关键词优先（如"阶乘"优先于"乘"），
-        避免短词误匹配长词内含的片段。
+        增强策略：
+          1. 精确关键词匹配（原有逻辑）
+          2. 变体表达匹配（VARIATION_MAP）
+          3. 常识推理匹配（COMMONSENSE_RULES）
+          4. 数字特征推断（fallback）
+          5. 用户学习记忆（_learned_patterns）
         """
         text_lower = text.lower()
         scores: dict[IntentType, float] = {}
 
+        # ── 策略1：精确关键词匹配 ────────────────────────────
         for intent_type, keywords in self.KEYWORD_MAP.items():
             score = 0.0
-            # 按长度降序排列，确保长关键词优先匹配
             sorted_kw = sorted(keywords, key=len, reverse=True)
             for kw in sorted_kw:
                 if kw in text_lower:
-                    # 关键词越长越精确，权重越高
                     weight = 3.0 if len(kw) >= 3 else 2.0 if len(kw) == 2 else 1.0
                     score += weight
             if score > 0:
-                scores[intent_type] = score
+                scores[intent_type] = scores.get(intent_type, 0) + score
+
+        # ── 策略2：变体表达匹配 ────────────────────────────
+        for variant, intent in self.VARIATION_MAP.items():
+            if variant in text_lower:
+                scores[intent] = scores.get(intent, 0) + 5.0
+
+        # ── 策略3：常识推理匹配 ────────────────────────────
+        for rule in self.COMMONSENSE_RULES:
+            if re.search(rule["pattern"], text, re.IGNORECASE):
+                scores[rule["intent"]] = scores.get(rule["intent"], 0) + 4.0
+
+        # ── 策略4：用户学习记忆 ────────────────────────────
+        for pattern, intent in self._learned_patterns.items():
+            if pattern in text_lower:
+                scores[intent] = scores.get(intent, 0) + 6.0
+
+        # ── 策略5：数字特征推断（fallback） ────────────────
+        nums = self.extract_numbers(text)
+        if not scores:
+            inferred = self._infer_from_numbers(text, nums)
+            if inferred:
+                scores[inferred] = 2.0
 
         if not scores:
             return IntentType.未知, 0.1
@@ -193,6 +306,41 @@ class FriendlyIntentParser:
         total = sum(scores.values())
         confidence = scores[best_type] / total * 0.9 + 0.1
         return best_type, min(confidence, 1.0)
+
+    def _infer_from_numbers(self, text: str, nums: list[float]) -> Optional[IntentType]:
+        """从数字特征推断意图（兜底策略）。"""
+        text_lower = text.lower()
+        if len(nums) >= 2:
+            # 多个数字 → 算术运算可能性高
+            return IntentType.算术
+        if len(nums) == 1:
+            n = nums[0]
+            # 大数 → 可能素数/阶乘
+            if n >= 10 and n <= 1000:
+                if any(kw in text_lower for kw in ["判断", "是否", "能不能"]):
+                    return IntentType.素数因数
+                if any(kw in text_lower for kw in ["因数", "因子", "分解"]):
+                    return IntentType.素数因数
+            if n >= 1 and n <= 20:
+                if any(kw in text_lower for kw in ["阶乘", "!"]):
+                    return IntentType.素数因数
+            # 小数 → 可能是物理量
+            if n > 0 and n < 100:
+                if any(kw in text_lower for kw in ["秒", "时间", "速度", "下落"]):
+                    return IntentType.物理
+                if any(kw in text_lower for kw in ["度", "角度", "sin", "cos", "tan"]):
+                    return IntentType.三角函数
+        return None
+
+    def learn(self, text: str, intent: IntentType) -> None:
+        """学习用户的表达方式，提升未来分类准确度。"""
+        # 提取文本中的关键词模式
+        words = re.findall(r'[\u4e00-\u9fa5]+', text)
+        for word in words:
+            if len(word) >= 2:
+                self._learned_patterns[word] = intent
+        logger = logging.getLogger("matha.ai")
+        logger.info(f"学习新模式: '{text}' → {intent.value}")
 
     # ── 参数提取 ─────────────────────────────────────────────
 
@@ -261,11 +409,19 @@ class FriendlyIntentParser:
                 if kw in text:
                     op = sym
                     break
+            # 补充："倍" → 乘法
+            if op == "+" and "倍" in text:
+                op = "*"
             return [Step(
                 description=f"计算 {nums[0]} {op} {nums[1]}",
                 matha_code=f"#1：[{nums[0]} {op} {nums[1]}]",
                 explanation=f"{nums[0]} 和 {nums[1]} 做 {'加法' if op=='+' else '减法' if op=='-' else '乘法' if op=='*' else '除法'} → 结果",
             )]
+        # 单数字 + 倍 → 乘法（自身倍）
+        if len(nums) == 1 and "倍" in text:
+            n = nums[0]
+            return [Step(f"计算 {n} 的倍",
+                          f"#1：[{n} * {n}]", f"{n} 的倍数 = {n} × {n}")]
         return [Step(
             description="请提供两个数字",
             matha_code="",
@@ -570,6 +726,130 @@ class FriendlyIntentParser:
     def get_history(self, limit: int = 20) -> list[ChatMessage]:
         return self._messages[-limit:]
 
+    # ── 常识推断 ──────────────────────────────────────────────
+
+    def _decompose_commonsense(self, text: str, intent: IntentType) -> list[Step]:
+        """当标准分解失败时，用常识推断生成步骤。"""
+        nums = self.extract_numbers(text)
+        text_lower = text.lower()
+        steps = []
+
+        # 1. "帮我算一下" / "算算" 等泛化表达
+        if any(kw in text_lower for kw in ["帮我算", "算算", "怎么算", "求一下", "算一算"]):
+            if len(nums) >= 2:
+                op = "+"
+                if "减" in text_lower: op = "-"
+                elif "乘" in text_lower or "倍" in text_lower: op = "*"
+                elif "除" in text_lower or "一半" in text_lower: op = "/"
+                steps.append(Step(f"计算 {nums[0]} {op} {nums[1]}",
+                                  f"#1：[{nums[0]} {op} {nums[1]}]",
+                                  f"{nums[0]} {op} {nums[1]} = ?"))
+            elif len(nums) == 1:
+                # 单数字 → 尝试常见函数
+                n = nums[0]
+                if "平方" in text_lower:
+                    steps.append(Step(f"计算 {n} 的平方",
+                                      f"#1：[{n} * {n}]", f"{n} 的平方 = {n} × {n}"))
+                elif "阶乘" in text_lower or "!" in text_lower:
+                    steps.append(Step(f"计算 {int(n)} 的阶乘",
+                                      f"#1：[阶乘({int(n)})]", f"{int(n)}! = ?"))
+                elif "根" in text_lower:
+                    steps.append(Step(f"计算 {n} 的平方根",
+                                      f"#1：[sqrt({n})]", f"√{n} = ?"))
+            if steps:
+                return steps
+
+        # 2. "一半" / "二分之一"
+        if "一半" in text_lower or "二分之一" in text_lower:
+            if nums:
+                steps.append(Step(f"计算 {nums[0]} 的一半",
+                                  f"#1：[{nums[0]} / 2]", f"{nums[0]} ÷ 2 = ?"))
+                return steps
+
+        # 3. "倍" 相关
+        if "倍" in text_lower:
+            if len(nums) >= 2:
+                steps.append(Step(f"计算 {nums[0]} 的 {nums[1]} 倍",
+                                  f"#1：[{nums[0]} * {nums[1]}]",
+                                  f"{nums[0]} 的 {nums[1]} 倍 = {nums[0]} × {nums[1]}"))
+                return steps
+
+        # 4. 单位换算常见模式
+        unit_map = {
+            "千米": ("千米", "米", 1000.0), "公里": ("公里", "米", 1000.0),
+            "米": ("米", "千米", 0.001), "厘米": ("厘米", "米", 0.01),
+            "千克": ("千克", "克", 1000.0), "吨": ("吨", "千克", 1000.0),
+            "华氏度": ("华氏度", "摄氏度", None), "摄氏度": ("摄氏度", "华氏度", None),
+        }
+        # 时间换算特殊处理
+        time_map = {
+            "秒": ("秒", "分", 60.0), "分": ("分", "小时", 60.0),
+            "小时": ("小时", "天", 24.0), "天": ("天", "小时", 1.0/24.0),
+        }
+        for unit, (from_u, to_u, factor) in time_map.items():
+            if unit in text_lower and nums:
+                steps.append(Step(f"{from_u}→{to_u}换算",
+                                  f"#1：[{nums[0]} / {factor}]",
+                                  f"{nums[0]} {from_u} = {nums[0]/factor} {to_u}"))
+                return steps
+        for unit, (from_u, to_u, factor) in unit_map.items():
+            if unit in text_lower and nums:
+                steps.append(Step(f"{from_u}→{to_u}换算",
+                                  f"#1：[换算_{from_u}_{to_u}({nums[0]})]",
+                                  f"{nums[0]} {from_u} = ? {to_u}"))
+                return steps
+
+        # 5. 纯数字 → 猜测算术
+        if nums and not steps:
+            if len(nums) >= 2:
+                steps.append(Step(f"计算 {nums[0]} 与 {nums[1]} 的关系",
+                                  f"#1：[{nums[0]} + {nums[1]}]",
+                                  f"两个数 {nums[0]} 和 {nums[1]}，尝试加法"))
+            elif len(nums) == 1:
+                n = nums[0]
+                if n == int(n):
+                    n_int = int(n)
+                    steps.append(Step(f"分析数字 {n_int}",
+                                      f"#1：[阶乘({n_int})]",
+                                      f"数字 {n_int}，尝试阶乘运算"))
+
+        return steps
+
+    def _try_alternative(self, text: str, intent: IntentType) -> list[Step]:
+        """当首选方案失败时，尝试替代方案。"""
+        nums = self.extract_numbers(text)
+        text_lower = text.lower()
+
+        # 替代方案1：如果是算术但加法失败，试其他运算
+        if intent == IntentType.算术 and nums:
+            alternatives = []
+            if len(nums) >= 2:
+                for op_name, op_sym, op_func in [
+                    ("乘法", "*", lambda a,b: a*b),
+                    ("除法", "/", lambda a,b: a/b if b else None),
+                    ("减法", "-", lambda a,b: a-b),
+                    ("幂运算", "^", lambda a,b: a**b),
+                ]:
+                    try:
+                        r = op_func(nums[0], nums[1])
+                        if r is not None:
+                            alternatives.append(Step(
+                                f"替代方案：{op_name}",
+                                f"#1：[{nums[0]} {op_sym} {nums[1]}]",
+                                f"{op_name}：{nums[0]} {op_sym} {nums[1]} = {r}"))
+                    except (ZeroDivisionError, ValueError):
+                        pass
+            return alternatives
+
+        # 替代方案2：物理计算 — 如果数字像时间，试自由落体
+        if intent == IntentType.物理 and nums:
+            t = nums[0]
+            return [Step("替代：自由落体",
+                         f"#1：[运动_自由落体位移({t})]",
+                         f"尝试自由落体计算，时间 {t} 秒")]
+
+        return []
+
 
 # ============================================================
 # 主控制器
@@ -600,11 +880,14 @@ class MathaAIAssistant:
         if not text:
             return {"reply": "请输入你的问题，例如：'计算 3 加 5'", "type": "text"}
 
-        # 1. 分类意图
+        # 1. 分类意图（多策略增强）
         intent_type, confidence = self.parser.classify(text)
 
-        # 2. 分解步骤
+        # 2. 分解步骤（增强版：多路径尝试）
         steps = self.parser.decompose(text)
+        if not steps or (len(steps) == 1 and not steps[0].matha_code):
+            # 分解失败 → 尝试常识推断
+            steps = self.parser._decompose_commonsense(text, intent_type)
 
         # 3. 生成代码
         code_lines = []
@@ -626,6 +909,17 @@ class MathaAIAssistant:
                 result = outputs[-1] if outputs else None
             except Exception as e:
                 error = str(e)
+                # 执行失败 → 尝试替代方案
+                if not matha_code or not result:
+                    alt_steps = self.parser._try_alternative(text, intent_type)
+                    if alt_steps and alt_steps[0].matha_code:
+                        try:
+                            alt_code = alt_steps[0].matha_code
+                            outputs2, _ = i.run(parse(alt_code))
+                            result = outputs2[-1] if outputs2 else None
+                            steps = alt_steps
+                        except Exception:
+                            pass
 
         # 5. 生成回复
         if error:
