@@ -50,7 +50,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if parsed.path == '/' or parsed.path == '/index.html':
             self._serve_file('web/index.html', 'text/html; charset=utf-8')
         elif parsed.path == '/api/health':
-            self._send_json({"status": "ok", "version": "1.2.3"})
+            self._send_json({"status": "ok", "version": "1.2.7"})
         elif parsed.path == '/api/concepts':
             from src.ai_assistant import FriendlyIntentParser
             p = FriendlyIntentParser()
