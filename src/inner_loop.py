@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Matha 全功能内循环 v1.2.21
+Matha 全功能内循环 v1.2.22
 ============================
 将 Matha 所有功能模块构成一个自我闭环的持续改进系统：
 
   感知层  →  认知层  →  执行层  →  验证层  →  持久化
      ↑                                                      │
      └──────────────── 反馈循环 ←←←←←←←←←←←←←←←←←←←←←←←←←←←┘
+
+三层自能力：
+  • 自扩展：基于交互模式自动扩展知识、意图、关键词
+  • 自升级：版本管理、自动补丁、失败回滚
+  • 自优化：性能监控、自适应间隔、内存清理
 
 模块集成：
   • 意图解析器 (FriendlyIntentParser)   — 自然语言 → 数学代码
@@ -29,6 +34,7 @@ import os
 import time
 import json
 import logging
+import re
 import threading
 import atexit
 from dataclasses import dataclass, field
@@ -339,6 +345,216 @@ class MathaInnerLoop:
         intent, _ = self._assistant.parser.classify(text)
         return intent.value
 
+    # ── 4. 自扩展层 ────────────────────────────────────────────────────────────
+
+    def self_extend_concepts(self) -> int:
+        """自扩展：基于交互模式自动扩展数学概念库。"""
+        from src.ai_assistant import FriendlyIntentParser, IntentType
+        p = FriendlyIntentParser()
+        known = set(p.MATH_CONCEPTS.keys())
+        added = 0
+
+        recent_fails = [r for r in self._interaction_buffer
+                        if not r.success and r.intent == "unknown"]
+        for record in recent_fails[-10:]:
+            words = [w for w in record.text.split() if len(w) >= 2]
+            for word in words:
+                if word not in known and word not in p.MATH_CONCEPTS:
+                    candidates = [c for c in list(p.MATH_CONCEPTS.keys())
+                                  if word in c or c in word]
+                    if not candidates:
+                        p.MATH_CONCEPTS[word] = {
+                            "是什么": f"{word}是一个数学概念。",
+                            "符号": "",
+                            "例子": f"例如：{word}的计算方法。",
+                            "生活中的例子": f"{word}在生活中的应用。",
+                        }
+                        known.add(word)
+                        added += 1
+                        logger.info(f"  [自扩展] 新增概念: {word}")
+
+        failure_patterns = {}
+        for err in self._error_buffer:
+            intent = err.get("intent", "unknown")
+            if intent == "unknown":
+                keywords = [w for w in err["text"].split() if len(w) >= 2]
+                for kw in keywords:
+                    failure_patterns[kw] = failure_patterns.get(kw, 0) + 1
+
+        for word, count in sorted(failure_patterns.items(), key=lambda x: -x[1])[:5]:
+            if word not in known and count >= 2:
+                matched_intent = None
+                for itype, kws in p.KEYWORD_MAP.items():
+                    if word in str(kws):
+                        matched_intent = itype
+                        break
+                if matched_intent is None:
+                    p.VARIATION_MAP[word] = matched_intent or IntentType.算术
+                    p.KEYWORD_MAP.setdefault(IntentType.算术, []).append(word)
+                    added += 1
+                    logger.info(f"  [自扩展] 新增变体: {word} → arithmetic")
+
+        if added > 0:
+            new_rules = []
+            for name in list(p.MATH_CONCEPTS.keys())[-added:]:
+                new_rules.append({
+                    "pattern": rf".*{re.escape(name)}.*",
+                    "intent": IntentType.算术,
+                    "reason": f"自扩展: {name}",
+                    "weight": 3.0,
+                })
+            p.COMMONSENSE_RULES.extend(new_rules)
+
+        self._state.total_resources_expanded += added
+        if added > 0 and self._on_improve:
+            self._on_improve(added)
+        return added
+
+    def self_extend_intents(self) -> int:
+        """自扩展：基于交互数据自动发现新意图类型。"""
+        from src.ai_assistant import FriendlyIntentParser, IntentType
+        p = FriendlyIntentParser()
+        added = 0
+
+        unknown_keywords: dict[str, int] = {}
+        for record in self._interaction_buffer[-50:]:
+            if record.intent == "unknown":
+                words = [w for w in record.text.lower().split() if len(w) >= 2]
+                for w in words:
+                    unknown_keywords[w] = unknown_keywords.get(w, 0) + 1
+
+        for kw, count in sorted(unknown_keywords.items(), key=lambda x: -x[1])[:10]:
+            if count < 2:
+                continue
+            matched = False
+            for itype, kws in p.KEYWORD_MAP.items():
+                if kw in kws:
+                    matched = True
+                    break
+            if not matched:
+                for rule in p.COMMONSENSE_RULES:
+                    if kw in rule.get("pattern", ""):
+                        matched = True
+                        break
+            if not matched:
+                if kw not in str(p.KEYWORD_MAP.get(IntentType.算术, [])):
+                    p.KEYWORD_MAP[IntentType.算术].append(kw)
+                    added += 1
+                    logger.info(f"  [自扩展] 关键词映射: {kw} → arithmetic")
+        return added
+
+    # ── 5. 自升级层 ────────────────────────────────────────────────────────────
+
+    def self_upgrade_check(self) -> dict:
+        """自升级检查：检测版本状态和可用升级。"""
+        current_version = "1.2.22"
+        known_versions = ["1.2.21", "1.2.20", "1.2.19", "1.2.18", "1.2.17"]
+        latest = max(known_versions) if known_versions else current_version
+        is_latest = current_version >= latest
+
+        pending_patches = []
+        if self._engine:
+            history = self._engine.get_defect_stats()
+            open_defects = history.get("open_defects", [])
+            pending_patches = [
+                {"id": d.get("id", ""), "severity": d.get("severity", "")}
+                for d in open_defects
+                if d.get("severity") in ("critical", "high")
+            ]
+
+        return {
+            "current_version": current_version,
+            "latest_version": latest,
+            "is_latest": is_latest,
+            "can_upgrade": not is_latest,
+            "pending_patches": pending_patches,
+        }
+
+    def self_upgrade_apply(self, target_version: str = None) -> dict:
+        """自升级：应用补丁并升级到目标版本。"""
+        result = {"success": False, "from_version": None, "to_version": None,
+                   "patches_applied": 0, "errors": []}
+        if self._engine is None:
+            result["errors"].append("引擎未初始化")
+            return result
+
+        defects = self._engine.self_diagnose()
+        patches = []
+        for defect in defects:
+            if defect.severity.value in ("critical", "high"):
+                patch = self._engine.generate_patch(defect)
+                if patch:
+                    patches.append({"defect": defect.defect_id, "patch": patch})
+
+        applied = 0
+        for patch_info in patches:
+            try:
+                success = self._engine.run_upgrade_pipeline(patch_info["patch"])
+                if success:
+                    applied += 1
+                else:
+                    result["errors"].append(f"补丁 {patch_info['defect']} 应用失败")
+            except Exception as e:
+                result["errors"].append(f"补丁 {patch_info['defect']} 异常: {e}")
+
+        result["from_version"] = "1.2.22"
+        result["to_version"] = target_version or "1.2.22"
+        result["patches_applied"] = applied
+        result["success"] = applied > 0 or len(defects) == 0
+        logger.info(f"  [自升级] 应用补丁: {applied}/{len(patches)}")
+        return result
+
+    def self_upgrade_rollback(self) -> bool:
+        """自升级回滚：回滚到最后稳定版本。"""
+        if self._engine:
+            self._engine._rollback_patch()
+            logger.info("  [自升级] 已回滚到安全版本")
+            return True
+        return False
+
+    # ── 6. 自优化层 ────────────────────────────────────────────────────────────
+
+    def self_optimize_performance(self) -> dict:
+        """自优化：分析性能并自动优化配置。"""
+        improvements = {"interval_adjusted": False, "buffer_cleaned": 0,
+                        "log_compressed": False, "cache_optimized": 0,
+                        "new_interval": self._interval}
+
+        if self._state.total_duration > 0 and self._state.cycle_count > 0:
+            avg_cycle_time = self._state.total_duration / self._state.cycle_count
+            if avg_cycle_time > 10.0 and self._interval > 10.0:
+                new_interval = min(self._interval * 1.5, 120.0)
+                self._interval = new_interval
+                improvements["interval_adjusted"] = True
+                improvements["new_interval"] = new_interval
+                logger.info(f"  [自优化] 调整间隔: {self._interval:.0f}s (平均 {avg_cycle_time:.1f}s)")
+            elif avg_cycle_time < 2.0 and self._interval > 5.0:
+                new_interval = max(self._interval * 0.8, 5.0)
+                self._interval = new_interval
+                improvements["interval_adjusted"] = True
+                improvements["new_interval"] = new_interval
+                logger.info(f"  [自优化] 缩短间隔: {self._interval:.0f}s (平均 {avg_cycle_time:.1f}s)")
+
+        cutoff = time.time() - 3600
+        before = len(self._interaction_buffer)
+        self._interaction_buffer = [r for r in self._interaction_buffer if r.timestamp > cutoff]
+        improvements["buffer_cleaned"] = before - len(self._interaction_buffer)
+
+        before = len(self._error_buffer)
+        self._error_buffer = [e for e in self._error_buffer if e.get("timestamp", 0) > cutoff]
+        improvements["buffer_cleaned"] += before - len(self._error_buffer)
+
+        if self._engine and len(self._engine._growth_log) > 100:
+            self._engine._growth_log = self._engine._growth_log[-100:]
+            improvements["log_compressed"] = True
+
+        if self._engine and len(self._engine._web_search_cache) > 50:
+            self._engine._web_search_cache = dict(
+                list(self._engine._web_search_cache.items())[-50:])
+            improvements["cache_optimized"] = len(self._engine._web_search_cache) - 50
+
+        return improvements
+
     # ── 4. 验证层 ───────────────────────────────────────────────────────────────
 
     def verify_fixes(self, pre_diagnosis: dict) -> dict:
@@ -481,6 +697,37 @@ class MathaInnerLoop:
         if verbose:
             logger.info(f"  [验证] 缺陷减少: {verification['defects_reduced']}, "
                          f"健康提升: {'✓' if verification['health_improved'] else '✗'}")
+
+        # Phase 4.5: 自扩展
+        if verbose:
+            logger.info("  [自扩展] 检测知识盲区和模式...")
+        expanded_concepts = self.self_extend_concepts()
+        expanded_intents = self.self_extend_intents()
+        if verbose and (expanded_concepts > 0 or expanded_intents > 0):
+            logger.info(f"  [自扩展] 新增: {expanded_concepts} 概念, "
+                         f"{expanded_intents} 意图映射")
+
+        # Phase 4.6: 自升级检查
+        if verbose:
+            logger.info("  [自升级] 检查版本和补丁状态...")
+        upgrade_status = self.self_upgrade_check()
+        if verbose:
+            logger.info(f"  [自升级] 版本: {upgrade_status['current_version']}, "
+                         f"待处理补丁: {len(upgrade_status['pending_patches'])}")
+        # 有高危缺陷时自动尝试升级
+        if upgrade_status["pending_patches"] and not upgrade_status.get("is_latest"):
+            if verbose:
+                logger.info("  [自升级] 检测到待处理高危缺陷，尝试自动升级...")
+            upgrade_result = self.self_upgrade_apply()
+            if upgrade_result["success"]:
+                logger.info(f"  [自升级] 升级成功: {upgrade_result['patches_applied']} 补丁已应用")
+            else:
+                logger.warning(f"  [自升级] 升级部分失败: {upgrade_result['errors']}")
+
+        # Phase 4.7: 自优化
+        if verbose:
+            logger.info("  [自优化] 性能分析与优化...")
+        optimizations = self.self_optimize_performance()
 
         # Phase 5: 持久化
         self.save_state()

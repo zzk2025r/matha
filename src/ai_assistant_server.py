@@ -51,7 +51,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if parsed.path == '/' or parsed.path == '/index.html':
             self._serve_file('web/index.html', 'text/html; charset=utf-8')
         elif parsed.path == '/api/health':
-            self._send_json({"status": "ok", "version": "1.2.21"})
+            self._send_json({"status": "ok", "version": "1.2.22"})
         elif parsed.path == '/api/growth/stats':
             from src.growth_engine import create_growth_engine
             engine = create_growth_engine(assistant=self.assistant)
@@ -107,6 +107,42 @@ class APIHandler(BaseHTTPRequestHandler):
             loop = get_inner_loop()
             loop.stop_loop()
             self._send_json({"status": "stopped", "message": "内循环持续模式已停止"})
+        # ── 自扩展 API ─────────────────────────────────────────────────────────
+        elif parsed.path == '/api/inner_loop/extend':
+            loop = get_inner_loop()
+            if not loop._engine:
+                loop.init_modules()
+            concepts = loop.self_extend_concepts()
+            intents = loop.self_extend_intents()
+            self._send_json({
+                "status": "extended",
+                "concepts_added": concepts,
+                "intents_added": intents,
+                "total_concepts": len(loop._assistant.parser.MATH_CONCEPTS) if loop._assistant else 0,
+            })
+        # ── 自升级 API ─────────────────────────────────────────────────────────
+        elif parsed.path == '/api/inner_loop/upgrade/check':
+            loop = get_inner_loop()
+            if not loop._engine:
+                loop.init_modules()
+            self._send_json(loop.self_upgrade_check())
+        elif parsed.path == '/api/inner_loop/upgrade/apply':
+            loop = get_inner_loop()
+            if not loop._engine:
+                loop.init_modules()
+            result = loop.self_upgrade_apply()
+            self._send_json(result)
+        elif parsed.path == '/api/inner_loop/upgrade/rollback':
+            loop = get_inner_loop()
+            result = loop.self_upgrade_rollback()
+            self._send_json({"status": "rolled_back" if result else "no_engine"})
+        # ── 自优化 API ─────────────────────────────────────────────────────────
+        elif parsed.path == '/api/inner_loop/optimize':
+            loop = get_inner_loop()
+            if not loop._engine:
+                loop.init_modules()
+            result = loop.self_optimize_performance()
+            self._send_json(result)
         elif parsed.path == '/api/concepts':
             from src.ai_assistant import FriendlyIntentParser
             p = FriendlyIntentParser()
