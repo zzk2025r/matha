@@ -50,7 +50,44 @@ class APIHandler(BaseHTTPRequestHandler):
         if parsed.path == '/' or parsed.path == '/index.html':
             self._serve_file('web/index.html', 'text/html; charset=utf-8')
         elif parsed.path == '/api/health':
-            self._send_json({"status": "ok", "version": "1.2.16"})
+            self._send_json({"status": "ok", "version": "1.2.17"})
+        elif parsed.path == '/api/growth/stats':
+            from src.growth_engine import create_growth_engine
+            engine = create_growth_engine(assistant=self.assistant)
+            self._send_json(engine.get_growth_stats())
+        elif parsed.path == '/api/growth/audit':
+            from src.growth_engine import create_growth_engine
+            engine = create_growth_engine(assistant=self.assistant)
+            resources = engine.audit_resources()
+            self._send_json({
+                "resources": [
+                    {"name": e.name, "kind": e.kind, "status": e.status}
+                    for e in resources
+                ],
+                "total": len(resources),
+                "missing": sum(1 for e in resources if e.status != "ok"),
+            })
+        elif parsed.path == '/api/growth/defects':
+            from src.growth_engine import create_growth_engine
+            engine = create_growth_engine(assistant=self.assistant)
+            self._send_json(engine.get_defect_stats())
+        elif parsed.path == '/api/growth/diagnose':
+            from src.growth_engine import create_growth_engine
+            engine = create_growth_engine(assistant=self.assistant)
+            defects = engine.self_diagnose()
+            self._send_json({
+                "new_defects": len(defects),
+                "defects": [
+                    {"id": d.defect_id, "severity": d.severity.value,
+                     "category": d.category.value, "message": d.message}
+                    for d in defects
+                ]
+            })
+        elif parsed.path == '/api/growth/trigger':
+            from src.growth_engine import create_growth_engine
+            engine = create_growth_engine(assistant=self.assistant)
+            report = engine.trigger_growth()
+            self._send_json(report)
         elif parsed.path == '/api/concepts':
             from src.ai_assistant import FriendlyIntentParser
             p = FriendlyIntentParser()

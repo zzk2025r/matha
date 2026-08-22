@@ -378,6 +378,11 @@ class FriendlyIntentParser:
         self._tasks: dict[str, Task] = {}
         self._messages: list[ChatMessage] = []
         self._learned_patterns: dict[str, IntentType] = {}  # 学习用户表达
+        # ── 成长记忆系统 ────────────────────────────────
+        self._failure_log: list[dict] = []       # 执行失败记录
+        self._correction_log: list[dict] = []    # 用户纠正记录
+        self._growth_log: list[dict] = []        # 成长日志
+        self._known_expressions: dict[str, str] = {}  # 已知表达→意图映射
 
     # ── 意图分类 ─────────────────────────────────────────────
 
