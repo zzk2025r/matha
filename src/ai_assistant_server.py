@@ -50,7 +50,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if parsed.path == '/' or parsed.path == '/index.html':
             self._serve_file('web/index.html', 'text/html; charset=utf-8')
         elif parsed.path == '/api/health':
-            self._send_json({"status": "ok", "version": "1.2.19"})
+            self._send_json({"status": "ok", "version": "1.2.21"})
         elif parsed.path == '/api/growth/stats':
             from src.growth_engine import create_growth_engine
             engine = create_growth_engine(assistant=self.assistant)
@@ -132,6 +132,19 @@ class APIHandler(BaseHTTPRequestHandler):
 
                 # 调用 AI 助手
                 result = self.assistant.chat(text, self.interp)
+
+                # 内循环感知：记录交互，触发轻量诊断
+                try:
+                    loop = get_inner_loop()
+                    if not loop._engine:
+                        loop.init_modules()
+                    loop.on_interaction(text, result)
+                    # 如果交互失败，异步触发一轮内循环修复
+                    if not result.get("result") and result.get("type") != "guide":
+                        loop.cognitive_diagnose()
+                except Exception:
+                    pass
+
                 self._send_json(result)
 
             except json.JSONDecodeError:

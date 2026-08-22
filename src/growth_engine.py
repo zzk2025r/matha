@@ -921,6 +921,20 @@ class GrowthEngine:
             logger.info(f"  [修复] {defect.defect_id} 加入待处理队列")
             return True  # 不算失败
 
+    def auto_remediate_by_message(self, message: str, category: str = None) -> bool:
+        """根据消息内容查找并修复对应缺陷（内循环调用接口）。"""
+        target = None
+        for d in self._defects.values():
+            if d.status != "open":
+                continue
+            if message in d.message or d.message in message:
+                if category is None or d.category.value == category:
+                    target = d
+                    break
+        if target is None:
+            return False
+        return self.auto_remediate(target)
+
     # ── 9. 主成长循环 ────────────────────────────────────────────────────────────
 
     def run_growth_cycle(self, max_iterations: int = 3) -> GrowthReport:
