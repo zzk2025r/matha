@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant
 from src.interp import Interpreter
+from src.inner_loop import get_inner_loop
 
 
 # ── API 处理器 ──────────────────────────────────────────────────
