@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Matha 自主成长引擎 v1.2.17
+Matha 自主成长引擎 v1.2.18
 ============================
 功能：
   1. 资源完整性检测与自动补齐
@@ -372,6 +372,7 @@ class GrowthEngine:
             if other.source == defect.source and other.status == "open":
                 self.link_defects(defect.defect_id, other.defect_id)
                 linked.append(other.defect_id)
+                logger.info(f"  [关联] {defect.defect_id} ↔ {other.defect_id} (同来源: {defect.source})")
         # 同类别高严重度
         for other in all_defects:
             if other.defect_id == defect.defect_id:
@@ -380,6 +381,7 @@ class GrowthEngine:
                 if defect.severity in (Severity.CRITICAL, Severity.HIGH):
                     self.link_defects(defect.defect_id, other.defect_id)
                     linked.append(other.defect_id)
+                    logger.info(f"  [关联] {defect.defect_id} ↔ {other.defect_id} (同类别: {defect.category.value})")
         return linked
 
     def balance_defects(self, defect: Defect) -> list[str]:
@@ -388,17 +390,29 @@ class GrowthEngine:
             return []
         linked = []
         # 检查其他功能是否也有类似问题
-        keywords = defect.message.split(":")[-1].strip()[:20] if ":" in defect.message else ""
+        # 有冒号取后半部分，无冒号取整个消息作为关键词
+        if ":" in defect.message:
+            keywords = defect.message.split(":")[-1].strip()[:20]
+        else:
+            keywords = defect.message[:20]
         for other_id, other in self._defects.items():
             if other.defect_id == defect.defect_id:
                 continue
             if other.status != "open":
                 continue
-            # 检查是否有语义相关的缺陷
-            if any(kw in other.message for kw in keywords.split() if len(kw) > 2):
+            # 中文文本按子串匹配（取连续2字符片段）
+            found = False
+            if len(keywords) >= 2:
+                for i in range(len(keywords) - 1):
+                    if keywords[i:i+2] in other.message:
+                        found = True
+                        break
+            else:
+                found = keywords in other.message
+            if found:
                 self.link_defects(defect.defect_id, other_id)
                 linked.append(other_id)
-                logger.info(f"  [平衡] {defect.defect_id} 与 {other_id} 发现关联")
+                logger.info(f"  [平衡] {defect.defect_id} 与 {other_id} 发现关联 (关键词: {keywords})")
         return linked
 
     # ── 4. 功能自检 ──────────────────────────────────────────────────────────────
@@ -576,7 +590,7 @@ class GrowthEngine:
         if query in self._web_search_cache:
             return self._web_search_cache[query]
 
-        # 尝试使用 MCP WebSearch
+        # 尝试使用 MCP WebSearch（超时 2s）
         try:
             from run_mcp import run_mcp
             result = run_mcp({"server_name": "default", "tool_name": "WebSearch",
@@ -585,16 +599,17 @@ class GrowthEngine:
                 self._web_search_cache[query] = result
                 logger.info(f"  [搜索] '{query}' → 找到补丁方案")
                 return result
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"  [搜索] MCP 不可用: {e}")
 
-        # 尝试 Python 内置搜索（备用）
+        # 尝试 Python 内置搜索（备用，超时 2s）
         try:
             import urllib.request
+            import urllib.parse
             import json
             url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
             req = urllib.request.Request(url, headers={"User-Agent": "MathaGrowthEngine/1.0"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=2) as resp:
                 html = resp.read().decode("utf-8", errors="ignore")
             # 提取相关代码片段
             snippets = re.findall(r'<div[^>]*class="result__snippet"[^>]*>(.*?)</div>', html)
@@ -776,11 +791,16 @@ class GrowthEngine:
 
         # 严重度策略
         if defect.severity == Severity.CRITICAL:
-            # 高严重度：先搜索补丁，再尝试自动修复
-            patch = self.search_and_patch(defect)
+            # 高严重度：先生成补丁（不搜索，避免超时），失败则降级
+            patch = self.generate_patch(defect)
             if patch:
-                return self.run_upgrade_pipeline(patch)
-            # 搜索失败则降级
+                result = self.run_upgrade_pipeline(patch)
+                if result:
+                    self._resolve_defect(defect.defect_id, "auto_patch",
+                                         patch_code=patch,
+                                         action=RemediationAction.自动生成补丁)
+                    return True
+            # 降级
             self._add_defect(
                 DefectCategory.功能缺陷,
                 Severity.LOW,
@@ -922,7 +942,9 @@ def create_growth_engine(assistant=None) -> GrowthEngine:
 def run_growth_cycle(assistant=None, max_iterations: int = 3) -> dict:
     """快捷入口：运行一次成长循环。"""
     engine = create_growth_engine(assistant)
-    return engine.trigger_growth()
+    report = engine.run_growth_cycle(max_iterations=max_iterations)
+    stats = engine.get_growth_stats()
+    return {"report": report.__dict__, "stats": stats}
 
 
 if __name__ == "__main__":
