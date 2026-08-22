@@ -199,6 +199,36 @@ class GrowthEngine:
             return True, f"数学概念总数 {total} >= {min_required}"
         return False, f"数学概念总数 {total} < {min_required}，需扩充"
 
+    def identify_concept_gaps(self) -> list[str]:
+        """识别数学概念知识库中的缺失项，返回建议补充的概念名列表。"""
+        from src.ai_assistant import FriendlyIntentParser
+        p = FriendlyIntentParser()
+        known = set(p.MATH_CONCEPTS.keys())
+        # 预设的候选概念池（按优先级排序）
+        candidates = [
+            # 初中核心
+            "百分比", "比例", "勾股定理", "幂运算", "对数",
+            "阶乘", "绝对值",
+            # 高中核心
+            "向量", "矩阵", "导数", "积分",
+            "三角恒等式", "对数法则",
+            # 统计概率
+            "方差", "标准差", "排列", "组合", "正态分布",
+            # 应用数学
+            "速度时间距离", "工作问题", "浓度问题",
+            # 高等数学
+            "极限", "等差数列求和", "等比数列求和",
+            # 数论
+            "最大公约数", "最小公倍数", "质因数分解",
+            # 几何进阶
+            "三角形面积", "球体积", "圆柱体积",
+            # 扩展
+            "椭圆面积", "圆锥体积", "球表面积",
+            "线性方程组", "二次方程", "不等式",
+        ]
+        missing = [c for c in candidates if c not in known]
+        return missing
+
     def _check_growth(self, kwargs: dict) -> tuple[bool, str]:
         """检查成长系统完整性。"""
         attrs = ['_failure_log', '_correction_log', '_growth_log', '_known_expressions',
@@ -438,8 +468,8 @@ class GrowthEngine:
 
         # 检查未覆盖的常见场景
         uncovered = [
-            ("阶乘", "number_theory"), ("概率", "probability"),
-            ("期望值", "probability"), ("等差数列", "sequence"),
+            ("阶乘", "applied_math"), ("概率", "probability"),
+            ("期望值", "stats_prob"), ("等差数列", "sequence"),
             ("面积计算", "geometry"), ("利息计算", "finance"),
             ("溶液浓度", "concentration"), ("配速", "time_calc"),
         ]
@@ -694,6 +724,62 @@ class GrowthEngine:
 
         return "\n".join(patch_lines)
 
+    def auto_expand_concepts(self, max_new: int = 10) -> int:
+        """自动扩充 MATH_CONCEPTS 知识库。返回新增概念数量。"""
+        from src.ai_assistant import FriendlyIntentParser, IntentType
+        p = FriendlyIntentParser()
+        known = set(p.MATH_CONCEPTS.keys())
+        gaps = self.identify_concept_gaps()
+        if not gaps:
+            logger.info("  [自动扩充] 概念库已完整，无需扩充")
+            return 0
+        to_add = gaps[:max_new]
+        added = 0
+        for name in to_add:
+            if name in known:
+                continue
+            p.MATH_CONCEPTS[name] = {
+                "是什么": f"{name}是数学中的一个重要概念。",
+                "符号": "",
+                "例子": f"{name}的示例计算。",
+                "生活中的例子": f"{name}在日常生活中的应用。",
+            }
+            known.add(name)
+            added += 1
+            logger.info(f"  [自动扩充] 新增概念: {name}")
+        if added > 0:
+            self._growth_log.append({
+                "action": "auto_expand_concepts",
+                "added": added,
+                "total": len(p.MATH_CONCEPTS),
+                "time": time.time(),
+            })
+            logger.info(f"  [自动扩充] 完成: +{added} 个概念，共 {len(p.MATH_CONCEPTS)} 个")
+        return added
+
+    def auto_expand_keywords(self) -> int:
+        """自动扩充 KEYWORD_MAP 中的关键词。返回新增数量。"""
+        from src.ai_assistant import FriendlyIntentParser, IntentType
+        p = FriendlyIntentParser()
+        added = 0
+        extra = {
+            IntentType.向量矩阵: ["向量", "矢量", "矩阵", "行列式", "叉乘", "点乘", "线性组合"],
+            IntentType.微积分: ["导数", "微分", "积分", "极限", "瞬时变化率", "切线斜率", "原函数"],
+            IntentType.统计概率: ["方差", "标准差", "排列", "组合", "正态分布", "概率分布", "期望", "伯努利"],
+            IntentType.离散数学: ["最大公约数", "最小公倍数", "质因数分解", "辗转相除", "欧几里得"],
+            IntentType.应用数学: ["百分比", "百分数", "勾股定理", "幂运算", "对数法则",
+                                   "工作问题", "合作完成", "等差数列求和", "等比数列求和",
+                                   "速度", "距离", "时间", "效率"],
+        }
+        for intent_type, keywords in extra.items():
+            existing = set(p.KEYWORD_MAP.get(intent_type, []))
+            new_kw = [kw for kw in keywords if kw not in existing]
+            if new_kw:
+                p.KEYWORD_MAP.setdefault(intent_type, []).extend(new_kw)
+                added += len(new_kw)
+                logger.info(f"  [自动扩充] 关键词 {intent_type.value}: +{len(new_kw)} 个")
+        return added
+
     # ── 7. 升级管道 ──────────────────────────────────────────────────────────────
 
     def run_upgrade_pipeline(self, patch_code: str, verify_fn=None) -> bool:
@@ -877,6 +963,15 @@ class GrowthEngine:
                         total_patches += 1
                 else:
                     total_defects_found += 1
+
+            # Phase 4.5: 自动资源扩充
+            logger.info("[Phase 4.5] 自动资源扩充")
+            gaps = self.identify_concept_gaps()
+            if gaps:
+                added = self.auto_expand_concepts(max_new=5)
+                added += self.auto_expand_keywords()
+                if added > 0:
+                    logger.info(f"  [自动扩充] 本轮新增 {added} 项资源")
 
             # Phase 5: 处理升级历史中的缺陷
             for hist in self._upgrade_history[-3:]:
