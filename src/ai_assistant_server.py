@@ -16,6 +16,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.ai_assistant import MathaAIAssistant
 from src.interp import Interpreter
 from src.inner_loop import get_inner_loop
+from src.symbolic import symbol_expr, diff_expr, eval_expr, ast_to_dict
+from src.ffi import get_ffi
+from src.symbol_codegen import get_codegen
+from src.math_driver import get_driver_manager
+from src.multi_paradigm import get_paradigm_engine
 
 
 # ── API 处理器 ──────────────────────────────────────────────────
@@ -37,6 +42,13 @@ class APIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
 
+    def _read_body(self) -> str:
+        """读取请求体。"""
+        length = int(self.headers.get('Content-Length', 0))
+        if length > 0:
+            return self.rfile.read(length).decode('utf-8')
+        return '{}'
+
     def do_OPTIONS(self):
         """处理 CORS 预检。"""
         self.send_response(200)
@@ -51,7 +63,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if parsed.path == '/' or parsed.path == '/index.html':
             self._serve_file('web/index.html', 'text/html; charset=utf-8')
         elif parsed.path == '/api/health':
-            self._send_json({"status": "ok", "version": "1.2.22"})
+            self._send_json({"status": "ok", "version": "1.3.0"})
         elif parsed.path == '/api/growth/stats':
             from src.growth_engine import create_growth_engine
             engine = create_growth_engine(assistant=self.assistant)
@@ -157,13 +169,120 @@ class APIHandler(BaseHTTPRequestHandler):
             })
         elif parsed.path == '/api/help':
             self._send_json({"help": self.assistant.help()})
+        # ── 符号引擎 API ─────────────────────────────────────────────────────
+        elif parsed.path == '/api/symbolic/parse':
+            data = json.loads(self._read_body())
+            expr_str = data.get("expression", "")
+            try:
+                expr = symbol_expr(expr_str)
+                simp = expr.simplify()
+                deriv = expr.diff(list(data.get("params", {}).keys())[0] if data.get("params") else 'x')
+                try:
+                    val = expr.evaluate(data.get("params", {}))
+                except:
+                    val = None
+                self._send_json({
+                    "expression": expr_str,
+                    "simplified": str(simp),
+                    "derivative": str(deriv),
+                    "value": val,
+                    "ast": ast_to_dict(expr),
+                })
+            except Exception as e:
+                self._send_json({"error": str(e)}, 400)
+        # ── FFI API ──────────────────────────────────────────────────────────
+        elif parsed.path == '/api/ffi/list':
+            ffi = get_ffi()
+            self._send_json(ffi.list_functions())
+        elif parsed.path == '/api/ffi/call':
+            data = json.loads(self._read_body())
+            ffi = get_ffi()
+            result = ffi.call(data.get("name", ""), *data.get("args", []))
+            self._send_json({"name": data.get("name"), "result": result})
+        # ── 多范式 API ───────────────────────────────────────────────────────
+        elif parsed.path == '/api/paradigm/compute':
+            data = json.loads(self._read_body())
+            engine = get_paradigm_engine()
+            result = engine.compute(data)
+            self._send_json(result)
+        # ── 代码生成 API ─────────────────────────────────────────────────────
+        elif parsed.path == '/api/codegen/python':
+            data = json.loads(self._read_body())
+            cg = get_codegen()
+            self._send_json({"code": cg.python(data.get("expr", ""), data.get("func_name", "compute"))})
+        elif parsed.path == '/api/codegen/javascript':
+            data = json.loads(self._read_body())
+            cg = get_codegen()
+            self._send_json({"code": cg.javascript(data.get("expr", ""), data.get("func_name", "compute"))})
+        elif parsed.path == '/api/codegen/c':
+            data = json.loads(self._read_body())
+            cg = get_codegen()
+            self._send_json({"code": cg.c(data.get("expr", ""), data.get("func_name", "compute"))})
+        # ── 驱动 API ─────────────────────────────────────────────────────────
+        elif parsed.path == '/api/drivers/list':
+            mgr = get_driver_manager()
+            self._send_json(mgr.list_drivers())
+        elif parsed.path == '/api/drivers/execute':
+            data = json.loads(self._read_body())
+            mgr = get_driver_manager()
+            result = mgr.execute(data.get("driver"), data.get("op"), *data.get("args", []))
+            self._send_json({"result": result})
         else:
             self._send_json({"error": "Not found"}, 404)
 
     def do_POST(self):
         parsed = urlparse(self.path)
 
-        if parsed.path == '/api/chat':
+        # v1.3.0 新端点（支持 POST）
+        if parsed.path == '/api/symbolic/parse':
+            data = json.loads(self._read_body())
+            expr_str = data.get("expression", data.get("expr", ""))
+            try:
+                expr = symbol_expr(expr_str)
+                simp = expr.simplify()
+                params = data.get("params", {})
+                deriv = expr.diff(list(params.keys())[0] if params else 'x')
+                try:
+                    val = expr.evaluate(params)
+                except Exception:
+                    val = None
+                self._send_json({
+                    "expression": expr_str,
+                    "simplified": str(simp),
+                    "derivative": str(deriv),
+                    "value": val,
+                    "ast": ast_to_dict(expr),
+                })
+            except Exception as e:
+                self._send_json({"error": str(e)}, 400)
+        elif parsed.path == '/api/ffi/call':
+            data = json.loads(self._read_body())
+            ffi = get_ffi()
+            result = ffi.call(data.get("name", ""), *data.get("args", []))
+            self._send_json({"name": data.get("name"), "result": result})
+        elif parsed.path == '/api/paradigm/compute':
+            data = json.loads(self._read_body())
+            engine = get_paradigm_engine()
+            result = engine.compute(data)
+            self._send_json(result)
+        elif parsed.path == '/api/codegen/python':
+            data = json.loads(self._read_body())
+            cg = get_codegen()
+            self._send_json({"code": cg.python(data.get("expr", ""), data.get("func_name", "compute"))})
+        elif parsed.path == '/api/codegen/javascript':
+            data = json.loads(self._read_body())
+            cg = get_codegen()
+            self._send_json({"code": cg.javascript(data.get("expr", ""), data.get("func_name", "compute"))})
+        elif parsed.path == '/api/codegen/c':
+            data = json.loads(self._read_body())
+            cg = get_codegen()
+            self._send_json({"code": cg.c(data.get("expr", ""), data.get("func_name", "compute"))})
+        elif parsed.path == '/api/drivers/execute':
+            data = json.loads(self._read_body())
+            mgr = get_driver_manager()
+            result = mgr.execute(data.get("driver"), data.get("op"), *data.get("args", []))
+            self._send_json({"result": result})
+        elif parsed.path == '/api/chat':
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length)
             try:

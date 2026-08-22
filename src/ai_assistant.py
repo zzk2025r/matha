@@ -23,6 +23,18 @@ from enum import Enum
 # 模块级调试日志
 _logger = logging.getLogger("matha.ai")
 
+# ── 新功能模块导入 ─────────────────────────────────────────────────────────
+try:
+    from src.symbolic import symbol_expr, simplify_expr, diff_expr, eval_expr, ast_to_dict, SymbolicParser
+    from src.ffi import get_ffi, MathaFFIBridge
+    from src.multi_paradigm import MultiParadigmEngine, paradigm_compute, get_paradigm_engine
+    from src.symbol_codegen import MathaCodeGen, get_codegen, codegen_python, codegen_javascript, codegen_c
+    from src.math_driver import MathDriverManager, get_driver_manager
+    _NEW_MODULES_LOADED = True
+except ImportError as e:
+    _logger.warning(f"  新功能模块导入失败: {e}")
+    _NEW_MODULES_LOADED = False
+
 # ============================================================
 # 意图分类（小白友好版）
 # ============================================================
@@ -1404,6 +1416,22 @@ class MathaAIAssistant:
     def __init__(self):
         self.parser = FriendlyIntentParser()
         self._history: list[dict] = []
+        # ── 新功能模块 ─────────────────────────────────────────────────────
+        self.symbolic = None
+        self.ffi = None
+        self.paradigm = None
+        self.codegen = None
+        self.drivers = None
+        if _NEW_MODULES_LOADED:
+            try:
+                self.symbolic = SymbolicParser()
+                self.ffi = get_ffi()
+                self.paradigm = get_paradigm_engine()
+                self.codegen = get_codegen()
+                self.drivers = get_driver_manager()
+                _logger.info("  新功能模块已加载: 符号引擎/FFI/多范式/代码生成/驱动")
+            except Exception as e:
+                _logger.warning(f"  新功能模块初始化失败: {e}")
 
     def chat(self, text: str, interp=None) -> dict:
         """
