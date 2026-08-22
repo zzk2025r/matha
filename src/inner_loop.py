@@ -341,25 +341,20 @@ class MathaInnerLoop:
         self._error_buffer = self._error_buffer[5:]
         return handled
 
-    def _parse_intent_from_text(self, text: str) -> str:
+    def _parse_intent_from_text(self, text: str):
         """从文本解析意图类型。"""
         if not self._assistant:
-            return "unknown"
+            from src.ai_assistant import IntentType
+            return IntentType.unknown
         intent, _ = self._assistant.parser.classify(text)
-        return intent.value
+        return intent  # 返回 IntentType 枚举，非字符串
 
     # ── 4. 自扩展层 ────────────────────────────────────────────────────────────
 
     def self_extend_concepts(self) -> int:
-        """自扩展：基于现有概念种子，从失败交互中派生新概念。
-
-        策略：
-          1. 从失败交互中提取子串
-          2. 与现有概念匹配，找出相似/派生概念
-          3. 新增派生概念（如"斐波那契"→"斐波那契数列"）
-        """
-        from src.ai_assistant import FriendlyIntentParser, IntentType
-        p = FriendlyIntentParser()
+        """自扩展：基于现有概念种子，从失败交互中派生新概念。"""
+        from src.ai_assistant import IntentType
+        p = self._assistant.parser  # 使用共享解析器，修改持久化
         known = set(p.MATH_CONCEPTS.keys())
         added = 0
 
@@ -473,8 +468,8 @@ class MathaInnerLoop:
 
     def self_extend_intents(self) -> int:
         """自扩展：基于交互数据自动发现新意图类型。"""
-        from src.ai_assistant import FriendlyIntentParser, IntentType
-        p = FriendlyIntentParser()
+        from src.ai_assistant import IntentType
+        p = self._assistant.parser  # 使用共享解析器，修改持久化
         added = 0
 
         unknown_keywords: dict[str, int] = {}
@@ -562,8 +557,8 @@ class MathaInnerLoop:
             except Exception as e:
                 result["errors"].append(f"补丁 {patch_info['defect']} 异常: {e}")
 
-        result["from_version"] = "1.2.22"
-        result["to_version"] = target_version or "1.2.22"
+        result["from_version"] = "1.3.0"
+        result["to_version"] = target_version or "1.3.0"
         result["patches_applied"] = applied
         result["success"] = applied > 0 or len(defects) == 0
         logger.info(f"  [自升级] 应用补丁: {applied}/{len(patches)}")
@@ -690,7 +685,7 @@ class MathaInnerLoop:
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         state_data = {
-            "version": "1.2.21",
+            "version": "1.3.0",
             "timestamp": datetime.now().isoformat(),
             "state": {
                 "cycle_count": self._state.cycle_count,
@@ -796,6 +791,30 @@ class MathaInnerLoop:
         if verbose:
             logger.info(f"  [验证] 缺陷减少: {verification['defects_reduced']}, "
                          f"健康提升: {'✓' if verification['health_improved'] else '✗'}")
+
+        # Phase 4.55: v1.3.0 模块自检
+        if self._ffi and self._driver_mgr:
+            if verbose:
+                logger.info("  [v1.3.0自检] 符号引擎/FFI/驱动健康检查...")
+            try:
+                # FFI 健康检查：验证预注册函数可调用
+                ffi_stats = self._ffi.get_stats()
+                reg_count = ffi_stats.get("registered_functions", 0)
+                if reg_count > 0:
+                    sample = list(self._ffi._registry.keys())[0]
+                    self._ffi.call(sample)  # 测试调用
+                    logger.info(f"  [v1.3.0自检] FFI: {reg_count} 注册函数, 健康")
+                # 驱动健康检查
+                drivers = self._driver_mgr.list_drivers()
+                total_ops = sum(d["ops"] for d in drivers)
+                logger.info(f"  [v1.3.0自检] 驱动: {len(drivers)} 个, {total_ops} 个运算, 健康")
+                # 符号引擎健康检查
+                test_expr = self._symbolic_parser("x^2 + 1")
+                test_val = sym_eval(test_expr, x=2)
+                assert test_val == 5.0, f"符号引擎异常: x²+1(x=2)={test_val}"
+                logger.info(f"  [v1.3.0自检] 符号引擎: x²+1(x=2)={test_val}, 健康")
+            except Exception as e:
+                logger.error(f"  [v1.3.0自检] 模块自检异常: {e}")
 
         # Phase 4.5: 自扩展
         if verbose:

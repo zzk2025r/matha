@@ -16,6 +16,7 @@ from __future__ import annotations
 import sys
 import os
 import logging
+import threading
 import importlib
 import inspect
 from dataclasses import dataclass, field
@@ -65,6 +66,7 @@ class MathaFFIBridge:
         self._imports: Dict[str, FFIImport] = {}
         self._call_log: List[FFICall] = []
         self._max_log = 1000
+        self._lock = threading.Lock()  # 线程安全锁
 
         # 预注册常用数学函数
         self._register_math_builtins()
@@ -93,20 +95,22 @@ class MathaFFIBridge:
 
     def register(self, name: str, func: Callable, params: List[str] = None, doc: str = ""):
         """注册 Python 函数到 Matha FFI。"""
-        self._registry[name] = func
-        self._imports[name] = FFIImport(
-            name=name, source="python", target_name=name,
-            params=params or [], doc=doc
-        )
+        with self._lock:
+            self._registry[name] = func
+            self._imports[name] = FFIImport(
+                name=name, source="python", target_name=name,
+                params=params or [], doc=doc
+            )
         logger.info(f"  [FFI] 注册函数: {name} → {func.__name__} (params={params})")
         return self
 
     def unregister(self, name: str):
         """注销 Matha 函数。"""
-        if name in self._registry:
-            del self._registry[name]
-        if name in self._imports:
-            del self._imports[name]
+        with self._lock:
+            if name in self._registry:
+                del self._registry[name]
+            if name in self._imports:
+                del self._imports[name]
         logger.info(f"  [FFI] 注销函数: {name}")
         return self
 
@@ -199,18 +203,22 @@ class MathaFFIBridge:
 
     def get_function(self, name: str) -> Optional[Callable]:
         """获取已注册函数。"""
-        return self._resolve(name) or self._registry.get(name)
+        with self._lock:
+            return self._resolve(name) or self._registry.get(name)
 
     def is_registered(self, name: str) -> bool:
         """检查函数是否已注册。"""
-        return name in self._registry or self._resolve(name) is not None
+        with self._lock:
+            return name in self._registry or self._resolve(name) is not None
 
     # ── 查询接口 ──────────────────────────────────────────────────────────────
 
     def list_functions(self, source: str = None) -> List[dict]:
         """列出所有注册函数。"""
+        with self._lock:
+            items = list(self._imports.items())
         result = []
-        for name, imp in self._imports.items():
+        for name, imp in items:
             if source and imp.source != source:
                 continue
             result.append({

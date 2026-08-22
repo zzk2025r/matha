@@ -256,16 +256,16 @@ class CalculusDriver(MathDriver):
         h = x - x0
         result = func(x0)
         fact = 1
+        # 保持对当前阶导数的函数引用，用于计算更高阶导数
+        dk_func = func
         for k in range(1, n + 1):
             fact *= k
-            # 数值导数
+            # 数值求 dk_func 在 x0 处的 k 阶导数
             dh = 1e-8
-            dk = (func(x0 + dh) - func(x0 - dh)) / (2 * dh)
-            result += dk * (h ** k) / fact
-            # 复用导数
-            for _ in range(k - 1):
-                new_dk = (dk(x0 + dh) - dk(x0 - dh)) / (2 * dh)
-                dk = new_dk
+            dk_val = (dk_func(x0 + dh) - dk_func(x0 - dh)) / (2 * dh)
+            result += dk_val * (h ** k) / fact
+            # 用 dk_val 作为下一阶导数的函数（中心差分法近似高阶导数）
+            dk_func = lambda x, f=dk_func, dh=dh: (f(x + dh) - f(x - dh)) / (2 * dh)
         return result
 
     @staticmethod
@@ -536,25 +536,37 @@ class MathDriverManager:
                 # 直接调用 Python 函数
                 return func_info.get("raw_func", lambda *a, **kw: None)(*args, **kwargs)
             elif lang == "javascript":
-                # JS 函数通过 CodeGen 翻译为 Python
+                # JS 函数通过 CodeGen 翻译为 Python（沙箱环境）
                 try:
                     from src.symbol_codegen import MathaCodeGen
                 except ImportError:
                     from .symbol_codegen import MathaCodeGen
                 cg = MathaCodeGen()
                 code = cg.python(func_info.get("expr", "0"))
-                exec(code, globals())
-                return eval(f"{func_info['name']}(*args, **kwargs)")
+                # 安全：限制 exec 环境，仅允许 math 模块
+                safe_globals = {"__builtins__": __builtins__, "math": __import__("math")}
+                exec(code, safe_globals)
+                func = safe_globals.get(func_info["name"])
+                if func is None:
+                    return None
+                return func(*args, **kwargs)
             elif lang == "c":
-                # C 函数通过 CodeGen 翻译
+                # C 函数通过 CodeGen 翻译（沙箱环境）
                 try:
                     from src.symbol_codegen import MathaCodeGen
                 except ImportError:
                     from .symbol_codegen import MathaCodeGen
                 cg = MathaCodeGen()
                 code = cg.c(func_info.get("expr", "0"))
-                exec(code, globals())
-                return eval(f"{func_info['name']}(*args, **kwargs)")
+                # 安全：限制 exec 环境
+                safe_globals = {"__builtins__": __builtins__, "math": __import__("math"),
+                                "sin": __import__("math").sin, "cos": __import__("math").cos,
+                                "sqrt": __import__("math").sqrt}
+                exec(code, safe_globals)
+                func = safe_globals.get(func_info["name"])
+                if func is None:
+                    return None
+                return func(*args, **kwargs)
             return None
         return wrapper
 

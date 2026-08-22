@@ -237,13 +237,15 @@ class Div(Expr):
     def simplify(self):
         a, b = self.numerator.simplify(), self.denominator.simplify()
         if isinstance(a, Num) and isinstance(b, Num):
-            return Num(a.value / b.value) if b.value != 0 else Num(float('inf'))
+            if b.value == 0: raise ZeroDivisionError(f"除零: {a.value} / 0")
+            return Num(a.value / b.value)
         if isinstance(a, Num) and a.value == 0: return Num(0)
         if isinstance(b, Num) and b.value == 1: return a
         return Div(a, b)
     def evaluate(self, bindings):
         d = self.denominator.evaluate(bindings)
-        return self.numerator.evaluate(bindings) / d if d != 0 else float('inf')
+        if d == 0: raise ZeroDivisionError(f"除零: {self} at bindings={bindings}")
+        return self.numerator.evaluate(bindings) / d
     def substitute(self, var, value):
         return Div(self.numerator.substitute(var, value), self.denominator.substitute(var, value))
     def diff(self, var):
@@ -339,8 +341,11 @@ def to_expr(obj) -> Expr:
     """将 Python 值转换为 Expr 对象。"""
     if isinstance(obj, Expr): return obj
     if isinstance(obj, (int, float)): return Num(float(obj))
-    if isinstance(obj, str): return Var(obj)
-    return Num(float(obj))
+    if isinstance(obj, str):
+        # 数字字符串 → Num，否则 → Var
+        try: return Num(float(obj))
+        except ValueError: return Var(obj)
+    raise TypeError(f"无法转换 {type(obj).__name__} 为 Expr")
 
 
 def symbolic(var: str = 'x') -> Var:

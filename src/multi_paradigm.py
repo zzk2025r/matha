@@ -134,8 +134,10 @@ class FunctionalEngine:
                 ffi = get_ffi()
                 if ffi.is_registered(op):
                     return ffi.call(op, *func_args)
-            except Exception:
-                pass
+            except ValueError:
+                pass  # FFI 函数不存在，继续抛 "不可调用"
+            except Exception as e:
+                logger.warning(f"  [函数式] FFI 调用 {op} 失败: {e}")
             raise ValueError(f"不可调用: {op}")
         if isinstance(expr, str) and expr in env:
             return env[expr]

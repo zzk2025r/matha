@@ -21,6 +21,7 @@ Matha 代码生成引擎 v1.3.0
 from __future__ import annotations
 import sys
 import os
+import re
 import logging
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
@@ -87,7 +88,7 @@ class PythonGenerator(CodeGenerator):
 
     def _expr_to_python(self, expr: str) -> str:
         """表达式转 Python。"""
-        return (expr
+        result = (expr
                 .replace('^', '**')
                 .replace('sin(', 'math.sin(')
                 .replace('cos(', 'math.cos(')
@@ -95,8 +96,8 @@ class PythonGenerator(CodeGenerator):
                 .replace('sqrt(', 'math.sqrt(')
                 .replace('log(', 'math.log(')
                 .replace('exp(', 'math.exp(')
-                .replace('pi', 'math.pi')
-                .replace('e', 'math.e'))
+                .replace('pi', 'math.pi'))
+        return re.sub(r'\be\b', 'math.e', result)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -133,7 +134,7 @@ class JavaScriptGenerator(CodeGenerator):
         self.emit(f"let {var_name} = {js_expr};")
 
     def _expr_to_javascript(self, expr: str) -> str:
-        return (expr
+        result = (expr
                 .replace('^', '**')
                 .replace('sin(', 'Math.sin(')
                 .replace('cos(', 'Math.cos(')
@@ -141,8 +142,8 @@ class JavaScriptGenerator(CodeGenerator):
                 .replace('sqrt(', 'Math.sqrt(')
                 .replace('log(', 'Math.log(')
                 .replace('exp(', 'Math.exp(')
-                .replace('pi', 'Math.PI')
-                .replace('e', 'Math.E'))
+                .replace('pi', 'Math.PI'))
+        return re.sub(r'\be\b', 'Math.E', result)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -177,16 +178,17 @@ class CGenerator(CodeGenerator):
         self.emit(f"{var_name} = {c_expr};")
 
     def _expr_to_c(self, expr: str) -> str:
-        return (expr
-                .replace('^', "**")
+        # 替换 ^ 运算符为 pow() 函数
+        expr = re.sub(r'(\w+)\s*\^\s*(\w+)', r'pow(\1, \2)', expr)
+        result = (expr
                 .replace('sin(', 'sin(')
                 .replace('cos(', 'cos(')
                 .replace('tan(', 'tan(')
                 .replace('sqrt(', 'sqrt(')
                 .replace('log(', 'log(')
                 .replace('exp(', 'exp(')
-                .replace('pi', 'M_PI')
-                .replace('e', 'M_E'))
+                .replace('pi', 'M_PI'))
+        return re.sub(r'\be\b', 'M_E', result)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
