@@ -348,38 +348,96 @@ class MathaInnerLoop:
     # ── 4. 自扩展层 ────────────────────────────────────────────────────────────
 
     def self_extend_concepts(self) -> int:
-        """自扩展：基于交互模式自动扩展数学概念库。"""
+        """自扩展：基于现有概念种子，从失败交互中派生新概念。
+
+        策略：
+          1. 从失败交互中提取子串
+          2. 与现有概念匹配，找出相似/派生概念
+          3. 新增派生概念（如"斐波那契"→"斐波那契数列"）
+        """
         from src.ai_assistant import FriendlyIntentParser, IntentType
         p = FriendlyIntentParser()
         known = set(p.MATH_CONCEPTS.keys())
         added = 0
 
+        # 停用词：不能作为概念的词
+        STOPWORDS = {'帮我', '计算', '算一', '求一', '什么', '怎么', '如何',
+                      '一下', '有什么', '是什', '公式', '例子', '例如',
+                      '以下', '以上', '这个', '那个', '这些', '那些',
+                      '哪些', '怎样', '有关', '以及', '或者', '可以',
+                      '帮助', '请问', '一个', '一些', '一切', '一定',
+                      '因为', '所以', '但是', '如果', '虽然', '然后',
+                      '就是', '只有', '已经', '才能', '应该', '必须',
+                      '能够', '没有', '不能', '不会', '不要', '不用',
+                      '不得', '证明', '区别', '基础'}
+
         recent_fails = [r for r in self._interaction_buffer
                         if not r.success and r.intent == "unknown"]
-        for record in recent_fails[-10:]:
-            words = [w for w in record.text.split() if len(w) >= 2]
-            for word in words:
-                if word not in known and word not in p.MATH_CONCEPTS:
-                    candidates = [c for c in list(p.MATH_CONCEPTS.keys())
-                                  if word in c or c in word]
-                    if not candidates:
-                        p.MATH_CONCEPTS[word] = {
-                            "是什么": f"{word}是一个数学概念。",
-                            "符号": "",
-                            "例子": f"例如：{word}的计算方法。",
-                            "生活中的例子": f"{word}在生活中的应用。",
-                        }
-                        known.add(word)
-                        added += 1
-                        logger.info(f"  [自扩展] 新增概念: {word}")
+        # 收集所有失败交互中的词组
+        all_candidate_phrases: dict[str, int] = {}
+        for record in recent_fails[-20:]:
+            text = record.text
+            # 提取2-5字连续汉字
+            import re
+            matches = re.findall(r'[\u4e00-\u9fff]{2,5}', text)
+            for m in matches:
+                if m in STOPWORDS:
+                    continue
+                all_candidate_phrases[m] = all_candidate_phrases.get(m, 0) + 1
 
-        failure_patterns = {}
+        logger.info(f"  [自扩展] 候选词汇总: {dict(list(all_candidate_phrases.items())[:10])}")
+
+        # 对每个候选词，尝试与现有概念匹配/派生
+        for phrase, freq in sorted(all_candidate_phrases.items(), key=lambda x: -x[1]):
+            if phrase in known or phrase in p.MATH_CONCEPTS:
+                continue
+
+            # 策略1: 候选词本身就是概念（如"质数"已在概念库中）
+            # 策略2: 候选词与已有概念有部分重叠，派生新概念
+            # 策略3: 候选词出现在已有概念名称中
+            is_valid = False
+            for existing in list(p.MATH_CONCEPTS.keys()):
+                if phrase in existing or existing in phrase:
+                    is_valid = True
+                    break
+                # 候选词和已有概念共享至少3个连续字符
+                for i in range(len(phrase) - 2):
+                    sub = phrase[i:i+3]
+                    if sub in existing:
+                        is_valid = True
+                        break
+                    for j in range(len(existing) - 2):
+                        if existing[j:j+3] == sub:
+                            is_valid = True
+                            break
+                    if is_valid:
+                        break
+                if is_valid:
+                    break
+
+            if is_valid and phrase not in p.MATH_CONCEPTS:
+                p.MATH_CONCEPTS[phrase] = {
+                    "是什么": f"{phrase}是一个数学概念。",
+                    "符号": "",
+                    "例子": f"例如：{phrase}的计算方法。",
+                    "生活中的例子": f"{phrase}在生活中的应用。",
+                }
+                known.add(phrase)
+                added += 1
+                logger.info(f"  [自扩展] 新增概念: {phrase} (freq={freq})")
+
+        # 分析错误缓冲区中的高频失败词
+        failure_patterns: dict[str, int] = {}
         for err in self._error_buffer:
             intent = err.get("intent", "unknown")
             if intent == "unknown":
-                keywords = [w for w in err["text"].split() if len(w) >= 2]
+                import re
+                keywords = re.findall(r'[\u4e00-\u9fff]{2,4}', err["text"])
                 for kw in keywords:
-                    failure_patterns[kw] = failure_patterns.get(kw, 0) + 1
+                    if kw not in STOPWORDS:
+                        failure_patterns[kw] = failure_patterns.get(kw, 0) + 1
+
+        logger.info(f"  [自扩展] 失败词频率: {dict(list(failure_patterns.items())[:5])}")
 
         for word, count in sorted(failure_patterns.items(), key=lambda x: -x[1])[:5]:
             if word not in known and count >= 2:
@@ -392,7 +450,7 @@ class MathaInnerLoop:
                     p.VARIATION_MAP[word] = matched_intent or IntentType.算术
                     p.KEYWORD_MAP.setdefault(IntentType.算术, []).append(word)
                     added += 1
-                    logger.info(f"  [自扩展] 新增变体: {word} → arithmetic")
+                    logger.info(f"  [自扩展] 新增变体: {word} → arithmetic (出现{count}次)")
 
         if added > 0:
             new_rules = []
@@ -456,12 +514,16 @@ class MathaInnerLoop:
         if self._engine:
             history = self._engine.get_defect_stats()
             open_defects = history.get("open_defects", [])
+            logger.info(f"  [自升级] 自检完成: 发现 {len(open_defects)} 个缺陷, "
+                         f"高危 {len([d for d in open_defects if d.get('severity') in ('critical','high')])} 个")
             pending_patches = [
                 {"id": d.get("id", ""), "severity": d.get("severity", "")}
                 for d in open_defects
                 if d.get("severity") in ("critical", "high")
             ]
 
+        logger.info(f"  [自升级] 版本检查: 当前={current_version}, 最新={latest}, "
+                     f"是否最新={is_latest}, 待处理高危补丁={len(pending_patches)}")
         return {
             "current_version": current_version,
             "latest_version": latest,
@@ -507,9 +569,14 @@ class MathaInnerLoop:
     def self_upgrade_rollback(self) -> bool:
         """自升级回滚：回滚到最后稳定版本。"""
         if self._engine:
-            self._engine._rollback_patch()
-            logger.info("  [自升级] 已回滚到安全版本")
-            return True
+            try:
+                self._engine._rollback_patch()
+                logger.info("  [自升级] 已回滚到安全版本")
+                return True
+            except Exception as e:
+                logger.error(f"  [自升级] 回滚异常: {e}")
+                return False
+        logger.warning("  [自升级] 引擎未初始化，无法回滚")
         return False
 
     # ── 6. 自优化层 ────────────────────────────────────────────────────────────
@@ -520,39 +587,68 @@ class MathaInnerLoop:
                         "log_compressed": False, "cache_optimized": 0,
                         "new_interval": self._interval}
 
-        if self._state.total_duration > 0 and self._state.cycle_count > 0:
-            avg_cycle_time = self._state.total_duration / self._state.cycle_count
+        # 6.1 分析当前性能
+        total_cycles = self._state.cycle_count
+        total_time = self._state.total_duration
+        avg_cycle_time = total_time / max(total_cycles, 1)
+        logger.info(f"  [自优化] 性能分析: 循环{total_cycles}次, 总耗时{total_time:.1f}s, "
+                     f"平均{avg_cycle_time:.1f}s/次, 当前间隔{self._interval}s")
+
+        # 6.2 自适应轮询间隔
+        if total_cycles > 0:
             if avg_cycle_time > 10.0 and self._interval > 10.0:
                 new_interval = min(self._interval * 1.5, 120.0)
                 self._interval = new_interval
                 improvements["interval_adjusted"] = True
                 improvements["new_interval"] = new_interval
-                logger.info(f"  [自优化] 调整间隔: {self._interval:.0f}s (平均 {avg_cycle_time:.1f}s)")
+                logger.info(f"  [自优化] 调整间隔: {self._interval:.0f}s (平均周期 {avg_cycle_time:.1f}s > 10s)")
             elif avg_cycle_time < 2.0 and self._interval > 5.0:
                 new_interval = max(self._interval * 0.8, 5.0)
                 self._interval = new_interval
                 improvements["interval_adjusted"] = True
                 improvements["new_interval"] = new_interval
-                logger.info(f"  [自优化] 缩短间隔: {self._interval:.0f}s (平均 {avg_cycle_time:.1f}s)")
+                logger.info(f"  [自优化] 缩短间隔: {self._interval:.0f}s (平均周期 {avg_cycle_time:.1f}s < 2s)")
 
+        # 6.3 清理过期交互缓冲区
         cutoff = time.time() - 3600
         before = len(self._interaction_buffer)
         self._interaction_buffer = [r for r in self._interaction_buffer if r.timestamp > cutoff]
-        improvements["buffer_cleaned"] = before - len(self._interaction_buffer)
+        cleaned = before - len(self._interaction_buffer)
+        improvements["buffer_cleaned"] = cleaned
+        logger.info(f"  [自优化] 交互缓冲区: {before} → {len(self._interaction_buffer)} (清理{cleaned}条)")
 
+        # 6.4 清理过期错误缓冲区
         before = len(self._error_buffer)
         self._error_buffer = [e for e in self._error_buffer if e.get("timestamp", 0) > cutoff]
-        improvements["buffer_cleaned"] += before - len(self._error_buffer)
+        cleaned = before - len(self._error_buffer)
+        improvements["buffer_cleaned"] += cleaned
+        logger.info(f"  [自优化] 错误缓冲区: {before} → {len(self._error_buffer)} (清理{cleaned}条)")
 
+        # 6.5 压缩成长日志
         if self._engine and len(self._engine._growth_log) > 100:
+            before = len(self._engine._growth_log)
             self._engine._growth_log = self._engine._growth_log[-100:]
             improvements["log_compressed"] = True
+            logger.info(f"  [自优化] 成长日志: {before} → {len(self._engine._growth_log)} 条")
 
+        # 6.6 优化内存缓存
         if self._engine and len(self._engine._web_search_cache) > 50:
+            before = len(self._engine._web_search_cache)
             self._engine._web_search_cache = dict(
                 list(self._engine._web_search_cache.items())[-50:])
-            improvements["cache_optimized"] = len(self._engine._web_search_cache) - 50
+            improvements["cache_optimized"] = before - 50
+            logger.info(f"  [自优化] 搜索缓存: {before} → 50 项 (释放{before-50}项)")
 
+        total_improvements = sum([
+            improvements["interval_adjusted"],
+            improvements["buffer_cleaned"],
+            improvements["log_compressed"],
+            improvements["cache_optimized"],
+        ])
+        logger.info(f"  [自优化] 完成: 间隔调整={improvements['interval_adjusted']}, "
+                     f"缓冲区清理={improvements['buffer_cleaned']}条, "
+                     f"日志压缩={improvements['log_compressed']}, "
+                     f"缓存优化={improvements['cache_optimized']}项")
         return improvements
 
     # ── 4. 验证层 ───────────────────────────────────────────────────────────────
