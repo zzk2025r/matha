@@ -218,7 +218,10 @@ class MathaInnerLoop:
         # 计算健康分数
         defect_score = max(0, 100 - len(defects) * 15)
         resource_score = resources.get("ok", 0) / max(resources.get("total", 1), 1) * 100
-        interaction_score = interactions.get("success_rate", 1.0) * 100
+        interaction_score = (
+            100.0 if interactions.get("total", 0) == 0
+            else interactions.get("success_rate", 1.0) * 100
+        )
 
         health = (defect_score * 0.4 + resource_score * 0.3 + interaction_score * 0.3)
         self._state.health_score = round(health, 1)
