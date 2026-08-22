@@ -223,10 +223,22 @@ class APIHandler(BaseHTTPRequestHandler):
             mgr = get_driver_manager()
             self._send_json(mgr.list_drivers())
         elif parsed.path == '/api/drivers/execute':
-            data = json.loads(self._read_body())
-            mgr = get_driver_manager()
-            result = mgr.execute(data.get("driver"), data.get("op"), *data.get("args", []))
-            self._send_json({"result": result})
+            try:
+                data = json.loads(self._read_body())
+                mgr = get_driver_manager()
+                driver_name = data.get("driver", "")
+                op_name = data.get("op", "")
+                args = data.get("args", [])
+                # 矩阵类操作：整个二维列表作为单个矩阵参数（不拆包行）
+                matrix_ops = {'mat_det', 'mat_mul', 'mat_add', 'mat_transpose', 'mat_inv',
+                              'eigenvalues', 'norm', 'matrix_power'}
+                if op_name in matrix_ops and len(args) >= 1 and isinstance(args[0], list):
+                    result = mgr.execute(driver_name, op_name, args)
+                else:
+                    result = mgr.execute(driver_name, op_name, *args)
+                self._send_json({"result": result})
+            except Exception as e:
+                self._send_json({"error": str(e)}, 500)
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -278,10 +290,22 @@ class APIHandler(BaseHTTPRequestHandler):
             cg = get_codegen()
             self._send_json({"code": cg.c(data.get("expr", ""), data.get("func_name", "compute"))})
         elif parsed.path == '/api/drivers/execute':
-            data = json.loads(self._read_body())
-            mgr = get_driver_manager()
-            result = mgr.execute(data.get("driver"), data.get("op"), *data.get("args", []))
-            self._send_json({"result": result})
+            try:
+                data = json.loads(self._read_body())
+                mgr = get_driver_manager()
+                driver_name = data.get("driver", "")
+                op_name = data.get("op", "")
+                args = data.get("args", [])
+                # 矩阵类操作：整个二维列表作为单个矩阵参数（不拆包行）
+                matrix_ops = {'mat_det', 'mat_mul', 'mat_add', 'mat_transpose', 'mat_inv',
+                              'eigenvalues', 'norm', 'matrix_power'}
+                if op_name in matrix_ops and len(args) >= 1 and isinstance(args[0], list):
+                    result = mgr.execute(driver_name, op_name, args)
+                else:
+                    result = mgr.execute(driver_name, op_name, *args)
+                self._send_json({"result": result})
+            except Exception as e:
+                self._send_json({"error": str(e)}, 500)
         elif parsed.path == '/api/chat':
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length)

@@ -128,6 +128,14 @@ class FunctionalEngine:
                 return self.eval(body, new_env)
             if callable(func):
                 return func(*func_args)
+            # FFI 函数查找（如 sin, cos, sqrt 等）
+            try:
+                from src.ffi import get_ffi
+                ffi = get_ffi()
+                if ffi.is_registered(op):
+                    return ffi.call(op, *func_args)
+            except Exception:
+                pass
             raise ValueError(f"不可调用: {op}")
         if isinstance(expr, str) and expr in env:
             return env[expr]
@@ -245,7 +253,11 @@ class ImperativeEngine:
             if op == "and": return args[0] and args[1]
             if op == "or": return args[0] or args[1]
             if op == "not": return not args[0]
-            if op == "list": return args
+            if op == "list":
+                # 将 range/set/单个可迭代对象转为列表
+                if len(args) == 1 and isinstance(args[0], (range, set)):
+                    return list(args[0])
+                return args if args else []
             if op == "len": return len(args[0]) if args else 0
             if op == "get":
                 if len(args) >= 1 and isinstance(args[0], str) and args[0] in self._state:
@@ -341,27 +353,38 @@ class DataflowEngine:
             for t in to:
                 reverse_edges.setdefault(t, []).append(frm)
 
+        logger.info(f"  [数据流] 启动运行，输入: {inputs}")
+        logger.info(f"  [数据流] 正向边: {dict(self._edges)}, 反向依赖: {dict(reverse_edges)}")
+
         results = dict(inputs)
         visited = set()
         queue = list(inputs.keys())
+        step = 0
         while queue:
             node = queue.pop(0)
             if node in visited:
+                logger.debug(f"  [数据流] 跳过已访问节点: {node}")
                 continue
             visited.add(node)
+            step += 1
+            logger.info(f"  [数据流] 处理节点 [{step}]: {node}, results={results}, deps={reverse_edges.get(node, [])}")
             if node in self._nodes:
                 deps = reverse_edges.get(node, [])
                 if deps:
                     args = [results.get(d) for d in deps]
+                    logger.info(f"  [数据流] 节点 {node} 调用: func(args={args})")
                     results[node] = self._nodes[node](*args)
                 else:
                     # 输入节点：直接用输入值调用
                     val = results.get(node)
+                    logger.info(f"  [数据流] 节点 {node} 直接输入: val={val}")
                     results[node] = self._nodes[node](val) if val is not None else None
+                logger.info(f"  [数据流] 节点 {node} 结果: {results[node]}")
             for dep in self._edges.get(node, []):
                 if dep not in visited:
                     queue.append(dep)
         self._outputs = results
+        logger.info(f"  [数据流] 完成，输出: {results}")
         return results
 
 
@@ -393,18 +416,10 @@ class MultiParadigmEngine:
     def compute(self, task: dict) -> dict:
         """
         智能任务分发：根据任务类型自动选择范式。
-
-        任务格式:
-          {
-            "type": "functional" | "imperative" | "symbolic" | "logic" | "dataflow" | "mixed",
-            "expr": "...",       # 表达式
-            "params": {...},     # 参数
-            "rules": [...],      # 规则（逻辑式）
-            "nodes": {...},      # 节点（数据流）
-          }
         """
         task_type = task.get("type", "mixed")
-        logger.info(f"  [多范式] 任务类型: {task_type}")
+        logger.info(f"  [多范式] === 任务开始 === type={task_type}")
+        logger.info(f"  [多范式] 完整任务: {task}")
 
         if task_type == "functional":
             return self._run_functional(task)
@@ -419,6 +434,7 @@ class MultiParadigmEngine:
         elif task_type == "mixed":
             return self._run_mixed(task)
         else:
+            logger.warning(f"  [多范式] 未知任务类型: {task_type}")
             return {"error": f"未知任务类型: {task_type}"}
 
     def _run_functional(self, task: dict) -> dict:

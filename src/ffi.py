@@ -201,6 +201,10 @@ class MathaFFIBridge:
         """获取已注册函数。"""
         return self._resolve(name) or self._registry.get(name)
 
+    def is_registered(self, name: str) -> bool:
+        """检查函数是否已注册。"""
+        return name in self._registry or self._resolve(name) is not None
+
     # ── 查询接口 ──────────────────────────────────────────────────────────────
 
     def list_functions(self, source: str = None) -> List[dict]:

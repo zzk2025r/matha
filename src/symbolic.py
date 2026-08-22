@@ -382,14 +382,14 @@ class SymbolicParser:
         """解析加减表达式。"""
         text = text.strip()
         # 处理加法/减法
-        parts = self._split_top_level(text, ['+', '-'])
-        if len(parts) > 1:
-            left = self._parse_expr(parts[0])
+        segments = self._split_with_ops(text, ['+', '-'])
+        if len(segments) > 1:
+            left = self._parse_expr(segments[0][0])
             result = left
-            for part in parts[1:]:
+            for part, op in segments[1:]:
                 p = part.strip()
-                if p.startswith('-'):
-                    result = Sub(result, self._parse_expr(p[1:]))
+                if op == '-':
+                    result = Sub(result, self._parse_expr(p))
                 else:
                     result = Add(result, self._parse_expr(p))
             return result
@@ -513,6 +513,38 @@ class SymbolicParser:
         if current:
             parts.append(''.join(current))
         return parts
+
+    def _split_with_ops(self, text: str, separators: List[str]) -> List[tuple]:
+        """在括号外按分隔符分割，同时记录每个分隔符。
+        返回 [(part0, op0), (part1, op1), ...]，part0 的 op 为 None。"""
+        result = []
+        depth = 0
+        current = []
+        i = 0
+        last_sep = None  # 上一个分隔符，供当前片段使用
+        while i < len(text):
+            ch = text[i]
+            if ch == '(':
+                depth += 1
+                current.append(ch)
+            elif ch == ')':
+                depth -= 1
+                current.append(ch)
+            elif depth == 0 and ch in separators:
+                # 当前片段结束，带上最后一个分隔符
+                result.append((''.join(current), last_sep))
+                current = []
+                last_sep = ch  # 记录此分隔符供下一片段使用
+                # 跳过连续分隔符
+                while i + 1 < len(text) and text[i+1] in separators:
+                    i += 1
+                    last_sep = text[i]
+            else:
+                current.append(ch)
+            i += 1
+        # 最后一个片段
+        result.append((''.join(current), last_sep))
+        return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
