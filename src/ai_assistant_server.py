@@ -50,7 +50,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if parsed.path == '/' or parsed.path == '/index.html':
             self._serve_file('web/index.html', 'text/html; charset=utf-8')
         elif parsed.path == '/api/health':
-            self._send_json({"status": "ok", "version": "1.2.18"})
+            self._send_json({"status": "ok", "version": "1.2.19"})
         elif parsed.path == '/api/growth/stats':
             from src.growth_engine import create_growth_engine
             engine = create_growth_engine(assistant=self.assistant)
