@@ -88,6 +88,24 @@ class APIHandler(BaseHTTPRequestHandler):
             engine = create_growth_engine(assistant=self.assistant)
             report = engine.trigger_growth()
             self._send_json(report)
+        # ── 内循环 API ──────────────────────────────────────────────────────────
+        elif parsed.path == '/api/inner_loop/status':
+            loop = get_inner_loop()
+            self._send_json(loop.get_state())
+        elif parsed.path == '/api/inner_loop/trigger':
+            loop = get_inner_loop()
+            if not loop._engine:
+                loop.init_modules()
+            result = loop.run_cycle(verbose=False)
+            self._send_json(result)
+        elif parsed.path == '/api/inner_loop/start':
+            loop = get_inner_loop()
+            loop.start_loop(interval=30.0)
+            self._send_json({"status": "started", "message": "内循环持续模式已启动"})
+        elif parsed.path == '/api/inner_loop/stop':
+            loop = get_inner_loop()
+            loop.stop_loop()
+            self._send_json({"status": "stopped", "message": "内循环持续模式已停止"})
         elif parsed.path == '/api/concepts':
             from src.ai_assistant import FriendlyIntentParser
             p = FriendlyIntentParser()
