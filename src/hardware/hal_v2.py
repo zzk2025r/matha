@@ -286,6 +286,10 @@ class PointerManager:
                     sz for (pid, sz) in self._allocations.values() if pid == page.page_id
                 )
                 remaining = MemoryPage._page_size - used
+                # 详细日志：记录每个候选页的状态
+                logger.debug(f"  [内存] 候选页[{page.page_id}] base={page.base_addr:#x} "
+                             f"used={used}B remaining={remaining}B size={size}B "
+                             f"{'✓ 可用' if remaining >= size else '✗ 不足'}")
                 if remaining >= size:
                     ptr_addr = page.base_addr + used
                     self._allocations[ptr_addr] = (page.page_id, size)
@@ -293,19 +297,34 @@ class PointerManager:
                     ptr._type = f"alloc_{size}B"
                     self._pointers[ptr._life_id] = ptr
                     self._total_allocs += 1
-                    logger.debug(f"  [内存] 分配: {name or f'{ptr_addr:#x}'} @ {ptr_addr:#x} size={size}")
+                    logger.info(f"  [内存] 分配 ✓: {name or f'{ptr_addr:#x}'} @ {ptr_addr:#x} "
+                                f"page[{page.page_id}] size={size}B used_after={used+size}B "
+                                f"remaining={remaining-size}B")
                     return ptr
-        raise MemoryError(f"内存不足: 请求 {size} 字节")
+            # 所有页均不足
+            total_free = sum(
+                MemoryPage._page_size - sum(sz for (pid, sz) in self._allocations.values() if pid == p.page_id)
+                for p in self._pages[4:]
+            )
+            raise MemoryError(f"内存不足: 请求 {size}B, 总空闲={total_free}B "
+                              f"(页总数={len(self._pages)}, 活跃分配={len(self._allocations)})")
 
     def free(self, ptr: Pointer) -> bool:
         """释放内存。"""
         with self._lock:
             if ptr._addr in self._allocations:
-                del self._allocations[ptr._addr]
+                page_id, size = self._allocations.pop(ptr._addr)
                 self._pointers.pop(ptr._life_id, None)
                 self._total_frees += 1
-                logger.debug(f"  [内存] 释放: {ptr._addr:#x}")
+                # 重新计算该页已用空间
+                used = sum(
+                    sz for (pid, sz) in self._allocations.values() if pid == page_id
+                )
+                logger.info(f"  [内存] 释放 ✓: {ptr._addr:#x} page[{page_id}] size={size}B "
+                            f"remaining={MemoryPage._page_size - used}B")
                 return True
+            else:
+                logger.warning(f"  [内存] 释放 ✗: 悬空指针 {ptr._addr:#x} 未找到分配记录")
         return False
 
     def read(self, addr: int, size: int = 1) -> Any:
