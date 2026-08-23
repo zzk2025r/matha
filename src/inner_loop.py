@@ -123,27 +123,42 @@ class MathaInnerLoop:
     # ── 模块初始化 ──────────────────────────────────────────────────────────────
 
     def init_modules(self):
-        """初始化所有核心模块。"""
+        """初始化所有核心模块（v1.3.0）。"""
         from src.ai_assistant import MathaAIAssistant, FriendlyIntentParser
         from src.interp import Interpreter
         from src.firewall import MathaFirewall
         from src.net_security import NetSecurityEngine
         from src.growth_engine import create_growth_engine
+        # v1.3.0 新模块
+        from src.symbolic import symbol_expr, diff_expr, eval_expr as sym_eval
+        from src.ffi import get_ffi
+        from src.math_driver import get_driver_manager
+        from src.multi_paradigm import get_paradigm_engine
+        from src.symbol_codegen import get_codegen
 
         self._assistant = MathaAIAssistant()
         self._interp = Interpreter()
         self._firewall = MathaFirewall()
         self._security = NetSecurityEngine()
         self._engine = create_growth_engine(assistant=self._assistant)
+        # v1.3.0
+        self._symbolic_parser = symbol_expr
+        self._ffi = get_ffi()
+        self._driver_mgr = get_driver_manager()
+        self._paradigm = get_paradigm_engine()
+        self._codegen = get_codegen()
 
         # 注册错误回调到成长引擎
         self._engine._assistant = self._assistant
-        logger.info("  [内循环] 模块初始化完成")
+        logger.info("  [内循环] 模块初始化完成 (v1.3.0)")
         logger.info(f"    意图解析器: {len(self._assistant.parser.MATH_CONCEPTS)} 概念, "
                      f"{sum(len(v) for v in self._assistant.parser.KEYWORD_MAP.values())} 关键词")
         logger.info(f"    解释器: {len(self._interp.builtins)} 内建函数")
         logger.info(f"    防火墙: level={self._firewall.level.value}")
         logger.info(f"    安全引擎: {self._security.threat_count()} 威胁记录")
+        logger.info(f"    FFI: {self._ffi.get_stats().get('registered_functions', 0)} 注册函数")
+        logger.info(f"    驱动: {self._driver_mgr.get_stats().get('total_drivers', 0)} 驱动")
+        logger.info(f"    代码生成: Python/JS/C/Matha")
 
     # ── 1. 感知层 ───────────────────────────────────────────────────────────────
 
@@ -793,28 +808,166 @@ class MathaInnerLoop:
                          f"健康提升: {'✓' if verification['health_improved'] else '✗'}")
 
         # Phase 4.55: v1.3.0 模块自检
-        if self._ffi and self._driver_mgr:
+        v13_result = {"status": "healthy", "checks": {}, "details": []}
+        if self._ffi and self._driver_mgr and self._symbolic_parser:
             if verbose:
-                logger.info("  [v1.3.0自检] 符号引擎/FFI/驱动健康检查...")
+                logger.info("  [v1.3.0自检] 符号引擎/FFI/驱动/沙箱 健康检查...")
             try:
-                # FFI 健康检查：验证预注册函数可调用
+                # ── 1. FFI 健康检查 ──────────────────────────────────────────
                 ffi_stats = self._ffi.get_stats()
                 reg_count = ffi_stats.get("registered_functions", 0)
-                if reg_count > 0:
-                    sample = list(self._ffi._registry.keys())[0]
-                    self._ffi.call(sample)  # 测试调用
-                    logger.info(f"  [v1.3.0自检] FFI: {reg_count} 注册函数, 健康")
-                # 驱动健康检查
+                reg_info = ffi_stats.get("registered_functions_info", [])
+                v13_result["checks"]["ffi"] = "ok"
+                v13_result["details"].append(f"  [v1.3.0自检] FFI: {reg_count} 个注册函数")
+                # 抽样调用 5 个内建函数验证可执行性
+                import math
+                ffi_tests = [
+                    ("sin", [1.0]), ("cos", [0.0]), ("sqrt", [4.0]),
+                    ("exp", [1.0]), ("log", [2.718281828]),
+                ]
+                ffi_pass = 0
+                for fname, fargs in ffi_tests:
+                    if fname in self._ffi._registry:
+                        try:
+                            res = self._ffi.call(fname, *fargs)
+                            v13_result["details"].append(f"    FFI.{fname}({fargs}) = {res}")
+                            ffi_pass += 1
+                        except Exception as e:
+                            v13_result["checks"]["ffi"] = "error"
+                            v13_result["details"].append(f"    FFI.{fname}({fargs}) 失败: {e}")
+                v13_result["checks"]["ffi_calls"] = ffi_pass
+                logger.info(f"  [v1.3.0自检] FFI: {reg_count}注册, {ffi_pass}/{len(ffi_tests)}调用通过")
+
+                # ── 2. 驱动健康检查 ─────────────────────────────────────────
                 drivers = self._driver_mgr.list_drivers()
                 total_ops = sum(d["ops"] for d in drivers)
-                logger.info(f"  [v1.3.0自检] 驱动: {len(drivers)} 个, {total_ops} 个运算, 健康")
-                # 符号引擎健康检查
-                test_expr = self._symbolic_parser("x^2 + 1")
-                test_val = sym_eval(test_expr, x=2)
-                assert test_val == 5.0, f"符号引擎异常: x²+1(x=2)={test_val}"
-                logger.info(f"  [v1.3.0自检] 符号引擎: x²+1(x=2)={test_val}, 健康")
+                v13_result["checks"]["drivers"] = "ok"
+                v13_result["details"].append(f"  [v1.3.0自检] 驱动: {len(drivers)} 个, {total_ops} 个运算")
+                # 对每个驱动抽样一个运算
+                driver_tests = [
+                    ("linear_algebra", "mat_det", [[1, 0], [0, 1]]),
+                    ("linear_algebra", "dot", [1.0, 2.0, 3.0], [4.0, 5.0, 6.0]),
+                    ("geometry", "circle_area", [5.0]),
+                    ("optimization", "binary_search", [1, 10, 5]),
+                ]
+                driver_pass = 0
+                for dt in driver_tests:
+                    drv, op = dt[0], dt[1]
+                    args = dt[2:]
+                    try:
+                        res = self._driver_mgr.execute(drv, op, *args)
+                        v13_result["details"].append(f"    驱动.{drv}.{op}({args}) = {res}")
+                        driver_pass += 1
+                    except Exception as e:
+                        v13_result["checks"]["drivers"] = "error"
+                        v13_result["details"].append(f"    驱动.{drv}.{op} 失败: {e}")
+                v13_result["checks"]["drivers_passed"] = driver_pass
+                logger.info(f"  [v1.3.0自检] 驱动抽样: {driver_pass}/{len(driver_tests)} 通过")
+
+                # ── 3. 符号引擎健康检查 ─────────────────────────────────────
+                sym_tests = [
+                    ("x^2 + 1", {"x": 2}, 5.0),
+                    ("x^2 - 3*x + 2", {"x": 2}, 0.0),
+                    ("sin(x)", {"x": 0.0}, 0.0),
+                    ("sqrt(x)", {"x": 9.0}, 3.0),
+                ]
+                sym_pass = 0
+                for expr_str, bindings, expected in sym_tests:
+                    try:
+                        expr = self._symbolic_parser(expr_str)
+                        val = sym_eval(expr, **bindings)
+                        status = "✓" if abs(val - expected) < 1e-9 else "✗"
+                        v13_result["details"].append(f"    符号 {status} {expr_str}({bindings}) = {val} (期望 {expected})")
+                        if abs(val - expected) < 1e-9:
+                            sym_pass += 1
+                    except Exception as e:
+                        v13_result["details"].append(f"    符号 ✗ {expr_str} 失败: {e}")
+                v13_result["checks"]["symbolic"] = sym_pass
+                logger.info(f"  [v1.3.0自检] 符号引擎: {sym_pass}/{len(sym_tests)} 通过")
+
+                # ── 4. 微积分检查（diff/integrate）───────────────────────────
+                try:
+                    expr = self._symbolic_parser("x^3 + 2*x^2 - 5*x + 3")
+                    deriv = diff_expr(expr, 'x')
+                    deriv_val = sym_eval(deriv, x=1)
+                    expected_deriv = 3*1**2 + 4*1 - 5  # 3x²+4x-5 at x=1 = 2
+                    status = "✓" if abs(deriv_val - expected_deriv) < 1e-9 else "✗"
+                    v13_result["checks"]["calculus"] = "ok" if deriv_val == expected_deriv else "error"
+                    v13_result["details"].append(f"    微积分 {status} d/dx(x³+2x²-5x+3) at x=1 = {deriv_val} (期望 {expected_deriv})")
+                    logger.info(f"  [v1.3.0自检] 微积分: {status} 导数验证 x³+2x²-5x+3(x=1)={deriv_val}")
+                except Exception as e:
+                    v13_result["checks"]["calculus"] = "error"
+                    v13_result["details"].append(f"    微积分 ✗ 失败: {e}")
+                    logger.error(f"  [v1.3.0自检] 微积分异常: {e}")
+
+                # ── 5. 代码生成检查 ─────────────────────────────────────────
+                if self._codegen:
+                    try:
+                        py_code = self._codegen.python("x^2 + 3*x - 5", func_name="f")
+                        js_code = self._codegen.javascript("x^2 + 3*x - 5", func_name="f")
+                        c_code = self._codegen.c("x^2 + 3*x - 5", func_name="f")
+                        v13_result["checks"]["codegen"] = "ok"
+                        v13_result["details"].append(f"    代码生成 ✓ Python/JS/C 均成功生成")
+                        logger.info("  [v1.3.0自检] 代码生成: Python/JS/C 均健康")
+                    except Exception as e:
+                        v13_result["checks"]["codegen"] = "error"
+                        v13_result["details"].append(f"    代码生成 ✗ 失败: {e}")
+                        logger.error(f"  [v1.3.0自检] 代码生成异常: {e}")
+
+                # ── 6. 沙箱执行检查 ─────────────────────────────────────────
+                if self._driver_mgr:
+                    try:
+                        from src.symbol_codegen import MathaCodeGen
+                        cg = MathaCodeGen()
+                        code = cg.python("x^2 + 1", func_name="test_fn")
+                        safe_globals = {"__builtins__": __builtins__, "math": __import__("math")}
+                        exec(code, safe_globals)
+                        fn = safe_globals.get("test_fn")
+                        assert fn is not None, "函数未找到"
+                        res = fn(3)
+                        assert abs(res - 10.0) < 1e-9, f"沙箱执行结果错误: {res}"
+                        v13_result["checks"]["sandbox"] = "ok"
+                        v13_result["details"].append(f"    沙箱 ✓ exec(safe_globals) x²+1(x=3)={res}")
+                        logger.info(f"  [v1.3.0自检] 沙箱执行: x²+1(x=3)={res} ✓")
+                    except Exception as e:
+                        v13_result["checks"]["sandbox"] = "error"
+                        v13_result["details"].append(f"    沙箱 ✗ 失败: {e}")
+                        logger.error(f"  [v1.3.0自检] 沙箱执行异常: {e}")
+
+                # ── 7. 多范式引擎检查 ────────────────────────────────────────
+                if self._paradigm:
+                    try:
+                        r = self._paradigm.compute({"type": "functional", "expr": ['+', 1, 2, 3]})
+                        assert r.get("result") == 6, f"范式计算错误: {r}"
+                        v13_result["checks"]["paradigm"] = "ok"
+                        v13_result["details"].append(f"    多范式 ✓ (+ 1 2 3) = {r['result']}")
+                        logger.info(f"  [v1.3.0自检] 多范式引擎: (+1+2+3)={r['result']} ✓")
+                    except Exception as e:
+                        v13_result["checks"]["paradigm"] = "error"
+                        v13_result["details"].append(f"    多范式 ✗ 失败: {e}")
+                        logger.error(f"  [v1.3.0自检] 多范式引擎异常: {e}")
+
+                # ── 总结 ──────────────────────────────────────────────────────
+                failed = [k for k, v in v13_result["checks"].items() if v not in ("ok",)]
+                if failed:
+                    v13_result["status"] = "degraded"
+                    v13_result["details"].append(f"  [v1.3.0自检] 异常模块: {failed}")
+                    logger.error(f"  [v1.3.0自检] 自检异常: {failed}")
+                else:
+                    v13_result["status"] = "healthy"
+                    v13_result["details"].append(f"  [v1.3.0自检] 全部 {len(v13_result['checks'])} 项通过")
+                    logger.info("  [v1.3.0自检] ✅ 全部模块健康")
+
             except Exception as e:
-                logger.error(f"  [v1.3.0自检] 模块自检异常: {e}")
+                v13_result["status"] = "error"
+                v13_result["details"].append(f"  [v1.3.0自检] 自检流程异常: {e}")
+                logger.error(f"  [v1.3.0自检] 自检流程异常: {e}")
+        else:
+            v13_result["status"] = "skipped"
+            v13_result["details"].append("  [v1.3.0自检] 跳过: 模块未初始化")
+            logger.warning("  [v1.3.0自检] 模块未初始化，跳过自检")
+
+        diagnosis["v13_self_check"] = v13_result
 
         # Phase 4.5: 自扩展
         if verbose:

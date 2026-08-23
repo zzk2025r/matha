@@ -403,19 +403,14 @@ class SymbolicParser:
     def _parse_term(self, text: str) -> Expr:
         """解析乘除表达式。"""
         text = text.strip()
-        parts = self._split_top_level(text, ['*', '/'])
+        parts = self._split_with_ops(text, ['*', '/'])
         if len(parts) > 1:
-            left = self._parse_term(parts[0])
+            left = self._parse_term(parts[0][0])
             result = left
-            for i, part in enumerate(parts[1:]):
+            for part, op in parts[1:]:
                 p = part.strip()
-                if '*' in p:
-                    sub_parts = p.split('*')
-                    for sp in sub_parts:
-                        result = Mul(result, self._parse_term(sp.strip()))
-                elif '/' in p:
-                    sub_parts = p.split('/')
-                    result = Div(result, self._parse_term(sub_parts[1].strip()))
+                if op == '/':
+                    result = Div(result, self._parse_term(p))
                 else:
                     result = Mul(result, self._parse_term(p))
             return result

@@ -89,7 +89,12 @@ class MathaFFIBridge:
         }
         for name, func in math_funcs.items():
             self._registry[name] = func
-        logger.info(f"  [FFI] 注册 {len(math_funcs)} 个数学内建函数")
+        # 实用函数
+        def lerp(a, b, t): return a + (b - a) * t
+        def clamp(val, lo, hi): return max(lo, min(hi, val))
+        self._registry['lerp'] = lerp
+        self._registry['clamp'] = clamp
+        logger.info(f"  [FFI] 注册 {len(math_funcs) + 2} 个数学内建函数")
 
     # ── 注册接口 ──────────────────────────────────────────────────────────────
 
