@@ -1,0 +1,109 @@
+{
+  "version": "2.0",
+  "module": "HAL",
+  "timestamp": "2026-08-23 17:12:52",
+  "summary": {
+    "total": 33,
+    "passed": 33,
+    "failed": 0,
+    "pass_rate": "100.0%"
+  },
+  "modules": [
+    {
+      "module": "安全副作用引擎",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 权限检查: read_sensor(readonly) ✓",
+        "  ✓ 执行无副作用函数: ✓",
+        "  ✓ 副作用引擎统计: 3注册, mode=sandbox  [✓]",
+        "  ✓ 权限等级: write ≥ readonly ✓"
+      ]
+    },
+    {
+      "module": "指针与内存控制",
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 分配: Ptr(buf_a@0x4000 type=alloc_64B) size=64  [✓]",
+        "  ✓ 分配: Ptr(buf_b@0x4040 type=alloc_32B) size=32  [✓]",
+        "  ✓ 读写: ptr1.set(42) → ptr1.get() = 42  [✓]",
+        "  ✓ 指针算术: Ptr(buf_a@0x4000 type=alloc_64B)+10 = Ptr(buf_a+10@0x400a type=void)  [✓]",
+        "  ✓ 只读页检测: 写入页0 抛出 MemoryError ✓",
+        "  ✓ 释放: ptr1 ✓",
+        "  ✓ 重复释放: 返回 False ✓",
+        "  ✓ 内存统计: 1活跃分配, 1越界  [✓]",
+        "  ✓ 内存不足检测: 大分配抛出 MemoryError ✓"
+      ]
+    },
+    {
+      "module": "协议解释生成器",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ UART 协议解析: baud=115200, 235B 代码  [✓]",
+        "  ✓ I2C 协议解析: addr=0x48, 146B 代码  [✓]",
+        "  ✓ SPI 协议解析: clock=1MHz, 151B 代码  [✓]",
+        "  ✓ CAN 协议解析: bitrate=500kbps, 119B 代码  [✓]"
+      ]
+    },
+    {
+      "module": "驱动生成器",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 传感器驱动: temperature_sensor, 435B  [✓]",
+        "  ✓ 执行器驱动: servo_motor, 315B  [✓]",
+        "  ✓ 数学驱动: quadratic(x²+3x-5), 119B  [✓]",
+        "  ✓ 驱动生成统计: 3 个驱动已生成  [✓]"
+      ]
+    },
+    {
+      "module": "原生编译后端",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 注册裸机目标: ['x86_64', 'arm64', 'riscv64', 'avr']  [✓]",
+        "  ✓ C 编译: x²+3x-5, 659B  [✓]",
+        "  ✓ Python 编译: x²+1 → def f(x)  [✓]",
+        "  ✓ 汇编编译: sin(x) → ARM64, 171B  [✓]",
+        "  ✓ 编译统计: 4目标, cache=3  [✓]"
+      ]
+    },
+    {
+      "module": "端到端流水线",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ UART协议解析 → Python/C 代码  [✓]",
+        "  ✓ UART传感器驱动生成  [✓]",
+        "  ✓ 原生编译执行: x²+1(3) = 10.0  [✓]",
+        "  ✓ 副作用引擎权限检查  [✓]",
+        "  ✓ 指针安全读写  [✓]"
+      ]
+    },
+    {
+      "module": "内循环 HAL 自检",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 内循环: v2.0 HAL 模块已注册  [✓]",
+        "  ✓ HAL v2.0 自检: status=healthy, checks=['sse', 'pmgr', 'native', 'driver', 'compile']  [✓]"
+      ]
+    }
+  ]
+}

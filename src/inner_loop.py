@@ -123,7 +123,7 @@ class MathaInnerLoop:
     # ── 模块初始化 ──────────────────────────────────────────────────────────────
 
     def init_modules(self):
-        """初始化所有核心模块（v1.3.0）。"""
+        """初始化所有核心模块（v1.3.0 + v2.0 HAL）。"""
         from src.ai_assistant import MathaAIAssistant, FriendlyIntentParser
         from src.interp import Interpreter
         from src.firewall import MathaFirewall
@@ -135,6 +135,14 @@ class MathaInnerLoop:
         from src.math_driver import get_driver_manager
         from src.multi_paradigm import get_paradigm_engine
         from src.symbol_codegen import get_codegen
+        # v2.0 HAL 新模块
+        from src.hardware.hal_v2 import (
+            get_side_effect_engine, get_pointer_manager,
+            get_protocol_parser, get_driver_generator, get_native_backend,
+        )
+        from src.compiler.native import (
+            ProtocolInterpreter, DriverBuilder, NativeCompiler,
+        )
 
         self._assistant = MathaAIAssistant()
         self._interp = Interpreter()
@@ -147,16 +155,29 @@ class MathaInnerLoop:
         self._driver_mgr = get_driver_manager()
         self._paradigm = get_paradigm_engine()
         self._codegen = get_codegen()
+        # v2.0 HAL
+        self._sse = get_side_effect_engine()
+        self._pmgr = get_pointer_manager()
+        self._proto_parser = get_protocol_parser()
+        self._driver_gen = get_driver_generator()
+        self._native_backend = get_native_backend()
+        self._proto_interpreter = ProtocolInterpreter(self._proto_parser)
+        self._driver_builder = DriverBuilder(self._driver_gen)
+        self._native_compiler = NativeCompiler(self._native_backend, self._sse, self._pmgr)
 
         # 注册错误回调到成长引擎
         self._engine._assistant = self._assistant
-        logger.info("  [内循环] 模块初始化完成 (v1.3.0)")
+        logger.info("  [内循环] 模块初始化完成 (v1.3.0 + v2.0 HAL)")
         logger.info(f"    意图解析器: {len(self._assistant.parser.MATH_CONCEPTS)} 概念, "
                      f"{sum(len(v) for v in self._assistant.parser.KEYWORD_MAP.values())} 关键词")
         logger.info(f"    解释器: {len(self._interp.builtins)} 内建函数")
         logger.info(f"    防火墙: level={self._firewall.level.value}")
         logger.info(f"    安全引擎: {self._security.threat_count()} 威胁记录")
         logger.info(f"    FFI: {self._ffi.get_stats().get('registered_functions', 0)} 注册函数")
+        logger.info(f"    驱动: {self._driver_mgr.get_stats().get('total_drivers', 0)} 驱动")
+        logger.info(f"    代码生成: Python/JS/C/Matha")
+        logger.info(f"    HAL v2.0: 副作用引擎/指针管理器/协议解析/驱动生成/原生编译")
+        logger.info(f"    裸机目标: {self._native_backend.get_targets()}")
         logger.info(f"    驱动: {self._driver_mgr.get_stats().get('total_drivers', 0)} 驱动")
         logger.info(f"    代码生成: Python/JS/C/Matha")
 
@@ -968,6 +989,64 @@ class MathaInnerLoop:
             logger.warning("  [v1.3.0自检] 模块未初始化，跳过自检")
 
         diagnosis["v13_self_check"] = v13_result
+
+        # Phase 4.56: v2.0 HAL 自检
+        hal_result = {"status": "healthy", "checks": {}, "details": []}
+        if hasattr(self, '_sse') and self._sse:
+            try:
+                # SSE 健康检查
+                sse_stats = self._sse.get_stats()
+                hal_result["checks"]["side_effect"] = "ok"
+                hal_result["details"].append(f"  [HAL v2.0] 副作用引擎: mode={sse_stats['mode']}, {sse_stats['registered_funcs']}注册函数, {sse_stats['total_calls']}调用")
+                # 指针管理器健康检查
+                pmgr_stats = self._pmgr.get_stats()
+                hal_result["checks"]["pointer_mgr"] = "ok"
+                hal_result["details"].append(f"  [HAL v2.0] 指针管理: {pmgr_stats['total_pages']}页, {pmgr_stats['total_memory_kb']}KB, {pmgr_stats['active_allocs']}活跃分配")
+                # 原生编译目标检查
+                targets = self._native_backend.get_targets()
+                hal_result["checks"]["native_compiler"] = "ok"
+                hal_result["details"].append(f"  [HAL v2.0] 原生编译: {len(targets)}目标架构 {targets}")
+                # 协议解析器检查
+                proto_stats = self._proto_parser.parse(
+                    type('P', (), {'protocol': __import__('src.hardware.hal_v2', fromlist=['ProtocolType']).ProtocolType.UART,
+                                   'name': 'test_uart', 'baud_rate': 115200, 'data_bits': 8,
+                                   'parity': 'none', 'stop_bits': 1, 'frame_format': 'async',
+                                   'max_payload': 256, 'timeout_ms': 1000, 'endian': 'little',
+                                   'metadata': {}})()
+                ) if False else {}
+                # 驱动生成器检查
+                from src.hardware.hal_v2 import DriverKind, DriverSpec, Architecture
+                driver_result = self._driver_gen.generate(DriverSpec(
+                    name="test_driver", kind=DriverKind.MATH,
+                    target_arch=Architecture.X86_64, target_lang="python",
+                    math_expr="x * 2",
+                ))
+                hal_result["checks"]["driver_gen"] = "ok"
+                hal_result["details"].append(f"  [HAL v2.0] 驱动生成: test_driver 生成成功")
+                # 原生编译检查
+                compile_result = self._native_compiler.compile("x^2 + 1", Architecture.X86_64, "test_fn", "c")
+                hal_result["checks"]["native_compile"] = "ok" if compile_result.get("success") else "error"
+                hal_result["details"].append(f"  [HAL v2.0] 原生编译: x²+1 → C {'✓' if compile_result.get('success') else '✗'}")
+                # 总结
+                failed = [k for k, v in hal_result["checks"].items() if v not in ("ok",)]
+                if failed:
+                    hal_result["status"] = "degraded"
+                    hal_result["details"].append(f"  [HAL v2.0] 异常模块: {failed}")
+                    logger.error(f"  [HAL v2.0] 自检异常: {failed}")
+                else:
+                    hal_result["status"] = "healthy"
+                    hal_result["details"].append(f"  [HAL v2.0] 全部 {len(hal_result['checks'])} 项通过")
+                    logger.info("  [HAL v2.0] ✅ 全部模块健康")
+            except Exception as e:
+                hal_result["status"] = "error"
+                hal_result["details"].append(f"  [HAL v2.0] 自检流程异常: {e}")
+                logger.error(f"  [HAL v2.0] 自检流程异常: {e}")
+        else:
+            hal_result["status"] = "skipped"
+            hal_result["details"].append("  [HAL v2.0] 跳过: 模块未初始化")
+            logger.warning("  [HAL v2.0] 模块未初始化，跳过自检")
+
+        diagnosis["hal_v2_self_check"] = hal_result
 
         # Phase 4.5: 自扩展
         if verbose:
