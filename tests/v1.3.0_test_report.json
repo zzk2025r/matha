@@ -1,0 +1,151 @@
+{
+  "version": "1.3.0",
+  "timestamp": "2026-08-23 16:10:39",
+  "summary": {
+    "total": 59,
+    "passed": 59,
+    "failed": 0,
+    "pass_rate": "100.0%"
+  },
+  "modules": [
+    {
+      "module": "符号引擎",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 解析: x^2 + 3*x - 5({'x': 3}) = 13.0  [✓]",
+        "  ✓ 解析: x^2 - 2({'x': 3}) = 7.0  [✓]",
+        "  ✓ 解析: 2*x + 1({'x': 5}) = 11.0  [✓]",
+        "  ✓ 解析: x^2 - 3*x + 2({'x': 2}) = 0.0  [✓]",
+        "  ✓ 解析: sin(x)({'x': 0.0}) = 0.0  [✓]",
+        "  ✓ 解析: cos(x)({'x': 0.0}) = 1.0  [✓]",
+        "  ✓ 解析: sqrt(x)({'x': 9.0}) = 3.0  [✓]",
+        "  ✓ 解析: exp(x)({'x': 0.0}) = 1.0  [✓]",
+        "  ✓ 解析: log(x)({'x': 2.718281828}) = 0.9999999998311266  [✓]",
+        "  ✓ 解析: x^3 + 2*x^2 - 5*x + 3({'x': 1}) = 1.0  [✓]",
+        "  ✓ 求导: d/dx(x^2) = (2 * x)  [✓]",
+        "  ✓ 求导: d/dx(x^3) = (3 * (x ^ 2))  [✓]",
+        "  ✓ 求导: d/dx(sin(x)) = (cos(x) * 1)  [✓]",
+        "  ✓ 求导: d/dx(x^2 + 3*x) = ((2 * x) + ((x * 0) + (1 * 3)))  [✓]",
+        "  ✓ 链式法则: d/dx(sin(x²)) at x=1 = 1.080605  [✓]",
+        "  ✓ AST序列化: x²+1 → add(pow(x,2), 1)  [✓]",
+        "  ✓ 除零异常: 1/x(x=0) 正确抛出 ZeroDivisionError  [✓]",
+        "  ✓ to_expr: '3.14' → Num(3.14)  [✓]"
+      ],
+      "errors": []
+    },
+    {
+      "module": "FFI桥接器",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ FFI.sin([1.0]) = 0.8414709848078965  [✓]",
+        "  ✓ FFI.cos([0.0]) = 1.0  [✓]",
+        "  ✓ FFI.sqrt([4.0]) = 2.0  [✓]",
+        "  ✓ FFI.exp([1.0]) = 2.718281828459045  [✓]",
+        "  ✓ FFI.log([2.718281828]) = 0.9999999998311266  [✓]",
+        "  ✓ FFI.pow([2.0, 3.0]) = 8.0  [✓]",
+        "  ✓ FFI.abs([-5.0]) = 5.0  [✓]",
+        "  ✓ FFI.factorial([5]) = 120  [✓]",
+        "  ✓ FFI自定义注册: my_add(3,4)=7, my_mul(3,4)=12  [✓]",
+        "  ✓ FFI线程安全: 10次调用全部成功  [✓]",
+        "  ✓ FFI.is_registered: 正确判断  [✓]"
+      ],
+      "errors": []
+    },
+    {
+      "module": "多范式引擎",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 函数式: (+ (* 2 3) (sin π)) ≈ 6  [✓]",
+        "  ✓ 函数式: let x=5, y=3 → x+y² = 14  [✓]",
+        "  ✓ 符号式: x²+3x-5(x=2) = 5  [✓]",
+        "  ✓ 命令式: 1+2+3+4+5 = 15  [✓]",
+        "  ✓ 数据流: double(5)+add_one(10) = 21  [✓]",
+        "  ✓ FFI集成: clamp(15,0,10) = 10  [✓]"
+      ],
+      "errors": []
+    },
+    {
+      "module": "代码生成",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ CodeGen Python: x²+3x-5 生成成功  [✓]",
+        "  ✓ CodeGen JavaScript: x²+3x-5 生成成功  [✓]",
+        "  ✓ CodeGen C: ^→pow() 正确  [✓]",
+        "  ✓ CodeGen e常量: e*x → math.e*x  [✓]",
+        "  ✓ CodeGen驱动规格: 生成成功  [✓]"
+      ],
+      "errors": []
+    },
+    {
+      "module": "数学驱动",
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 驱动 mat_det([[1,2],[3,4]]) = -2  [✓]",
+        "  ✓ 驱动 dot([1,2,3],[4,5,6]) = 32  [✓]",
+        "  ✓ 驱动 mat_mul(I, [[2,3],[4,5]]) = [[2,3],[4,5]]  [✓]",
+        "  ✓ 驱动 circle_area(5) = 78.5398  [✓]",
+        "  ✓ 驱动 distance((0,0),(3,4)) = 5.0  [✓]",
+        "  ✓ 驱动 derivative(x², x=2) = 3.999999975690116  [✓]",
+        "  ✓ 驱动 binary_search(x-5) = 5.000000  [✓]",
+        "  ✓ 驱动吞噬: Python函数注册成功  [✓]",
+        "  ✓ 驱动列表: 5 个驱动, ['linear_algebra', 'calculus', 'signal', 'geometry', 'optimization']  [✓]"
+      ],
+      "errors": []
+    },
+    {
+      "module": "沙箱安全",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 沙箱安全: x²+1(x=3) = 10  [✓]",
+        "  ✓ 沙箱防护: 恶意代码被拦截 (AttributeError)  [✓]"
+      ],
+      "errors": []
+    },
+    {
+      "module": "内循环自检",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 内循环: v1.3.0 模块已注册  [✓]",
+        "  ✓ 内循环自检: status=healthy, checks=['ffi', 'drivers', 'symbolic', 'calculus', 'codegen', 'sandbox', 'paradigm']  [✓]"
+      ],
+      "errors": []
+    },
+    {
+      "module": "复杂数学E2E",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "details": [
+        "  ✓ 二次方程: x²-5x+6=0, 根 x=2, x=3  [✓]",
+        "  ✓ 三角恒等式: sin²(1.5)+cos²(1.5) = 1.000000000000000 ≈ 1  [✓]",
+        "  ✓ 链式法则: d/dx(sin(x²)) at x=0.5 = 0.968912 ≈ 0.968912  [✓]",
+        "  ✓ 矩阵det(3×3) = -3 (期望 -3)  [✓]",
+        "  ✓ FFT([1,0,-1,0]) = [0j, (2+0j), 0j, (2-0j)]  [✓]",
+        "  ✓ 梯度下降: x²→0, 结果=0.000000  [✓]"
+      ],
+      "errors": []
+    }
+  ]
+}
