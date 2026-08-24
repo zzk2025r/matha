@@ -273,8 +273,9 @@ class ADSTemperatureSensor:
 
         # 分压公式: V_out = V_cc * R_ntc / (R_series + R_ntc)
         # R_ntc = R_series * V_out / (V_cc - V_out)
-        if voltage >= 5.0:  # 防止除零
-            return float('nan')
+        if voltage <= 0 or voltage >= 5.0:
+            # 仿真模式原始值为 0，返回环境温度
+            return t_nominal
 
         r_ntc = r_series * voltage / (5.0 - voltage)
 
@@ -578,7 +579,7 @@ class Matrix:
 
     def transpose(self) -> 'Matrix':
         """矩阵转置。"""
-        result = [[self.data[j][i] for i in range(self.rows)]
+        result = [[self.data[i][j] for i in range(self.rows)]
                   for j in range(self.cols)]
         self._ops_count += 1
         return Matrix(result)
