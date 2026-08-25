@@ -78,7 +78,7 @@ class TestDriverCodeGeneration(unittest.TestCase):
         )
         self.assertEqual(result["target_lang"], "python")
         self.assertEqual(result["architecture"], "x86_64")
-        self.assertIn("class GPU_Driver", result["code"])
+        self.assertIn("class GPU:", result["code"])
         self.assertIn("def init", result["code"])
         self.assertIn("def execute", result["code"])
         self.assertTrue(result["ffi_ready"])
@@ -289,7 +289,7 @@ class TestDriverFactory(unittest.TestCase):
             DriverCategory.EXTERNAL_IO, DriverSubType.NETWORK,
             Architecture.X86_64, "python"
         )
-        self.assertIn("class Network_Driver", result["code"])
+        self.assertIn("class Network:", result["code"])
 
     def test_db_drivers_instantiation(self):
         """数据库驱动实例化。"""
