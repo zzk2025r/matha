@@ -714,8 +714,8 @@ class TestEmbeddedHardwareSimulation(unittest.TestCase):
         # 验证 C 代码中的寄存器地址与仿真模型一致
         self.assertIn("0x40001000", c_code)  # GPIO_BASE
         self.assertIn("0x40018000", c_code)  # PWM_BASE
-        self.assertIn("0x40002000", c_code)  # WDT_BASE
         self.assertIn("0x40003000", c_code)  # I2C_BASE
+        self.assertIn("0x40000000", c_code)  # UART_BASE
         # 验证 C 代码中的函数签名与硬件类匹配
         self.assertIn("void gpio_init", c_code)
         self.assertIn("void motor_init", c_code)
