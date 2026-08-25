@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "timestamp": "2026-08-26 01:01:32",
+    "platform": "win32",
+    "python": "3.14.3",
+    "rustc": "not found"
+  },
+  "entries": [
+    {
+      "test_name": "MatrixMultiply",
+      "language": "matha",
+      "iterations": 50,
+      "avg_ms": 19.400469998945482,
+      "min_ms": 18.209800007753074,
+      "max_ms": 22.94709999114275,
+      "error": ""
+    },
+    {
+      "test_name": "QuickSort",
+      "language": "matha",
+      "iterations": 50,
+      "avg_ms": 1.6263919995981269,
+      "min_ms": 1.4349999983096495,
+      "max_ms": 2.7802999975392595,
+      "error": ""
+    },
+    {
+      "test_name": "PolynomialEval",
+      "language": "matha",
+      "iterations": 100000,
+      "avg_ms": 0.0006131109881971497,
+      "min_ms": 0.0004999892553314567,
+      "max_ms": 0.17949999892152846,
+      "error": ""
+    },
+    {
+      "test_name": "Fibonacci",
+      "language": "matha",
+      "iterations": 100,
+      "avg_ms": 256.50718400007463,
+      "min_ms": 245.48060000233818,
+      "max_ms": 356.1333999969065,
+      "error": ""
+    },
+    {
+      "test_name": "ParallelReduce",
+      "language": "matha",
+      "iterations": 10,
+      "avg_ms": 9.872909997648094,
+      "min_ms": 9.188099997118115,
+      "max_ms": 10.983200001646765,
+      "error": ""
+    }
+  ],
+  "speedups": {
+    "QuickSort": {},
+    "MatrixMultiply": {},
+    "ParallelReduce": {},
+    "Fibonacci": {},
+    "PolynomialEval": {}
+  }
+}
