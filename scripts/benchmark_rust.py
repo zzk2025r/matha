@@ -269,14 +269,44 @@ class RustBenchmarks:
 
     @staticmethod
     def _check_rustc() -> bool:
-        try:
-            result = subprocess.run(
-                ["rustc", "--version"],
-                capture_output=True, timeout=5
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        candidates = [
+            "rustc",
+            r"C:\Users\Admin\.cargo\bin\rustc.exe",
+            os.path.join(os.environ.get("CARGO_HOME", ""), "bin", "rustc"),
+            os.path.join(os.environ.get("HOME", ""), ".cargo", "bin", "rustc"),
+        ]
+        for cmd in candidates:
+            try:
+                r = subprocess.run(
+                    [cmd, "--version"],
+                    capture_output=True, timeout=5,
+                    executable=cmd if os.path.isabs(cmd) else None,
+                )
+                if r.returncode == 0:
+                    return True
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                continue
+        return False
+
+    @staticmethod
+    def _get_rustc_path() -> str:
+        candidates = [
+            r"C:\Users\Admin\.cargo\bin\rustc.exe",
+            os.path.join(os.environ.get("CARGO_HOME", ""), "bin", "rustc"),
+            os.path.join(os.environ.get("HOME", ""), ".cargo", "bin", "rustc"),
+            "rustc",
+        ]
+        for cmd in candidates:
+            if os.path.isabs(cmd) and os.path.isfile(cmd):
+                return cmd
+            try:
+                args = (["where", cmd] if sys.platform == "win32" else ["which", cmd])
+                r = subprocess.run(args, capture_output=True, text=True, timeout=3)
+                if r.returncode == 0:
+                    return r.stdout.strip().split("\n")[0]
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        return "rustc"
 
     def _compile_and_run(self, code: str, name: str,
                           iterations: int, extra_args: tuple = ()) -> BenchmarkEntry:
