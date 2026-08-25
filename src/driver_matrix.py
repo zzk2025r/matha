@@ -259,8 +259,8 @@ class DriverSpec:
     target_lang: str = "python"  # python / c / matha / java
     protocol: Optional[str] = None
     params: Dict[str, Any] = field(default_factory=dict)
-    safety_level: str = "medium"
     is_core: bool = False  # 是否为核心驱动
+    safety_level: str = "medium"
 
     def to_dict(self) -> dict:
         return {
@@ -1015,7 +1015,7 @@ static {cls_name}_t _{cls_name.lower()};
 
 /* 初始化 */
 bool {cls_name.lower()}_init(void) {{
-    memset(&_{cls_name.lower()}, 0, sizeof({_cls_name}_t));
+    memset(&_{cls_name.lower()}, 0, sizeof({cls_name}_t));
     _{cls_name.lower()}.initialized = true;
     _{cls_name.lower()}.config = 0;
     _{cls_name.lower()}.status = 0;
@@ -1151,10 +1151,11 @@ int main(void) {{
 if __name__ == "__main__":
     matrix = MathaDriverMatrix()
     matrix.print_matrix()
-    print(f"\n总计: {matrix._stats['total']} 个驱动")
-    print(f"核心驱动: {matrix._stats['core_count']} 个")
-    print(f"类别数: {matrix._stats['total_categories']} 类")
-    print(f"架构数: {matrix._stats['total_architectures']} 种")
+    stats = matrix.get_stats()
+    print(f"\n总计: {stats['total']} 个驱动")
+    print(f"核心驱动: {stats['core_count']} 个")
+    print(f"类别数: {stats['total_categories']} 类")
+    print(f"架构数: {stats['total_architectures']} 种")
     print()
 
     # 生成示例驱动代码
