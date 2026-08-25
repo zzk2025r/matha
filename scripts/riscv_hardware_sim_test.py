@@ -659,10 +659,10 @@ class TestEmbeddedHardwareSimulation(unittest.TestCase):
 
     def test_button_led_interaction(self):
         """按钮控制 LED 仿真。"""
-        self.gpio.set_direction(0, "INPUT")   # 按钮
+        self.gpio.set_direction(0, "OUTPUT")  # 按钮(仿真写高/低)
         self.gpio.set_direction(1, "OUTPUT")  # LED
 
-        # 模拟按钮按下/释放循环 (读取按钮，翻转 LED)
+        # 模拟按钮按下/释放循环 (写按钮信号，翻转 LED)
         for _ in range(3):
             self.gpio.write(0, 1)   # 按钮按下
             self.gpio.toggle(1)     # LED 翻转
