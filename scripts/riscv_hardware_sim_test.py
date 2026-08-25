@@ -27,8 +27,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from riscv_embedded_demo import (
     I2CBus, I2CConfig,
     ADS1115Config, ADSTemperatureSensor,
-    Matrix,
-    GPIOPin, PWMChannel,
     generate_i2c_sensor_c, generate_linalg_c,
     generate_embedded_project_template,
 )
@@ -39,15 +37,18 @@ from riscv_embedded_demo import (
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class RISCVMemory:
-    """RISC-V 内存模型 (4KB 页式，模拟 PointerManager)。"""
+    """RISC-V 内存模型 (平坦地址空间 + 页式分配)。"""
 
     PAGE_SIZE = 4096
-    TOTAL_PAGES = 32  # 128KB
+    TOTAL_PAGES = 32  # 128KB 用户内存
 
     def __init__(self):
-        self.pages: List[Dict[int, int]] = [{} for _ in range(self.TOTAL_PAGES)]
-        self.page_perms: List[str] = ['readonly'] * 4 + ['write'] * (self.TOTAL_PAGES - 4)
-        self._allocations: Dict[int, Tuple[int, int]] = {}  # addr -> (page_idx, size)
+        # 平坦字节数组 (模拟整个地址空间)
+        self._mem: Dict[int, int] = {}
+        self._allocations: Dict[int, Tuple[int, int]] = {}  # addr -> (size, name)
+        # 页式分配区: 0x20000000 ~ 0x20020000 (128KB RAM)
+        self.ram_base = 0x20000000
+        self.ram_size = self.TOTAL_PAGES * self.PAGE_SIZE  # 128KB
 
     def _page_idx(self, addr: int) -> int:
         return addr // self.PAGE_SIZE
@@ -56,66 +57,46 @@ class RISCVMemory:
         return addr % self.PAGE_SIZE
 
     def read_byte(self, addr: int) -> int:
-        page_idx = self._page_idx(addr)
-        offset = self._page_offset(addr)
-        if page_idx >= self.TOTAL_PAGES:
-            raise MemoryError(f"越界读取: 0x{addr:08X}")
-        if self.page_perms[page_idx] == 'readonly' and addr >= 0x20000000:
-            pass  # 系统区只读，但允许读取
-        return self.pages[page_idx].get(offset, 0)
+        return self._mem.get(addr, 0)
 
     def write_byte(self, addr: int, value: int):
-        page_idx = self._page_idx(addr)
-        offset = self._page_offset(addr)
-        if page_idx >= self.TOTAL_PAGES:
-            raise MemoryError(f"越界写入: 0x{addr:08X}")
-        if self.page_perms[page_idx] == 'readonly':
-            raise MemoryError(f"只读页写入: 0x{addr:08X}")
-        self.pages[page_idx][offset] = value & 0xFF
+        self._mem[addr] = value & 0xFF
+        # 跟踪分配
         if addr not in self._allocations:
-            self._allocations[addr] = (page_idx, 1)
+            page_idx = (addr - self.ram_base) // self.PAGE_SIZE
+            if 0 <= page_idx < self.TOTAL_PAGES:
+                self._allocations[addr] = (page_idx, 1)
 
     def alloc(self, size: int, name: str = "") -> int:
-        """页内分配内存。"""
-        for page_idx in range(4, self.TOTAL_PAGES):
-            # 检查页内剩余空间
-            used = sum(1 for v in self.pages[page_idx].values() if v is not None)
-            if used + size <= self.PAGE_SIZE:
-                base = page_idx * self.PAGE_SIZE
-                # 找页内空闲偏移
-                offset = 0
-                while offset + size <= self.PAGE_SIZE:
-                    conflict = False
-                    for i in range(size):
-                        if self.pages[page_idx].get(offset + i) is not None:
-                            conflict = True
-                            offset = ((offset // 4) + 1) * 4
-                            conflict = True
-                            break
-                    if not conflict:
-                        for i in range(size):
-                            self.pages[page_idx][offset + i] = 0
-                        self._allocations[base + offset] = (page_idx, size)
-                        if name:
-                            logger = __import__('logging').getLogger("matha.sim")
-                            logger.info(f"  [MEM] 分配: {name} @ 0x{base+offset:08X} size={size}B")
-                        return base + offset
+        """在 RAM 区分配内存。"""
+        # 找连续空闲块
+        for base in range(self.ram_base, self.ram_base + self.ram_size - size, 4):
+            ok = True
+            for i in range(size):
+                if base + i in self._mem:
+                    ok = False
+                    break
+            if ok:
+                for i in range(size):
+                    self._mem[base + i] = 0
+                self._allocations[base] = (0, size)
+                return base
         raise MemoryError(f"内存不足: 请求 {size}B")
 
     def free(self, addr: int):
         """释放内存。"""
         if addr in self._allocations:
-            page_idx, size = self._allocations.pop(addr)
+            _, size = self._allocations.pop(addr)
             for i in range(size):
-                self.pages[page_idx].pop(addr % self.PAGE_SIZE + i, None)
+                self._mem.pop(addr + i, None)
             return True
         return False
 
     def get_stats(self) -> dict:
-        used = sum(len(p) for p in self.pages)
+        used = len(self._mem)
         return {
             "total_pages": self.TOTAL_PAGES,
-            "total_memory_kb": self.TOTAL_PAGES * self.PAGE_SIZE // 1024,
+            "total_memory_kb": self.ram_size // 1024,
             "used_bytes": used,
             "allocations": len(self._allocations),
         }
@@ -639,6 +620,7 @@ class TestEmbeddedHardwareSimulation(unittest.TestCase):
 
     def test_sensor_reading_loop(self):
         """传感器读取循环仿真。"""
+        self.wdt.start()  # 启动看门狗
         # 模拟 I2C 温度传感器读取
         bus = I2CBus(I2CConfig(bus=1, address=0x48))
         bus.init()
@@ -728,6 +710,10 @@ class TestEmbeddedHardwareSimulation(unittest.TestCase):
         self.assertIn("0x40018000", c_code)  # PWM_BASE
         self.assertIn("0x40002000", c_code)  # WDT_BASE
         self.assertIn("0x40003000", c_code)  # I2C_BASE
+        # 验证 C 代码中的函数签名与硬件类匹配
+        self.assertIn("void gpio_init", c_code)
+        self.assertIn("void motor_init", c_code)
+        self.assertIn("void i2c_init", c_code)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
