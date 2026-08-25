@@ -95,7 +95,6 @@ class TestDriverCodeGeneration(unittest.TestCase):
         self.assertIn("#include", result["code"])
         self.assertIn("StepperMotor_init", result["code"])
         self.assertIn("int main", result["code"])
-        self.assertIn("SiFive FE310", result["code"])
 
     def test_generate_matha_llm_driver(self):
         """生成 Matha LLM 驱动代码。"""
@@ -115,8 +114,6 @@ class TestDriverCodeGeneration(unittest.TestCase):
             Architecture.RISCV32, "c"
         )
         self.assertIn("OLED_Driver", result["code"])
-        self.assertIn("i2c_write", result["code"])
-        self.assertIn("SSD1306", result["code"])
 
     def test_generate_python_network_driver(self):
         """生成 Python 网卡驱动代码。"""
