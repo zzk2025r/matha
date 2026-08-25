@@ -598,6 +598,7 @@ class TestEmbeddedHardwareSimulation(unittest.TestCase):
         self.gpio.init()
         self.pwm.init()
         self.wdt.init(timeout_ms=2000)
+        self.wdt.start()  # 默认启动看门狗
 
     def test_full_system_boot(self):
         """完整系统启动序列。"""
