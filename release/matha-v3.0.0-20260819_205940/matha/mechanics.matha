@@ -1,0 +1,26 @@
+(* 学科知识：物理学 — 力学
+   覆盖：运动学、牛顿定律、能量、万有引力
+   ============================================================ *)
+
+module 力学 {
+
+  func g() -> Float = () => 9.80665
+
+  func 匀速位移(v: Float, t: Float) -> Float = (v, t) => v * t
+  func 匀变速位移(v0: Float, a: Float, t: Float) -> Float =
+    (v0, a, t) => v0 * t + 0.5 * a * t * t
+  func 匀变速末速度(v0: Float, a: Float, t: Float) -> Float =
+    (v0, a, t) => v0 + a * t
+
+  func 自由落体速度(t: Float) -> Float = (t) => g() * t
+  func 自由落体高度(t: Float) -> Float = (t) => 0.5 * g() * t * t
+
+  func 牛顿第二定律(m: Float, a: Float) -> Float = (m, a) => m * a
+  func 重力(m: Float) -> Float = (m) => m * g()
+  func 动能(m: Float, v: Float) -> Float = (m, v) => 0.5 * m * v * v
+  func 势能(m: Float, h: Float) -> Float = (m, h) => m * g() * h
+  func 功(F: Float, s: Float) -> Float = (F, s) => F * s
+
+  func 万有引力(m1: Float, m2: Float, r: Float) -> Float =
+    (m1, m2, r) => 6.674e-11 * m1 * m2 / (r * r)
+}

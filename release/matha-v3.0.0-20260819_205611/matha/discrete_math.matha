@@ -1,0 +1,71 @@
+(* 学科知识：计算机科学 — 离散数学
+   覆盖：命题逻辑、集合论、图论基础、 combinatorics
+   ============================================================ *)
+
+module 离散数学 {
+
+  (* ===== 命题逻辑 ===== *)
+  func 真值表_与() -> List =
+    [(真, 真, 真), (真, 假, 假), (假, 真, 假), (假, 假, 假)]
+
+  func 真值表_或() -> List =
+    [(真, 真, 真), (真, 假, 真), (假, 真, 真), (假, 假, 假)]
+
+  func 真值表_蕴含() -> List =
+    [(真, 真, 真), (真, 假, 假), (假, 真, 真), (假, 假, 真)]
+
+  func 等价(p: Bool, q: Bool) -> Bool =
+    (p, q) => (p 蕴含 q) and (q 蕴含 p)
+
+  func 矛盾式(p: Bool, q: Bool) -> Bool =
+    (p, q) => not (p or q)
+
+  func 重言式(p: Bool, q: Bool) -> Bool =
+    (p, q) => p or not p
+
+  (* ===== 集合论 ===== *)
+  func 并集基数(|A|: Int, |B|: Int, |A∩B|: Int) -> Int =
+    (|A|, |B|, |A∩B|) => |A| + |B| - |A∩B|
+
+  func 笛卡尔积基数(|A|: Int, |B|: Int) -> Int =
+    (|A|, |B|) => |A| * |B|
+
+  func 幂集基数(n: Int) -> Int =
+    (n) => 2 ^ n
+
+  (* ===== 图论 ===== *)
+  func 握手定理(边数: Int) -> Int =
+    (边数) => 2 * 边数
+
+  func 完全图边数(n: Int) -> Int =
+    (n) => n * (n - 1) / 2
+
+  func 完全二部图边数(m: Int, n: Int) -> Int =
+    (m, n) => m * n
+
+  func 树边数(顶点数: Int) -> Int =
+    (顶点数) => 顶点数 - 1
+
+  func 欧拉回路条件(度列表: List) -> Bool =
+    (度列表) =>
+    所有偶数(度列表)
+
+  func 所有偶数(lst: List) -> Bool =
+    (lst) =>
+    let rec check(i: Int) -> Bool =
+      (i) =>
+        (i >= len(lst)) ? 真 :
+        (lst[i] % 2 = 0) ? check(i + 1) : 假
+    check(0)
+
+  (* ===== 组合 ===== *)
+  func 排列数(n: Int, r: Int) -> Int =
+    (n, r) => 阶乘(n) / 阶乘(n - r)
+
+  func 组合数(n: Int, r: Int) -> Int =
+    (n, r) => 阶乘(n) / (阶乘(r) * 阶乘(n - r))
+
+  func 阶乘(n: Int) -> Int =
+    (n) =>
+    (n <= 1) ? 1 : n * 阶乘(n - 1)
+}

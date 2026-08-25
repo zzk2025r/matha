@@ -1,0 +1,15 @@
+﻿name,duration_ms,width_pct,depth,parent
+__main__,500.0,100.0,0,
+main,500.0,100.0,0,
+lexer,120.0,24.0,1,__main__
+parser,180.0,36.0,2,main
+parse_expr,80.0,16.0,3,lexer
+parse_binary,40.0,8.0,4,parser
+parse_unary,40.0,8.0,5,parse_expr
+parse_stmt,100.0,20.0,6,parse_binary
+interpreter,150.0,30.0,7,parse_unary
+eval_expr,90.0,18.0,8,parse_stmt
+eval_call,50.0,10.0,9,interpreter
+eval_binop,40.0,8.0,10,eval_expr
+eval_stmt,60.0,12.0,11,eval_call
+codegen,50.0,10.0,12,eval_binop

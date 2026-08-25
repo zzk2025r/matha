@@ -1,0 +1,118 @@
+(* OS Kernel Resource: Syscall Table Formulas
+ * 系统调用表设计公式
+ *)
+
+(* ── Linux x86 32-bit syscall 号 ───────────────────────── *)
+(*
+ * 常见 syscall 号（32-bit x86）：
+ *   exit=1,  fork=2,   read=3,   write=4,  open=5,   close=6,
+ *   wait4=7,  kill=37, fstat=5,  mmap=192, mprotect=125,
+ *   munmap=91, brk=45, ioctl=54, fcntl=33, pipe=42,    dup=32,
+ *   execve=11, chdir=12, mkdir=39, rmdir=40, uname=127,
+ *   getpid=39, getuid=102, getgid=104, setuid=105, setgid=106,
+ *   select=115, socket=102, connect=98, accept=99,
+ *   sendto=88, recvfrom=89, sigaction=67, sigprocmask=70,
+ *   rt_sigreturn=15, set_robust_list=173, get_robust_list=174,
+ *   arch_prctl=158, clone=120, unshare=272, set_tid_address=186,
+ *   set_tls=160, futex=202, clock_gettime=228, nanosleep=101,
+ *   sysinfo=116, sysctl=149
+ *)
+
+func syscall_num(name: String) -> Int =
+    case name of
+      "exit"    -> 1
+      "fork"    -> 2
+      "read"    -> 3
+      "write"   -> 4
+      "open"    -> 5
+      "close"   -> 6
+      "kill"    -> 37
+      "mmap"    -> 192
+      "mprotect"-> 125
+      "munmap"  -> 91
+      "brk"     -> 45
+      "ioctl"   -> 54
+      "pipe"    -> 42
+      "execve"  -> 11
+      "clone"   -> 120
+      "select"  -> 115
+      "socket"  -> 102
+      "futex"   -> 202
+      _         -> -1
+
+(* ── syscall 表大小估算 ──────────────────────────────────── *)
+(* 每项 8 字节：跳转目标(4B) + padding(4B) *)
+func syscall_table_entry_size() -> Int = 8
+func syscall_table_size(count: Int) -> Int = (count) => count * 8
+
+(* ── syscall 开销模型 ───────────────────────────────────── *)
+(*
+ * 用户态 syscall 开销：
+ *   - 压栈保存寄存器：~50ns
+ *   - 模式切换（user→kernel）：~100ns
+ *   - IDT 查表：~10ns
+ *   - 内核函数调用：~50ns
+ *   - 返回用户态（iret）：~50ns
+ *   总计：~260ns ≈ 0.26μs
+ *)
+func syscall_latency_user_mode() -> Float = 260.0   ; 纳秒
+func syscall_latency_kernel_mode() -> Float = 50.0   ; 纳秒（纯内核函数调用）
+
+(* ── int 0x80 vs sysenter 对比 ──────────────────────────── *)
+(*
+ * int 0x80：~300ns（软件中断，通用）
+ * sysenter：~50ns（专用指令，仅用户→内核）
+ * syscall（x86-64）：~50ns
+ *)
+func int80_latency_ns() -> Float = 300.0
+func sysenter_latency_ns() -> Float = 50.0
+func syscall64_latency_ns() -> Float = 50.0
+
+(* ── 异常向量表 ──────────────────────────────────────────── *)
+(*
+ * 向量号  名称                    描述
+ * 0       Divide-by-zero (#DE)    除零错误
+ * 1       Debug (#DB)             调试异常
+ * 2       NMI                     不可屏蔽中断
+ * 3       Breakpoint (#BP)        断点
+ * 4       Overflow (#OF)          溢出
+ * 5       Bound Range (#BR)       越界
+ * 6       Invalid Opcode (#UD)    无效指令
+ * 7       Device Not Available    FPU 不可用
+ * 8       Double Fault (#DF)      双重故障
+ * 9       Coprocessor Segment     协处理器段越界
+ * 10      Invalid TSS (#TS)       无效 TSS
+ * 11      Segment Not Present (#NP)
+ * 12      Stack Exception (#SS)   栈错误
+ * 13      General Protection (#GP)
+ * 14      Page Fault (#PF)        页故障
+ * 16      x87 FPU (#MF)           FPU 错误
+ * 17      Alignment Check (#AC)   对齐检查
+ * 18      Machine Check (#MC)     机器检查
+ * 32      IRQ0 (Timer)            定时器
+ * 33      IRQ1 (Keyboard)         键盘
+ * 128     System Call (int 0x80)  系统调用入口
+ *)
+func exception_name(vector: Int) -> String =
+    case vector of
+      0  -> "Divide-by-zero (#DE)"
+      1  -> "Debug (#DB)"
+      2  -> "NMI"
+      3  -> "Breakpoint (#BP)"
+      4  -> "Overflow (#OF)"
+      5  -> "Bound Range (#BR)"
+      6  -> "Invalid Opcode (#UD)"
+      7  -> "Device Not Available (#NM)"
+      8  -> "Double Fault (#DF)"
+      10 -> "Invalid TSS (#TS)"
+      11 -> "Segment Not Present (#NP)"
+      12 -> "Stack Exception (#SS)"
+      13 -> "General Protection (#GP)"
+      14 -> "Page Fault (#PF)"
+      16 -> "x87 FPU Error (#MF)"
+      17 -> "Alignment Check (#AC)"
+      18 -> "Machine Check (#MC)"
+      32 -> "IRQ0: Timer"
+      33 -> "IRQ1: Keyboard"
+      128 -> "System Call (int 0x80)"
+      _  -> "Unknown vector " + str(vector)

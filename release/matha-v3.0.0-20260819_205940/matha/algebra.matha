@@ -1,0 +1,40 @@
+(* 学科知识：数学核心 — 代数
+   覆盖：方程求解、数列、多项式
+   ============================================================ *)
+
+module 代数 {
+
+  (* ===== 一元一次方程 ax + b = 0 ===== *)
+  func 解一次方程(a: Float, b: Float) -> Float =
+    (a, b) => (a = 0) ? 0 : -b / a
+
+  (* ===== 一元二次方程 ax² + bx + c = 0 ===== *)
+  func 解二次方程(a: Float, b: Float, c: Float) -> Float =
+    (a, b, c) =>
+    let delta = b*b - 4*a*c in
+    (delta >= 0) ?
+      (-b + 开方(delta)) / (2*a) :
+      0
+
+  (* ===== 等差数列 ===== *)
+  func 等差通项(a1: Float, d: Float, n: Int) -> Float =
+    (a1, d, n) => a1 + (n - 1) * d
+  func 等差求和(a1: Float, d: Float, n: Int) -> Float =
+    (a1, d, n) => n * (2*a1 + (n-1)*d) / 2
+
+  (* ===== 等比数列 ===== *)
+  func 等比通项(a1: Float, q: Float, n: Int) -> Float =
+    (a1, q, n) => a1 * q ^ (n - 1)
+  func 等比求和(a1: Float, q: Float, n: Int) -> Float =
+    (a1, q, n) =>
+      (q = 1) ? a1 * n :
+      a1 * (1 - q ^ n) / (1 - q)
+  func 无穷等比求和(a1: Float, q: Float) -> Float =
+    (a1, q) =>
+      (绝对值(q) < 1) ? a1 / (1 - q) : 0
+
+  (* ===== 对数与指数 ===== *)
+  func 对数(x: Float) -> Float = (x) => log(x)
+  func 对数底10(x: Float) -> Float = (x) => log10(x)
+  func 指数(x: Float) -> Float = (x) => exp(x)
+}

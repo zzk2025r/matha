@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+*.pyc
+
+# Matha
+matha_wasm/
+matha_wasm/dist/
+matha_wasm/build/
+matha_wasm/*.egg-info/
+
+# 输出目录
+_output/
+_test_output/
+matha/output/
+
+# 环境
+.env
+.venv/
+venv/
+env/
+*.egg-info/
+
+# 日志
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 测试输出
+coverage/
+.htmlcov/
+.pytest_cache/

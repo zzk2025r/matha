@@ -1,0 +1,33 @@
+(* 资源库：波动光学
+   覆盖：干涉、衍射、偏振、光谱
+   ============================================================ *)
+
+module 光学 {
+
+  func 双缝干涉条纹间距(λ: Float, D: Float, d: Float) -> Float =
+    (λ, D, d) => λ * D / d
+
+  func 单缝衍射第一极小角(a: Float, λ: Float) -> Float =
+    (a, λ) => asin(λ / a)
+
+  func 马吕斯定律(I0: Float, θ: Float) -> Float =
+    (I0, θ) => I0 * cos(θ) * cos(θ)
+
+  func 光子能量(E: Float, λ: Float) -> Float =
+    (E, λ) => 6.626e-34 * 299792458 / λ
+
+  func 波长转频率(c: Float, λ: Float) -> Float =
+    (c, λ) => c / λ
+
+  func 斯涅尔折射角(n1: Float, θ1: Float) -> Float =
+    (n1, θ1) =>
+    (n2) => asin(n1 * sin(θ1) / n2)
+
+  func 临界角(n1: Float, n2: Float) -> Float =
+    (n1, n2) => asin(n2 / n1)
+
+  func 薄透镜焦距(u: Float, v: Float) -> Float =
+    (u, v) => u * v / (u + v)
+
+  func 放大率(u: Float, v: Float) -> Float = (u, v) => -v / u
+}

@@ -1,0 +1,19 @@
+(* 学科知识：计算机科学 — 复杂度分析
+   覆盖：大O记号、Master定理
+   ============================================================ *)
+
+module 复杂度 {
+
+  func Master定理(a: Int, b: Int, d: Int) -> String =
+    (a, b, d) =>
+    let log_b_a = log(a) / log(b) in
+    (log_b_a < d) ? "O(n^" + str(d) + ")" :
+    (log_b_a = d) ? "O(n^" + str(d) + " * log n)" :
+    "O(n^" + str(log_b_a) + ")"
+
+  func 二分搜索复杂度() -> String = () => "O(log n)"
+  func 快速排序复杂度() -> String = () => "O(n log n)"
+  func 冒泡排序复杂度() -> String = () => "O(n^2)"
+  func 矩阵乘法复杂度() -> String = () => "O(n^3)"
+  func 汉诺塔复杂度() -> String = () => "O(2^n)"
+}

@@ -1,0 +1,66 @@
+(* 操作系统知识：进程管理、内存管理、文件系统、调度算法
+   ============================================================ *)
+
+module 操作系统知识 {
+
+  (* ===== 进程调度 ===== *)
+  (* 平均周转时间 = Σ(完成时间 - 到达时间) / n *)
+  func 平均周转时间(完成时间: List, 到达时间: List) -> Float =
+    (完成时间, 到达时间) =>
+    let n = len(完成时间) in
+    求和(i in 0..n-1 => 完成时间[i] - 到达时间[i]) / n
+
+  (* 平均等待时间 = 平均周转时间 - 平均服务时间 *)
+  func 平均等待时间(完成时间: List, 到达时间: List, 服务时间: List) -> Float =
+    (完成时间, 到达时间, 服务时间) =>
+    let n = len(完成时间) in
+    let 周转 = 平均周转时间(完成时间, 到达时间) in
+    let 服务 = 求和(服务时间) / n in
+    周转 - 服务
+
+  (* ===== 内存管理 ===== *)
+  (* 页表开销估算 *)
+  func 页表开销(页表项数: Int, 每页项大小: Int) -> Int =
+    (页表项数, 每页项大小) => 页表项数 * 每页项大小
+
+  (* FIFO 页面置换缺页次数（简化） *)
+  func FIFO缺页(页串: List, 帧数: Int) -> Int =
+    (页串, 帧数) =>
+    let n = len(页串) in
+    let 帧 = [] in
+    let 缺页 = 0 in
+    (* 简化实现 *)
+    n  (* 最坏情况：全部缺页 *)
+
+  (* LRU 页面置换估算 *)
+  func LRU缺页估算(页串: List, 帧数: Int) -> Int =
+    (页串, 帧数) =>
+    let n = len(页串) in
+    if 帧数 >= n then 0 else n - 帧数
+
+  (* ===== 文件系统 ===== *)
+  (* 文件系统容量估算 *)
+  func 文件系统容量(块大小: Int, 块数: Int) -> Int =
+    (块大小, 块数) => 块大小 * 块数
+
+  (* inode 利用率估算 *)
+  func inode利用率(已用inode: Int, 总inode: Int) -> Float =
+    (已用inode, 总inode) =>
+    if 总inode = 0 then 0 else 已用inode / 总inode * 100
+
+  (* ===== 死锁检测 ===== *)
+  (* 死锁必要条件检查 *)
+  func 死锁必要条件(互斥: Bool,  hold_wait: Bool,
+                    不剥夺: Bool, 循环等待: Bool) -> Bool =
+    (互斥, hold_wait, 不剥夺, 循环等待) =>
+    互斥 and hold_wait and 不剥夺 and 循环等待
+
+  (* ===== 网络调度 ===== *)
+  (* TCP 拥塞窗口估算（慢启动） *)
+  func TCP慢启动(cwnd: Int, RTT: Int, 包数: Int) -> Int =
+    (cwnd, RTT, 包数) => cwnd * 2^包数
+
+  (* 带宽时延积 *)
+  func 带宽时延积(带宽: Float, RTT: Float) -> Float =
+    (带宽, RTT) => 带宽 * RTT / 8  (* 转换为字节 *)
+}

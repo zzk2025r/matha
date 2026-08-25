@@ -1,0 +1,87 @@
+(* 资源库：操作系统 — 死锁与并发同步数学
+   覆盖：银行家算法、死锁检测、信号量、生产者-消费者
+   ============================================================ *)
+
+module 死锁同步 {
+
+  (* ===== 死锁检测 ===== *)
+  func 资源分配图含环(进程数: Int, 分配矩阵: List, 需求矩阵: List) -> Bool =
+    (* 简化：返回假，实际需图遍历 *)
+    (进程数, 分配矩阵, 需求矩阵) => 假
+
+  func 死锁充分条件(互斥: Bool, 持有等待: Bool, 非抢占: Bool, 循环等待: Bool) -> Bool =
+    (互斥, 持有等待, 非抢占, 循环等待) =>
+    互斥 and 持有等待 and 非抢占 and 循环等待
+
+  (* ===== 银行家算法 ===== *)
+  func 银行家安全性(可用资源: List, 最大需求: List, 已分配: List) -> Bool =
+    (* 简化实现 *)
+    (可用资源, 最大需求, 已分配) => 真
+
+  func 银行家需求(最大需求: List, 已分配: List, 进程: Int) -> List =
+    (最大需求, 已分配, 进程) =>
+    let rec sub(i: Int, result: List) -> List =
+      (i, result) =>
+        if i >= len(最大需求[进程]): result
+        else: sub(i + 1, result + [最大需求[进程][i] - 已分配[进程][i]])
+    sub(0, [])
+
+  func 银行家可分配(可用: List, 需求: List, 已分配: List, 进程: Int) -> Bool =
+    (可用, 需求, 已分配, 进程) =>
+    let rec check(i: Int) -> Bool =
+      (i) =>
+        if i >= len(需求[进程]): 真
+        elif 可用[i] < 需求[进程][i]: 假
+        else: check(i + 1)
+    check(0)
+
+  (* ===== 信号量 ===== *)
+  func 信号量wait(S: Int) -> Int =
+    (S) =>
+    if S <= 0: -1  (* 阻塞 *)
+    else: S - 1
+
+  func 信号量signal(S: Int) -> Int =
+    (S) => S + 1
+
+  func 互斥锁持有时间(临界区时间: Float, 等待进程数: Int) -> Float =
+    (临界区时间, 等待进程数) => 临界区时间 * (等待进程数 + 1)
+
+  (* ===== 经典同步问题 ===== *)
+  func 生产者吞吐量(生产速率: Float, 消费速率: Float, 缓冲区大小: Int) -> Float =
+    (生产速率, 消费速率, 缓冲区大小) =>
+    min(生产速率, 消费速率)
+
+  func 消费者利用率(生产速率: Float, 消费速率: Float) -> Float =
+    (生产速率, 消费速率) =>
+    (生产速率 = 0) ? 0 : min(1.0, 生产速率 / 消费速率)
+
+  func 读者写者公平性(读者数: Int, 写者数: Int) -> Float =
+    (读者数, 写者数) =>
+    (读者数 + 写者数 = 0) ? 0 : 写者数 / (读者数 + 写者数)
+
+  func 哲学家进餐存活(哲学家数: Int) -> Bool =
+    (哲学家数) =>
+    (* 简化：4个以上需要策略避免死锁 *)
+    哲学家数 <= 4
+
+  (* ===== 活锁检测 ===== *)
+  func 活锁检测(进程状态序列: List) -> Bool =
+    (* 简化：检查是否有重复状态 *)
+    (进程状态序列) =>
+    let rec has_dup(i: Int, checked: List) -> Bool =
+      (i, checked) =>
+        if i >= len(进程状态序列): 假
+        elif checked包含(进程状态序列[i]): 真
+        else: has_dup(i + 1, checked + [进程状态序列[i]])
+    has_dup(0, [])
+
+  func 列表包含(lst: List, item) -> Bool =
+    (lst, item) =>
+    let rec check(i: Int) -> Bool =
+      (i) =>
+        if i >= len(lst): 假
+        elif lst[i] = item: 真
+        else: check(i + 1)
+    check(0)
+}

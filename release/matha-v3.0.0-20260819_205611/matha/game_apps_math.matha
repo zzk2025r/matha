@@ -1,0 +1,128 @@
+(* 资源库：游戏应用数学
+   覆盖：2D物理引擎、碰撞检测、AI寻路、粒子系统、分数计算
+   ============================================================ *)
+
+module 游戏数学 {
+
+  (* ===== 2D物理引擎 ===== *)
+  func 重力速度(t: Float) -> Float = (t) => 9.80665 * t
+  func 重力位移(t: Float) -> Float = (t) => 0.5 * 9.80665 * t * t
+  func 抛射体轨迹(x: Float, y: Float, v0: Float, θ: Float) -> (Float, Float) =
+    (x, y, v0, θ) =>
+    let rad = θ * 3.14159 / 180 in
+    let vx = v0 * cos(rad) in
+    let vy = v0 * sin(rad) in
+    let t = x / vx in
+    (x, y + vy * t - 0.5 * 9.80665 * t * t)
+
+  func 抛射体最大射程(v0: Float, θ: Float) -> Float =
+    (v0, θ) =>
+    v0 * v0 * sin(2 * θ * 3.14159 / 180) / 9.80665
+
+  func 抛射体最大高度(v0: Float, θ: Float) -> Float =
+    (v0, θ) =>
+    v0 * v0 * sin(θ * 3.14159 / 180) * sin(θ * 3.14159 / 180) / (2 * 9.80665)
+
+  func 弹力恢复(v: Float, restitution: Float) -> Float =
+    (v, restitution) => -v * restitution
+
+  func 摩擦力减速度(μ: Float, g: Float) -> Float =
+    (μ, g) => μ * g
+
+  func 空气阻力速度(v: Float, k: Float, m: Float) -> Float =
+    (v, k, m) => v * exp(-k * v / m)
+
+  (* ===== 碰撞检测 ===== *)
+  func AABB碰撞(x1: Float, y1: Float, w1: Float, h1: Float,
+                x2: Float, y2: Float, w2: Float, h2: Float) -> Bool =
+    (x1, y1, w1, h1, x2, y2, w2, h2) =>
+    x1 < x2 + w2 and x1 + w1 > x2 and y1 < y2 + h2 and y1 + h1 > y2
+
+  func 圆形碰撞(cx1: Float, cy1: Float, r1: Float, cx2: Float, cy2: Float, r2: Float) -> Bool =
+    (cx1, cy1, r1, cx2, cy2, r2) =>
+    开方((cx2-cx1)^2 + (cy2-cy1)^2) < r1 + r2
+
+  func 圆与矩形碰撞(cx: Float, cy: Float, r: Float,
+                     rx: Float, ry: Float, rw: Float, rh: Float) -> Bool =
+    (cx, cy, r, rx, ry, rw, rh) =>
+    let closest_x = max(rx, min(cx, rx + rw)) in
+    let closest_y = max(ry, min(cy, ry + rh)) in
+    开方((cx-closest_x)^2 + (cy-closest_y)^2) < r
+
+  func 分离轴定理碰撞(vertices1: List, vertices2: List) -> Bool =
+    (* 简化：返回true表示可能碰撞 *)
+    (vertices1, vertices2) => 真
+
+  func 空间分割四叉树区域(x: Float, y: Float,
+                           bx: Float, by: Float, bw: Float, bh: Float) -> Bool =
+    (x, y, bx, by, bw, bh) =>
+    x >= bx and x <= bx + bw and y >= by and y <= by + bh
+
+  (* ===== AI寻路 ===== *)
+  func A星曼哈顿距离(x1: Int, y1: Int, x2: Int, y2: Int) -> Int =
+    (x1, y1, x2, y2) => 绝对值(x2-x1) + 绝对值(y2-y1)
+
+  func A星欧氏距离(x1: Float, y1: Float, x2: Float, y2: Float) -> Float =
+    (x1, y1, x2, y2) => 开方((x2-x1)^2 + (y2-y1)^2)
+
+  func 贪心 best_first(起点: Int, 终点: Int, 启发式: List) -> Int =
+    (* 简化：返回启发式值 *)
+    (起点, 终点, 启发式) => 启发式[终点]
+
+  func 状态机转换(当前: String, 事件: String) -> String =
+    (当前, 事件) =>
+    case (当前, 事件) of
+      ("idle", "start") -> "playing"
+      ("playing", "pause") -> "paused"
+      ("playing", "die") -> "gameover"
+      ("gameover", "restart") -> "idle"
+      ("paused", "resume") -> "playing"
+      _ -> 当前
+
+  func 行为树评估(node: String, context: List) -> String =
+    (* 简化：返回动作 *)
+    (node, context) => "action_" + node
+
+  (* ===== 粒子系统 ===== *)
+  func 粒子位置(t: Float, px: Float, py: Float, vx: Float, vy: Float) -> (Float, Float) =
+    (t, px, py, vx, vy) => (px + vx * t, py + vy * t - 0.5 * 9.80665 * t * t)
+
+  func 粒子速度(t: Float, vy0: Float) -> Float =
+    (t, vy0) => vy0 - 9.80665 * t
+
+  func 粒子寿命消耗(已存在时间: Float, 寿命: Float) -> Float =
+    (已存在时间, 寿命) => max(0, 1 - 已存在时间 / 寿命)
+
+  func 粒子颜色混合(c1: String, c2: String, alpha: Float) -> String =
+    (* 简化：返回主色 *)
+    (c1, c2, alpha) => c1
+
+  (* ===== 分数与难度 ===== *)
+  func 分数计算(基础分: Int, 连击数: Int, 倍数: Int) -> Int =
+    (基础分, 连击数, 倍数) => 基础分 * (1 + 连击数) * 倍数
+
+  func 难度系数(关卡: Int, 难度等级: Int) -> Float =
+    (关卡, 难度等级) => 1.0 + 关卡 * 0.1 + 难度等级 * 0.2
+
+  func 生命值计算(最大HP: Int, 伤害: Int, 护甲: Float) -> Int =
+    (最大HP, 伤害, 护甲) =>
+    max(0, 最大HP - int(伤害 * (1 -护甲)))
+
+  func 经验值计算(击杀数: Int, 等级: Int) -> Int =
+    (击杀数, 等级) => 击杀数 * 100 * (1 + 等级 * 0.5)
+
+  func 掉落率计算(基础率: Float, 幸运值: Int) -> Float =
+    (基础率, 幸运值) => min(1.0, 基础率 + 幸运值 * 0.01)
+
+  (* ===== 音频频率 ===== *)
+  func 音符频率(音符: Int) -> Float =
+    (* MIDI音符到频率: f = 440 * 2^((n-69)/12) *)
+    (音符) => 440.0 * pow(2.0, (音符 - 69.0) / 12.0)
+
+  func 音频波形(t: Float, freq: Float, amp: Float) -> Float =
+    (t, freq, amp) => amp * sin(2 * 3.14159 * freq * t)
+
+  func 音频混音(samples1: List, samples2: List, mix_ratio: Float) -> List =
+    (* 简化：返回samples1 *)
+    (samples1, samples2, mix_ratio) => samples1
+}

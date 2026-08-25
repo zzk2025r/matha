@@ -1,0 +1,13 @@
+？#：{
+  【*/命名函数与高阶组合/*】
+  #：【定义加一】>>【定义加倍】>>【组合调用】
+  @：【纯函数集合】，x=5
+  inc = (x) => x + 1
+  double = (x) => x * 2
+  compose = (f) => (g) => (x) => f (g x)
+  h = compose inc double
+  #：[inc x]
+  #：[double x]
+  #：[h x]
+}
+#：【文件】

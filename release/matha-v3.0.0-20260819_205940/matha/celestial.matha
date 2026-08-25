@@ -1,0 +1,17 @@
+(* 学科知识：物理学 — 天体物理
+   覆盖：万有引力、开普勒定律、恒星
+   ============================================================ *)
+
+module 天体 {
+
+  func 逃逸速度(M: Float, r: Float) -> Float =
+    (M, r) => 开方(2 * 6.674e-11 * M / r)
+
+  func 轨道速度(M: Float, r: Float) -> Float =
+    (M, r) => 开方(6.674e-11 * M / r)
+
+  func 维恩位移(T: Float) -> Float = (T) => 2.898e-3 / T
+
+  func 红移波长(z: Float, λ_emit: Float) -> Float =
+    (z, λ_emit) => λ_emit * (1 + z)
+}

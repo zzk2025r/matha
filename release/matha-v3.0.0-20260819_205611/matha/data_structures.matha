@@ -1,0 +1,79 @@
+(* 学科知识：计算机科学 — 数据结构
+   覆盖：链表、树、图、哈希表
+   ============================================================ *)
+
+module 数据结构 {
+
+  (* ===== 链表 ===== *)
+  struct 节点 {
+    值:
+    下一: 节点
+  }
+
+  func 创建节点(值: ) -> 节点 = (值) => (值 = 值, 下一 = None)
+
+  func 链表长度(head: 节点) -> Int = (head) =>
+    let rec count(node: 节点, acc: Int) -> Int =
+      (node, acc) => (node = None) ? acc : count(node.下一, acc + 1)
+    count(head, 0)
+
+  func 链表查找(head: 节点, 目标: ) -> Bool =
+    (head, 目标) =>
+    let rec find(node: 节点) -> Bool =
+      (node) =>
+        (node = None) ? 假 :
+        (node.值 = 目标) ? 真 : find(node.下一)
+    find(head)
+
+  (* ===== 树 ===== *)
+  struct 二叉树节点 {
+    值:
+    左: 二叉树节点
+    右: 二叉树节点
+  }
+
+  func 创建树节点(值: ) -> 二叉树节点 = (值) =>
+    (值 = 值, 左 = None, 右 = None)
+
+  func 树高度(node: 二叉树节点) -> Int = (node) =>
+    (node = None) ? 0 :
+    1 + max(树高度(node.左), 树高度(node.右))
+
+  func 树节点数(node: 二叉树节点) -> Int = (node) =>
+    (node = None) ? 0 :
+    1 + 树节点数(node.左) + 树节点数(node.右)
+
+  (* ===== 堆 ===== *)
+  func 堆父节点索引(i: Int) -> Int = (i) => (i - 1) / 2
+  func 堆左子节点索引(i: Int) -> Int = (i) => 2 * i + 1
+  func 堆右子节点索引(i: Int) -> Int = (i) => 2 * i + 2
+
+  (* ===== 哈希表 ===== *)
+  func 哈希函数(key: String, table_size: Int) -> Int =
+    (key, table_size) =>
+    let rec hash(i: Int, acc: Int) -> Int =
+      (i, acc) =>
+        (i >= len(key)) ? acc % table_size :
+        hash(i + 1, acc + ord(key[i]) * 31 ^ i)
+    hash(0, 0)
+
+  (* ===== 图 ===== *)
+  struct 图 {
+    顶点: List
+    邻接表: List
+  }
+
+  func 图顶点数(g: 图) -> Int = (g) => len(g.顶点)
+  func 图边数(g: 图) -> Int = (g) =>
+    let rec count(i: Int, acc: Int) -> Int =
+      (i, acc) =>
+        (i >= len(g.邻接表)) ? acc :
+        count(i + 1, acc + len(g.邻接表[i]))
+    count(0, 0) / 2
+
+  (* ===== 复杂度 ===== *)
+  func 链表查找复杂度() -> String = () => "O(n)"
+  func 二叉搜索树查找复杂度() -> String = () => "O(log n)"
+  func 哈希表查找复杂度() -> String = () => "O(1)"
+  func 堆操作复杂度() -> String = () => "O(log n)"
+}

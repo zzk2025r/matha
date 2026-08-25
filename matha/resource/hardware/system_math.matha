@@ -1,0 +1,91 @@
+(* 硬件控制知识：系统交互与设备通信
+   覆盖：进程管理、网络通信、GPIO仿真、文件系统扩展
+   ============================================================ *)
+
+module 硬件控制 {
+
+  (* ===== 进程管理 ===== *)
+  (* 执行系统命令并返回结果 *)
+  func 执行命令(cmd: String) -> Dict =
+    (cmd) => (* 调用内置函数 执行命令 *)
+
+  (* 获取当前进程列表 *)
+  func 进程列表() -> List = () => []
+
+  (* 终止指定 PID 的进程 *)
+  func 终止进程(pid: Int) -> Bool =
+    (pid) => (* 调用内置函数 终止进程 *)
+
+  (* ===== 网络通信 ===== *)
+  (* TCP socket 发送数据并接收响应 *)
+  func socket发送(host: String, port: Int, data: String) -> Dict =
+    (host, port, data) => (* 调用内置函数 socket发送 *)
+
+  (* HTTP GET 请求 *)
+  func http获取(url: String) -> Dict =
+    (url) => (* 调用内置函数 http获取 *)
+
+  (* DNS 解析 *)
+  func DNS解析(hostname: String) -> List =
+    (hostname) => (* 调用内置函数 DNS解析 *)
+
+  (* Ping 测试连通性 *)
+  func ping(host: String) -> Dict =
+    (host) => (* 调用内置函数 ping *)
+
+  (* ===== GPIO 控制（仿真层） ===== *)
+  (* 初始化 GPIO 引脚模式：in=输入, out=输出, pwm=PWM *)
+  func GPIO初始化(pin: Int, mode: String) -> Unit =
+    (pin, mode) => (* 调用内置函数 GPIO初始化 *)
+
+  (* 写入 GPIO 输出 *)
+  func GPIO写入(pin: Int, value: Int) -> Unit =
+    (pin, value) => (* 调用内置函数 GPIO写入 *)
+
+  (* 读取 GPIO 输入 *)
+  func GPIO读取(pin: Int) -> Int =
+    (pin) => (* 调用内置函数 GPIO读取 *)
+
+  (* 设置 PWM 输出：占空比 0-100，频率 Hz *)
+  func PWM设置(pin: Int, duty: Int, freq: Int) -> Unit =
+    (pin, duty, freq) => (* 调用内置函数 PWM设置 *)
+
+  (* 清理 GPIO 引脚 *)
+  func GPIO清理(pin: Int) -> Unit =
+    (pin) => (* 调用内置函数 GPIO清理 *)
+
+  (* ===== 文件系统扩展 ===== *)
+  (* 列出目录内容 *)
+  func 列出目录(path: String) -> List =
+    (path) => (* 调用内置函数 列出目录 *)
+
+  (* 检查文件是否存在 *)
+  func 文件存在(path: String) -> Bool =
+    (path) => (* 调用内置函数 文件存在 *)
+
+  (* 获取文件大小（字节） *)
+  func 文件大小(path: String) -> Int =
+    (path) => (* 调用内置函数 文件大小 *)
+
+  (* ===== 系统信息 ===== *)
+  (* CPU 核心数 *)
+  func CPU核数() -> Int = () => (* 调用内置函数 cpu核数 *)
+
+  (* 当前平台标识 *)
+  func 平台() -> String = () => (* 调用内置函数 平台 *)
+
+  (* 环境变量读取 *)
+  func 环境变量(name: String) -> String =
+    (name) => (* 调用内置函数 环境变量 *)
+
+  (* ===== 典型应用：LED 闪烁控制 ===== *)
+  (* LED 闪烁程序示例（仿真） *)
+  func LED闪烁(引脚: Int, 次数: Int, 间隔_ms: Int) -> String =
+    (引脚, 次数, 间隔_ms) =>
+    "LED闪烁控制: 引脚" + 字符串(引脚) + " 闪烁" + 字符串(次数) + "次，间隔" + 字符串(间隔_ms) + "ms"
+
+  (* ===== 典型应用：温度传感器读取 ===== *)
+  func 温度监测(ADC_pin: Int, R0: Float, B: Float) -> String =
+    (ADC_pin, R0, B) =>
+    "温度监测: ADC引脚=" + 字符串(ADC_pin) + " 传感器参数R0=" + 字符串(R0) + "B=" + 字符串(B)
+}

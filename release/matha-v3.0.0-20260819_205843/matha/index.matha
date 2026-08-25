@@ -1,0 +1,56 @@
+(* 学科知识资源库索引
+   覆盖：数学/物理/化学/生物/计算机/工程/统计/金融/地理/逻辑/语言学
+   ============================================================ *)
+
+module 资源库索引 {
+
+  (* ===== 数学核心 ===== *)
+  func 几何进阶() -> String = () => "math/conic_sections"
+  func 代数进阶() -> String = () => "math/algebra_advanced"
+  func 三角进阶() -> String = () => "math/trigonometry_advanced"
+  func 指数对数() -> String = () => "math/exponent_logarithm"
+
+  (* ===== 物理学 ===== *)
+  func 电磁学() -> String = () => "physics/electromagnetism"
+  func 热力学() -> String = () => "physics/thermodynamics"
+  func 光学() -> String = () => "physics/optics"
+  func 量子力学() -> String = () => "physics/quantum"
+
+  (* ===== 化学 ===== *)
+  func 化学计量() -> String = () => "chemistry/stoichiometry"
+
+  (* ===== 生物学 ===== *)
+  func 分子生物学() -> String = () => "biology/molecular"
+  func 遗传学() -> String = () => "biology/genetics"
+
+  (* ===== 计算机科学 ===== *)
+  func 算法() -> String = () => "cs/algorithms"
+  func 数据结构() -> String = () => "cs/data_structures"
+
+  (* ===== 工程 ===== *)
+  func 机械工程() -> String = () => "engineering/mechanical"
+  func 土木工程() -> String = () => "engineering/civil"
+
+  (* ===== 统计与概率 ===== *)
+  func 统计分析() -> String = () => "statistics/analysis"
+  func 概率基础() -> String = () => "statistics/probability"
+
+  (* ===== 金融 ===== *)
+  func 金融数学() -> String = () => "finance/math"
+
+  (* ===== 地理 ===== *)
+  func 地理信息() -> String = () => "geography/info"
+
+  (* ===== 逻辑与离散 ===== *)
+  func 离散数学() -> String = () => "logic/discrete_math"
+
+  (* ===== 语言学 ===== *)
+  func 语言学基础() -> String = () => "linguistics/basics"
+
+  (* ===== 硬件控制 ===== *)
+  func 硬件控制() -> String = () => "hardware/system_math"
+  func 嵌入式系统() -> String = () => "hardware/embedded_math"
+
+  (* ===== 模块总数统计 ===== *)
+  func 总模块数() -> Int = () => 18
+}

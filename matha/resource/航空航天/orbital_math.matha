@@ -1,0 +1,66 @@
+(* 航空航天知识：轨道力学、气动、推进、导航
+   ============================================================ *)
+
+module 航空航天知识 {
+
+  (* ===== 轨道力学 ===== *)
+  (* 第一宇宙速度 v = √(GM/R) *)
+  func 第一宇宙速度(G: Float, M: Float, R: Float) -> Float =
+    (G, M, R) => √(G * M / R)
+
+  (* 第二宇宙速度 v = √(2GM/R) *)
+  func 第二宇宙速度(G: Float, M: Float, R: Float) -> Float =
+    (G, M, R) => √(2 * G * M / R)
+
+  (* 开普勒第三定律：T² = 4π²a³/(GM) *)
+  func 轨道周期(a: Float, M: Float, G: Float) -> Float =
+    (a, M, G) => 2 * π * √(a^3 / (G * M))
+
+  (* 逃逸速度 v = √(2GM/R) *)
+  func 逃逸速度(M: Float, R: Float, G: Float) -> Float =
+    (M, R, G) => √(2 * G * M / R)
+
+  (* ===== 气动 ===== *)
+  (* 升力 L = ½ρv²S·Cl *)
+  func 升力(ρ: Float, v: Float, S: Float, Cl: Float) -> Float =
+    (ρ, v, S, Cl) => 0.5 * ρ * v^2 * S * Cl
+
+  (* 阻力 D = ½ρv²S·Cd *)
+  func 阻力(ρ: Float, v: Float, S: Float, Cd: Float) -> Float =
+    (ρ, v, S, Cd) => 0.5 * ρ * v^2 * S * Cd
+
+  (* 升阻比 *)
+  func 升阻比(Cl: Float, Cd: Float) -> Float =
+    (Cl, Cd) =>
+    if Cd = 0 then 0 else Cl / Cd
+
+  (* 马赫数 M = v/a *)
+  func 马赫数(v: Float, a: Float) -> Float =
+    (v, a) =>
+    if a = 0 then 0 else v / a
+
+  (* ===== 推进 ===== *)
+  (* 火箭方程 Δv = Isp·g₀·ln(m0/mf) *)
+  func 火箭方程(Isp: Float, m0: Float, mf: Float) -> Float =
+    (Isp, m0, mf) =>
+    if mf <= 0 then 0 else Isp * 9.81 * ln(m0 / mf)
+
+  (* 比冲 * 推力 *)
+  func 推力(Isp: Float, 流量: Float) -> Float =
+    (Isp, 流量) => Isp * 流量 * 9.81
+
+  (* ===== 导航 ===== *)
+  (* 大圆距离（Haversine 公式简化） *)
+  func 大圆距离(lat1: Float, lon1: Float,
+                 lat2: Float, lon2: Float, R: Float) -> Float =
+    (lat1, lon1, lat2, lon2, R) =>
+    let dlat = (lat2 - lat1) * π / 180 in
+    let dlon = (lon2 - lon1) * π / 180 in
+    let a = sin(dlat/2)^2 + cos(lat1*π/180) * cos(lat2*π/180) * sin(dlon/2)^2 in
+    R * 2 * atan2(√a, √(1-a))
+
+  (* 轨道倾角计算 *)
+  func 轨道倾角(v_perp: Float, v_total: Float) -> Float =
+    (v_perp, v_total) =>
+    if v_total = 0 then 0 else asin(v_perp / v_total) * 180 / π
+}

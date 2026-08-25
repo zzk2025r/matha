@@ -1,0 +1,21 @@
+(* 学科知识：化学 — 化学计量
+   覆盖：摩尔计算、溶液浓度、pH
+   ============================================================ *)
+
+module 计量 {
+
+  func 摩尔数(质量: Float, 摩尔质量: Float) -> Float =
+    (质量, 摩尔质量) => 质量 / 摩尔质量
+
+  func 质量(摩尔数: Float, 摩尔质量: Float) -> Float =
+    (摩尔数, 摩尔质量) => 摩尔数 * 摩尔质量
+
+  func 粒子数(摩尔数: Float) -> Float =
+    (摩尔数) => 摩尔数 * 6.022e23
+
+  func 摩尔浓度(溶质摩尔: Float, 溶液体积: Float) -> Float =
+    (溶质摩尔, 溶液体积) => 溶质摩尔 / 溶液体积
+
+  func pH值(H_conc: Float) -> Float = (H_conc) => -log10(H_conc)
+  func pOH值(OH_conc: Float) -> Float = (OH_conc) => -log10(OH_conc)
+}

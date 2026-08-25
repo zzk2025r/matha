@@ -1,0 +1,112 @@
+(* 资源库：生活服务等应用数学
+   覆盖：导航定位、外卖配送、健康管理、生活服务计费
+   ============================================================ *)
+
+module 生活服务 {
+
+  (* ===== 导航定位 ===== *)
+  func 大圆距离(lat1: Float, lon1: Float, lat2: Float, lon2: Float) -> Float =
+    (lat1, lon1, lat2, lon2) =>
+    let R = 6371.0 in
+    let dlat = lat2 - lat1 in
+    let dlon = lon2 - lon1 in
+    let a = sin(dlat/2)^2 + cos(lat1) * cos(lat2) * sin(dlon/2)^2 in
+    R * 2 * atan2(开方(a), 开方(1-a))
+
+  func 方位角(lat1: Float, lon1: Float, lat2: Float, lon2: Float) -> Float =
+    (lat1, lon1, lat2, lon2) =>
+    let dlon = lon2 - lon1 in
+    let x = sin(dlon) * cos(lat2) in
+    let y = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dlon) in
+    atan2(x, y) * 180 / 3.14159
+
+  func 预估到达时间(距离: Float, 速度: Float) -> Float =
+    (距离, 速度) =>
+    (速度 = 0) ? 999.0 : 距离 / 速度
+
+  func 导航路径长度(航点列表: List) -> Float =
+    (* 简化：返回航点数 *)
+    (航点列表) => len(航点列表)
+
+  (* ===== 外卖配送 ===== *)
+  func 配送费用(距离: Float, 基础费: Float, 每公里费: Float) -> Float =
+    (距离, 基础费, 每公里费) => 基础费 + 距离 * 每公里费
+
+  func 预计配送时间(距离: Float, 速度: Float) -> Float =
+    (距离, 速度) =>
+    (速度 = 0) ? 999.0 : 距离 / 速度 * 60  (* 分钟 *)
+
+  func 骑手容量利用率(已载单数: Int, 最大容量: Int) -> Float =
+    (已载单数, 最大容量) =>
+    (最大容量 = 0) ? 0 : 已载单数 / 最大容量
+
+  func 订单合并评分(订单1距离: Float, 订单2距离: Float, 骑手位置: Float) -> Float =
+    (订单1距离, 订单2距离, 骑手位置) =>
+    min(订单1距离, 订单2距离)
+
+  (* ===== 健康管理 ===== *)
+  func BMI(体重: Float, 身高: Float) -> Float =
+    (体重, 身高) => 体重 / (身高 * 身高)
+
+  func BMI分类(bmi: Float) -> String =
+    (bmi) =>
+    case bmi of
+      _ if bmi < 18.5 -> "偏瘦"
+      _ if bmi < 24 -> "正常"
+      _ if bmi < 28 -> "偏胖"
+      _ -> "肥胖"
+
+  func 每日热量需求(基础代谢: Float, 活动系数: Float) -> Float =
+    (基础代谢, 活动系数) => 基础代谢 * 活动系数
+
+  func BMR_male(体重: Float, 身高: Float, 年龄: Int) -> Float =
+    (体重, 身高, 年龄) =>
+    66.5 + 13.75 * 体重 + 5.003 * 身高 - 6.755 * 年龄
+
+  func BMR_female(体重: Float, 身高: Float, 年龄: Int) -> Float =
+    (体重, 身高, 年龄) =>
+    655.1 + 9.563 * 体重 + 1.850 * 身高 - 4.676 * 年龄
+
+  func 目标心率(最大心率: Float, 强度: Float) -> Float =
+    (最大心率, 强度) => 最大心率 * 强度
+
+  func 最大心率(年龄: Int) -> Int =
+    (年龄) => 220 - 年龄
+
+  (* ===== 生活服务计费 ===== *)
+  func 水电费(用量: Float, 单价: Float, 阶梯阈值: Float, 阶梯单价: Float) -> Float =
+    (用量, 单价, 阶梯阈值, 阶梯单价) =>
+    if 用量 <= 阶梯阈值 then 用量 * 单价
+    else 阶梯阈值 * 单价 + (用量 - 阶梯阈值) * 阶梯单价
+
+  func 出租车费(里程: Float, 起步价: Float, 里程单价: Float, 起步里程: Float) -> Float =
+    (里程, 起步价, 里程单价, 起步里程) =>
+    if 里程 <= 起步里程 then 起步价
+    else 起步价 + (里程 - 起步里程) * 里程单价
+
+  func 话费计算(通话分钟: Int, 单价: Float, 套餐分钟: Int, 套餐费: Float) -> Float =
+    (通话分钟, 单价, 套餐分钟, 套餐费) =>
+    if 通话分钟 <= 套餐分钟 then 套餐费
+    else 套餐费 + (通话分钟 - 套餐分钟) * 单价
+
+  func 停车费(小时数: Float, 首小时: Float, 续小时单价: Float) -> Float =
+    (小时数, 首小时, 续小时单价) =>
+    首小时 + max(0, 小时数 - 1) * 续小时单价
+
+  (* ===== 社交娱乐 ===== *)
+  func 直播间人气热度(观看人数: Int, 互动数: Int, 时长: Int) -> Float =
+    (观看人数, 互动数, 时长) =>
+    (时长 = 0) ? 0 : (观看人数 * 0.6 + 互动数 * 0.4) / 时长
+
+  func 短视频完播率(完播数: Int, 播放数: Int) -> Float =
+    (完播数, 播放数) =>
+    (播放数 = 0) ? 0 : 完播数 / 播放数
+
+  func 用户留存率(次日留存: Int, 当日新增: Int) -> Float =
+    (次日留存, 当日新增) =>
+    (当日新增 = 0) ? 0 : 次日留存 / 当日新增
+
+  func 内容互动率(互动数: Int, 曝光数: Int) -> Float =
+    (互动数, 曝光数) =>
+    (曝光数 = 0) ? 0 : 互动数 / 曝光数
+}

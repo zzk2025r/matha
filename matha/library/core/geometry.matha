@@ -1,0 +1,8 @@
+(* 资源库：几何公式 *)
+(* 保护隔离：圆、矩形、三角形面积周长 *)
+
+func 圆面积(r: Float) -> Float = (r) => 3.14159 * r * r
+func 圆周长(r: Float) -> Float = (r) => 2 * 3.14159 * r
+func 矩形面积(w: Float, h: Float) -> Float = (w, h) => w * h
+func 矩形周长(w: Float, h: Float) -> Float = (w, h) => 2 * (w + h)
+func 三角形面积(b: Float, h: Float) -> Float = (base, height) => 0.5 * base * height

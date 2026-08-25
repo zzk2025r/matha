@@ -1,0 +1,6 @@
+(* 资源库：机械 — 应力分析 *)
+(* 保护隔离：正应力、剪应力、等效应力 *)
+
+func 正应力(N: Float, A: Float) -> Float = (N, A) => N / A
+func 等效应力(sigma: Float, tau: Float) -> Float = (sigma, tau) =>
+  (sigma ^ 2 + 3 * tau ^ 2) ^ 0.5

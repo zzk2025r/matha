@@ -1,0 +1,51 @@
+(* 资源库索引 v2 — 学科知识资源库 *)
+(* 保护隔离：只读，子文件通过 资源_加载 读取 *)
+
+资源目录 = [
+  (* 数学核心 *)
+  "math/arithmetic",
+  "math/geometry",
+  "math/algebra",
+  "math/trigonometry",
+  "math/statistics",
+  "math/logic",
+  "math/number_theory",
+  "math/calculus",
+
+  (* 物理学 *)
+  "physics/mechanics",
+  "physics/thermodynamics",
+  "physics/electromagnetism",
+  "physics/optics",
+  "physics/quantum",
+  "physics/celestial",
+
+  (* 化学 *)
+  "chemistry/elements",
+  "chemistry/stoichiometry",
+  "chemistry/organic",
+
+  (* 生物学 *)
+  "biology/cell",
+  "biology/genetics",
+  "biology/ecology_human",
+
+  (* 计算机科学 *)
+  "cs/algorithms",
+  "cs/data_structures",
+  "cs/complexity",
+  "cs/discrete_math",
+
+  (* 工程 *)
+  "engineering/mechanical",
+  "engineering/electrical",
+  "engineering/civil",
+
+  (* 语言学 *)
+  "linguistics/grammar",
+
+  (* 历史地理 *)
+  "history/chronology",
+]
+
+模块数量 = len(资源目录)

@@ -1,0 +1,58 @@
+(* 资源库：算法基础
+   覆盖：排序、搜索、分治
+   ============================================================ *)
+
+module 算法 {
+
+  func 冒泡排序(arr: List) -> List = (arr) =>
+    let n = len(arr) in
+    let result = arr in
+    let i = 0 in
+    while i < n - 1:
+      let j = 0 in
+      while j < n - i - 1:
+        if result[j] > result[j + 1]:
+          let tmp = result[j] in
+          result[j] = result[j + 1] in
+          result[j + 1] = tmp
+        j = j + 1
+      i = i + 1
+    result
+
+  func 插入排序(arr: List) -> List = (arr) =>
+    let result = arr in
+    let i = 1 in
+    while i < len(result):
+      let key = result[i] in
+      let j = i - 1 in
+      while j >= 0 and result[j] > key:
+        result[j + 1] = result[j] in
+        j = j - 1
+      result[j + 1] = key
+      i = i + 1
+    result
+
+  func 线性搜索(arr: List, target) -> Int =
+    (arr, target) =>
+    let rec search(i: Int) -> Int =
+      (i) =>
+        (i >= len(arr)) ? -1 :
+        (arr[i] = target) ? i : search(i + 1)
+    search(0)
+
+  func 二分搜索(arr: List, target) -> Int =
+    (arr, target) =>
+    let mut lo = 0 in
+    let mut hi = len(arr) - 1 in
+    while lo <= hi:
+      let mid = (lo + hi) / 2 in
+      if arr[mid] = target: return mid
+      elif arr[mid] < target: lo = mid + 1
+      else: hi = mid - 1
+    -1
+
+  func 时间复杂度_冒泡() -> String = () => "O(n^2)"
+  func 时间复杂度_插入() -> String = () => "O(n^2)"
+  func 时间复杂度_二分搜索() -> String = () => "O(log n)"
+  func 时间复杂度_线性搜索() -> String = () => "O(n)"
+}

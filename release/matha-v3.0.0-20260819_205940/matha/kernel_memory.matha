@@ -1,0 +1,75 @@
+(* OS Kernel Resource: Memory Management Math
+ * 内存管理数学模型
+ *)
+
+(* ── 页表项数计算（x86 32-bit 两级页表）─────────────────── *)
+(*
+ * x86 32-bit 使用两级页表：
+ *   - 页目录（PD）：1024 项 × 4B = 4KB
+ *   - 页表（PT）：每项 1024 个，每 PT 4KB
+ *
+ * 总页表项数 = 物理页数 + PD 项数 + 所有 PT 项数
+ *)
+func page_table_entries(page_size: Int, memory_size: Int) -> Int =
+    (page_size, memory_size) =>
+    let pages = memory_size / page_size
+    let pt_entries_per_table = 1024
+    let pt_count = (pages + pt_entries_per_table - 1) / pt_entries_per_table
+    let pd_entries = (pt_count + pt_entries_per_table - 1) / pt_entries_per_table
+    pages + pt_count * pt_entries_per_table + pd_entries
+
+(* ── 页表结构自身内存开销（字节）─────────────────────────── *)
+(* 每级页表固定 4KB（1024 项 × 4B） *)
+func page_table_overhead_bytes(page_size: Int, memory_size: Int) -> Int =
+    (page_size, memory_size) =>
+    let pages = memory_size / page_size
+    let pt_count = (pages + 1023) / 1024
+    let pd_count = (pt_count + 1023) / 1024
+    (pd_count + pt_count) * 4096
+
+(* ── 线性地址计算 ───────────────────────────────────────── *)
+func linear_address(page_table: Int, page_offset: Int, page_size: Int) -> Int =
+    (page_table, page_offset, page_size) =>
+    page_table * page_size + page_offset
+
+(* ── 虚拟地址分解 ───────────────────────────────────────── *)
+func virt_page_number(vaddr: Int, page_size: Int) -> Int =
+    (vaddr, page_size) => vaddr / page_size
+
+func virt_page_offset(vaddr: Int, page_size: Int) -> Int =
+    (vaddr, page_size) => vaddr % page_size
+
+(* ── 内核内存布局估算 ───────────────────────────────────── *)
+(* x86 32-bit 传统内核布局（Linux 风格） *)
+(*
+ * 地址            段        大小
+ * 0x00100000     text     可变
+ * 0x00120000     data     可变
+ * 0x00128000     bss      可变
+ * 0x00138000     stack    4KB-8KB
+ *
+ * 基址：1MB（0x100000）
+ *)
+func kernel_text_start() -> Int = 0x100000
+func kernel_base() -> Int = 0x100000
+
+(* ── 内核内存总量估算 ───────────────────────────────────── *)
+func kernel_mem_total(text_size: Int, data_size: Int, bss_size: Int, stack_size: Int) -> Int =
+    (text_size, data_size, bss_size, stack_size) =>
+    text_size + data_size + bss_size + stack_size
+
+(* ── 物理页分配器估算 ───────────────────────────────────── *)
+(* bitmap 位图分配器：每页需 1 bit *)
+func page_bitmap_bits(pages: Int) -> Int = pages
+func page_bitmap_bytes(pages: Int) -> Int = (pages + 7) / 8
+
+(* ── 虚拟内存区域（VMA）估算 ────────────────────────────── *)
+(* 每个 VMA 约 64 字节（地址范围 + 权限 + 映射信息） *)
+func vma_entry_size() -> Int = 64
+func vma_memory_estimate(num_regions: Int) -> Int =
+    (num_regions) => num_regions * vma_entry_size()
+
+(* ── 内存映射文件开销 ───────────────────────────────────── *)
+(* 每页映射：页表项(4B) + VMA(64B) + 页面缓存(页大小) *)
+func mmap_overhead_per_page(page_size: Int) -> Int =
+    (page_size) => 4 + 64 + page_size

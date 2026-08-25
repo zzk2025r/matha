@@ -1,0 +1,118 @@
+(* 资源库：金融数学进阶
+   覆盖：期权定价(Black-Scholes)、风险评估、投资组合
+   ============================================================ *)
+
+module 金融进阶 {
+
+  (* ===== Black-Scholes 期权定价 ===== *)
+  func 正态累积分布(x: Float) -> Float =
+    (x) =>
+    let a1 = 0.254829592 in
+    let a2 = -0.284496736 in
+    let a3 = 1.421413741 in
+    let a4 = -1.453152027 in
+    let a5 = 1.061405429 in
+    let p = 0.3275911 in
+    let sign = if x < 0 then -1.0 else 1.0 in
+    let ax = 绝对值(x) in
+    let t = 1.0 / (1.0 + p * ax) in
+    let y = 1.0 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * exp(-ax*ax) in
+    sign * y
+
+  func BlackScholes_看涨(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
+    (S, K, T, r, σ) =>
+    if σ = 0 or T = 0: max(S - K, 0)
+    else:
+      let d1 = (log(S/K) + (r + σ*σ/2) * T) / (σ * 开方(T)) in
+      let d2 = d1 - σ * 开方(T) in
+      S * 正态累积分布(d1) - K * exp(-r*T) * 正态累积分布(d2)
+
+  func BlackScholes_看跌(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
+    (S, K, T, r, σ) =>
+    BlackScholes_看涨(S, K, T, r, σ) - S + K * exp(-r*T)
+
+  (* ===== 风险评估 ===== *)
+  func 方差_投资组合(权重: List, 波动率: List, 相关系数: List) -> Float =
+    (权重, 波动率, 相关系数) =>
+    let n = len(权重) in
+    let rec sum(i: Int, j: Int, acc: Float) -> Float =
+      (i, j, acc) =>
+        if i >= n: acc
+        elif j >= n: sum(i + 1, i + 1, acc)
+        else:
+          let cov = 波动率[i] * 波动率[j] * (if i = j then 1.0 else 相关系数[i*n+j]) in
+          sum(i, j + 1, acc + 权重[i] * 权重[j] * cov)
+    sum(0, 0, 0)
+
+  func VaR_参数法(组合价值: Float, 置信水平: Float, 日波动率: Float) -> Float =
+    (组合价值, 置信水平, 日波动率) =>
+    let z = 正态分位数(置信水平) in
+    组合价值 * z * 日波动率
+
+  func 正态分位数(p: Float) -> Float =
+    (p) =>
+    if p < 0.5: -正态分位数(1.0 - p)
+    elif p = 0.5: 0.0
+    else:
+      let t = 开方(-2.0 * log(1.0 - p)) in
+      let c0 = 2.515517 in
+      let c1 = 0.802853 in
+      let c2 = 0.010328 in
+      let d1 = 1.432788 in
+      let d2 = 0.189269 in
+      let d3 = 0.001308 in
+      t - (c0 + c1*t + c2*t*t) / (1.0 + d1*t + d2*t*t + d3*t*t*t)
+
+  (* ===== 投资组合 ===== *)
+  func 投资组合收益(权重: List, 收益: List) -> Float =
+    (权重, 收益) =>
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        if i >= len(权重): acc
+        else: sum(i + 1, acc + 权重[i] * 收益[i])
+    sum(0, 0)
+
+  func 投资组合波动率(权重: List, 收益列表: List) -> Float =
+    (权重, 收益列表) =>
+    开方(方差_投资组合(权重, 标准差列表(收益列表), 相关系数矩阵(收益列表)))
+
+  func 标准差列表(收益列表: List) -> List =
+    (收益列表) =>
+    let n = len(收益列表) in
+    let rec calc(i: Int, result: List) -> List =
+      (i, result) =>
+        if i >= n: result
+        else: result + [标准差(收益列表[i])]
+    calc(0, [])
+
+  func 标准差(收益: List) -> Float =
+    (收益) =>
+    let n = len(收益) in
+    if n <= 1: 0.0
+    else:
+      let mean = 求和(收益) / n in
+      开方(求和(各元素平方差(收益, mean)) / (n - 1))
+
+  func 求和(lst: List) -> Float =
+    (lst) =>
+    let rec s(i: Int, acc: Float) -> Float =
+      (i, acc) => if i >= len(lst): acc else s(i+1, acc + lst[i])
+    s(0, 0)
+
+  func 各元素平方差(lst: List, mean: Float) -> List =
+    (lst, mean) =>
+    let rec sq(i: Int, result: List) -> List =
+      (i, result) => if i >= len(lst): result else sq(i+1, result + [(lst[i]-mean)^2])
+    sq(0, [])
+
+  (* ===== 高级复利 ===== *)
+  func 连续复利终值(P: Float, r: Float, t: Float) -> Float =
+    (P, r, t) => P * exp(r * t)
+
+  func 有效年利率(名义利率: Float, 年复利次数: Int) -> Float =
+    (名义利率, 年复利次数) =>
+    (1 + 名义利率 / 年复利次数) ^ 年复利次数 - 1
+
+  func 内部收益率近似(cashflows: List, 初始投资: Float) -> Float =
+    (cashflows, 初始投资) => 0.1  (* 简化：返回默认折现率 *)
+}

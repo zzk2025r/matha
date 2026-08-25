@@ -1,0 +1,102 @@
+{
+  "scopeName": "source.matha",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#keyword" },
+    { "include": "#function" },
+    { "include": "#number" },
+    { "include": "#string" },
+    { "include": "#operator" },
+    { "include": "#math-symbol" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.matha",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.matha",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "name": "keyword.control.matha",
+          "match": "\\b(函数|如果|否则|循环|返回|全局|局部|导入|从|为|在)\\b"
+        },
+        {
+          "name": "keyword.operator.matha",
+          "match": "\\b(且|或|非|蕴含|等价|属于|子集|并集|交集)\\b"
+        },
+        {
+          "name": "keyword.type.matha",
+          "match": "\\b(Int|Float|Bool|String|Array|Set|Map|Function)\\b"
+        }
+      ]
+    },
+    "function": {
+      "patterns": [
+        {
+          "name": "entity.name.function.matha",
+          "match": "\\b(计算|证明|验证|求解|积分|微分|极限|级数|矩阵|向量|集合)\\b"
+        },
+        {
+          "name": "support.function.matha",
+          "match": "\\b(sin|cos|tan|log|exp|sqrt|abs|floor|ceil|round|gcd|lcm|factorial|prime)\\b"
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.matha",
+          "match": "\\b\\d+\\.?\\d*\\b"
+        },
+        {
+          "name": "constant.language.matha",
+          "match": "\\b(π|e|φ|∞)\\b"
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.matha",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.matha",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.matha",
+          "match": "[+\\-*/%=<>!&|^~]+"
+        },
+        {
+          "name": "keyword.operator.logical.matha",
+          "match": "(→|↔|¬|∧|∨|⊕)"
+        },
+        {
+          "name": "keyword.operator.set.matha",
+          "match": "[∈⊆⊂∪∩∅]"
+        }
+      ]
+    },
+    "math-symbol": {
+      "patterns": [
+        {
+          "name": "constant.other.matha",
+          "match": "[∑∏∫∂∇√∞≈≠≤≥∈∉⊆⊂⊃⊇∪∩∅∀∃¬∧∨→↔]"
+        }
+      ]
+    }
+  }
+}

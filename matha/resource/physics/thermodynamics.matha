@@ -1,0 +1,29 @@
+(* 资源库：热力学
+   覆盖：气体定律、热传递、热机效率、熵
+   ============================================================ *)
+
+module 热力学 {
+
+  func 理想气体状态方程(P: Float, V: Float, T: Float, n: Float) -> Float =
+    (P, V, T, n) => P * V / (n * 8.314 * T)
+
+  func 等温膨胀功(W: Float, n: Float, T: Float, V1: Float, V2: Float) -> Float =
+    (W, n, T, V1, V2) => n * 8.314 * T * log(V2 / V1)
+
+  func 热传导(Q: Float, k: Float, A: Float, dT: Float, d: Float) -> Float =
+    (Q, k, A, dT, d) => k * A * dT / d
+
+  func 热对流(Q: Float, h: Float, A: Float, dT: Float) -> Float =
+    (Q, h, A, dT) => h * A * dT
+
+  func 热辐射(P: Float, ε: Float, σ: Float, T: Float, A: Float) -> Float =
+    (P, ε, σ, T, A) => ε * 5.670e-8 * A * T ^ 4
+
+  func 热机效率(Th: Float, Tc: Float) -> Float =
+    (Th, Tc) => 1 - Tc / Th
+
+  func 熵变(Q: Float, T: Float) -> Float = (Q, T) => Q / T
+
+  func 摄氏度转开尔文(C: Float) -> Float = (C) => C + 273.15
+  func 开尔文转摄氏度(K: Float) -> Float = (K) => K - 273.15
+}

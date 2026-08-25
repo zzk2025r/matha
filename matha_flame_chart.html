@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Matha 性能火焰图</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+    h1 { color: #e94560; margin-bottom: 20px; }
+    .chart { background: #16213e; border-radius: 8px; padding: 20px; }
+    .bar-row { display: flex; align-items: center; margin: 6px 0; }
+    .bar-label { width: 160px; font-size: 12px; color: #aaa; text-align: right; padding-right: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bar-track { flex: 1; height: 24px; background: #0f3460; border-radius: 4px; overflow: hidden; position: relative; }
+    .bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; display: flex; align-items: center; padding-left: 8px; }
+    .bar-value { font-size: 11px; color: #fff; font-weight: bold; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 20px; }
+    .stat-card { background: #0f3460; border-radius: 8px; padding: 15px; text-align: center; }
+    .stat-card .value { font-size: 24px; font-weight: bold; color: #4fbdba; }
+    .stat-card .label { font-size: 12px; color: #aaa; margin-top: 5px; }
+    .legend { margin-top: 20px; display: flex; gap: 15px; flex-wrap: wrap; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #aaa; }
+    .legend-swatch { width: 16px; height: 16px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Matha 性能火焰图</h1>
+  <div class="stats">
+    <div class="stat-card"><div class="value">2000.0 ms</div><div class="label">总耗时</div></div>
+    <div class="stat-card"><div class="value">14</div><div class="label">函数节点</div></div>
+    <div class="stat-card"><div class="value">12</div><div class="label">最大深度</div></div>
+    <div class="stat-card"><div class="value">__main__</div><div class="label">最大模块</div></div>
+  </div>
+  <div class="chart" style="margin-top: 20px;">
+    <div class="bar-row">
+      <div class="bar-label" title="__main__">__main__</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 100.0%; background: #1a9850;">
+          <span class="bar-value">100.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="main">main</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 100.0%; background: #1a9850;">
+          <span class="bar-value">100.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="lexer">lexer</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 24.0%; background: #91cf60;">
+          <span class="bar-value">24.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="parser">parser</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 36.0%; background: #d9ef8b;">
+          <span class="bar-value">36.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="parse_expr">parse_expr</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 16.0%; background: #fee08b;">
+          <span class="bar-value">16.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="parse_binary">parse_binary</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 8.0%; background: #fdae61;">
+          <span class="bar-value">8.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="parse_unary">parse_unary</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 8.0%; background: #f46d43;">
+          <span class="bar-value">8.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="parse_stmt">parse_stmt</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 20.0%; background: #d73027;">
+          <span class="bar-value">20.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="interpreter">interpreter</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 30.0%; background: #a50026;">
+          <span class="bar-value">30.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="eval_expr">eval_expr</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 18.0%; background: #d73027;">
+          <span class="bar-value">18.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="eval_call">eval_call</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 10.0%; background: #d73027;">
+          <span class="bar-value">10.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="eval_binop">eval_binop</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 8.0%; background: #d73027;">
+          <span class="bar-value">8.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="eval_stmt">eval_stmt</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 12.0%; background: #d73027;">
+          <span class="bar-value">12.0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" title="codegen">codegen</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: 10.0%; background: #d73027;">
+          <span class="bar-value">10.0%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#1a9850"></div>深度 0</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#91cf60"></div>深度 1</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#d9ef8b"></div>深度 2</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fee08b"></div>深度 3</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fdae61"></div>深度 4</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f46d43"></div>深度 5</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#d73027"></div>深度 6</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#a50026"></div>深度 7</div>
+  </div>
+</body>
+</html>

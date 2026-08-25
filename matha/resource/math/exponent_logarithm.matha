@@ -1,0 +1,25 @@
+(* 资源库：指数与对数
+   覆盖：指数运算、对数性质、复利
+   ============================================================ *)
+
+module 指数对数 {
+
+  func 指数运算(base: Float, exp: Float) -> Float =
+    (base, exp) => base ^ exp
+
+  func 自然对数(x: Float) -> Float = (x) => log(x)
+  func 常用对数(x: Float) -> Float = (x) => log10(x)
+  func 二进制对数(x: Float) -> Float = (x) => log2(x)
+
+  func 对数乘法(log_a: Float, log_b: Float) -> Float =
+    (log_a, log_b) => log_a + log_b
+
+  func 对数除法(log_a: Float, log_b: Float) -> Float =
+    (log_a, log_b) => log_a - log_b
+
+  func 对数幂(log_a: Float, n: Float) -> Float =
+    (log_a, n) => n * log_a
+
+  func 换底公式(log_x: Float, log_base: Float) -> Float =
+    (log_x, log_base) => log_x / log_base
+}

@@ -1,0 +1,20 @@
+(* 学科知识：工程 — 机械工程基础
+   覆盖：应力应变、胡克定律、截面属性
+   ============================================================ *)
+
+module 机械 {
+
+  func 正应力(F: Float, A: Float) -> Float = (F, A) => F / A
+  func 应变(dL: Float, L: Float) -> Float = (dL, L) => dL / L
+  func 胡克定律(sigma: Float, E: Float) -> Float =
+    (sigma, E) => sigma / E
+
+  func 矩形惯性矩(b: Float, h: Float) -> Float =
+    (b, h) => b * h * h * h / 12
+
+  func 圆形惯性矩(d: Float) -> Float =
+    (d) => 3.14159 * d * d * d * d / 64
+
+  func 弯曲应力(M: Float, y: Float, I: Float) -> Float =
+    (M, y, I) => M * y / I
+}

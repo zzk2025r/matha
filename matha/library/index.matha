@@ -1,0 +1,15 @@
+(* 资源库索引 *)
+(* 保护隔离：记录所有可用资源 *)
+(* 子文件通过 资源_列表 / 资源_加载 读取 *)
+
+资源目录 = [
+  "core/arithmetic",
+  "core/geometry",
+  "core/trigonometry",
+  "mechanics/shaft",
+  "mechanics/bearing",
+  "mechanics/stress",
+  "structural/beam",
+  "structural/column",
+  "physics/mechanics"
+]

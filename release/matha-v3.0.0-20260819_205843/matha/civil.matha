@@ -1,0 +1,17 @@
+(* 学科知识：工程 — 土木工程基础
+   覆盖：梁弯曲、柱稳定、混凝土
+   ============================================================ *)
+
+module 土木 {
+
+  func 简支梁最大弯矩(q: Float, L: Float) -> Float =
+    (q, L) => q * L * L / 8
+
+  func 简支梁最大挠度(q: Float, L: Float, E: Float, I: Float) -> Float =
+    (q, L, E, I) => 5 * q * L * L * L * L / (384 * E * I)
+
+  func 欧拉临界载荷(E: Float, I: Float, L: Float) -> Float =
+    (E, I, L) => 3.14159 * 3.14159 * E * I / (L * L)
+
+  func 长细比(L: Float, r: Float) -> Float = (L, r) => L / r
+}

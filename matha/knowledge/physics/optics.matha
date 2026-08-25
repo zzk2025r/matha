@@ -1,0 +1,19 @@
+(* 学科知识：物理学 — 光学
+   覆盖：折射、透镜、干涉
+   ============================================================ *)
+
+module 光学 {
+
+  func 斯涅尔定律(n1: Float, theta1: Float) -> Float =
+    (n1, theta1) =>
+    (n2) => asin(n1 * sin(theta1) / n2)
+
+  func 薄透镜焦距(u: Float, v: Float) -> Float =
+    (u, v) => u * v / (u + v)
+
+  func 双缝干涉条纹(λ: Float, D: Float, d: Float) -> Float =
+    (λ, D, d) => λ * D / d
+
+  func 光子能量(λ: Float) -> Float =
+    (λ) => 6.626e-34 * 299792458 / λ
+}

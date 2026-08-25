@@ -1,0 +1,18 @@
+(* 学科知识：数学核心 — 逻辑
+   覆盖：命题逻辑、基本运算
+   ============================================================ *)
+
+module 逻辑 {
+
+  (* ===== 基本逻辑运算 ===== *)
+  func 非(p: Bool) -> Bool = (p) => not p
+  func 与(p: Bool, q: Bool) -> Bool = (p, q) => p and q
+  func 或(p: Bool, q: Bool) -> Bool = (p, q) => p or q
+  func 蕴含(p: Bool, q: Bool) -> Bool = (p, q) => (not p) or q
+
+  (* ===== 德摩根定律 ===== *)
+  func 德摩根1(p: Bool, q: Bool) -> Bool =
+    (p, q) => not (p or q) = (not p) and (not q)
+  func 德摩根2(p: Bool, q: Bool) -> Bool =
+    (p, q) => not (p and q) = (not p) or (not q)
+}

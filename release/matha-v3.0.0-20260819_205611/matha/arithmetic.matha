@@ -1,0 +1,37 @@
+(* 学科知识：数学核心 — 算术
+   覆盖：四则运算、幂运算、绝对值、取整、阶乘、最大公约数、最小公倍数
+   ============================================================ *)
+
+module 算术 {
+
+  func 加(a: Int) -> Int = (b) => a + b
+  func 减(a: Int) -> Int = (b) => a - b
+  func 乘(a: Int) -> Int = (b) => a * b
+  func 除(a: Int) -> Float = (b) => a / b
+  func 模(a: Int) -> Int = (b) => a % b
+  func 平方(a: Int) -> Int = (a) => a * a
+  func 立方(a: Int) -> Int = (a) => a * a * a
+
+  func 绝对值(a: Int) -> Int = (a) =>
+    (a >= 0) ? a : -a
+
+  func 上取整(a: Float) -> Int = (a) =>
+    (a = int(a)) ? int(a) : int(a) + 1
+
+  func 下取整(a: Float) -> Int = (a) => int(a)
+
+  func 四舍五入(a: Float) -> Int = (a) =>
+    (a >= 0) ? int(a + 0.5) : int(a - 0.5)
+
+  func 阶乘(n: Int) -> Int = (n) =>
+    (n <= 1) ? 1 : n * 阶乘(n - 1)
+
+  func gcd(a: Int, b: Int) -> Int =
+    (a, b) => (b = 0) ? a : gcd(b, a % b)
+
+  func lcm(a: Int, b: Int) -> Int =
+    (a, b) => (a * b) / gcd(a, b)
+
+  func 商(a: Int) -> Int = (b) => a / b
+  func 余(a: Int) -> Int = (b) => a % b
+}

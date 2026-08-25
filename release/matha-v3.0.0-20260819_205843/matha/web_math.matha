@@ -1,0 +1,136 @@
+(* 资源库：Web 应用数学
+   覆盖：HTTP状态码、URI编码、分页、速率限制、JWT验证
+   ============================================================ *)
+
+module Web数学 {
+
+  (* ===== HTTP 状态码 ===== *)
+  func HTTP状态名称(代码: Int) -> String =
+    (代码) =>
+    case 代码 of
+      200 -> "OK"
+      201 -> "Created"
+      204 -> "No Content"
+      301 -> "Moved Permanently"
+      302 -> "Found"
+      304 -> "Not Modified"
+      400 -> "Bad Request"
+      401 -> "Unauthorized"
+      403 -> "Forbidden"
+      404 -> "Not Found"
+      405 -> "Method Not Allowed"
+      429 -> "Too Many Requests"
+      500 -> "Internal Server Error"
+      502 -> "Bad Gateway"
+      503 -> "Service Unavailable"
+      _ -> "Unknown"
+
+  func HTTP是成功(代码: Int) -> Bool =
+    (代码) => 代码 >= 200 and 代码 < 300
+
+  func HTTP是重定向(代码: Int) -> Bool =
+    (代码) => 代码 >= 300 and 代码 < 400
+
+  func HTTP是客户端错误(代码: Int) -> Bool =
+    (代码) => 代码 >= 400 and 代码 < 500
+
+  func HTTP是服务器错误(代码: Int) -> Bool =
+    (代码) => 代码 >= 500 and 代码 < 600
+
+  (* ===== URI 编码 ===== *)
+  func URI编码长度(text: String) -> Int =
+    (text) => len(text) * 3
+
+  func URI解码后长度(encoded: String) -> Int =
+    (encoded) => len(encoded) / 3
+
+  func URI编码字符(ch: String) -> String =
+    (ch) => "%" + hex(ord(ch[0]))
+
+  func hex(n: Int) -> String =
+    (n) =>
+    let chars = "0123456789ABCDEF" in
+    str(chars[n / 16]) + str(chars[n % 16])
+
+  func ord(ch: String) -> Int =
+    (ch) => 0  (* 简化 *)
+
+  (* ===== 分页计算 ===== *)
+  func 总页数(总数: Int, 每页: Int) -> Int =
+    (总数, 每页) => (总数 + 每页 - 1) / 每页
+
+  func 页内起始索引(页码: Int, 每页: Int) -> Int =
+    (页码, 每页) => (页码 - 1) * 每页
+
+  func 页内结束索引(页码: Int, 每页: Int, 总数: Int) -> Int =
+    (页码, 每页, 总数) =>
+    min(页码 * 每页, 总数)
+
+  func 分页导航页码(当前页: Int, 总页数: Int) -> List =
+    (当前页, 总页数) =>
+    let start = max(1, 当前页 - 2) in
+    let end_ = min(总页数, 当前页 + 2) in
+    let rec pages(i: Int, result: List) -> List =
+      (i, result) =>
+        if i > end_: result
+        else: pages(i + 1, result + [i])
+    pages(start, [])
+
+  (* ===== 速率限制 ===== *)
+  func 令牌桶剩余(容量: Int, 填充速率: Float, 已用: Int, 上次时间: Float, 当前时间: Float) -> Int =
+    (容量, 填充速率, 已用, 上次时间, 当前时间) =>
+    let elapsed = 当前时间 - 上次时间 in
+    let 新增 = 填充速率 * elapsed in
+    min(容量, 已用 - int(新增))
+
+  func 滑动窗口计数(请求时间戳: List, 窗口大小: Float, 当前时间: Float) -> Int =
+    (请求时间戳, 窗口大小, 当前时间) =>
+    let rec count(i: Int, acc: Int) -> Int =
+      (i, acc) =>
+        if i >= len(请求时间戳): acc
+        elif 当前时间 - 请求时间戳[i] <= 窗口大小: count(i + 1, acc + 1)
+        else: count(i + 1, acc)
+    count(0, 0)
+
+  (* ===== JWT 相关 ===== *)
+  func JWT头部长度(header_json: String) -> Int =
+    (header_json) => len(header_json)
+
+  func JWT载荷长度(payload_json: String) -> Int =
+    (payload_json) => len(payload_json)
+
+  func JWT总长度(header: String, payload: String, signature: String) -> Int =
+    (header, payload, signature) =>
+    len(header) + len(payload) + len(signature) + 2  (* 两个点号 *)
+
+  func JWT过期检查(exp: Int, now: Int) -> Bool =
+    (exp, now) => exp > now
+
+  (* ===== CORS ===== *)
+  func CORS允许源(请求源: String, 允许列表: List) -> Bool =
+    (请求源, 允许列表) =>
+    let rec check(i: Int) -> Bool =
+      (i) =>
+        if i >= len(允许列表): 假
+        elif 允许列表[i] = 请求源 or 允许列表[i] = "*": 真
+        else: check(i + 1)
+    check(0)
+
+  (* ===== 缓存 ===== *)
+  func 缓存有效(最后修改时间: Int, 缓存时间: Int, 当前时间: Int) -> Bool =
+    (最后修改时间, 缓存时间, 当前时间) =>
+    当前时间 - 最后修改时间 < 缓存时间
+
+  func 缓存键(方法: String, URL: String) -> String =
+    (方法, URL) => method + ":" + URL
+
+  (* ===== 文件大小估算 ===== *)
+  func HTML文件大小(元素数: Int, 平均标签长度: Int) -> Int =
+    (元素数, 平均标签长度) => 元素数 * (平均标签长度 + 10)  (* 标签+属性+空格 *)
+
+  func CSS文件大小(规则数: Int, 平均规则长度: Int) -> Int =
+    (规则数, 平均规则长度) => 规则数 * (平均规则长度 + 5)
+
+  func JS文件大小(函数数: Int, 平均函数长度: Int) -> Int =
+    (函数数, 平均函数长度) => 函数数 * (平均函数长度 + 20)
+}

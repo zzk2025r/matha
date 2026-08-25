@@ -1,0 +1,24 @@
+(* 资源库：语言学基础
+   覆盖：音系学、语法分析、音位规则
+   ============================================================ *)
+
+module 语言学基础 {
+
+  func 音节组合(声母: String, 韵母: String) -> String =
+    (声母, 韵母) => 声母 + 韵母
+
+  func 声调标记(音节: String, 声调: Int) -> String =
+    (音节, 声调) => 音节 + str(声调)
+
+  func 音位对立数(音位列表: List) -> Int =
+    (音位列表) => len(音位列表) * (len(音位列表) - 1) / 2
+
+  func 最小对立对数(对1: String, 对2: String) -> Int =
+    (对1, 对2) =>
+    let diff = 对1 in
+    let rec count(i: Int, acc: Int) -> Int =
+      (i, acc) =>
+        (i >= len(对1)) ? acc :
+        count(i+1, if 对1[i] != 对2[i] then acc + 1 else acc)
+    count(0, 0)
+}

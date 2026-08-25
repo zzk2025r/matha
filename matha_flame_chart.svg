@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="564" viewBox="0 0 800 564">
+<rect width="100%" height="100%" fill="#1a1a2e"/>
+<text x="20" y="30" fill="#e94560" font-size="18" font-family="sans-serif">Matha 性能火焰图</text>
+<rect x="160" y="50" width="540.0" height="28" fill="#1a9850" rx="4"/>
+<text x="150" y="69.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">__main__</text>
+<text x="708.0" y="69.0" fill="#fff" font-size="11" font-family="sans-serif">100.0%</text>
+<rect x="160" y="86" width="540.0" height="28" fill="#1a9850" rx="4"/>
+<text x="150" y="105.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">main</text>
+<text x="708.0" y="105.0" fill="#fff" font-size="11" font-family="sans-serif">100.0%</text>
+<rect x="160" y="122" width="129.6" height="28" fill="#91cf60" rx="4"/>
+<text x="150" y="141.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">lexer</text>
+<text x="297.6" y="141.0" fill="#fff" font-size="11" font-family="sans-serif">24.0%</text>
+<rect x="160" y="158" width="194.4" height="28" fill="#d9ef8b" rx="4"/>
+<text x="150" y="177.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">parser</text>
+<text x="362.4" y="177.0" fill="#fff" font-size="11" font-family="sans-serif">36.0%</text>
+<rect x="160" y="194" width="86.4" height="28" fill="#fee08b" rx="4"/>
+<text x="150" y="213.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">parse_expr</text>
+<text x="254.4" y="213.0" fill="#fff" font-size="11" font-family="sans-serif">16.0%</text>
+<rect x="160" y="230" width="43.2" height="28" fill="#fdae61" rx="4"/>
+<text x="150" y="249.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">parse_binary</text>
+<text x="211.2" y="249.0" fill="#fff" font-size="11" font-family="sans-serif">8.0%</text>
+<rect x="160" y="266" width="43.2" height="28" fill="#f46d43" rx="4"/>
+<text x="150" y="285.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">parse_unary</text>
+<text x="211.2" y="285.0" fill="#fff" font-size="11" font-family="sans-serif">8.0%</text>
+<rect x="160" y="302" width="108.0" height="28" fill="#d73027" rx="4"/>
+<text x="150" y="321.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">parse_stmt</text>
+<text x="276.0" y="321.0" fill="#fff" font-size="11" font-family="sans-serif">20.0%</text>
+<rect x="160" y="338" width="162.0" height="28" fill="#a50026" rx="4"/>
+<text x="150" y="357.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">interpreter</text>
+<text x="330.0" y="357.0" fill="#fff" font-size="11" font-family="sans-serif">30.0%</text>
+<rect x="160" y="374" width="97.2" height="28" fill="#d73027" rx="4"/>
+<text x="150" y="393.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">eval_expr</text>
+<text x="265.2" y="393.0" fill="#fff" font-size="11" font-family="sans-serif">18.0%</text>
+<rect x="160" y="410" width="54.0" height="28" fill="#d73027" rx="4"/>
+<text x="150" y="429.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">eval_call</text>
+<text x="222.0" y="429.0" fill="#fff" font-size="11" font-family="sans-serif">10.0%</text>
+<rect x="160" y="446" width="43.2" height="28" fill="#d73027" rx="4"/>
+<text x="150" y="465.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">eval_binop</text>
+<text x="211.2" y="465.0" fill="#fff" font-size="11" font-family="sans-serif">8.0%</text>
+<rect x="160" y="482" width="64.8" height="28" fill="#d73027" rx="4"/>
+<text x="150" y="501.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">eval_stmt</text>
+<text x="232.8" y="501.0" fill="#fff" font-size="11" font-family="sans-serif">12.0%</text>
+<rect x="160" y="518" width="54.0" height="28" fill="#d73027" rx="4"/>
+<text x="150" y="537.0" fill="#aaa" font-size="12" text-anchor="end" font-family="sans-serif">codegen</text>
+<text x="222.0" y="537.0" fill="#fff" font-size="11" font-family="sans-serif">10.0%</text>
+</svg>

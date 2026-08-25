@@ -1,0 +1,120 @@
+(* 资源库：操作系统 — 文件系统数学
+   覆盖：磁盘访问时间、调度算法、inode索引、文件尺寸
+   ============================================================ *)
+
+module 文件系统 {
+
+  (* ===== 磁盘访问时间 ===== *)
+  func 磁盘访问时间(寻道时间: Float, 旋转延迟: Float, 传输时间: Float) -> Float =
+    (寻道时间, 旋转延迟, 传输时间) => 寻道时间 + 旋转延迟 + 传输时间
+
+  func 平均寻道时间(最大寻道: Float) -> Float =
+    (最大寻道) => 最大寻道 * 2.0 / 3.0
+
+  func 旋转延迟(RPM: Float) -> Float =
+    (RPM) => 1.0 / (RPM * 60.0)
+
+  func 数据传输时间(数据量: Float, 传输速率: Float) -> Float =
+    (数据量, 传输速率) =>
+    (传输速率 = 0) ? 0 : 数据量 / 传输速率
+
+  (* ===== 磁盘调度 ===== *)
+  func SSTF平均寻道(请求序列: List, 起始柱面: Int) -> Float =
+    (请求序列, 起始柱面) =>
+    (* 简化：返回序列长度 *)
+    浮点(len(请求序列))
+
+  func SCAN平均寻道(请求序列: List, 起始柱面: Int, 方向: String) -> Float =
+    (请求序列, 起始柱面, 方向) =>
+    (* 简化实现 *)
+    浮点(len(请求序列))
+
+  func C_SCAN平均寻道(请求序列: List, 起始柱面: Int) -> Float =
+    (请求序列, 起始柱面) =>
+    (* 简化实现 *)
+    浮点(len(请求序列))
+
+  (* ===== inode 索引 ===== *)
+  func inode直接块数() -> Int =
+    () => 12
+
+  func inode一级间接块数(块大小: Int) -> Int =
+    (块大小) => 块大小 / 4
+
+  func inode二级间接块数(块大小: Int) -> Int =
+    (块大小) => (块大小 / 4) * (块大小 / 4)
+
+  func inode三级间接块数(块大小: Int) -> Int =
+    (块大小) => (块大小 / 4) * (块大小 / 4) * (块大小 / 4)
+
+  func inode最大文件尺寸(块大小: Int) -> Int =
+    (块大小) =>
+    let 直接 = inode直接块数() in
+    let 一级 = inode一级间接块数(块大小) in
+    let 二级 = inode二级间接块数(块大小) in
+    let 三级 = inode三级间接块数(块大小) in
+    (直接 + 一级 + 二级 + 三级) * 块大小
+
+  func inode地址合成(块偏移: Int, 块大小: Int) -> Int =
+    (块偏移, 块大小) => 块偏移 * 块大小
+
+  (* ===== FAT 文件系统 ===== *)
+  func FAT表项数(磁盘大小: Int, 簇大小: Int) -> Int =
+    (磁盘大小, 簇大小) => 磁盘大小 / 簇大小
+
+  func FAT链长度(最大链长: Int) -> Int =
+    (最大链长) => 最大链长
+
+  (* ===== 目录树 ===== *)
+  func 目录深度(path: String) -> Int =
+    (path) =>
+    let parts = path.split("/") in
+    len(parts) - 1
+
+  func 文件名(path: String) -> String =
+    (path) =>
+    let parts = path.split("/") in
+    parts[len(parts) - 1]
+
+  func 目录名(path: String) -> String =
+    (path) =>
+    let parts = path.split("/") in
+    if len(parts) <= 1: "/"
+    else: join(parts[0:len(parts)-1], "/")
+
+  func 路径合法(path: String) -> Bool =
+    (path) => len(path) > 0 and path[0] != ""
+
+  (* ===== 软链接 ===== *)
+  func 软链接跳数(link_chain: List) -> Int =
+    (link_chain) => len(link_chain)
+
+  func 软链接循环检测(link_chain: List) -> Bool =
+    (link_chain) =>
+    let rec has_cycle(i: Int, visited: List) -> Bool =
+      (i, visited) =>
+        if i >= len(link_chain): 假
+        elif visited包含(link_chain[i]): 真
+        else: has_cycle(i + 1, visited + [link_chain[i]])
+    has_cycle(0, [])
+
+  func 列表包含(lst: List, item: Int) -> Bool =
+    (lst, item) =>
+    let rec check(i: Int) -> Bool =
+      (i) =>
+        if i >= len(lst): 假
+        elif lst[i] = item: 真
+        else: check(i + 1)
+    check(0)
+
+  func join(lst: List, sep: String) -> String =
+    (lst, sep) =>
+    let rec build(i: Int, result: String) -> String =
+      (i, result) =>
+        if i >= len(lst): result
+        else: build(i + 1, result + (if i > 0 then sep else "") + str(lst[i]))
+    build(0, "")
+
+  func 浮点(n: Int) -> Float =
+    (n) => n * 1.0
+}

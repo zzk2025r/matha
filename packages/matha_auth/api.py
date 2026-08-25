@@ -231,7 +231,7 @@ class PermissionChangeAPI:
 
 def example_usage() -> None:
     """权限变更 API 使用示例。"""
-    from src.auth import SessionManager
+    from .service import SessionManager
     from matha_auth.rbac import RBACMiddleware
 
     mgr = SessionManager()

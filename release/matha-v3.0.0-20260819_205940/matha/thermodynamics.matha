@@ -1,0 +1,19 @@
+(* 学科知识：物理学 — 热学
+   覆盖：温度转换、气体定律、热传递
+   ============================================================ *)
+
+module 热学 {
+
+  func 摄氏转开尔文(C: Float) -> Float = (C) => C + 273.15
+  func 开尔文转摄氏(K: Float) -> Float = (K) => K - 273.15
+  func 摄氏转华氏(C: Float) -> Float = (C) => C * 9/5 + 32
+
+  func 理想气体体积(n: Float, T: Float, P: Float) -> Float =
+    (n, T, P) => n * 8.314 * T / P
+
+  func 热传导(Q: Float, k: Float, A: Float, dT: Float, d: Float) -> Float =
+    (Q, k, A, dT, d) => k * A * dT / d
+
+  func 热机效率(Th: Float, Tc: Float) -> Float =
+    (Th, Tc) => 1 - Tc / Th
+}

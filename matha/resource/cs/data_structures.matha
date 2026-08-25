@@ -1,0 +1,44 @@
+(* 资源库：数据结构基础
+   覆盖：链表、栈、队列、树
+   ============================================================ *)
+
+module 数据结构 {
+
+  func 栈压入(stack: List, item) -> List = (stack, item) => [item] + stack
+  func 栈弹出(stack: List) -> (Any, List) =
+    (stack) =>
+    if len(stack) = 0: (None, [])
+    else: (stack[0], stack[1:])
+  func 栈顶(stack: List) -> Any =
+    (stack) =>
+    if len(stack) = 0: None
+    else: stack[0]
+
+  func 队列入队(queue: List, item) -> List = (queue, item) => queue + [item]
+  func 队列出队(queue: List) -> (Any, List) =
+    (queue) =>
+    if len(queue) = 0: (None, [])
+    else: (queue[0], queue[1:])
+  func 队列头(queue: List) -> Any =
+    (queue) =>
+    if len(queue) = 0: None
+    else: queue[0]
+
+  func 链表长度(head: Any) -> Int =
+    (head) =>
+    let rec count(node: Any, acc: Int) -> Int =
+      (node, acc) =>
+        if node = None: acc
+        else: count(node.下一, acc + 1)
+    count(head, 0)
+
+  func 树高度(node: Any) -> Int =
+    (node) =>
+    if node = None: 0
+    else: 1 + max(树高度(node.左), 树高度(node.右))
+
+  func 树节点数(node: Any) -> Int =
+    (node) =>
+    if node = None: 0
+    else: 1 + 树节点数(node.左) + 树节点数(node.右)
+}

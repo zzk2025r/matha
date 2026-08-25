@@ -1,0 +1,101 @@
+{
+  "name": "matha",
+  "displayName": "Matha — 数学计算 DSL",
+  "description": "面向数学计算的自然语言可编程 DSL，支持自然语言输入、形式化验证和可执行代码生成",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Other"
+  ],
+  "keywords": [
+    "math",
+    "dsl",
+    "mathematics",
+    "calculator",
+    "natural-language"
+  ],
+  "activationEvents": [
+    "onLanguage:matha",
+    "onCommand:matha.parse"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "matha",
+        "aliases": ["Matha", "matha"],
+        "extensions": [".matha", ".mth"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/matha-light.svg",
+          "dark": "./icons/matha-dark.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "matha",
+        "scopeName": "source.matha",
+        "path": "./syntaxes/matha.tmGrammar.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "matha",
+        "path": "./snippets/matha.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "matha.parse",
+        "title": "Matha: 解析当前文本为意图",
+        "category": "Matha"
+      },
+      {
+        "command": "matha.compute",
+        "title": "Matha: 执行计算",
+        "category": "Matha"
+      },
+      {
+        "command": "matha.prove",
+        "title": "Matha: 验证命题",
+        "category": "Matha"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "matha.parse",
+        "key": "ctrl+shift+p",
+        "when": "editorLangId == matha"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "matha.parse",
+          "when": "editorLangId == matha",
+          "group": "0_mathablock@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/glob": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.54.0",
+    "@typescript-eslint/parser": "^5.54.0",
+    "eslint": "^8.35.0",
+    "typescript": "^5.0.0",
+    "vsce": "^2.15.0"
+  }
+}

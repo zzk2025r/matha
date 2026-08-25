@@ -1,0 +1,51 @@
+(* 学科知识：数学核心 — 几何
+   覆盖：平面与立体图形公式
+   ============================================================ *)
+
+module 几何 {
+
+  (* ===== 常数 ===== *)
+  func pi() -> Float = () => 3.141592653589793
+  func sqrt(x: Float) -> Float = (x) => 开方(x)
+
+  (* ===== 圆 ===== *)
+  func 圆面积(r: Float) -> Float = (r) => pi() * r * r
+  func 圆周长(r: Float) -> Float = (r) => 2 * pi() * r
+  func 圆环面积(R: Float, r: Float) -> Float =
+    (R, r) => pi() * (R * R - r * r)
+
+  (* ===== 三角形 ===== *)
+  func 三角形面积(底: Float, 高: Float) -> Float = (底, 高) => 0.5 * 底 * 高
+  func 三角形周长(a: Float, b: Float, c: Float) -> Float =
+    (a, b, c) => a + b + c
+
+  (* ===== 矩形 ===== *)
+  func 矩形面积(宽: Float, 高: Float) -> Float = (宽, 高) => 宽 * 高
+  func 矩形周长(宽: Float, 高: Float) -> Float = (宽, 高) => 2 * (宽 + 高)
+  func 矩形对角线(宽: Float, 高: Float) -> Float =
+    (宽, 高) => 开方(宽 * 宽 + 高 * 高)
+
+  (* ===== 梯形 ===== *)
+  func 梯形面积(上底: Float, 下底: Float, 高: Float) -> Float =
+    (上底, 下底, 高) => (上底 + 下底) * 高 / 2
+
+  (* ===== 立体图形 ===== *)
+  func 立方体表面积(a: Float) -> Float = (a) => 6 * a * a
+  func 立方体体积(a: Float) -> Float = (a) => a * a * a
+
+  func 长方体表面积(l: Float, w: Float, h: Float) -> Float =
+    (l, w, h) => 2 * (l*w + l*h + w*h)
+  func 长方体体积(l: Float, w: Float, h: Float) -> Float =
+    (l, w, h) => l * w * h
+
+  func 球表面积(r: Float) -> Float = (r) => 4 * pi() * r * r
+  func 球体积(r: Float) -> Float = (r) => 4 * pi() * r * r * r / 3
+
+  func 圆柱表面积(r: Float, h: Float) -> Float =
+    (r, h) => 2 * pi() * r * (r + h)
+  func 圆柱体积(r: Float, h: Float) -> Float =
+    (r, h) => pi() * r * r * h
+
+  func 圆锥体积(r: Float, h: Float) -> Float =
+    (r, h) => pi() * r * r * h / 3
+}

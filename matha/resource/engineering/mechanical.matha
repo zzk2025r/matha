@@ -1,0 +1,36 @@
+(* 资源库：机械工程基础
+   覆盖：材料强度、应力应变、轴设计、齿轮传动
+   ============================================================ *)
+
+module 机械工程 {
+
+  func 正应力(F: Float, A: Float) -> Float = (F, A) => F / A
+  func 剪应力(F: Float, A: Float) -> Float = (F, A) => F / A
+  func 胡克定律(σ: Float, E: Float) -> Float = (σ, E) => σ / E
+  func 应变(dL: Float, L: Float) -> Float = (dL, L) => dL / L
+
+  func 矩形惯性矩(b: Float, h: Float) -> Float =
+    (b, h) => b * h * h * h / 12
+  func 圆形惯性矩(d: Float) -> Float =
+    (d) => 3.14159 * d * d * d * d / 64
+  func 圆环惯性矩(D: Float, d: Float) -> Float =
+    (D, d) => 3.14159 * (D*D*D*D - d*d*d*d) / 64
+
+  func 弯曲应力(M: Float, y: Float, I: Float) -> Float =
+    (M, y, I) => M * y / I
+  func 扭转剪应力(T: Float, r: Float, J: Float) -> Float =
+    (T, r, J) => T * r / J
+
+  func 极惯性矩(d: Float) -> Float =
+    (d) => 3.14159 * d * d * d * d / 32
+
+  func 欧拉临界载荷(E: Float, I: Float, L: Float) -> Float =
+    (E, I, L) => 3.14159 * 3.14159 * E * I / (L * L)
+  func 长细比(L: Float, r: Float) -> Float = (L, r) => L / r
+
+  func 齿轮传动比(N1: Int, N2: Int) -> Float =
+    (N1, N2) => N2 / N1
+
+  func 皮带速度(d: Float, n: Float) -> Float =
+    (d, n) => 3.14159 * d * n / 60
+}

@@ -1,0 +1,96 @@
+(* 资源库：3D 变换数学
+   覆盖：向量运算、矩阵变换、四元数旋转、透视投影
+   ============================================================ *)
+
+module 3D变换 {
+
+  (* ===== 向量运算 ===== *)
+  func 向量长度(x: Float, y: Float, z: Float) -> Float =
+    (x, y, z) => 开方(x*x + y*y + z*z)
+
+  func 向量归一化(x: Float, y: Float, z: Float) -> (Float, Float, Float) =
+    (x, y, z) =>
+    let len = 向量长度(x, y, z) in
+    if len = 0: (0, 0, 0)
+    else: (x/len, y/len, z/len)
+
+  func 向量点积(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float) -> Float =
+    (x1, y1, z1, x2, y2, z2) => x1*x2 + y1*y2 + z1*z2
+
+  func 向量叉积(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float) -> (Float, Float, Float) =
+    (x1, y1, z1, x2, y2, z2) =>
+    (y1*z2 - z1*y2, z1*x2 - x1*z2, x1*y2 - y1*x2)
+
+  func 向量加法(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float) -> (Float, Float, Float) =
+    (x1, y1, z1, x2, y2, z2) => (x1+x2, y1+y2, z1+z2)
+
+  func 向量减法(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float) -> (Float, Float, Float) =
+    (x1, y1, z1, x2, y2, z2) => (x1-x2, y1-y2, z1-z2)
+
+  (* ===== 旋转矩阵 ===== *)
+  func 绕X轴旋转矩阵(θ: Float) -> List =
+    (θ) => [1, 0, 0, 0, cos(θ), -sin(θ), 0, sin(θ), cos(θ)]
+
+  func 绕Y轴旋转矩阵(θ: Float) -> List =
+    (θ) => [cos(θ), 0, sin(θ), 0, 1, 0, -sin(θ), 0, cos(θ)]
+
+  func 绕Z轴旋转矩阵(θ: Float) -> List =
+    (θ) => [cos(θ), -sin(θ), 0, sin(θ), cos(θ), 0, 0, 0, 1]
+
+  func 旋转矩阵应用(m: List, x: Float, y: Float, z: Float) -> (Float, Float, Float) =
+    (m, x, y, z) =>
+    (m[0]*x + m[1]*y + m[2]*z, m[3]*x + m[4]*y + m[5]*z, m[6]*x + m[7]*y + m[8]*z)
+
+  (* ===== 透视投影 ===== *)
+  func 透视投影(x: Float, y: Float, z: Float, fov: Float, near: Float) -> (Float, Float) =
+    (x, y, z, fov, near) =>
+    let scale = near / z in
+    (x * scale, y * scale)
+
+  func 视锥体裁剪(z: Float, near: Float, far: Float) -> Bool =
+    (z, near, far) => z >= near and z <= far
+
+  (* ===== 四元数旋转 ===== *)
+  func 四元数从轴角(axis_x: Float, axis_y: Float, axis_z: Float, angle: Float) -> (Float, Float, Float, Float) =
+    (axis_x, axis_y, axis_z, angle) =>
+    let half = angle / 2 in
+    let s = sin(half) in
+    (cos(half), axis_x*s, axis_y*s, axis_z*s)
+
+  func 四元数乘积(q1_w: Float, q1_x: Float, q1_y: Float, q1_z: Float,
+                  q2_w: Float, q2_x: Float, q2_y: Float, q2_z: Float) -> (Float, Float, Float, Float) =
+    (q1_w, q1_x, q1_y, q1_z, q2_w, q2_x, q2_y, q2_z) =>
+    (q1_w*q2_w - q1_x*q2_x - q1_y*q2_y - q1_z*q2_z,
+     q1_w*q2_x + q1_x*q2_w + q1_y*q2_z - q1_z*q2_y,
+     q1_w*q2_y - q1_x*q2_z + q1_y*q2_w + q1_z*q2_x,
+     q1_w*q2_z + q1_x*q2_y - q1_y*q2_x + q1_z*q2_w)
+
+  func 四元数旋转点(q_w: Float, q_x: Float, q_y: Float, q_z: Float,
+                    px: Float, py: Float, pz: Float) -> (Float, Float, Float) =
+    (q_w, q_x, q_y, q_z, px, py, pz) =>
+    let qv = (0, px, py, pz) in
+    let q_conj = (q_w, -q_x, -q_y, -q_z) in
+    let r1 = 四元数乘积(q_w, q_x, q_y, q_z, qv.1, qv.2, qv.3, 0) in
+    四元数乘积(r1.1, r1.2, r1.3, r1.4, q_conj.1, q_conj.2, q_conj.3, 0)
+
+  (* ===== 变换组合 ===== *)
+  func 平移矩阵(tx: Float, ty: Float, tz: Float) -> List =
+    (tx, ty, tz) => [1,0,0,tx, 0,1,0,ty, 0,0,1,tz]
+
+  func 缩放矩阵(sx: Float, sy: Float, sz: Float) -> List =
+    (sx, sy, sz) => [sx,0,0,0, 0,sy,0,0, 0,0,sz,0]
+
+  func 矩阵乘法_4x4(a: List, b: List) -> List =
+    (a, b) =>
+    let r = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0] in
+    let rec mul(i: Int, j: Int, k: Int, acc: List) -> List =
+      (i, j, k, acc) =>
+        if i >= 4: acc
+        else if j >= 4: mul(i+1, 0, 0, acc)
+        else if k >= 4: mul(i, j+1, 0, acc)
+        else:
+          let idx = i*4+j in
+          let sum = a[i*4+k] * b[k*4+j] in
+          mul(i, j, k+1, acc + [sum] if idx = len(acc)-1 else acc)
+    mul(0, 0, 0, [])
+}

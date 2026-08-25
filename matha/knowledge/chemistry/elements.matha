@@ -1,0 +1,20 @@
+(* 学科知识：化学 — 元素
+   覆盖：元素基本信息
+   ============================================================ *)
+
+module 元素 {
+
+  func 氢() -> String = () => "H"
+  func 氦() -> String = () => "He"
+  func 碳() -> String = () => "C"
+  func 氮() -> String = () => "N"
+  func 氧() -> String = () => "O"
+  func 铁() -> String = () => "Fe"
+  func 金() -> String = () => "Au"
+
+  func 摩尔质量(元素列表: List, 原子量列表: List) -> Float =
+    (元素列表, 原子量列表) =>
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) => (i >= len(元素列表)) ? acc : sum(i+1, acc + 原子量列表[i])
+    sum(0, 0)
+}

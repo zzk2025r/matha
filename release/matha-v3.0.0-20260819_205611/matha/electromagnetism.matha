@@ -1,0 +1,22 @@
+(* 学科知识：物理学 — 电磁学
+   覆盖：库仑定律、电路、磁场
+   ============================================================ *)
+
+module 电磁学 {
+
+  func 库仑力(q1: Float, q2: Float, r: Float) -> Float =
+    (q1, q2, r) => 8.988e9 * q1 * q2 / (r * r)
+
+  func 欧姆定律(V: Float, R: Float) -> Float = (V, R) => V / R
+  func 电功率(V: Float, I: Float) -> Float = (V, I) => V * I
+
+  func 串联电阻(R1: Float, R2: Float) -> Float = (R1, R2) => R1 + R2
+  func 并联电阻(R1: Float, R2: Float) -> Float =
+    (R1, R2) => R1 * R2 / (R1 + R2)
+
+  func 洛伦兹力(q: Float, v: Float, B: Float) -> Float =
+    (q, v, B) => q * v * B
+
+  func 法拉第定律(dPhi: Float, dt: Float, N: Int) -> Float =
+    (dPhi, dt, N) => N * dPhi / dt
+}

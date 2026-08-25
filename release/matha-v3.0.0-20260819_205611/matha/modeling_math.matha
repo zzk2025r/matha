@@ -1,0 +1,82 @@
+(* 扩展建模知识：结构力学、流体力学、热力学、电力系统、控制理论
+   ============================================================ *)
+
+module 扩展建模 {
+
+  (* ===== 结构力学 ===== *)
+  (* 梁弯曲正应力 σ = My/I *)
+  func 梁弯曲应力(M: Float, y: Float, I: Float) -> Float =
+    (M, y, I) => M * y / I
+
+  (* 梁挠度（简支梁均布载荷） *)
+  func 梁挠度(q: Float, L: Float, E: Float, I: Float) -> Float =
+    (q, L, E, I) => 5 * q * L^4 / (384 * E * I)
+
+  (* 圆轴扭转剪应力 τ = 16T/(πd³) *)
+  func 轴扭转应力(T: Float, d: Float) -> Float =
+    (T, d) => 16 * T / (π * d^3)
+
+  (* ===== 流体力学 ===== *)
+  (* 达西-魏斯巴赫沿程损失 hf = f·L/D·v²/2g *)
+  func 管道沿程损失(Q: Float, L: Float, D: Float, f: Float) -> Float =
+    (Q, L, D, f) =>
+    let v = Q / (π * D^2 / 4) in
+    f * L / D * v^2 / (2 * 9.81)
+
+  (* 雷诺数 Re = vD/ν *)
+  func 雷诺数(v: Float, D: Float, ν: Float) -> Float =
+    (v, D, ν) => v * D / ν
+
+  (* 伯努利方程：p2 = p1 + ρg(z1-z2) + ½ρ(v1²-v2²) *)
+  func 伯努利(p1: Float, z1: Float, v1: Float,
+              z2: Float, v2: Float, ρ: Float) -> Float =
+    (p1, z1, v1, z2, v2, ρ) =>
+    p1 + ρ * 9.81 * (z1 - z2) + 0.5 * ρ * (v1^2 - v2^2)
+
+  (* ===== 热力学 ===== *)
+  (* 傅里叶热传导 Q = kA·dT/L → k = QL/(A·dT) *)
+  func 热传导系数(Q: Float, L: Float, A: Float, dT: Float) -> Float =
+    (Q, L, A, dT) => Q * L / (A * dT)
+
+  (* 牛顿冷却定律 Q = hA(Tw-Tf) *)
+  func 对流换热(h: Float, A: Float, Tw: Float, Tf: Float) -> Float =
+    (h, A, Tw, Tf) => h * A * (Tw - Tf)
+
+  (* 斯蒂芬-玻尔兹曼辐射 Q = εσA(T1⁴-T2⁴) *)
+  func 辐射换热(ε: Float, A: Float, T1: Float, T2: Float) -> Float =
+    (ε, A, T1, T2) => ε * 5.67e-8 * A * (T1^4 - T2^4)
+
+  (* ===== 电力系统 ===== *)
+  (* 三相功率 P = √3·VL·IL·pf *)
+  func 三相功率(VL: Float, IL: Float, pf: Float) -> Float =
+    (VL, IL, pf) => √3 * VL * IL * pf
+
+  (* 变压器变比 k = N1/N2 *)
+  func 变压器变比(N1: Int, N2: Int) -> Float =
+    (N1, N2) => N1 / N2
+
+  (* 电机扭矩 T = 9550·P/n *)
+  func 电机扭矩(P: Float, n: Float) -> Float =
+    (P, n) => 9550 * P / n
+
+  (* ===== 控制理论 ===== *)
+  (* PID 控制器输出 u = Kp·e + Ki·∫e + Kd·de/dt *)
+  func PID输出(Kp: Float, Ki: Float, Kd: Float,
+               误差: Float, 积分: Float, 微分: Float) -> Float =
+    (Kp, Ki, Kd, 误差, 积分, 微分) =>
+    Kp * 误差 + Ki * 积分 + Kd * 微分
+
+  (* 一阶惯性环节响应 1-e^(-t/T) *)
+  func 一阶响应(T: Float, t: Float) -> Float =
+    (T, t) => 1 - e^(-t / T)
+
+  (* ===== 材料科学 ===== *)
+  (* 胡克定律 ε = σ/E *)
+  func 胡克定律(σ: Float, E: Float) -> Float =
+    (σ, E) => σ / E
+
+  (* 疲劳寿命估算（简化） *)
+  func 疲劳寿命(S: Float, Sn: Float, N: Int) -> Int =
+    (S, Sn, N) =>
+    if S <= Sn then N * 10 else N * (Sn / S)^3
+}

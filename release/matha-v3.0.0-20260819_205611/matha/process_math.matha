@@ -1,0 +1,104 @@
+(* 资源库：操作系统 — 进程管理数学
+   覆盖：周转时间、等待时间、吞吐量、CPU利用率、进程状态转移
+   ============================================================ *)
+
+module 进程管理 {
+
+  (* ===== 调度评估指标 ===== *)
+  func 周转时间(完成时间: Float, 到达时间: Float) -> Float =
+    (完成时间, 到达时间) => 完成时间 - 到达时间
+
+  func 等待时间(周转时间: Float,  Burst时间: Float) -> Float =
+    (周转时间, Burst时间) => 周转时间 - Burst时间
+
+  func 平均周转时间(周转时间列表: List) -> Float =
+    (周转时间列表) => 求和(周转时间列表) / len(周转时间列表)
+
+  func 平均等待时间(等待时间列表: List) -> Float =
+    (等待时间列表) => 求和(等待时间列表) / len(等待时间列表)
+
+  func 响应时间比(响应时间: Float, 要求时间: Float) -> Float =
+    (响应时间, 要求时间) =>
+    (要求时间 = 0) ? 0 : 响应时间 / 要求时间
+
+  func CPU利用率(忙碌时间: Float, 空闲时间: Float) -> Float =
+    (忙碌时间, 空闲时间) =>
+    (忙碌时间 + 空闲时间 = 0) ? 0 : 忙碌时间 / (忙碌时间 + 空闲时间)
+
+  func 吞吐量(进程数: Int, 总时间: Float) -> Float =
+    (进程数, 总时间) =>
+    (总时间 = 0) ? 0 : 进程数 / 总时间
+
+  func 加权周转时间(周转时间列表: List, 权重列表: List) -> Float =
+    (周转时间列表, 权重列表) =>
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        (i >= len(周转时间列表)) ? acc :
+        sum(i + 1, acc + 周转时间列表[i] * 权重列表[i])
+    sum(0, 0) / 求和(权重列表)
+
+  (* ===== 进程状态转移 ===== *)
+  enum 进程状态 {
+    新建
+    就绪
+    运行
+    阻塞
+    终止
+  }
+
+  func 状态转移(当前: String, 事件: String) -> String =
+    (当前, 事件) =>
+    case (当前, 事件) of
+      ("新建", "admission") -> "就绪"
+      ("就绪", "dispatch") -> "运行"
+      ("运行", "interrupt") -> "就绪"
+      ("运行", "block") -> "阻塞"
+      ("阻塞", "wake") -> "就绪"
+      ("运行", "exit") -> "终止"
+      ("阻塞", "timeout") -> "就绪"
+      _ -> 当前
+
+  func 状态可转移(当前: String, 事件: String) -> Bool =
+    (当前, 事件) =>
+    case (当前, 事件) of
+      ("新建", "admission") -> 真
+      ("就绪", "dispatch") -> 真
+      ("运行", "interrupt") -> 真
+      ("运行", "block") -> 真
+      ("阻塞", "wake") -> 真
+      ("运行", "exit") -> 真
+      ("阻塞", "timeout") -> 真
+      _ -> 假
+
+  (* ===== 调度性能估算 ===== *)
+  func 调度器开销(上下文切换次数: Int, 每次开销: Float) -> Float =
+    (上下文切换次数, 每次开销) => 上下文切换次数 * 每次开销
+
+  func 调度器效率(总时间: Float, 有效工作时间: Float) -> Float =
+    (总时间, 有效工作时间) =>
+    (总时间 = 0) ? 0 : 有效工作时间 / 总时间
+
+  (* ===== 进程树 ===== *)
+  func 进程树深度(pid: Int, 父进程映射: List) -> Int =
+    (pid, 父进程映射) =>
+    let rec depth(p: Int, count: Int) -> Int =
+      (p, count) =>
+        if p = 0: count
+        else: depth(父进程映射[p], count + 1)
+    depth(pid, 0)
+
+  func 子进程数量(pid: Int, 父进程映射: List) -> Int =
+    (pid, 父进程映射) =>
+    let rec count(i: Int, acc: Int) -> Int =
+      (i, acc) =>
+        if i >= len(父进程映射): acc
+        elif 父进程映射[i] = pid: count(i + 1, acc + 1)
+        else: count(i + 1, acc)
+    count(0, 0)
+
+  func 求和(lst: List) -> Float =
+    (lst) =>
+    let rec s(i: Int, acc: Float) -> Float =
+      (i, acc) => if i >= len(lst): acc else s(i + 1, acc + lst[i])
+    s(0, 0)
+}

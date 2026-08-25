@@ -1,0 +1,157 @@
+{
+  "timestamp": "2026-08-20 14:21:07",
+  "configs": {
+    "small": {
+      "token_verify": {
+        "total_ops": 250,
+        "errors": 0,
+        "elapsed_s": 0.0600986999925226,
+        "ops_per_sec": 4159.823757104641,
+        "baseline_ops_per_sec": 3225.3819495504645,
+        "speedup": 1.2897150855837132
+      },
+      "rbac_check": {
+        "total_ops": 250,
+        "elapsed_s": 0.0009355999936815351,
+        "ops_per_sec": 267208.21044072864,
+        "baseline_ops_per_sec": 1184834.0898260046,
+        "speedup": 0.22552373596877917
+      },
+      "concurrent_login": {
+        "users": 50,
+        "workers": 10,
+        "passed": 50,
+        "elapsed_s": 0.02704970000195317,
+        "ops_per_sec": 1848.4493357186832
+      },
+      "concurrent_refresh": {
+        "users": 50,
+        "workers": 10,
+        "passed": 0,
+        "elapsed_s": 0.05967439999221824,
+        "ops_per_sec": 0.0
+      },
+      "concurrent_rbac": {
+        "users": 50,
+        "workers": 10,
+        "passed": 50,
+        "elapsed_s": 0.00804809998953715,
+        "ops_per_sec": 6212.646471217056
+      }
+    },
+    "medium": {
+      "token_verify": {
+        "total_ops": 1000,
+        "errors": 0,
+        "elapsed_s": 0.4054400000022724,
+        "ops_per_sec": 2466.4561957241394,
+        "baseline_ops_per_sec": 2478.5358794475055,
+        "speedup": 0.9951262824865547
+      },
+      "rbac_check": {
+        "total_ops": 1000,
+        "elapsed_s": 0.0028220000094734132,
+        "ops_per_sec": 354358.6097246685,
+        "baseline_ops_per_sec": 1128795.546204046,
+        "speedup": 0.31392630039719616
+      },
+      "concurrent_login": {
+        "users": 200,
+        "workers": 20,
+        "passed": 200,
+        "elapsed_s": 0.5011559000122361,
+        "ops_per_sec": 399.07741282725965
+      },
+      "concurrent_refresh": {
+        "users": 200,
+        "workers": 20,
+        "passed": 0,
+        "elapsed_s": 1.3805951999966055,
+        "ops_per_sec": 0.0
+      },
+      "concurrent_rbac": {
+        "users": 200,
+        "workers": 20,
+        "passed": 200,
+        "elapsed_s": 0.37302259998978116,
+        "ops_per_sec": 536.1605436385863
+      }
+    },
+    "large": {
+      "token_verify": {
+        "total_ops": 2500,
+        "errors": 0,
+        "elapsed_s": 1.0654357000021264,
+        "ops_per_sec": 2346.4578857222546,
+        "baseline_ops_per_sec": 4328.114723533852,
+        "speedup": 0.5421431814095724
+      },
+      "rbac_check": {
+        "total_ops": 2500,
+        "elapsed_s": 0.00680650002323091,
+        "ops_per_sec": 367295.96583668265,
+        "baseline_ops_per_sec": 1489336.3471904912,
+        "speedup": 0.2466172040516945
+      },
+      "concurrent_login": {
+        "users": 500,
+        "workers": 30,
+        "passed": 500,
+        "elapsed_s": 0.16957480000564829,
+        "ops_per_sec": 2948.551317668343
+      },
+      "concurrent_refresh": {
+        "users": 500,
+        "workers": 30,
+        "passed": 0,
+        "elapsed_s": 0.5595767000049818,
+        "ops_per_sec": 0.0
+      },
+      "concurrent_rbac": {
+        "users": 500,
+        "workers": 30,
+        "passed": 500,
+        "elapsed_s": 0.032126399979460984,
+        "ops_per_sec": 15563.524089834513
+      }
+    },
+    "stress": {
+      "token_verify": {
+        "total_ops": 3000,
+        "errors": 0,
+        "elapsed_s": 0.615018600015901,
+        "ops_per_sec": 4877.901253592065,
+        "baseline_ops_per_sec": 4470.892255986251,
+        "speedup": 1.0910352954851132
+      },
+      "rbac_check": {
+        "total_ops": 3000,
+        "elapsed_s": 0.008535900007700548,
+        "ops_per_sec": 351456.78807080566,
+        "baseline_ops_per_sec": 1201489.8576489433,
+        "speedup": 0.29251748221872703
+      },
+      "concurrent_login": {
+        "users": 1000,
+        "workers": 50,
+        "passed": 1000,
+        "elapsed_s": 0.3411740000010468,
+        "ops_per_sec": 2931.0557076357863
+      },
+      "concurrent_refresh": {
+        "users": 1000,
+        "workers": 50,
+        "passed": 0,
+        "elapsed_s": 0.8220029000076465,
+        "ops_per_sec": 0.0
+      },
+      "concurrent_rbac": {
+        "users": 1000,
+        "workers": 50,
+        "passed": 1000,
+        "elapsed_s": 0.05262400000356138,
+        "ops_per_sec": 19002.736392754716
+      }
+    }
+  }
+}

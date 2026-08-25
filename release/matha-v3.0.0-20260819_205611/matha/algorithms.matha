@@ -1,0 +1,32 @@
+(* 学科知识：计算机科学 — 算法基础
+   覆盖：排序、搜索
+   ============================================================ *)
+
+module 算法 {
+
+  func 冒泡排序(arr: List) -> List = (arr) =>
+    let n = len(arr) in
+    let result = arr in
+    let i = 0 in
+    while i < n - 1:
+      let j = 0 in
+      while j < n - i - 1:
+        if result[j] > result[j + 1]:
+          let tmp = result[j] in
+          result[j] = result[j + 1] in
+          result[j + 1] = tmp
+        j = j + 1
+      i = i + 1
+    result
+
+  func 线性搜索(arr: List, target) -> Int =
+    (arr, target) =>
+    let rec search(i: Int) -> Int =
+      (i) =>
+        (i >= len(arr)) ? -1 :
+        (arr[i] = target) ? i : search(i + 1)
+    search(0)
+
+  func 时间复杂度_二分搜索() -> String = () => "O(log n)"
+  func 时间复杂度_冒泡排序() -> String = () => "O(n^2)"
+}

@@ -1,0 +1,74 @@
+(* 资源库：代数进阶
+   覆盖：多项式、方程求解、矩阵运算、数列
+   ============================================================ *)
+
+module 代数进阶 {
+
+  (* ===== 多项式 ===== *)
+  func 多项式求值(coeffs: List, x: Float) -> Float =
+    (coeffs, x) =>
+    let rec eval(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        (i < 0) ? acc :
+        eval(i - 1, acc * x + coeffs[i])
+    eval(len(coeffs) - 1, 0)
+
+  func 多项式导数(coeffs: List) -> List =
+    (coeffs) =>
+    let n = len(coeffs) in
+    if n <= 1: []
+    else:
+      let rec derive(i: Int, result: List) -> List =
+        (i, result) =>
+          (i <= 0) ? result :
+          derive(i - 1, [(coeffs[i] * i)] + result)
+      derive(n - 1, [])
+
+  func 韦达和(a: Float, b: Float) -> Float = (a, b) => -b / a
+  func 韦达积(a: Float, b: Float, c: Float) -> Float = (a, b, c) => c / a
+
+  (* ===== 矩阵运算 ===== *)
+  func 矩阵行列式2x2(a: Float, b: Float, c: Float, d: Float) -> Float =
+    (a, b, c, d) => a * d - b * c
+
+  func 矩阵乘法_2x2(A: List, B: List) -> List =
+    (A, B) =>
+    [(A[0]*B[0] + A[1]*B[2]), (A[0]*B[1] + A[1]*B[3]),
+     (A[2]*B[0] + A[3]*B[2]), (A[2]*B[1] + A[3]*B[3])]
+
+  func 矩阵转置(m: List) -> List =
+    (m) => [m[1], m[0], m[3], m[2]]
+
+  (* ===== 数列 ===== *)
+  func 斐波那契(n: Int) -> Int =
+    (n) =>
+      (n <= 0) ? 0 :
+      (n = 1) ? 1 :
+      斐波那契(n-1) + 斐波那契(n-2)
+
+  func 等差通项(a1: Float, d: Float, n: Int) -> Float =
+    (a1, d, n) => a1 + (n - 1) * d
+  func 等差求和(a1: Float, d: Float, n: Int) -> Float =
+    (a1, d, n) => n * (2*a1 + (n-1)*d) / 2
+
+  func 等比通项(a1: Float, q: Float, n: Int) -> Float =
+    (a1, q, n) => a1 * q ^ (n - 1)
+  func 等比求和(a1: Float, q: Float, n: Int) -> Float =
+    (a1, q, n) =>
+      (q = 1) ? a1 * n :
+      a1 * (1 - q ^ n) / (1 - q)
+
+  (* ===== 方程 ===== *)
+  func 解二次方程(a: Float, b: Float, c: Float) -> Float =
+    (a, b, c) =>
+    let delta = b*b - 4*a*c in
+    (delta >= 0) ? (-b + 开方(delta)) / (2*a) : 0
+
+  func 解线性方程组2x2(a1: Float, b1: Float, c1: Float,
+                       a2: Float, b2: Float, c2: Float) -> (Float, Float) =
+    (a1, b1, c1, a2, b2, c2) =>
+    let D = a1*b2 - a2*b1 in
+    let Dx = c1*b2 - c2*b1 in
+    let Dy = a1*c2 - a2*c1 in
+    (Dx / D, Dy / D)
+}

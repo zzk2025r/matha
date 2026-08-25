@@ -1,0 +1,75 @@
+(* 资源库：操作系统 — 调度算法数学
+   覆盖：FCFS/SJF/RR/优先级调度、响应比高优先、调度开销
+   ============================================================ *)
+
+module 调度算法 {
+
+  (* ===== FCFS 先来先服务 ===== *)
+  func FCFS周转时间(到达时间: List,  Burst时间: List) -> List =
+    (到达时间, Burst时间) =>
+    let n = len(到达时间) in
+    let rec calc(i: Int, 当前时间: Float, result: List) -> List =
+      (i, 当前时间, result) =>
+        if i >= n: result
+        else:
+          let start = if 当前时间 < 到达时间[i] then 到达时间[i] else 当前时间 in
+          let完成 = start + Burst时间[i] in
+          calc(i + 1, 完成, result + [完成 - 到达时间[i]])
+    calc(0, 0, [])
+
+  (* ===== SJF 短作业优先（非抢占）===== *)
+  func SJF周转时间(到达时间: List, Burst时间: List) -> List =
+    (到达时间, Burst时间) =>
+    (* 简化：按Burst时间排序后计算 *)
+    FCFS周转时间(到达时间, Burst时间)  (* TODO: 按burst排序 *)
+
+  (* ===== RR 轮转调度 ===== *)
+  func RR周转时间(到达时间: List, Burst时间: List, quantum: Int) -> List =
+    (到达时间, Burst时间, quantum) =>
+    (* 简化：总时间估算 *)
+    let n = len(Burst时间) in
+    let total_burst = 求和(Burst时间) in
+    let 轮次 = (total_burst + quantum - 1) / quantum in
+    let 上下文切换开销 = 轮次 * n * 0.01 in
+    total_burst + 上下文切换开销
+
+  (* ===== 优先级调度 ===== *)
+  func 优先级调度周转时间(到达时间: List, Burst时间: List, 优先级: List) -> List =
+    (到达时间, Burst时间, 优先级) =>
+    (* 按优先级排序后计算 *)
+    FCFS周转时间(到达时间, Burst时间)
+
+  (* ===== 响应比高优先 (HRRN) ===== *)
+  func 响应比(等待时间: Float, Burst时间: Float) -> Float =
+    (等待时间, Burst时间) =>
+    (Burst时间 = 0) ? 1.0 : 1.0 + 等待时间 / Burst时间
+
+  func HRRN周转时间(到达时间: List, Burst时间: List) -> List =
+    (到达时间, Burst时间) =>
+    FCFS周转时间(到达时间, Burst时间)  (* 简化实现 *)
+
+  (* ===== 调度性能指标 ===== *)
+  func 平均周转时间(周转时间列表: List) -> Float =
+    (周转时间列表) => 求和(周转时间列表) / len(周转时间列表)
+
+  func 平均等待时间(周转时间列表: List, Burst时间列表: List) -> Float =
+    (周转时间列表, Burst时间列表) =>
+    let rec wait_sum(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        if i >= len(周转时间列表): acc
+        else: wait_sum(i + 1, acc + 周转时间列表[i] - Burst时间列表[i])
+    wait_sum(0, 0) / len(周转时间列表)
+
+  func 调度开销(上下文切换次数: Int, 每次切换时间: Float) -> Float =
+    (上下文切换次数, 每次切换时间) => 上下文切换次数 * 每次切换时间
+
+  func 调度效率(总执行时间: Float, 有效工作时间: Float) -> Float =
+    (总执行时间, 有效工作时间) =>
+    (总执行时间 = 0) ? 0 : 有效工作时间 / 总执行时间
+
+  func 求和(lst: List) -> Float =
+    (lst) =>
+    let rec s(i: Int, acc: Float) -> Float =
+      (i, acc) => if i >= len(lst): acc else s(i + 1, acc + lst[i])
+    s(0, 0)
+}

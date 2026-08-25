@@ -1,0 +1,214 @@
+(* ============================================================
+   Matha 自举词法器（完整版）
+   ------------------------------------------------------------
+   完整的 Matha 词法分析器，用 Matha 自身函数式语法编写。
+   输出 Token 列表，供 parser.matha 使用。
+   
+   调用入口：扫描(src)(pos)(line)(col)(toks)
+   ============================================================ *)
+
+module 词法器 {
+
+  (* ===== Token 类型枚举 ===== *)
+  enum 类型 {
+    整数 浮点 字符串 布尔 标识符 关键字
+    符号 换行 结束
+    加 减 乘 除 取模 次方
+    等于 不等于 大于 小于 大于等于 小于等于
+    箭头 胖箭头 发送 问号 冒号 管道
+    左括号 右括号 左括号方 右括号方 左括号花 右括号花
+    逗号 点 下划线
+    占位符 读取开 读取闭 读取开2 读取闭2
+    命令开 命令闭 段号 全角冒号 设置符
+    省略号 双省略号 中文逗号 标注开 标注闭
+  }
+
+  (* ===== Token 结构 ===== *)
+  struct Token {
+    类型: 类型
+    文本: String
+    行: Int
+    列: Int
+  }
+
+  (* ===== 码点判定（ASCII 范围）===== *)
+  func 是数字码(c: Int) -> Bool = (c) =>
+    (c >= 48 and c <= 57) ? 真 : 假
+
+  func 是字母码(c: Int) -> Bool = (c) =>
+    ((c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95) ? 真 : 假
+
+  func 是换行码(c: Int) -> Bool = (c) => (c = 10) ? 真 : 假
+
+  func 是空白码(c: Int) -> Bool = (c) =>
+    ((c = 32) or (c = 9)) ? 真 : 假
+
+  func 是标识符续(c: Int) -> Bool = (c) =>
+    是字母码(c) or 是数字码(c) or c = 95 ? 真 : 假
+
+  (* ===== 辅助判定函数（供测试与解释器调用）===== *)
+  func 是数字起(c: Int) -> Bool = (c) => 是数字码(c)
+  func 是数字止(c: Int) -> Bool = (c) => 是数字码(c) = 假
+  func 是字母起(c: Int) -> Bool = (c) => 是字母码(c)
+  func 是字母止(c: Int) -> Bool = (c) => 是字母码(c) = 假
+  func 是下划线(c: Int) -> Bool = (c) => c = 95
+  func 推进位置(pos: Int) -> Int = (pos) => pos + 1
+  func 换行递进(line: Int) -> Int = (line) => line + 1
+
+  (* ===== Token 构造子 ===== *)
+  func 做Token(t: 类型, text: String, line: Int, col: Int) -> Token =
+    (t, text, line, col) => { 类型: t, 文本: text, 行: line, 列: col }
+
+  (* ===== 多字符操作符检测 ===== *)
+  func 检测多符(src: String, pos: Int) -> (类型, String) =
+    (src, pos) =>
+      (pos + 1 < len(src)) ?
+        let s2 = get(src)(pos + 1) in
+        let c1 = get(src)(pos) in
+        let c2 = get(src)(pos + 1) in
+        (c1 = ">" and c2 = "=") ? (不等于, "!=") :
+        (c1 = ">" and c2 = ">") ? (大于等于, ">>") :
+        (c1 = "<" and c2 = "=") ? (小于等于, "<=") :
+        (c1 = "=" and c2 = ">") ? (胖箭头, "=>") :
+        (c1 = "-" and c2 = ">") ? (箭头, "->") :
+        (c1 = "<" and c2 = "-") ? (发送, "<-") :
+        (c1 = "<" and c2 = "<") ? (左括号, "<<") :
+        (c1 = "=" and c2 = "=") ? (等于, "==") :
+        (* 全角运算符 *)
+        (c1 = "：" and c2 = ":") ? (全角冒号, "：:") :
+        (* 中文标点归一化 *)
+        (c1 = "，") ? (逗号, ",") :
+        (c1 = "。") ? (点, ".") :
+        (c1 = "；") ? (全角冒号, "；") :
+        (* 默认：单字符符号 *)
+        (符号, get(src)(pos))
+      : (符号, get(src)(pos))
+
+  (* ===== 单字符 Token 映射 ===== *)
+  func 映射单符(c: String) -> 类型 = (c) =>
+    c = "+" ? 加 :
+    c = "-" ? 减 :
+    c = "*" ? 乘 :
+    c = "/" ? 除 :
+    c = "%" ? 取模 :
+    c = "^" ? 次方 :
+    c = "=" ? 等于 :
+    c = ">" ? 大于 :
+    c = "<" ? 小于 :
+    c = "?" ? 问号 :
+    c = ":" ? 冒号 :
+    c = "|" ? 管道 :
+    c = "(" ? 左括号 :
+    c = ")" ? 右括号 :
+    c = "[" ? 左括号方 :
+    c = "]" ? 右括号方 :
+    c = "{" ? 左括号花 :
+    c = "}" ? 右括号花 :
+    c = "," ? 逗号 :
+    c = "." ? 点 :
+    c = "_" ? 下划线 :
+    c = "？" ? 占位符 :
+    c = "【" ? 读取开 :
+    c = "】" ? 读取闭 :
+    c = "〔" ? 读取开2 :
+    c = "〕" ? 读取闭2 :
+    c = "《" ? 命令开 :
+    c = "》" ? 命令闭 :
+    c = "#" ? 段号 :
+    c = "：" ? 全角冒号 :
+    c = "@" ? 设置符 :
+    c = "…" ? 省略号 :
+    c = "……" ? 双省略号 :
+    c = "、" ? 中文逗号 :
+    c = "*/" ? 标注开 :
+    c = "/*" ? 标注闭 :
+    符号
+
+  (* ===== 关键字表 ===== *)
+  func 是关键字(tok: String) -> Bool = (tok) =>
+    (tok = "func") or (tok = "if") or (tok = "else") or (tok = "then") or
+    (tok = "match") or (tok = "for") or (tok = "in") or (tok = "while") or
+    (tok = "let") or (tok = "rec") or (tok = "struct") or (tok = "enum") or
+    (tok = "type") or (tok = "import") or (tok = "use") or (tok = "as") or
+    (tok = "go") or (tok = "else") or (tok = "else") or
+    (tok = "真") or (tok = "假") or (tok = "true") or (tok = "false") or
+    (tok = "Int") or (tok = "Float") or (tok = "String") or (tok = "Bool") or
+    (tok = "Unit") or (tok = "List") or (tok = "Option") or
+    (tok = "否则") or (tok = "模块") or (tok = "结构体") or (tok = "枚举") or
+    (tok = "常量") or (tok = "否则") or (tok = "返回") or (tok = "断言")
+
+  func 关键字类型(tok: String) -> 类型 = (tok) => 关键字
+
+  (* ===== 扫描数字续 ===== *)
+  func 扫描数字续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String, 有小数点: Bool) -> List =
+    (src, pos, line, col, toks, 起列, 缓存, 有小数点) =>
+      (pos >= len(src)) ?
+        (有小数点 ?
+          扫描(src)(pos)(line)(col)(append(toks)(做Token(浮点, 缓存, line, 起列))) :
+          扫描(src)(pos)(line)(col)(append(toks)(做Token(整数, 缓存, line, 起列)))) :
+      (是数字码(ord(get(src)(pos))) ?
+        扫描数字续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))(有小数点) :
+        (not 有小数点 and get(src)(pos) = ".") ?
+          (pos + 1 < len(src) and 是数字码(ord(get(src)(pos + 1))) ?
+            扫描数字续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + ".")(真) :
+            扫描(src)(pos)(line)(col)(append(toks)(做Token(整数, 缓存, line, 起列)))) :
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(浮点 if 有小数点 else 整数, 缓存, line, 起列))))
+
+  (* ===== 扫描标识符续 ===== *)
+  func 扫描标识符续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
+    (src, pos, line, col, toks, 起列, 缓存) =>
+      (pos >= len(src)) ?
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(关键字 if 是关键字(缓存) else 标识符, 缓存, line, 起列))) :
+      (是标识符续(ord(get(src)(pos))) ?
+        扫描标识符续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(关键字 if 是关键字(缓存) else 标识符, 缓存, line, 起列))))
+
+  (* ===== 扫描字符串续 ===== *)
+  func 扫描字符串续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
+    (src, pos, line, col, toks, 起列, 缓存) =>
+      (pos >= len(src)) ?
+        append(toks)(做Token(字符串, 缓存, line, 起列)) :
+      (get(src)(pos) != "\"") ?
+        扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
+        append(toks)(做Token(字符串, 缓存, line, 起列))
+
+  (* ===== 主扫描函数（递归下降）===== *)
+  func 扫描(src: String, pos: Int, line: Int, col: Int, toks: List) -> List =
+    (src, pos, line, col, toks) =>
+      (pos >= len(src)) ?
+        append(toks)(做Token(结束, "", line, col)) :
+      (* 换行 *)
+      (是换行码(ord(get(src)(pos))) ?
+        扫描(src)(pos + 1)(line + 1)(1)(append(toks)(做Token(换行, "\n", line, col))) :
+      (* 空白跳过 *)
+      (是空白码(ord(get(src)(pos))) ?
+        扫描(src)(pos + 1)(line)(col + 1)(toks) :
+      (* 字符串 *)
+      (get(src)(pos) = "\"") ?
+        扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(col)("") :
+      (* 数字 *)
+      (是数字码(ord(get(src)(pos))) ?
+        扫描数字续(src)(pos)(line)(col)(toks)(col)("") 假 :
+      (* 标识符/关键字 *)
+      (是字母码(ord(get(src)(pos))) ?
+        扫描标识符续(src)(pos)(line)(col)(toks)(col)("") :
+      (* 多字符操作符检测（先试2字符） *)
+      (let (t, txt) = 检测多符(src, pos) in
+        (t = 不等于 or t = 大于等于 or t = 小于等于 or t = 胖箭头 or
+         t = 箭头 or t = 发送 or t = 左括号) ?
+          扫描(src)(pos + 2)(line)(col + 2)(append(toks)(做Token(t, txt, line, col))) :
+      (* 单字符 *)
+        扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(映射单符(get(src)(pos)), get(src)(pos), line, col))))))))
+
+  (* ===== 公共入口 ===== *)
+  func tokenize(src: String) -> List =
+    (src) => 扫描(src)(0)(1)(1)([])
+
+  (* ===== 自测 ===== *)
+  #：{
+    (* 测试：tokenize 返回 Token 列表 *)
+    let toks = 扫描("x + 1") in
+    [1]
+  }
+
+}

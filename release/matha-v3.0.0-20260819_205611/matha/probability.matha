@@ -1,0 +1,39 @@
+(* 资源库：概率基础
+   覆盖：古典概率、条件概率、贝叶斯定理、独立事件
+   ============================================================ *)
+
+module 概率基础 {
+
+  func 古典概率(有利: Int, 总数: Int) -> Float =
+    (有利, 总数) => 有利 / 总数
+
+  func 条件概率(P_AB: Float, P_A: Float) -> Float =
+    (P_AB, P_A) =>
+    (P_A = 0) ? 0 : P_AB / P_A
+
+  func 全概率公式(P_B|A1: Float, P_B|A2: Float, P_A1: Float, P_A2: Float) -> Float =
+    (P_B|A1, P_B|A2, P_A1, P_A2) =>
+    P_B|A1 * P_A1 + P_B|A2 * P_A2
+
+  func 贝叶斯公式(P_B|A: Float, P_A|B: Float, P_B: Float, P_A: Float) -> Float =
+    (P_B|A, P_A|B, P_B, P_A) =>
+    (P_B = 0 or P_A = 0) ? 0 :
+    P_A|B * P_B / P_A
+
+  func 独立事件概率(P_A: Float, P_B: Float) -> Float =
+    (P_A, P_B) => P_A * P_B
+
+  func 互斥事件概率(P_A: Float, P_B: Float) -> Float =
+    (P_A, P_B) => P_A + P_B
+
+  func 对立事件概率(P_A: Float) -> Float =
+    (P_A) => 1 - P_A
+
+  func 期望值(值列表: List, 概率列表: List) -> Float =
+    (值列表, 概率列表) =>
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        (i >= len(值列表)) ? acc :
+        sum(i+1, acc + 值列表[i] * 概率列表[i])
+    sum(0, 0)
+}

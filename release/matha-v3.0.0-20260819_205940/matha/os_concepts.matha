@@ -1,0 +1,80 @@
+(* 资源库：操作系统概念
+   覆盖：进程管理、内存管理、文件系统、调度算法
+   ============================================================ *)
+
+module 操作系统 {
+
+  (* ===== 进程管理 ===== *)
+  func 进程状态转换(当前: String, 事件: String) -> String =
+    (当前, 事件) =>
+    case (当前, 事件) of
+      ("新建", " admission") -> "就绪"
+      ("就绪", "dispatch") -> "运行"
+      ("运行", "interrupt") -> "就绪"
+      ("运行", "block") -> "阻塞"
+      ("阻塞", "wake") -> "就绪"
+      ("运行", "exit") -> "终止"
+      _ -> 当前
+
+  func 进程数量上限(内存: Int, 每进程: Int) -> Int =
+    (内存, 每进程) =>
+    if 每进程 = 0: 0 else 内存 / 每进程
+
+  (* ===== 内存管理 ===== *)
+  func 首次适配分配(可用块: List, 大小: Int) -> Int =
+    (可用块, 大小) =>
+    let rec find(i: Int) -> Int =
+      (i) =>
+        if i >= len(可用块): -1
+        elif 可用块[i] >= 大小: i
+        else: find(i + 1)
+    find(0)
+
+  func 最佳适配分配(可用块: List, 大小: Int) -> Int =
+    (可用块, 大小) =>
+    let rec find(i: Int, best: Int, best_size: Int) -> Int =
+      (i, best, best_size) =>
+        if i >= len(可用块): best
+        elif 可用块[i] >= 大小 and (best = -1 or 可用块[i] < best_size):
+          find(i + 1, i, 可用块[i])
+        else: find(i + 1, best, best_size)
+    find(0, -1, 999999)
+
+  func 内存碎片率(总空闲: Int, 最大连续: Int) -> Float =
+    (总空闲, 最大连续) =>
+    if 总空闲 = 0: 0 else 1.0 - 最大连续 / 总空闲
+
+  (* ===== 文件系统 ===== *)
+  func 目录深度(path: String) -> Int =
+    (path) => len(path.split("/")) - 1
+
+  func 文件名(path: String) -> String =
+    (path) => path.split("/")[len(path.split("/")) - 1]
+
+  func 文件路径合法(path: String) -> Bool =
+    (path) => len(path) > 0 and path[0] != ""
+
+  (* ===== 调度算法 ===== *)
+  func 先来先服务等待时间(到达时间: List, burst时间: List) -> List =
+    (到达时间, burst时间) =>
+    let n = len(到达时间) in
+    let 完成时间 = [] in
+    let 当前时间 = 0 in
+    let rec schedule(i: Int) -> List =
+      (i) =>
+        if i >= n: 完成时间
+        else:
+          if 当前时间 < 到达时间[i]: 当前时间 = 到达时间[i]
+          当前时间 = 当前时间 + burst时间[i]
+          完成时间 = 完成时间 + [当前时间]
+          schedule(i + 1)
+    schedule(0)
+
+  func 最短作业优先burst(任务列表: List) -> List =
+    (任务列表) => 任务列表  (* 简化：返回原列表 *)
+
+  (* ===== 死锁检测 ===== *)
+  func 死锁检测(进程数: Int, 资源数: Int, 分配矩阵: List) -> Bool =
+    (进程数, 资源数, 分配矩阵) =>
+    false  (* 简化：假设无死锁 *)
+}

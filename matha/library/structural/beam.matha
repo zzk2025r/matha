@@ -1,0 +1,6 @@
+(* 资源库：结构力学 — 梁计算 *)
+(* 保护隔离：弯矩、挠度 *)
+
+func 简支梁中点弯矩(F: Float, L: Float) -> Float = (F, L) => F * L / 4
+func 简支梁中点挠度(F: Float, L: Float, E: Float, I: Float) -> Float = (F, L, E, I) =>
+  F * L ^ 3 / (48 * E * I)

@@ -1,0 +1,96 @@
+(* OS Kernel Resource: Boot Sector Design Formulas
+ * 引导扇区设计公式 — MBR 兼容，512 字节
+ * 用途：辅助计算引导扇区结构，配合 kernel.py 生成器使用
+ *)
+
+(* ── MBR 布局 ─────────────────────────────────────────────── *)
+(*
+ * 偏移   大小      内容
+ * 0x000  440B     引导代码（实模式）
+ * 0x1B8  46B      OEM 参数块（可选）
+ * 0x1DE  256B     分区表（4 条 × 16B）
+ * 0x1FE  2B       引导签名（0xAA55）
+ *
+ * 总大小 = 512 字节（一个扇区）
+ *)
+
+func mbr_total_size() -> Int = 512
+func mbr_code_max_size() -> Int = 440        (* 引导代码最大 440 字节 *)
+func mbr_sig_offset() -> Int = 510          (* 引导签名起始偏移 *)
+func mbr_sig_value() -> Int = 0xAA55        (* 引导签名值 *)
+
+(* ── GDT 描述符 ──────────────────────────────────────────── *)
+(*
+ * GDT 每项 8 字节：
+ *   [0:1]   限长低 16 位
+ *   [2:3]   基址低 16 位
+ *   [4]     基址中 8 位
+ *   [5]     访问字节（存在/类型/DPL/对齐）
+ *   [6]     限长高 4 位 + 页粒度 + 32 位 + 限长高 4 位
+ *   [7]     基址高 8 位
+ *)
+
+func gdt_entry_size() -> Int = 8
+func gdt_null_entry() -> String = "dq 0x0000000000000000"
+
+(* 代码段描述符：基址 0，限长 4GB，执行/读取，DPL=0 *)
+func gdt_code_desc() -> String = """
+    dw 0xFFFF        ; 限长低 16 位
+    dw 0x0000        ; 基址低 16 位
+    db 0x00          ; 基址中 8 位
+    db 10011010b     ; 存在/代码段/允许访问/DPL=0/非对齐
+    db 11110000b     ; 限长高 4 位/页粒度/32 位
+    db 0x00          ; 基址高 8 位
+"""
+
+(* 数据段描述符：基址 0，限长 4GB，读取/写入，DPL=0 *)
+func gdt_data_desc() -> String = """
+    dw 0xFFFF
+    dw 0x0000
+    db 0x00
+    db 10010010b     ; 存在/数据段/允许访问/DPL=0/增长方向↑
+    db 11110000b
+    db 0x00
+"""
+
+(* ── 保护模式切换步骤 ───────────────────────────────────── *)
+(*
+ * 步骤：
+ * 1. cli                  ; 关闭中断
+ * 2. xor ax, ax; mov ds,ax ; 清零段寄存器
+ * 3. lgdt [gdt_descriptor] ; 加载 GDT
+ * 4. 开启 A20 地址线       ; port 0x92
+ * 5. mov cr0, eax; or eax,1 ; 设置 PE 位
+ * 6. jmp 0x08:.pm_start   ; 远跳转（刷新指令流水线）
+ * 7. 设置 32 位段寄存器     ; mov ds, 0x10
+ * 8. sti                  ; 开启中断
+ *)
+
+func prot_mode_switch_steps() -> Int = 8
+func a20_port() -> Int = 0x92
+func code_seg_sel() -> Int = 0x08    ; 代码段选择子
+func data_seg_sel() -> Int = 0x10    ; 数据段选择子
+
+(* ── IDT 描述符 ──────────────────────────────────────────── *)
+(*
+ * IDT 每项 8 字节（32 位模式）：
+ *   [0:1]   处理程序偏移低 16 位
+ *   [2:3]   段选择子
+ *   [4]     保留/类型/DPL
+ *   [5]     保留
+ *   [6:7]   处理程序偏移高 16 位
+ *)
+
+func idt_entry_size() -> Int = 8
+func idt_total_entries() -> Int = 256
+func idt_total_size() -> Int = idt_entry_size() * idt_total_entries()  ; 2048 字节
+
+(* 中断门：DPL=0，用于内核异常 *)
+func idt_interrupt_gate() -> Int = 0x8E
+
+(* 系统调用门：DPL=3，用于用户态 syscall int 0x80 *)
+func idt_syscall_gate() -> Int = 0xEF
+
+(* ── 引导扇区签名检查 ───────────────────────────────────── *)
+func is_valid_boot_signature(sig: Int) -> Bool = (sig) => sig == 0xAA55
+func boot_sector_checksum() -> Int = 0  ; MBR 不要求校验和

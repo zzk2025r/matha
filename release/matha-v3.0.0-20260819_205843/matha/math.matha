@@ -1,0 +1,50 @@
+(* 资源库：金融数学
+   覆盖：利息计算、年金、债券估值、投资决策
+   ============================================================ *)
+
+module 金融数学 {
+
+  func 单利利息(P: Float, r: Float, t: Float) -> Float =
+    (P, r, t) => P * r * t
+
+  func 单利本息(P: Float, r: Float, t: Float) -> Float =
+    (P, r, t) => P * (1 + r * t)
+
+  func 复利本息(P: Float, r: Float, t: Float, n: Int) -> Float =
+    (P, r, t, n) => P * (1 + r/n) ^ (n * t)
+
+  func 连续复利本息(P: Float, r: Float, t: Float) -> Float =
+    (P, r, t) => P * exp(r * t)
+
+  func 现值(FV: Float, r: Float, t: Float) -> Float =
+    (FV, r, t) => FV / (1 + r) ^ t
+
+  func 年金现值(PMT: Float, r: Float, n: Int) -> Float =
+    (PMT, r, n) =>
+    (r = 0) ? PMT * n :
+    PMT * (1 - (1 + r) ^ (-n)) / r
+
+  func 年金终值(PMT: Float, r: Float, n: Int) -> Float =
+    (PMT, r, n) =>
+    (r = 0) ? PMT * n :
+    PMT * ((1 + r) ^ n - 1) / r
+
+  func 贷款月供(P: Float, r: Float, n: Int) -> Float =
+    (P, r, n) =>
+    P * r * (1 + r) ^ n / ((1 + r) ^ n - 1)
+
+  func 净现值(cashflows: List, r: Float) -> Float =
+    (cashflows, r) =>
+    let rec npv(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        (i >= len(cashflows)) ? acc :
+        npv(i + 1, acc + cashflows[i] / (1 + r) ^ i)
+    npv(0, 0)
+
+  func 内部收益率近似(cashflows: List) -> Float =
+    (cashflows) => 0.1  (* 简化：返回默认折现率 *)
+
+  func 债券价格(C: Float, r: Float, n: Int, F: Float) -> Float =
+    (C, r, n, F) =>
+    C * (1 - (1 + r) ^ (-n)) / r + F / (1 + r) ^ n
+}

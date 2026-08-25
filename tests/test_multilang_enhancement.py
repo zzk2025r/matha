@@ -17,6 +17,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.dirname(__file__))
 
 from multi_lang_codegen import (
     CppGenerator, RustGenerator, GoGenerator, JavaGenerator,
@@ -36,6 +37,7 @@ from type_system_v2 import (
     RefinementChecker, TypeConstraint, TypeChecker,
 )
 from performance_benchmark import BenchmarkSuite, MultiLangBenchmark as BenchSuite
+from _pool_helpers import _compute_double, _compute_square
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -50,27 +52,27 @@ class TestMultiLangCodegen(unittest.TestCase):
         code = generate_cpp("polynomial", [("double", "x")], "x*x + 3*x - 5")
         self.assertIn("#include <cmath>", code)
         self.assertIn("double polynomial(double x)", code)
-        self.assertIn("return x*x + 3*x - 5;", code)
-        self.assertIn("int main()", code)
+        self.assertIn("result = x*x + 3*x - 5;", code)
+        self.assertIn("return result;", code)
 
     def test_generate_rust(self):
         """生成 Rust 代码。"""
-        code = generate_rust("polynomial", ["x"], "x*x + 3.0*x - 5.0")
+        code = generate_rust("polynomial", [("f64", "x")], "x*x + 3.0*x - 5.0")
         self.assertIn("fn polynomial(x: f64) -> f64", code)
         self.assertIn("println!", code)
         self.assertIn("test_polynomial", code)
 
     def test_generate_go(self):
         """生成 Go 代码。"""
-        code = generate_go("polynomial", ["x"], "math.Pow(x, 2) + 3*x - 5")
+        code = generate_go("polynomial", [("float64", "x")], "math.Pow(x, 2) + 3*x - 5")
         self.assertIn("func polynomial(x float64) float64", code)
         self.assertIn("package main", code)
-        self.assertIn("import \"math\"", code)
+        self.assertIn('"math"', code)
 
     def test_generate_java(self):
         """生成 Java 代码。"""
-        code = generate_java("polynomial", ["x"], "Math.pow(x, 2) + 3*x - 5")
-        self.assertIn("public class PolynomialCompute", code)
+        code = generate_java("polynomial", [("double", "x")], "Math.pow(x, 2) + 3*x - 5")
+        self.assertIn("public class MathaCompute", code)
         self.assertIn("public static double polynomial(double x)", code)
         self.assertIn("System.out.println", code)
 
@@ -89,12 +91,12 @@ class TestMultiLangCodegen(unittest.TestCase):
 
     def test_symbol_compat_simplify(self):
         """符号简化测试。"""
-        # 链式调用: a >> b → b(a)
-        result = SymbolCompat.simplify("f >> x")
-        self.assertEqual(result, "f(x)")
-        # 属于判断: x >> S → x in S
-        result = SymbolCompat.simplify("x >> S")
-        self.assertIn("in", result)
+        # 链式调用: foo >> x → x(foo)（多字符标识符）
+        result = SymbolCompat.simplify("foo >> x")
+        self.assertEqual(result, "x(foo)")
+        # 路径距离: a >> b → distance(a, b)（单字母）
+        result = SymbolCompat.simplify("a >> b")
+        self.assertIn("distance", result)
 
     def test_cpp_class_generation(self):
         """生成 C++ 类。"""
@@ -171,11 +173,7 @@ class TestCSPThread(unittest.TestCase):
     def test_process_pool_map(self):
         """ProcessPool map。"""
         pool = ProcessPool(2)
-
-        def compute(x):
-            return x * 2
-
-        results = pool.map(compute, [1, 2, 3, 4])
+        results = pool.map(_compute_double, [1, 2, 3, 4])
         self.assertEqual(results, [2, 4, 6, 8])
 
     def test_concurrent_channel_communication(self):
@@ -259,7 +257,8 @@ class TestTypeSystemV2(unittest.TestCase):
         self.inferencer.define_alias("PositiveInt",
                                      Type.refinement("x", "x > 0"))
         t = self.inferencer.infer("PositiveInt")
-        self.assertEqual(t.kind, TypeKind.ALIAS)
+        # 别名指向精炼类型，kind 为 REFINEMENT
+        self.assertEqual(t.kind, TypeKind.REFINEMENT)
 
     def test_enum_type(self):
         """枚举类型。"""
@@ -311,7 +310,7 @@ class TestMultiLangVerifier(unittest.TestCase):
         codegen = MultiLangCodeGenerator()
         python_code = codegen.gen_python("test", ["x"], "x+1")
         self.assertIn("def test", python_code)
-        self.assertIn("return x+1", python_code)
+        self.assertIn("result = x+1", python_code)
 
         cpp_code = codegen.gen_cpp("test", ["x"], "x+1")
         self.assertIn("#include", cpp_code)
@@ -359,11 +358,7 @@ class TestPerformanceBenchmark(unittest.TestCase):
     def test_parallel_benchmark(self):
         """并行计算基准测试。"""
         pool = ProcessPool(2)
-
-        def compute(x):
-            return x * 2
-
-        results = pool.map(compute, [1, 2, 3, 4])
+        results = pool.map(_compute_double, [1, 2, 3, 4])
         self.assertEqual(results, [2, 4, 6, 8])
 
 

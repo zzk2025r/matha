@@ -1,0 +1,5 @@
+(* 资源库：结构力学 — 柱计算 *)
+(* 保护隔离：欧拉临界力 *)
+
+func 欧拉临界力(E: Float, I: Float, L: Float, mu: Float) -> Float = (E, I, L, mu) =>
+  3.14159 ^ 2 * E * I / (mu * L) ^ 2

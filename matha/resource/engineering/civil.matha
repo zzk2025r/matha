@@ -1,0 +1,32 @@
+(* 资源库：土木结构
+   覆盖：梁计算、柱稳定、混凝土
+   ============================================================ *)
+
+module 土木结构 {
+
+  func 简支梁最大弯矩(q: Float, L: Float) -> Float =
+    (q, L) => q * L * L / 8
+  func 简支梁最大剪力(q: Float, L: Float) -> Float =
+    (q, L) => q * L / 2
+  func 简支梁最大挠度(q: Float, L: Float, E: Float, I: Float) -> Float =
+    (q, L, E, I) => 5 * q * L * L * L * L / (384 * E * I)
+
+  func 悬臂梁最大弯矩(q: Float, L: Float) -> Float =
+    (q, L) => q * L * L / 2
+  func 悬臂梁最大挠度(q: Float, L: Float, E: Float, I: Float) -> Float =
+    (q, L, E, I) => q * L * L * L * L / (8 * E * I)
+
+  func 混凝土抗压强度(标号: Int) -> Float =
+    (标号) => 标号 * 0.01
+
+  func 钢筋屈服强度(牌号: String) -> Float =
+    (牌号) =>
+    case 牌号 of
+      "HRB335" -> 335
+      "HRB400" -> 400
+      "HRB500" -> 500
+      _ -> 335
+
+  func 地基承载力(σ: Float, A: Float) -> Float =
+    (σ, A) => σ * A
+}

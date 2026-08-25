@@ -1,0 +1,117 @@
+(* 资源库：教育学习与新闻资讯数学
+   覆盖：学习路径、知识图谱、推荐系统、阅读进度
+   ============================================================ *)
+
+module 教育新闻 {
+
+  (* ===== 学习路径 ===== *)
+  func 学习路径长度(课程数: Int, 每课时长: Float) -> Float =
+    (课程数, 每课时长) => 课程数 * 每课时长
+
+  func 学习进度(已完成: Int, 总数: Int) -> Float =
+    (已完成, 总数) =>
+    (总数 = 0) ? 0 : 已完成 / 总数
+
+  func 知识掌握度(答题正确率: Float, 复习次数: Int) -> Float =
+    (答题正确率, 复习次数) =>
+    min(1.0, 答题正确率 * (1 + 复习次数 * 0.1))
+
+  func 学习曲线(时间: Float, 掌握率: Float, 学习速率: Float) -> Float =
+    (* S型曲线: 掌握率 / (1 + exp(-学习速率 * (时间 - 中点))) *)
+    (时间, 掌握率, 学习速率) =>
+    掌握率 / (1 + exp(-学习速率 * 时间))
+
+  func 遗忘曲线(时间: Float, 初始记忆: Float) -> Float =
+    (* Ebbinghaus遗忘曲线 *)
+    (时间, 初始记忆) =>
+    初始记忆 * exp(-时间 / 5.0)
+
+  (* ===== 考试与评分 ===== *)
+  func 加权平均分(分数列表: List, 权重列表: List) -> Float =
+    (分数列表, 权重列表) =>
+    let n = min(len(分数列表), len(权重列表)) in
+    let rec calc(i: Int, num: Float, den: Float) -> Float =
+      (i, num, den) =>
+        if i >= n: if den = 0 then 0 else num / den
+        else: calc(i+1, num + 分数列表[i]*权重列表[i], den + 权重列表[i])
+    calc(0, 0, 0)
+
+  func 百分等级(分数: Float, 平均分: Float, 标准差: Float) -> Int =
+    (* 简化：基于Z分数 *)
+    (分数, 平均分, 标准差) =>
+    if 标准差 = 0 then 50
+    else min(99, max(1, int(50 + 34 * (分数 - 平均分) / 标准差)))
+
+  func GPA计算(等级列表: List, 学分列表: List) -> Float =
+    (等级列表, 学分列表) =>
+    let n = min(len(等级列表), len(学分列表)) in
+    let rec calc(i: Int, num: Float, den: Float) -> Float =
+      (i, num, den) =>
+        if i >= n: if den = 0 then 0 else num / den
+        else: calc(i+1, num + 等级列表[i]*学分列表[i], den + 学分列表[i])
+    calc(0, 0, 0)
+
+  (* ===== 推荐系统 ===== *)
+  func 协同过滤推荐得分(userVector: List, itemVector: List) -> Float =
+    (* 余弦相似度 *)
+    (userVector, itemVector) =>
+    let n = min(len(userVector), len(itemVector)) in
+    let rec dot(i: Int) -> Float =
+      (i) => if i >= n: 0 else userVector[i]*itemVector[i] + dot(i+1)
+    let rec mag(i: Int) -> Float =
+      (i) => if i >= n: 0 else userVector[i]^2 + mag(i+1)
+    let d = dot(0) in
+    let m1 = 开方(mag(0)) in
+    let m2 = 开方(itemVector[0]^2 + (if n > 1 then itemVector[1]^2 else 0)) in
+    (m1 = 0 or m2 = 0) ? 0 : d / (m1 * m2)
+
+  func 内容相关性(text1: String, text2: String) -> Float =
+    (* 简化：基于字符重叠 *)
+    (text1, text2) =>
+    let common = min(len(text1), len(text2)) in
+    common / max(len(text1), len(text2))
+
+  func 热度排序得分(点击数: Int, 评论数: Int, 分享数: Int, 时间衰减: Float) -> Float =
+    (点击数, 评论数, 分享数, 时间衰减) =>
+    (点击数 * 1 + 评论数 * 3 + 分享数 * 5) * time衰减
+
+  (* ===== 阅读与新闻 ===== *)
+  func 阅读进度(已读字数: Int, 总字数: Int) -> Float =
+    (已读字数, 总字数) =>
+    (总字数 = 0) ? 0 : 已读字数 / 总字数
+
+  func 预计阅读时间(字数: Int, 阅读速度: Int) -> Float =
+    (字数, 阅读速度) =>
+    (阅读速度 = 0) ? 0 : 字数 / 阅读速度 / 60  (* 分钟 *)
+
+  func 新闻分类置信度(featureVector: List, classWeights: List) -> Float =
+    (* 简化：加权求和 *)
+    (featureVector, classWeights) =>
+    let n = min(len(featureVector), len(classWeights)) in
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) => if i >= n: acc else sum(i+1, acc + featureVector[i]*classWeights[i])
+    sum(0, 0)
+
+  func 关键词提取(text: String, 词频列表: List) -> List =
+    (* 简化：返回前5个 *)
+    (text, 词频列表) =>
+    let n = min(5, len(词频列表)) in
+    let rec top(i: Int, result: List) -> List =
+      (i, result) => if i >= n: result else top(i+1, result + [词频列表[i]])
+    top(0, [])
+
+  (* ===== 教育系统 ===== *)
+  func 班级平均成绩(成绩列表: List) -> Float =
+    (成绩列表) =>
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) => if i >= len(成绩列表): acc else sum(i+1, acc + 成绩列表[i])
+    sum(0, 0) / len(成绩列表)
+
+  func 成绩分布统计(成绩列表: List) -> List =
+    (* 简化：返回 [优秀, 良好, 中等, 及格, 不及格] 计数 *)
+    (成绩列表) => [0, 0, 0, 0, 0]
+
+  func 出勤率(出勤天数: Int, 总天数: Int) -> Float =
+    (出勤天数, 总天数) =>
+    (总天数 = 0) ? 0 : 出勤天数 / 总天数
+}

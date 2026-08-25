@@ -1,0 +1,29 @@
+(* 学科知识：数学核心 — 三角学
+   覆盖：三角函数、反三角函数、三角恒等式
+   角度默认弧度制，提供 deg2rad / rad2deg 转换。
+   ============================================================ *)
+
+module 三角学 {
+
+  func pi() -> Float = () => 3.141592653589793
+
+  func 度转弧度(deg: Float) -> Float = (deg) => deg * pi() / 180
+  func 弧度转度(rad: Float) -> Float = (rad) => rad * 180 / pi()
+
+  func 正弦(x: Float) -> Float = (x) => sin(x)
+  func 余弦(x: Float) -> Float = (x) => cos(x)
+  func 正切(x: Float) -> Float = (x) => tan(x)
+
+  func 反正弦(x: Float) -> Float = (x) => asin(x)
+  func 反余弦(x: Float) -> Float = (x) => acos(x)
+  func 反正切(x: Float) -> Float = (x) => atan(x)
+
+  func 勾股恒等(sin_val: Float) -> Float = (sin_val) =>
+    开方(1 - sin_val * sin_val)
+
+  func 余弦定理(a: Float, b: Float, C: Float) -> Float =
+    (a, b, C) => 开方(a*a + b*b - 2*a*b*cos(C))
+
+  func 正弦定理(a: Float, A: Float, B: Float) -> Float =
+    (a, A, B) => a * sin(B) / sin(A)
+}

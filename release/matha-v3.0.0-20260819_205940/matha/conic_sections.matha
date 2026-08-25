@@ -1,0 +1,43 @@
+(* 资源库：几何进阶
+   覆盖：圆锥曲线、多边形面积、坐标几何、向量运算
+   ============================================================ *)
+
+module 几何进阶 {
+
+  (* ===== 椭圆 ===== *)
+  func 椭圆面积(a: Float, b: Float) -> Float =
+    (a, b) => 3.14159 * a * b
+  func 椭圆周长近似(a: Float, b: Float) -> Float =
+    (a, b) => 2 * 3.14159 * 开方((a*a + b*b) / 2)
+
+  (* ===== 抛物线 ===== *)
+  func 抛物线焦点(p: Float) -> Float = (p) => p / 4
+  func 抛物线通径(p: Float) -> Float = (p) => 2 * p
+
+  (* ===== 双曲线 ===== *)
+  func 双曲线渐近线斜率(a: Float, b: Float) -> Float =
+    (a, b) => b / a
+
+  (* ===== 正多边形 ===== *)
+  func 正n边形面积(n: Int, r: Float) -> Float =
+    (n, r) => 0.5 * n * r * r * sin(2 * 3.14159 / n)
+  func 正n边形边长(n: Int, r: Float) -> Float =
+    (n, r) => 2 * r * sin(3.14159 / n)
+  func 正n边形内角(n: Int) -> Float =
+    (n) => (n - 2) * 180 / n
+
+  (* ===== 向量运算 ===== *)
+  func 向量长度(vx: Float, vy: Float) -> Float =
+    (vx, vy) => 开方(vx * vx + vy * vy)
+  func 向量点积(vx1: Float, vy1: Float, vx2: Float, vy2: Float) -> Float =
+    (vx1, vy1, vx2, vy2) => vx1 * vx2 + vy1 * vy2
+  func 向量夹角(vx1: Float, vy1: Float, vx2: Float, vy2: Float) -> Float =
+    (vx1, vy1, vx2, vy2) =>
+    acos((vx1*vx2 + vy1*vy2) / (向量长度(vx1, vy1) * 向量长度(vx2, vy2)))
+
+  (* ===== 坐标几何 ===== *)
+  func 两点距离(x1: Float, y1: Float, x2: Float, y2: Float) -> Float =
+    (x1, y1, x2, y2) => 开方((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
+  func 中点(x1: Float, y1: Float, x2: Float, y2: Float) -> (Float, Float) =
+    (x1, y1, x2, y2) => ((x1+x2)/2, (y1+y2)/2)
+}

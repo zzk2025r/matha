@@ -1,0 +1,138 @@
+# HAL CI/CD 钉钉通知配置 (YAML)
+
+> 可复用的通知配置，支持多环境部署  
+> 版本：v1.1  
+> 更新时间：2025-07-26
+
+---
+
+## 一、配置说明
+
+本配置文件定义 Matha CI/CD 流水线的钉钉通知模板，可在多个 workflow 中复用。
+
+---
+
+## 二、环境变量
+
+```yaml
+env:
+  DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}      # 必填
+  DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}        # 可选：加签密钥
+  MATHA_ENV: ${{ matrix.env }}                          # dev/staging/prod
+```
+
+---
+
+## 三、通知模板（复用）
+
+### 3.1 成功通知（引用共享脚本）
+
+```yaml
+- name: 钉钉通知 - 成功
+  if: success()
+  run: bash .github/configs/dingtalk_templates.sh success
+  env:
+    DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+    GITHUB_REF_NAME: ${{ github.ref_name }}
+    GITHUB_SHA: ${{ github.sha }}
+    GITHUB_RUN_ID: ${{ github.run_id }}
+    GITHUB_SERVER_URL: ${{ github.server_url }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    MATHA_ENV: ${{ matrix.env }}
+```
+
+### 3.2 失败通知（引用共享脚本）
+
+```yaml
+- name: 钉钉通知 - 失败
+  if: failure()
+  run: bash .github/configs/dingtalk_templates.sh failure
+  env:
+    DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+    GITHUB_REF_NAME: ${{ github.ref_name }}
+    GITHUB_SHA: ${{ github.sha }}
+    GITHUB_RUN_ID: ${{ github.run_id }}
+    GITHUB_SERVER_URL: ${{ github.server_url }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    MATHA_ENV: ${{ matrix.env }}
+```
+
+### 3.3 性能告警通知
+
+```yaml
+- name: 钉钉通知 - 性能告警
+  if: always() && steps.benchmark.outputs.single_rate < 50000
+  run: bash .github/configs/dingtalk_templates.sh performance_alert
+  env:
+    DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+    CURRENT_THROUGHPUT: ${{ steps.benchmark.outputs.single_rate }}
+    BASELINE_THROUGHPUT: "100000"
+    MATHA_ENV: production
+```
+
+---
+
+## 四、多环境矩阵示例
+
+```yaml
+strategy:
+  matrix:
+    env: [dev, staging, prod]
+    os: [ubuntu-latest]
+
+env:
+  MATHA_ENV: ${{ matrix.env }}
+  DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK_${{ matrix.env }} }}
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: echo "Testing ${{ matrix.env }}"
+      - name: 钉钉通知
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            bash .github/configs/dingtalk_templates.sh success
+          else
+            bash .github/configs/dingtalk_templates.sh failure
+          fi
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK_${{ matrix.env }} }}
+          MATHA_ENV: ${{ matrix.env }}
+```
+
+---
+
+## 五、安全配置
+
+### 5.1 加签验证
+
+在钉钉机器人设置中开启"加签"，获取 secret：
+
+```bash
+# GitHub Actions 中自动加签
+# dingtalk_templates.sh 会自动检测 DINGTALK_SECRET 并签名
+```
+
+### 5.2 Secrets 配置
+
+```
+GitHub Repository → Settings → Secrets → Actions
+├── DINGTALK_WEBHOOK       # 主 Webhook（必填）
+├── DINGTALK_WEBHOOK_dev   # 开发环境 Webhook（可选）
+├── DINGTALK_WEBHOOK_staging  # 预发布 Webhook（可选）
+├── DINGTALK_WEBHOOK_prod  # 生产环境 Webhook（可选）
+└── DINGTALK_SECRET        # 加签密钥（可选）
+```
+
+---
+
+## 六、故障排查
+
+| 问题 | 原因 | 解决方案 |
+|---|---|---|
+| 通知未发送 | Webhook 错误 | 检查 Secrets 配置 |
+| 签名验证失败 | Secret 不匹配 | 重新生成加签 |
+| 消息格式错误 | JSON 格式问题 | 检查模板语法 |
+| 多环境混乱 | 环境变量未设置 | 检查 matrix 配置 |

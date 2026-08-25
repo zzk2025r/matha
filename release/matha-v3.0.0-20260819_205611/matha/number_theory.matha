@@ -1,0 +1,35 @@
+(* 学科知识：数学核心 — 数论
+   覆盖：素数判定、分解、gcd/lcm、模幂
+   ============================================================ *)
+
+module 数论 {
+
+  func 阶乘(n: Int) -> Int = (n) =>
+    (n <= 1) ? 1 : n * 阶乘(n - 1)
+
+  func 是素数(n: Int) -> Bool = (n) =>
+    (n < 2) ? 假 :
+    (n = 2) ? 真 :
+    (n % 2 = 0) ? 假 :
+    素数检查(n, 3)
+
+  func 素数检查(n: Int, d: Int) -> Bool = (n, d) =>
+    (d * d > n) ? 真 :
+    (n % d = 0) ? 假 :
+    素数检查(n, d + 2)
+
+  func gcd(a: Int, b: Int) -> Int = (a, b) =>
+    (b = 0) ? a : gcd(b, a % b)
+
+  func lcm(a: Int, b: Int) -> Int = (a, b) =>
+    (a * b) / gcd(a, b)
+
+  func 模幂(base: Int, exp: Int, mod_val: Int) -> Int =
+    (base, exp, mod_val) =>
+    let rec power(b: Int, e: Int, m: Int, result: Int) -> Int =
+      (b, e, m, result) =>
+        (e = 0) ? result :
+        (e % 2 = 0) ? power((b*b) % m, e/2, m, result) :
+        power(b, e-1, m, (result*b) % m)
+    power(base % mod_val, exp, mod_val, 1)
+}

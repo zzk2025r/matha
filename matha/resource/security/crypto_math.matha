@@ -1,0 +1,142 @@
+(* 资源库：安全与密码学数学
+   覆盖：哈希、加密、认证、风险评估、安全协议
+   ============================================================ *)
+
+module 安全密码 {
+
+  (* ===== 哈希函数 ===== *)
+  func 哈希长度(算法: String) -> Int =
+    (算法) =>
+    case 算法 of
+      "MD5" -> 128
+      "SHA1" -> 160
+      "SHA256" -> 256
+      "SHA512" -> 512
+      _ -> 256
+
+  func 哈希熵(哈希长度: Int) -> Float =
+    (哈希长度) => 浮点(哈希长度) * log(2)
+
+  func 碰撞攻击复杂度(哈希长度: Int) -> Float =
+    (* 生日攻击: 2^(n/2) *)
+    (哈希长度) => pow(2.0, 浮点(哈希长度) / 2.0)
+
+  func 暴力破解复杂度(密钥长度: Int) -> Float =
+    (* 2^key_length *)
+    (密钥长度) => pow(2.0, 浮点(密钥长度))
+
+  (* ===== 对称加密 ===== *)
+  func AES密钥长度() -> Int =
+    () => 128
+
+  func AES轮数(密钥长度: Int) -> Int =
+    (密钥长度) =>
+    case 密钥长度 of
+      128 -> 10
+      192 -> 12
+      256 -> 14
+      _ -> 10
+
+  func 对称加密安全强度(密钥长度: Int) -> Int =
+    (密钥长度) => 密钥长度 / 2  (* 有效安全强度 *)
+
+  (* ===== 非对称加密 ===== *)
+  func RSA密钥生成(素数p: Int, 素数q: Int) -> (Int, Int) =
+    (* 返回n和φ(n) *)
+    (p, q) => (p * q, (p - 1) * (q - 1))
+
+  func RSA加密(明文: Int, e: Int, n: Int) -> Int =
+    (明文, e, n) =>
+    if 明文 >= n then -1  (* 错误 *)
+    else 模幂(明文, e, n)
+
+  func RSA解密(密文: Int, d: Int, n: Int) -> Int =
+    (密文, d, n) => 模幂(密文, d, n)
+
+  func 模幂(base: Int, exp: Int, mod_val: Int) -> Int =
+    (base, exp, mod_val) =>
+    let rec power(b: Int, e: Int, m: Int, result: Int) -> Int =
+      (b, e, m, result) =>
+        if e = 0: result
+        elif e % 2 = 0: power((b*b) % m, e/2, m, result)
+        else: power(b, e-1, m, (result*b) % m)
+    power(base % mod_val, exp, mod_val, 1)
+
+  func RSA安全性(密钥长度: Int) -> String =
+    (密钥长度) =>
+    case 密钥长度 of
+      1024 -> "不安全"
+      2048 -> "安全"
+      3072 -> "强安全"
+      _ -> "未知"
+
+  (* ===== 认证与授权 ===== *)
+  func HMAC哈希(密钥: String, 消息: String) -> String =
+    (* 简化：返回消息 *)
+    (密钥, 消息) => 消息
+
+  func OAuth令牌有效期(创建时间: Int, 过期时间: Int, 当前时间: Int) -> Bool =
+    (创建时间, 过期时间, 当前时间) =>
+    当前时间 >= 创建时间 and 当前时间 <= 过期时间
+
+  func 多因素认证强度(因素数: Int) -> Int =
+    (* 每增加一个因素，安全性指数增长 *)
+    (因素数) => 2 ^ 因素数
+
+  (* ===== 安全风险评估 ===== *)
+  func 风险值(威胁概率: Float, 影响程度: Float, 脆弱性: Float) -> Float =
+    (威胁概率, 影响程度, 脆弱性) =>
+    威胁概率 * 影响程度 * 脆弱性
+
+  func 风险矩阵(概率: Int, 影响: Int) -> String =
+    (概率, 影响) =>
+    case (概率, 影响) of
+      (1, 1) -> "低"
+      (1, 2) or (2, 1) -> "中"
+      (2, 2) or (2, 3) or (3, 2) -> "高"
+      _ -> "严重"
+
+  func 资产估值(重置成本: Float, 贬值率: Float, 年限: Int) -> Float =
+    (重置成本, 贬值率, 年限) =>
+    重置成本 * (1 - 贬值率) ^ 年限
+
+  func 年损失预期(单次损失: Float, 年发生率: Float) -> Float =
+    (单次损失, 年发生率) => 单次损失 * 年发生率
+
+  (* ===== 网络安全 ===== *)
+  func DDOS检测(每秒请求数: Int, 正常阈值: Int) -> Bool =
+    (每秒请求数, 正常阈值) => 每秒请求数 > 正常阈值 * 3
+
+  func 端口扫描检测(开放端口数: Int, 正常数: Int) -> Bool =
+    (开放端口数, 正常数) => 开放端口数 > 正常数 + 5
+
+  func SSL证书有效期(创建时间: Int, 过期时间: Int, 当前时间: Int) -> Bool =
+    (创建时间, 过期时间, 当前时间) =>
+    当前时间 >= 创建时间 and 当前时间 <= 过期时间
+
+  (* ===== 密码强度 ===== *)
+  func 密码强度评分(密码: String) -> Int =
+    (* 基于长度、字符种类 *)
+    (密码) =>
+    let len = len(密码) in
+    let hasUpper = 密码包含大写字母(密码) in
+    let hasLower = 密码包含小写字母(密码) in
+    let hasDigit = 密码包含数字(密码) in
+    let hasSpecial = 密码包含特殊字符(密码) in
+    len * 4 + (if hasUpper then 2 else 0) + (if hasLower then 2 else 0) +
+    (if hasDigit then 2 else 0) + (if hasSpecial then 3 else 0)
+
+  func 密码包含大写字母(text: String) -> Bool =
+    (text) => false  (* 简化 *)
+
+  func 密码包含小写字母(text: String) -> Bool =
+    (text) => false  (* 简化 *)
+
+  func 密码包含数字(text: String) -> Bool =
+    (text) => false  (* 简化 *)
+
+  func 密码包含特殊字符(text: String) -> Bool =
+    (text) => false  (* 简化 *)
+
+  func 浮点(n: Int) -> Float = (n) => n * 1.0
+}

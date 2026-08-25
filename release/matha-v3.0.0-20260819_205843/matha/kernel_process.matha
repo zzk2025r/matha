@@ -1,0 +1,68 @@
+(* OS Kernel Resource: Process Management Math
+ * 进程管理数学模型
+ *)
+
+(* ── PCB（进程控制块）大小估算 ───────────────────────────── *)
+(*
+ * 典型 x86 32-bit PCB 组成：
+ *   固定头部：80B（状态/PID/PPID/信号/调度/文件描述符等）
+ *   寄存器快照：num_regs × 4B（EAX, EBX, ECX, EDX, ESI, EDI,
+ *                  ESP, EBP, EIP, CS, DS, ES, FS, GS, FLAGS, etc.）
+ *   栈空间：stack_size
+ *   内存映射指针：4B
+ *   对齐填充：~0-3B
+ *)
+func pcb_fixed_header() -> Int = 80
+func pcb_register_slot_size() -> Int = 4
+func pcb_size(num_registers: Int, stack_size: Int) -> Int =
+    (num_registers, stack_size) =>
+    pcb_fixed_header() + num_registers * pcb_register_slot_size() + stack_size
+
+(* ── PCB 内存分配总量 ────────────────────────────────────── *)
+func pcb_alloc_total(num_tasks: Int, pcb_size: Int) -> Int =
+    (num_tasks, pcb_size) => num_tasks * pcb_size
+
+(* ── 上下文切换开销（时钟周期）────────────────────────────── *)
+(*
+ * 上下文切换包括：
+ *   1. 保存当前任务寄存器（num_regs × 2 cycles）
+ *   2. 切换页表（TLB flush，~5000 cycles）
+ *   3. 加载新任务寄存器（num_regs × 2 cycles）
+ *   4. 栈指针切换（~10 cycles）
+ *   5. 返回地址恢复（~5 cycles）
+ *)
+func context_switch_cycles(num_registers: Int) -> Int =
+    (num_registers) =>
+    num_registers * 2 + 5000 + num_registers * 2 + 10 + 5
+
+(* ── 上下文切换时间（微秒）───────────────────────────────── *)
+(* 假设 TSC = 3000MHz（3GHz） *)
+func context_switch_us(num_regs: Int, tsc_mhz: Int) -> Float =
+    (num_regs, tsc_mhz) =>
+    float(context_switch_cycles(num_regs)) / float(tsc_mhz) * 1000.0
+
+(* ── 进程创建开销（fork）─────────────────────────────────── *)
+(*
+ * fork() 开销包括：
+ *   1. 分配 PCB：pcb_size 字节
+ *   2. 复制页表：~5000 cycles（TLB shootdown）
+ *   3. 复制地址空间（写时复制，不立即复制数据）
+ *   4. 分配 PID：~100 cycles
+ *)
+func fork_overhead_cycles(tsc_mhz: Int) -> Float =
+    (tsc_mhz) => (5000.0 + 100.0) / float(tsc_mhz) * 1000.0
+
+(* ── 进程调度器滴答开销 ──────────────────────────────────── *)
+(* 典型滴答率：100Hz → 10ms/tick *)
+func scheduler_tick_latency_us(tsc_mhz: Int) -> Float =
+    (tsc_mhz) => 10.0  ; 固定 10μs（调度器自身开销）
+
+(* ── 最大吞吐任务数 ──────────────────────────────────────── *)
+(* 基于上下文切换开销估算 *)
+func max_throughput_tasks(swap_cycles: Int, tsc_mhz: Int) -> Float =
+    (swap_cycles, tsc_mhz) =>
+    float(tsc_mhz) * 1_000_000.0 / float(swap_cycles)
+
+(* ── 任务控制块（TCB）数组内存 ──────────────────────────── *)
+func tcb_array_size(num_tasks: Int, tcb_size: Int) -> Int =
+    (num_tasks, tcb_size) => num_tasks * tcb_size

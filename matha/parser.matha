@@ -1,0 +1,600 @@
+(* ============================================================
+   Matha 自举语法分析器（完整版）
+   ------------------------------------------------------------
+   递归下降解析器，输入 Token 流，输出 AST。
+   对应 src/parser.py 的完整功能。
+   
+   调用入口：parse(tokens) → AST
+   ============================================================ *)
+
+module 语法器 {
+
+  use 词法器 { Token | 类型 | 扫描 | 做Token }
+
+  (* ===== AST 数据模型 ===== *)
+
+  (* 用 dict 表示 AST 节点（无 struct 时的替代）=====
+     节点格式：{"类型": "...", ...}
+     通过不同的 "类型" 字段区分节点种类 ===== *)
+
+  (* ===== AST 节点构造子 ===== *)
+  func 做Program(decls: List) -> Dict = (decls) => {"类型": "程序", "声明": decls}
+  func 做FuncDef(name: String, params: List, ret_type: String, body: Dict) -> Dict =
+    (name, params, ret_type, body) =>
+    {"类型": "函数定义", "名": name, "参数": params, "返回类型": ret_type, "体": body}
+  func 做Binding(name: String, value: Dict) -> Dict =
+    (name, value) => {"类型": "绑定", "名": name, "值": value}
+  func 做Output(expr: Dict) -> Dict = (expr) => {"类型": "输出", "expr": expr}
+  func 做If(cond: Dict, then_branch: Dict, else_branch: Dict) -> Dict =
+    (cond, then_branch, else_branch) =>
+    {"类型": "if", "条件": cond, "真分支": then_branch, "假分支": else_branch}
+  func 做While(cond: Dict, body: Dict) -> Dict =
+    (cond, body) => {"类型": "while", "条件": cond, "体": body}
+  func 做For(var_name: String, iterable: Dict, body: Dict) -> Dict =
+    (var_name, iterable, body) =>
+    {"类型": "for", "变量": var_name, "迭代": iterable, "体": body}
+  func 做Match(scrutinee: Dict, branches: List) -> Dict =
+    (scrutinee, branches) => {"类型": "match", " scrutinee": scrutinee, "分支": branches}
+  func 做Lambda(params: List, body: Dict) -> Dict =
+    (params, body) => {"类型": "lambda", "参数": params, "体": body}
+  func 做BinaryOp(op: String, left: Dict, right: Dict) -> Dict =
+    (op, left, right) => {"类型": "二元运算", "运算符": op, "左": left, "右": right}
+  func 做UnaryOp(op: String, operand: Dict) -> Dict =
+    (op, operand) => {"类型": "一元运算", "运算符": op, "操作数": operand}
+  func 做FuncApp(func: Dict, arg: Dict) -> Dict =
+    (func, arg) => {"类型": "函数应用", "函数": func, "参数": arg}
+  func 做IntLit(n: Int) -> Dict = (n) => {"类型": "整数", "值": n}
+  func 做FloatLit(n: Float) -> Dict = (n) => {"类型": "浮点", "值": n}
+  func 做StringLit(s: String) -> Dict = (s) => {"类型": "字符串", "值": s}
+  func 做BoolLit(b: Bool) -> Dict = (b) => {"类型": "布尔", "值": b}
+  func 做Variable(name: String) -> Dict = (name) => {"类型": "变量", "名": name}
+  func 做StructDef(name: String, fields: List) -> Dict =
+    (name, fields) => {"类型": "结构体", "名": name, "字段": fields}
+  func 做EnumDef(name: String, ctors: List) -> Dict =
+    (name, ctors) => {"类型": "枚举", "名": name, "构造子": ctors}
+
+  (* ===== 解析器状态 ===== *)
+  struct 解析器 {
+    tokens: List
+    pos: Int
+    line: Int
+    col: Int
+  }
+
+  (* ===== 解析器辅助 ===== *)
+  func 推进(p: 解析器) -> 解析器 = (p) =>
+    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col }
+
+  func 当前(p: 解析器) -> Token = (p) =>
+    (p.pos < len(p.tokens)) ? p.tokens[p.pos] : 做Token(类型.结束, "", p.line, p.col)
+
+  func 匹配(p: 解析器, t: 类型) -> Bool = (p, t) =>
+    当前(p).类型 = t
+
+  func 期望(p: 解析器, t: 类型) -> Token = (p, t) =>
+    if 匹配(p, t) then (p = 推进(p); 当前(p))
+    else 错误("期望 " + 类型名(t))
+
+  (* ===== 关键字匹配辅助函数 ===== *)
+  func 是结束(p: 解析器) -> Bool = (p) => 当前(p).类型 = 类型.结束
+  func 匹配函数关键字(p: 解析器) -> Bool = (p) =>
+    当前(p).类型 = 类型.关键字 and 当前(p).文本 = "func"
+  func 匹配结构体关键字(p: 解析器) -> Bool = (p) =>
+    当前(p).类型 = 类型.关键字 and 当前(p).文本 = "struct"
+  func 匹配枚举关键字(p: 解析器) -> Bool = (p) =>
+    当前(p).类型 = 类型.关键字 and 当前(p).文本 = "enum"
+
+  (* ===== 类型名映射 ===== *)
+  func 类型名(t: 类型) -> String = (t) =>
+    t = 类型.整数 ? "整数" :
+    t = 类型.浮点 ? "浮点" :
+    t = 类型.字符串 ? "字符串" :
+    t = 类型.标识符 ? "标识符" :
+    t = 类型.关键字 ? "关键字" :
+    t = 类型.加 ? "+" :
+    t = 类型.减 ? "-" :
+    t = 类型.乘 ? "*" :
+    t = 类型.除 ? "/" :
+    t = 类型.等于 ? "=" :
+    t = 类型.不等于 ? "!=" :
+    t = 类型.大于 ? ">" :
+    t = 类型.小于 ? "<" :
+    t = 类型.胖箭头 ? "=>" :
+    t = 类型.箭头 ? "->" :
+    t = 类型.左括号 ? "(" :
+    t = 类型.右括号 ? ")" :
+    t = 类型.左括号方 ? "[" :
+    t = 类型.右括号方 ? "]" :
+    t = 类型.左括号花 ? "{" :
+    t = 类型.右括号花 ? "}" :
+    t = 类型.逗号 ? "," :
+    t = 类型.占位符 ? "？" :
+    t = 类型.结束 ? "EOF" :
+    "未知"
+
+  func 错误(msg: String) -> Dict = (msg) =>
+    {"类型": "错误", "消息": msg}
+
+  (* ===== 优先级解析器（表达式解析核心）===== *)
+
+  (* 解析表达式（递归下降 + 算符优先级）=====
+     表达式层次（由低到高）：
+       三元：cond ? then : else
+       逻辑或：a or b
+       逻辑与：a and b
+       等于：a = b
+       比较：a < > <= >= <> !=
+       加减：a + -
+       乘除取模：a * / %
+       一元：-x, ^x
+       函数应用：f(x)
+       括号：(expr)
+       字面量/变量 *)
+
+  func 解析表达式(p: 解析器) -> (Dict, 解析器) = (p) =>
+    解析三元(p)
+
+  (* 三元条件：cond ? then : else *)
+  func 解析三元(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let (cond, p2) = 解析比较(p) in
+    if 匹配(p2, 类型.问号) then
+      let p3 = 推进(p2) in
+      let (then_expr, p4) = 解析三元(p3) in
+      let p5 = 期望(p4, 类型.冒号) in
+      let (else_expr, p6) = 解析三元(p5) in
+      (做If(cond, then_expr, else_expr), p6)
+    else (cond, p2)
+
+  (* 比较：= <> != < > <= >= *)
+  func 解析比较(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let (left, p2) = 解析加减(p) in
+    let (op_tok, p3) = 解析比较_op(p2) in
+    if op_tok != "" then
+      let (right, p4) = 解析加减(p3) in
+      (做BinaryOp(op_tok, left, right), p4)
+    else (left, p2)
+
+  func 解析比较_op(p: 解析器) -> (String, 解析器) = (p) =>
+    if 匹配(p, 类型.等于) then ("=", 推进(p))
+    else if 匹配(p, 类型.不等于) then ("!=", 推进(p))
+    else if 匹配(p, 类型.大于等于) then (">=", 推进(p))
+    else if 匹配(p, 类型.小于等于) then ("<=", 推进(p))
+    else if 匹配(p, 类型.大于) then (">", 推进(p))
+    else if 匹配(p, 类型.小于) then ("<", 推进(p))
+    else ("", p)
+
+  (* 加减：+ - *)
+  func 解析加减(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let (left, p2) = 解析乘除(p) in
+    let (op_tok, p3) = 解析加减_op(p2) in
+    if op_tok != "" then
+      let (right, p4) = 解析乘除(p3) in
+      (做BinaryOp(op_tok, left, right), p4)
+    else (left, p2)
+
+  func 解析加减_op(p: 解析器) -> (String, 解析器) = (p) =>
+    if 匹配(p, 类型.加) then ("+", 推进(p))
+    else if 匹配(p, 类型.减) then ("-", 推进(p))
+    else ("", p)
+
+  (* 乘除取模：* / % *)
+  func 解析乘除(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let (left, p2) = 解析幂(p) in
+    let (op_tok, p3) = 解析乘除_op(p2) in
+    if op_tok != "" then
+      let (right, p4) = 解析幂(p3) in
+      (做BinaryOp(op_tok, left, right), p4)
+    else (left, p2)
+
+  func 解析乘除_op(p: 解析器) -> (String, 解析器) = (p) =>
+    if 匹配(p, 类型.乘) then ("*", 推进(p))
+    else if 匹配(p, 类型.除) then ("/", 推进(p))
+    else if 匹配(p, 类型.取模) then ("%", 推进(p))
+    else ("", p)
+
+  (* 幂：^（右结合）===== *)
+  func 解析幂(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let (base, p2) = 解析一元(p) in
+    if 匹配(p2, 类型.次方) then
+      let p3 = 推进(p2) in
+      let (exp, p4) = 解析幂(p3) in  (* 右结合：递归解析幂 *)
+      (做BinaryOp("^", base, exp), p4)
+    else (base, p2)
+
+  (* 一元：-x, ^x *)
+  func 解析一元(p: 解析器) -> (Dict, 解析器) = (p) =>
+    if 匹配(p, 类型.减) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元(p2) in
+      (做UnaryOp("-", operand), p3)
+    else if 匹配(p, 类型.次方) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元(p2) in
+      (做UnaryOp("^", operand), p3)
+    else 解析应用(p)
+
+  (* 函数应用：f(a) 或 f(a)(b) 链式 *)
+  func 解析应用(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let (base, p2) = 解析主要(p) in
+    解析应用链(base, p2)
+
+  func 解析应用链(expr: Dict, p: 解析器) -> (Dict, 解析器) = (expr, p) =>
+    if 匹配(p, 类型.左括号) then
+      let p2 = 推进(p) in
+      let (arg, p3) = 解析表达式(p2) in
+      let p4 = 期望(p3, 类型.右括号) in
+      let result = 做FuncApp(expr, arg) in
+      解析应用链(result, p4)
+    else (expr, p)
+
+  (* 主要表达式：字面量/变量/括号/lamb a da *)
+  func 解析主要(p: 解析器) -> (Dict, 解析器) = (p) =>
+    if 匹配(p, 类型.整数) then
+      let tok = 当前(p) in
+      (做IntLit(整数值(tok.文本)), 推进(p))
+    else if 匹配(p, 类型.浮点) then
+      let tok = 当前(p) in
+      (做FloatLit(浮点值(tok.文本)), 推进(p))
+    else if 匹配(p, 类型.字符串) then
+      let tok = 当前(p) in
+      (做StringLit(tok.文本), 推进(p))
+    else if 匹配(p, 类型.布尔) then
+      let tok = 当前(p) in
+      (做BoolLit(tok.文本 = "真" or tok.文本 = "true"), 推进(p))
+    else if 匹配(p, 类型.占位符) then
+      let tok = 当前(p) in
+      (做Variable(tok.文本), 推进(p))
+    else if 匹配(p, 类型.标识符) then
+      let tok = 当前(p) in
+      (做Variable(tok.文本), 推进(p))
+    else if 匹配(p, 类型.左括号) then
+      let p2 = 推进(p) in
+      (* 试探 lambda：(params) => body *)
+      解析括号消解(p2)
+    else
+      (错误("期望表达式，实际 " + 类型名(当前(p).类型)), p)
+
+  (* 括号内消解：lambda 或普通分组 *)
+  func 解析括号消解(p: 解析器) -> (Dict, 解析器) = (p) =>
+    (* 空括号 () => body *)
+    if 匹配(p, 类型.右括号) then
+      let p2 = 推进(p) in
+      if 匹配(p2, 类型.胖箭头) then
+        let p3 = 推进(p2) in
+        let (body, p4) = 解析表达式(p3) in
+        (做Lambda([], body), p4)
+      else (做IntLit(0), p2)
+    else if 匹配(p, 类型.标识符) or 匹配(p, 类型.占位符) then
+      (* 尝试 lambda 参数列表 *)
+      解析_lambda_or_group(p)
+    else
+      (* 普通表达式分组 (expr) *)
+      let (expr, p2) = 解析表达式(p) in
+      let p3 = 期望(p2, 类型.右括号) in
+      (expr, p3)
+
+  func 解析_lambda_or_group(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let saved = p in
+    let (param, p2) = 解析_lambda_param(p) in
+    let (params, p3) = 解析_lambda_params_rest([], param, p2) in
+    let p4 = 期望(p3, 类型.右括号) in
+    if 匹配(p4, 类型.胖箭头) then
+      let p5 = 推进(p4) in
+      let (body, p6) = 解析表达式(p5) in
+      (做Lambda(params, body), p6)
+    else (做Variable(param.名), saved)
+
+  func 解析_lambda_param(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let tok = 当前(p) in
+    (做Variable(tok.文本), 推进(p))
+
+  func 解析_lambda_params_rest(acc: List, param: Dict, p: 解析器) -> (List, 解析器) =
+    (acc, param, p) =>
+    if 匹配(p, 类型.逗号) then
+      let p2 = 推进(p) in
+      let (param2, p3) = 解析_lambda_param(p2) in
+      解析_lambda_params_rest(acc + [param] + param2, param2, p3)
+    else (acc + [param], p)
+
+  (* 整数值/浮点值转换 ===== *)
+  func 整数值(s: String) -> Int = (s) =>
+    let base = (len(s) > 2 and get(s)(0) = "0" and (get(s)(1) = "b" or get(s)(1) = "x")) ?
+      if get(s)(1) = "b" then 2 else 16 else 10 in
+    let digits = (len(s) > 2 and get(s)(0) = "0") ? substr(s, 2) : s in
+    字符串转整数(digits, base)
+
+  func 浮点值(s: String) -> Float = (s) =>
+    字符串转浮点(s)
+
+  func 字符串转整数(s: String, base: Int) -> Int = (s, base) =>
+    if s = "" then 0
+    else 字符串转整数_helper(s, 0, base)
+
+  func 字符串转整数_helper(s: String, acc: Int, base: Int) -> Int = (s, acc, base) =>
+    if s = "" then acc
+    else
+      let c = ord(get(s)(0)) in
+      let digit = (c >= 48 and c <= 57) ? c - 48 :
+                  (c >= 65 and c <= 70) ? c - 55 :
+                  (c >= 97 and c <= 102) ? c - 87 : 0 in
+      字符串转整数_helper(substr(s, 1), acc * base + digit, base)
+
+  func 字符串转浮点(s: String) -> Float = (s) =>
+    if s = "" then 0.0
+    else
+      let parts = 分割(s, ".") in
+      let whole = 字符串转整数(parts[0], 10) in
+      let frac_part = (len(parts) > 1) ? parts[1] : "" in
+      if frac_part = "" then float(whole)
+      else
+        let frac_digits = len(frac_part) in
+        let frac = 字符串转整数(frac_part, 10) in
+        whole + frac / (10.0 ** frac_digits)
+
+  (* 字符串工具 ===== *)
+  func substr(s: String, start: Int) -> String = (s, start) =>
+    if start >= len(s) then ""
+    else 子串_helper(s, start, len(s) - start, "")
+
+  func 子串_helper(s: String, pos: Int, count: Int, acc: String) -> String =
+    (s, pos, count, acc) =>
+    (count <= 0 or pos >= len(s)) ? acc :
+    子串_helper(s, pos + 1, count - 1, acc + get(s)(pos))
+
+  func 分割(s: String, sep: String) -> List = (s, sep) =>
+    分割_helper(s, sep, [])
+
+  func 分割_helper(s: String, sep: String, acc: List) -> List = (s, sep, acc) =>
+    let idx = 查找(s, sep) in
+    if idx < 0 then reverse(acc + [s])
+    else
+      let before = 子串(s, 0, idx) in
+      let after = 子串(s, idx + len(sep)) in
+      分割_helper(after, sep, acc + [before])
+
+  func 查找(s: String, sub: String) -> Int = (s, sub) =>
+    查找_helper(s, sub, 0)
+
+  func 查找_helper(s: String, sub: String, start: Int) -> Int = (s, sub, start) =>
+    if start >= len(s) then -1
+    else if 前缀匹配(s, sub, start) then start
+    else 查找_helper(s, sub, start + 1)
+
+  func 前缀匹配(s: String, sub: String, start: Int) -> Bool = (s, sub, start) =>
+    if sub = "" then 真
+    else if start + len(sub) > len(s) then 假
+    else
+      前缀匹配_helper(s, sub, start, 0)
+
+  func 前缀匹配_helper(s: String, sub: String, s_pos: Int, sub_pos: Int) -> Bool =
+    (s, sub, s_pos, sub_pos) =>
+    (sub_pos >= len(sub)) ? 真 :
+    (s_pos >= len(s)) ? 假 :
+    (get(s)(s_pos) = get(sub)(sub_pos)) ?
+      前缀匹配_helper(s, sub, s_pos + 1, sub_pos + 1) : 假
+
+  func 子串(s: String, start: Int, end: Int) -> String = (s, start, end) =>
+    子串_helper2(s, start, end, 0, "")
+
+  func 子串_helper2(s: String, start: Int, end: Int, pos: Int, acc: String) -> String =
+    (s, start, end, pos, acc) =>
+    (pos >= end) ? acc :
+    (pos >= start) ? 子串_helper2(s, start, end, pos + 1, acc + get(s)(pos)) :
+    子串_helper2(s, start, end, pos + 1, acc)
+
+  func reverse(lst: List) -> List = (lst) =>
+    reverse_helper(lst, [])
+
+  func reverse_helper(lst: List, acc: List) -> List = (lst, acc) =>
+    lst = [] ? acc : reverse_helper(lst[1:], acc + lst[0])
+
+  (* ===== 解析顶层声明 ===== *)
+
+  func 解析程序(tokens: List) -> Dict = (tokens) =>
+    let p = { tokens: tokens, pos: 0, line: 1, col: 1 } in
+    解析声明列表(p, [])
+
+  func 解析声明列表(p: 解析器, acc: List) -> Dict = (p, acc) =>
+    if 匹配(p, 类型.结束) then
+      做Program(reverse(acc))
+    else
+      let (decl, p2) = 解析声明(p) in
+      解析声明列表(p2, acc + [decl])
+
+  func 解析声明(p: 解析器) -> (Dict, 解析器) = (p) =>
+    if 匹配(p, 类型.关键字) then
+      let tok = 当前(p) in
+      if tok.文本 = "func" then 解析函数定义(p)
+      else if tok.文本 = "struct" then 解析结构体定义(p)
+      else if tok.文本 = "enum" then 解析枚举定义(p)
+      else if tok.文本 = "let" then 解析let绑定(p)
+      else if tok.文本 = "if" then 解析if_stmt(p)
+      else if tok.文本 = "while" then 解析while_stmt(p)
+      else if tok.文本 = "for" then 解析for_stmt(p)
+      else if tok.文本 = "match" then 解析match_stmt(p)
+      else 解析表达式(p)
+    else if 匹配(p, 类型.标识符) then
+      let tok = 当前(p) in
+      if tok.文本 = "func" then 解析函数定义(推进(p))
+      else 解析表达式(p)
+    else 解析表达式(p)
+
+  (* 函数定义：func name(params) -> RetType = (params) => body *)
+  func 解析函数定义(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* func *)
+    let name_tok = 当前(p2) in
+    let p3 = 推进(p2) in
+    let name = name_tok.文本 in
+    let p4 = 期望(p3, 类型.左括号) in
+    let (params, p5) = 解析参数列表(p4) in
+    let p6 = 期望(p5, 类型.右括号) in
+    let p7 = 期望(p6, 类型.箭头) in  (* -> *)
+    let ret_tok = 当前(p7) in
+    let p8 = 推进(p7) in
+    let p9 = 期望(p8, 类型.等于) in  (* = *)
+    let p10 = 期望(p9, 类型.左括号) in  (* (params) => *)
+    let (lam_params, p11) = 解析_lambda_params_rest([], 解析_lambda_param(p10), p10) in
+    let p12 = 期望(p11, 类型.右括号) in
+    let p13 = 期望(p12, 类型.胖箭头) in  (* => *)
+    let (body, p14) = 解析表达式(p13) in
+    (做FuncDef(name, lam_params, ret_tok.文本, body), p14)
+
+  func 解析参数列表(p: 解析器) -> (List, 解析器) = (p) =>
+    if 匹配(p, 类型.右括号) then ([], p)
+    else
+      let (param, p2) = 解析参数(p) in
+      let (rest, p3) = 解析参数列表_rest(p2) in
+      ([param] + rest, p3)
+
+  func 解析参数列表_rest(p: 解析器) -> (List, 解析器) = (p) =>
+    if 匹配(p, 类型.逗号) then
+      let p2 = 推进(p) in
+      let (param, p3) = 解析参数(p2) in
+      let (rest, p4) = 解析参数列表_rest(p3) in
+      ([param] + rest, p4)
+    else ([], p)
+
+  func 解析参数(p: 解析器) -> (String, 解析器) = (p) =>
+    let tok = 当前(p) in
+    (tok.文本, 推进(p))
+
+  (* let 绑定：let name = expr *)
+  func 解析let绑定(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* let *)
+    let name_tok = 当前(p2) in
+    let p3 = 推进(p2) in
+    let p4 = 期望(p3, 类型.等于) in
+    let (value, p5) = 解析表达式(p4) in
+    (做Binding(name_tok.文本, value), p5)
+
+  (* if 语句 *)
+  func 解析if_stmt(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* if *)
+    let (cond, p3) = 解析表达式(p2) in
+    let p4 = 期望(p3, 类型.左括号花) in
+    let (then_body, p5) = 解析语句列表(p4) in
+    let p6 = 期望(p5, 类型.右括号花) in
+    let else_body = if 匹配(p6, 类型.关键字) then
+      let p7 = 推进(p6) in  (* 否则 *)
+      let p8 = 期望(p7, 类型.左括号花) in
+      let (body, p9) = 解析语句列表(p8) in
+      期望(p9, 类型.右括号花)
+    else p6 in
+    let (else_body_expr, p9) = if 当前(p6).类型 = 类型.关键字 then
+      (解析语句列表(p6), p6) else (做IntLit(0), p6) in
+    (做If(cond, then_body, else_body_expr), p9)
+
+  (* while 语句 *)
+  func 解析while_stmt(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* while *)
+    let (cond, p3) = 解析表达式(p2) in
+    let p4 = 期望(p3, 类型.左括号花) in
+    let (body, p5) = 解析语句列表(p4) in
+    期望(p5, 类型.右括号花)
+
+  (* for 语句：for var in expr { body } *)
+  func 解析for_stmt(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* for *)
+    let var_tok = 当前(p2) in
+    let p3 = 推进(p2) in
+    let p4 = 期望(p3, 类型.关键字) in  (* in *)
+    let (iterable, p5) = 解析表达式(p4) in
+    let p6 = 期望(p5, 类型.左括号花) in
+    let (body, p7) = 解析语句列表(p6) in
+    期望(p7, 类型.右括号花)
+
+  (* match 语句 *)
+  func 解析match_stmt(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* match *)
+    let (scrutinee, p3) = 解析表达式(p2) in
+    let p4 = 期望(p3, 类型.左括号花) in
+    解析match分支(p4, [], scrutinee)
+
+  func 解析match分支(p: 解析器, acc: List, scrutinee: Dict) -> (Dict, 解析器) =
+    (p, acc, scrutinee) =>
+    if 匹配(p, 类型.右括号花) or 匹配(p, 类型.结束) then
+      (做Match(scrutinee, reverse(acc)), p)
+    else
+      let p2 = 推进(p) in  (* 消费 | *)
+      let (pattern, p3) = 解析match模式(p2) in
+      let p4 = 期望(p3, 类型.胖箭头) in
+      let (body, p5) = 解析表达式(p4) in
+      解析match分支(p5, acc + [(pattern, body)], scrutinee)
+
+  func 解析match模式(p: 解析器) -> (Dict, 解析器) = (p) =>
+    if 匹配(p, 类型.占位符) then
+      let tok = 当前(p) in
+      (做Variable(tok.文本), 推进(p))
+    else if 匹配(p, 类型.整数) then
+      let tok = 当前(p) in
+      (做IntLit(整数值(tok.文本)), 推进(p))
+    else if 匹配(p, 类型.标识符) then
+      let tok = 当前(p) in
+      (做Variable(tok.文本), 推进(p))
+    else (做Variable("_"), p)
+
+  (* 语句列表 *)
+  func 解析语句列表(p: 解析器) -> (Dict, 解析器) = (p) =>
+    解析语句列表_rest(p, [])
+
+  func 解析语句列表_rest(p: 解析器, acc: List) -> (Dict, 解析器) = (p, acc) =>
+    if 匹配(p, 类型.右括号花) or 匹配(p, 类型.结束) then
+      (做Program(reverse(acc)), p)
+    else
+      let (stmt, p2) = 解析声明(p) in
+      解析语句列表_rest(p2, acc + [stmt])
+
+  (* 结构体定义：struct Name { field1: Type1, field2: Type2 } *)
+  func 解析结构体定义(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* struct *)
+    let name_tok = 当前(p2) in
+    let p3 = 推进(p2) in
+    let p4 = 期望(p3, 类型.左括号花) in
+    let (fields, p5) = 解析结构体字段列表(p4) in
+    let p6 = 期望(p5, 类型.右括号花) in
+    (做StructDef(name_tok.文本, fields), p6)
+
+  func 解析结构体字段列表(p: 解析器) -> (List, 解析器) = (p) =>
+    if 匹配(p, 类型.右括号花) then
+      ([], p)
+    else
+      let name_tok = 当前(p) in
+      let p2 = 推进(p) in
+      let p3 = 期望(p2, 类型.冒号) in
+      let type_tok = 当前(p3) in
+      let p4 = 推进(p3) in
+      let (rest, p5) = 解析结构体字段列表(p4) in
+      ([{"名": name_tok.文本, "类型": type_tok.文本}] + rest, p5)
+
+  (* 枚举定义：enum Name { Ctor1 | Ctor2 | Ctor3 } *)
+  func 解析枚举定义(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 期望(p, 类型.关键字) in  (* enum *)
+    let name_tok = 当前(p2) in
+    let p3 = 推进(p2) in
+    let p4 = 期望(p3, 类型.左括号花) in
+    let (ctors, p5) = 解析枚举构造子列表(p4) in
+    let p6 = 期望(p5, 类型.右括号花) in
+    (做EnumDef(name_tok.文本, ctors), p6)
+
+  func 解析枚举构造子列表(p: 解析器) -> (List, 解析器) = (p) =>
+    if 匹配(p, 类型.右括号花) then
+      ([], p)
+    else
+      let tok = 当前(p) in
+      let p2 = 推进(p) in
+      let (rest, p3) = if 匹配(p2, 类型.管道) then
+        解析枚举构造子列表(推进(p2))
+      else
+        ([], p2) in
+      ([tok.文本] + rest, p3)
+
+  (* ===== 公共入口 ===== *)
+  func parse(tokens: List) -> Dict = (tokens) => 解析程序(tokens)
+
+  (* ===== 自测 ===== *)
+  #：{
+    (* 测试：基础输出 *)
+    [1]
+  }
+
+}

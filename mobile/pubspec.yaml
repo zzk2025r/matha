@@ -1,0 +1,38 @@
+# pubspec.yaml
+name: matha_mobile
+description: Matha 移动端应用 - 随时随地进行数学计算
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # 本地存储
+  sqflite: ^2.3.3
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  # Pyodide 集成（Web）
+  flutter_web_plugins:
+    sdk: flutter
+  # 网络协作
+  web_socket_channel: ^3.0.0
+  # 数据库加密
+  encrypt: ^5.0.3
+  # UI 组件
+  flutter_syntax_view: ^4.1.0
+  provider: ^6.1.2
+  shared_preferences: ^2.3.3
+  # 图表
+  fl_chart: ^0.69.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

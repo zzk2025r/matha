@@ -1,0 +1,37 @@
+(* 资源库：三角学进阶
+   覆盖：反三角函数、三角恒等式、解三角形
+   ============================================================ *)
+
+module 三角学进阶 {
+
+  func 度转弧度(deg: Float) -> Float = (deg) => deg * 3.14159 / 180
+  func 弧度转度(rad: Float) -> Float = (rad) => rad * 180 / 3.14159
+
+  func 正弦(x: Float) -> Float = (x) => sin(x)
+  func 余弦(x: Float) -> Float = (x) => cos(x)
+  func 正切(x: Float) -> Float = (x) => tan(x)
+
+  func 反正弦(x: Float) -> Float = (x) => asin(x)
+  func 反余弦(x: Float) -> Float = (x) => acos(x)
+  func 反正切(x: Float) -> Float = (x) => atan(x)
+
+  func 正弦加法公式(a: Float, b: Float) -> Float =
+    (a, b) => sin(a)*cos(b) + cos(a)*sin(a)
+
+  func 余弦加法公式(a: Float, b: Float) -> Float =
+    (a, b) => cos(a)*cos(b) - sin(a)*sin(b)
+
+  func 二倍角正弦(a: Float) -> Float = (a) => 2*sin(a)*cos(a)
+  func 二倍角余弦(a: Float) -> Float = (a) => cos(a)*cos(a) - sin(a)*sin(a)
+
+  func 余弦定理(a: Float, b: Float, C: Float) -> Float =
+    (a, b, C) => 开方(a*a + b*b - 2*a*b*cos(C))
+
+  func 正弦定理(a: Float, A: Float, B: Float) -> Float =
+    (a, A, B) => a * sin(B) / sin(A)
+
+  func 三角形面积海伦(a: Float, b: Float, c: Float) -> Float =
+    (a, b, c) =>
+    let s = (a + b + c) / 2 in
+    开方(s * (s - a) * (s - b) * (s - c))
+}

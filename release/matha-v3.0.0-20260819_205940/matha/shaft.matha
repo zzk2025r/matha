@@ -1,0 +1,7 @@
+(* 资源库：机械 — 轴计算 *)
+(* 保护隔离：转矩、应力、轴径 *)
+
+func 转矩(P: Float, n: Float) -> Float = (P, n) => 9550000 * P / n
+func 剪应力(T: Float, d: Float) -> Float = (T, d) => 16 * T / (3.14159 * d ^ 3)
+func 最小轴径(T: Float, tau: Float) -> Float = (T, tau) =>
+  (16 * T / (3.14159 * tau)) ^ (1.0 / 3.0)

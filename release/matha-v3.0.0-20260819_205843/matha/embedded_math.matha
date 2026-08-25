@@ -1,0 +1,103 @@
+(* 嵌入式系统知识：传感器、执行器、通信协议
+   覆盖：ADC/DAC、PWM、传感器公式、电机控制、通信协议
+   ============================================================ *)
+
+module 嵌入式系统 {
+
+  (* ===== ADC/DAC 转换 ===== *)
+  (* ADC: 电压 → 数字值 *)
+  func ADC值(voltage: Float, ref_voltage: Float, bits: Int) -> Int =
+    (voltage, ref_voltage, bits) => (* 调用内置函数 ADC值 *)
+
+  (* ADC: 数字值 → 电压 *)
+  func ADC电压(digital: Int, ref_voltage: Float, bits: Int) -> Float =
+    (digital, ref_voltage, bits) => (* 调用内置函数 ADC电压 *)
+
+  (* DAC: 数字值 → 电压 *)
+  func DAC电压(digital: Int, ref_voltage: Float, bits: Int) -> Float =
+    (digital, ref_voltage, bits) => (* 调用内置函数 DAC值 *)
+
+  (* ===== PWM 控制 ===== *)
+  (* PWM 占空比计算 *)
+  func PWM占空比(on_time: Float, period: Float) -> Float =
+    (on_time, period) => (* 调用内置函数 PWM占空比 *)
+
+  (* PWM 周期计算 *)
+  func PWM周期(freq: Float) -> Float =
+    (freq) => (* 调用内置函数 PWM周期 *)
+
+  (* PWM 高电平时间 *)
+  func PWM高电平(period: Float, duty: Float) -> Float =
+    (period, duty) => (* 调用内置函数 PWM高电平 *)
+
+  (* ===== 传感器 ===== *)
+  (* NTC 热敏电阻温度（开尔文） *)
+  func 热敏温度(R: Float, R0: Float, T0: Float, B: Float) -> Float =
+    (R, R0, T0, B) => (* 调用内置函数 热敏温度K *)
+
+  (* NTC 热敏电阻温度（摄氏度） *)
+  func 热敏温度C(R: Float, R0: Float, T0: Float, B: Float) -> Float =
+    (R, R0, T0, B) => (* 调用内置函数 热敏温度C *)
+
+  (* 超声波测距（米） *)
+  func 超声波距离(time_us: Float) -> Float =
+    (time_us) => (* 调用内置函数 超声波距离 *)
+
+  (* 加速度计角度（俯仰, 横滚） *)
+  func 加速度角度(ax: Float, ay: Float, az: Float) -> (Float, Float) =
+    (ax, ay, az) => (* 调用内置函数 加速度角度 *)
+
+  (* 光敏电阻光照估算（%） *)
+  func 光照估算(R_dark: Float, R_light: Float, R_sensor: Float) -> Float =
+    (R_dark, R_light, R_sensor) => (* 调用内置函数 光照估算 *)
+
+  (* ===== 电机控制 ===== *)
+  (* 步进电机角度计算 *)
+  func 步进角度(steps: Int, steps_per_rev: Int, reduction: Float) -> Float =
+    (steps, steps_per_rev, reduction) => (* 调用内置函数 步进角度 *)
+
+  (* 舵机角度 → 脉冲宽度 *)
+  func 舵机脉冲(angle: Float) -> Float =
+    (angle) => (* 调用内置函数 舵机脉冲 *)
+
+  (* 直流电机转速（RPM） *)
+  func 直流转速(voltage: Float, k_v: Float) -> Float =
+    (voltage, k_v) => (* 调用内置函数 直流转速 *)
+
+  (* ===== 通信协议 ===== *)
+  (* UART 波特率误差计算（%） *)
+  func UART误差(desired: Float, crystal: Float, divider: Int) -> Float =
+    (desired, crystal, divider) => (* 调用内置函数 UART误差 *)
+
+  (* I2C 上拉电阻计算（Ω） *)
+  func I2C上拉(vcc: Float, i2c_current: Float) -> Float =
+    (vcc, i2c_current) => (* 调用内置函数 I2C上拉 *)
+
+  (* SPI 时钟分频器 *)
+  func SPI分频(clock: Float, sys_clock: Float) -> Int =
+    (clock, sys_clock) => (* 调用内置函数 SPI分频 *)
+
+  (* ===== 电源管理 ===== *)
+  (* 电池组电压估算 *)
+  func 电池电压(cells: Int, cell_type: String) -> Float =
+    (cells, cell_type) => (* 调用内置函数 电池电压 *)
+
+  (* 电池容量（Wh） *)
+  func 电池容量(ah: Float, voltage: Float) -> Float =
+    (ah, voltage) => (* 调用内置函数 电池容量Wh *)
+
+  (* 功耗预算计算（W） *)
+  func 功耗预算(items: List) -> Float =
+    (items) => (* 调用内置函数 功耗预算 *)
+
+  (* ===== 典型应用：Arduino LED 控制 ===== *)
+  func LED控制(pin: Int, state: Int) -> String =
+    (pin, state) =>
+    "LED控制: GPIO引脚" + 字符串(pin) + " " + if state = 1 then "点亮" else "熄灭"
+
+  (* ===== 典型应用：PID 温度控制 ===== *)
+  func PID控制(Kp: Float, Ki: Float, Kd: Float, 设定值: Float, 当前值: Float) -> Float =
+    (Kp, Ki, Kd, 设定值, 当前值) =>
+    let 误差 = 设定值 - 当前值 in
+    Kp * 误差
+}

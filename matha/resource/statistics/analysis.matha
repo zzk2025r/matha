@@ -1,0 +1,108 @@
+(* 资源库：统计分析
+   覆盖：描述统计、概率分布、回归分析、假设检验
+   ============================================================ *)
+
+module 统计分析 {
+
+  func 平均值(数据: List) -> Float = (数据) =>
+    求和(数据) / len(数据)
+
+  func 求和(数据: List) -> Float = (数据) =>
+    let rec s(i: Int, acc: Float) -> Float =
+      (i, acc) => (i >= len(数据)) ? acc : s(i+1, acc + 数据[i])
+    s(0, 0)
+
+  func 中位数(数据: List) -> Float = (数据) =>
+    let sorted = 排序(数据) in
+    let n = len(sorted) in
+    (n % 2 = 0) ? (sorted[n/2-1] + sorted[n/2]) / 2 : sorted[n/2]
+
+  func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) =>
+    let rec s(i: Int, acc: Float) -> Float =
+      (i, acc) => (i >= len(数据)) ? acc :
+        s(i+1, acc + (数据[i] - 均值)^2)
+    s(0, 0) / len(数据)
+
+  func 标准差(方差: Float) -> Float = (方差) => 开方(方差)
+
+  func 极差(数据: List) -> Float = (数据) =>
+    最大值(数据) - 最小值(数据)
+
+  func 最大值(数据: List) -> Float = (数据) =>
+    let rec max(i: Int, acc: Float) -> Float =
+      (i, acc) => (i >= len(数据)) ? acc :
+        max(i+1, if 数据[i] > acc then 数据[i] else acc)
+    max(0, 数据[0])
+
+  func 最小值(数据: List) -> Float = (数据) =>
+    let rec min(i: Int, acc: Float) -> Float =
+      (i, acc) => (i >= len(数据)) ? acc :
+        min(i+1, if 数据[i] < acc then 数据[i] else acc)
+    min(0, 数据[0])
+
+  func 排序(数据: List) -> List = (数据) =>
+    let n = len(数据) in
+    let result = 复制列表(数据) in
+    let i = 0 in
+    while i < n - 1:
+      let j = 0 in
+      while j < n - i - 1:
+        if result[j] > result[j + 1]:
+          let tmp = result[j] in
+          result[j] = result[j + 1] in
+          result[j + 1] = tmp
+        j = j + 1
+      i = i + 1
+    result
+
+  func 复制列表(lst: List) -> List = (lst) => lst
+
+  func 协方差(x: List, y: List) -> Float =
+    (x, y) =>
+    let nx = len(x) in
+    let mx = 平均值(x) in
+    let my = 平均值(y) in
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        (i >= nx) ? acc :
+        sum(i+1, acc + (x[i] - mx) * (y[i] - my))
+    sum(0, 0) / nx
+
+  func 相关系数(x: List, y: List) -> Float =
+    (x, y) =>
+    let cx = 协方差(x, y) in
+    let sx = 标准差(方差(平均值(x), x)) in
+    let sy = 标准差(方差(平均值(y), y)) in
+    if sx = 0 or sy = 0: 0
+    else: cx / (sx * sy)
+
+  func 线性回归斜率(x: List, y: List) -> Float =
+    (x, y) =>
+    let n = len(x) in
+    let sx = 求和(x) in
+    let sy = 求和(y) in
+    let sxy = 求和乘积(x, y) in
+    let sxx = 求和(各元素平方(x)) in
+    (n * sxy - sx * sy) / (n * sxx - sx * sx)
+
+  func 求和乘积(a: List, b: List) -> Float =
+    (a, b) =>
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) => (i >= len(a)) ? acc : sum(i+1, acc + a[i] * b[i])
+    sum(0, 0)
+
+  func 各元素平方(data: List) -> List =
+    (data) =>
+    let rec sq(i: Int, result: List) -> List =
+      (i, result) => (i >= len(data)) ? result :
+        sq(i+1, result + [data[i] * data[i]])
+    sq(0, [])
+
+  func 二项分布概率(k: Int, n: Int, p: Float) -> Float =
+    (k, n, p) =>
+    组合数(n)(k) * p ^ k * (1 - p) ^ (n - k)
+
+  func 正态概率密度(x: Float, μ: Float, σ: Float) -> Float =
+    (x, μ, σ) =>
+    (1 / (σ * 开方(2 * 3.14159))) * exp(-(x - μ)^2 / (2 * σ * σ))
+}

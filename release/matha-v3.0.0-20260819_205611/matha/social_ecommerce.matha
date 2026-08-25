@@ -1,0 +1,112 @@
+(* 资源库：社交与电商应用数学
+   覆盖：消息队列、用户关系、推荐算法、购物车、支付计算
+   ============================================================ *)
+
+module 社交电商 {
+
+  (* ===== 消息系统 ===== *)
+  func 消息队列长度(入队次数: Int, 出队次数: Int) -> Int =
+    (入队次数, 出队次数) => max(0, 入队次数 - 出队次数)
+
+  func 消息优先级排序(消息列表: List) -> List =
+    (* 简化：返回原列表 *)
+    (消息列表) => 消息列表
+
+  func 消息送达率(发送数: Int, 送达数: Int) -> Float =
+    (发送数, 送达数) =>
+    (发送数 = 0) ? 0 : 送达数 / 发送数
+
+  func 消息延迟均值(延迟列表: List) -> Float =
+    (延迟列表) =>
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) => if i >= len(延迟列表): acc else sum(i+1, acc + 延迟列表[i])
+    sum(0, 0) / len(延迟列表)
+
+  (* ===== 用户关系 ===== *)
+  func 关注互关率(互关数: Int, 总关注数: Int) -> Float =
+    (互关数, 总关注数) =>
+    (总关注数 = 0) ? 0 : 互关数 / 总关注数
+
+  func 活跃用户比率(日活: Int, 总用户: Int) -> Float =
+    (日活, 总用户) =>
+    (总用户 = 0) ? 0 : 日活 / 总用户
+
+  func 用户留存率(初始用户: Int, 次日留存: Int) -> Float =
+    (初始用户, 次日留存) =>
+    (初始用户 = 0) ? 0 : 次日留存 / 初始用户
+
+  func 社交网络密度(用户数: Int, 关系数: Int) -> Float =
+    (用户数, 关系数) =>
+    let max_edges = 用户数 * (用户数 - 1) / 2 in
+    (max_edges = 0) ? 0 : 关系数 / max_edges
+
+  func 平均好友数(用户列表: List) -> Float =
+    (用户列表) =>
+    let rec sum(i: Int, acc: Int) -> Int =
+      (i, acc) => if i >= len(用户列表): acc else sum(i+1, acc + 用户列表[i])
+    sum(0, 0) / len(用户列表)
+
+  (* ===== 推荐算法 ===== *)
+  func 协同过滤相似度(user1Prefs: List, user2Prefs: List) -> Float =
+    (* 简化：余弦相似度 *)
+    (user1Prefs, user2Prefs) =>
+    let n = min(len(user1Prefs), len(user2Prefs)) in
+    let rec dot(i: Int) -> Float =
+      (i) => if i >= n: 0 else user1Prefs[i] * user2Prefs[i] + dot(i+1)
+    let rec mag1(i: Int) -> Float =
+      (i) => if i >= n: 0 else user1Prefs[i]^2 + mag1(i+1)
+    let rec mag2(i: Int) -> Float =
+      (i) => if i >= n: 0 else user2Prefs[i]^2 + mag2(i+1)
+    let d = dot(0) in
+    let m1 = 开方(mag1(0)) in
+    let m2 = 开方(mag2(0)) in
+    (m1 = 0 or m2 = 0) ? 0 : d / (m1 * m2)
+
+  func 内容推荐评分(内容质量: Float, 用户兴趣: Float, 时效性: Float) -> Float =
+    (内容质量, 用户兴趣, 时效性) =>
+    内容质量 * 0.4 + 用户兴趣 * 0.4 + 时效性 * 0.2
+
+  func 热度计算(点赞数: Int, 评论数: Int, 分享数: Int, 天数: Int) -> Float =
+    (点赞数, 评论数, 分享数, 天数) =>
+    (点赞数 * 1 + 评论数 * 3 + 分享数 * 5) / max(1, 天数)
+
+  (* ===== 购物车 ===== *)
+  func 购物车总价(商品列表: List, 价格列表: List, 数量列表: List) -> Float =
+    (商品列表, 价格列表, 数量列表) =>
+    let n = min(len(价格列表), len(数量列表)) in
+    let rec sum(i: Int, acc: Float) -> Float =
+      (i, acc) =>
+        if i >= n: acc
+        else: sum(i+1, acc + 价格列表[i] * 数量列表[i])
+    sum(0, 0)
+
+  func 购物车折扣价(原价: Float, 折扣率: Float) -> Float =
+    (原价, 折扣率) => 原价 * (1 - 折扣率)
+
+  func 满减计算(总价: Float, 门槛: Float, 减免: Float) -> Float =
+    (总价, 门槛, 减免) =>
+    if 总价 >= 门槛 then min(减免, 总价 * 0.2) else 0
+
+  func 运费计算(重量: Float, 基础运费: Float, 续重单价: Float) -> Float =
+    (重量, 基础运费, 续重单价) =>
+    基础运费 + max(0, 重量 - 1) * 续重单价
+
+  (* ===== 支付计算 ===== *)
+  func 分期月供(总额: Float, 期数: Int, 月利率: Float) -> Float =
+    (总额, 期数, 月利率) =>
+    if 月利率 = 0 then 总额 / 期数
+    else 总额 * 月利率 * (1 + 月利率)^期数 / ((1 + 月利率)^期数 - 1)
+
+  func 手续费计算(金额: Float, 费率: Float) -> Float =
+    (金额, 费率) => 金额 * 费率
+
+  func 汇率换算(金额: Float, 汇率: Float) -> Float =
+    (金额, 汇率) => 金额 * 汇率
+
+  func 积分换算(消费金额: Float, 积分比例: Int) -> Int =
+    (消费金额, 积分比例) => int(消费金额) * 积分比例
+
+  func 积分抵扣(可用积分: Int, 抵扣比例: Float, 总价: Float) -> Float =
+    (可用积分, 抵扣比例, 总价) =>
+    min(可用积分 * 抵扣比例, 总价 * 0.5)
+}

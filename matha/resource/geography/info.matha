@@ -1,0 +1,29 @@
+(* 资源库：地理信息
+   覆盖：距离计算、时区、海拔气压、地图投影
+   ============================================================ *)
+
+module 地理信息 {
+
+  func 大圆距离(lat1: Float, lon1: Float, lat2: Float, lon2: Float) -> Float =
+    (lat1, lon1, lat2, lon2) =>
+    let R = 6371.0 in
+    let dlat = lat2 - lat1 in
+    let dlon = lon2 - lon1 in
+    let a = sin(dlat/2)^2 + cos(lat1) * cos(lat2) * sin(dlon/2)^2 in
+    R * 2 * atan2(开方(a), 开方(1-a))
+
+  func 时区差(经度1: Float, 经度2: Float) -> Float =
+    (经度1, 经度2) => 绝对值(经度1 - 经度2) / 15
+
+  func 海拔气压(海拔: Float) -> Float =
+    (海拔) => 101.325 * exp(-0.00012 * 海拔)
+
+  func 海拔温度(海拔: Float, 地面温度: Float) -> Float =
+    (海拔, 地面温度) => 地面温度 - 0.0065 * 海拔
+
+  func 坡度计算(高差: Float, 水平距离: Float) -> Float =
+    (高差, 水平距离) => 高差 / 水平距离 * 100
+
+  func 比例尺换算(图上距离: Float, 比例: Int) -> Float =
+    (图上距离, 比例) => 图上距离 * 比例
+}

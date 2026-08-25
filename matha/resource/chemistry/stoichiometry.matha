@@ -1,0 +1,35 @@
+(* 资源库：化学计量
+   覆盖：摩尔计算、溶液浓度、化学方程式、pH
+   ============================================================ *)
+
+module 化学计量 {
+
+  func 摩尔数(质量: Float, 摩尔质量: Float) -> Float =
+    (质量, 摩尔质量) => 质量 / 摩尔质量
+
+  func 质量(摩尔数: Float, 摩尔质量: Float) -> Float =
+    (摩尔数, 摩尔质量) => 摩尔数 * 摩尔质量
+
+  func 粒子数(摩尔数: Float) -> Float =
+    (摩尔数) => 摩尔数 * 6.022e23
+
+  func 摩尔浓度(溶质摩尔: Float, 溶液体积: Float) -> Float =
+    (溶质摩尔, 溶液体积) => 溶质摩尔 / 溶液体积
+
+  func 稀释公式(C1: Float, V1: Float) -> Float =
+    (C1, V1) =>
+    (C2) => C1 * V1 / C2
+
+  func pH值(H_conc: Float) -> Float = (H_conc) => -log10(H_conc)
+  func pOH值(OH_conc: Float) -> Float = (OH_conc) => -log10(OH_conc)
+  func pKa到Ka(pKa: Float) -> Float = (pKa) => 10 ^ (-pKa)
+
+  func 理想气体体积(n: Float, T: Float, P: Float) -> Float =
+    (n, T, P) => n * 8.314 * T / P
+
+  func 标准状态体积(n: Float) -> Float = (n) => n * 22.414
+
+  func 产率(实际产量: Float, 理论产量: Float) -> Float =
+    (实际产量, 理论产量) =>
+    (理论产量 = 0) ? 0 : 实际产量 / 理论产量 * 100
+}

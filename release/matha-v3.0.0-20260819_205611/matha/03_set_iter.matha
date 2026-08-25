@@ -1,0 +1,28 @@
+？#：{
+  【*/集合构造与求和/*】
+  #：【生成集合】>>【逐项累加】
+  @：【范围参数】，start=1，end=10
+  sum = 0
+  x = 1
+  sum = sum + x
+  x = 2
+  sum = sum + x
+  x = 3
+  sum = sum + x
+  x = 4
+  sum = sum + x
+  x = 5
+  sum = sum + x
+  x = 6
+  sum = sum + x
+  x = 7
+  sum = sum + x
+  x = 8
+  sum = sum + x
+  x = 9
+  sum = sum + x
+  x = 10
+  sum = sum + x
+  #：[sum]
+}
+#：【文件】

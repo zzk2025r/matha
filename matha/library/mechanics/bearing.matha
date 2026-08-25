@@ -1,0 +1,7 @@
+(* 资源库：机械 — 轴承 *)
+(* 保护隔离：当量动载荷、额定寿命 *)
+
+func 当量动载(Fr: Float, Fa: Float, X: Float) -> Float = (Fr, Fa, X) =>
+  X * Fr + 0.5 * Fa
+func 轴承寿命(C: Float, P: Float) -> Float = (C, P) =>
+  (C / P) ^ 3

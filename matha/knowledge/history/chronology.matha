@@ -1,0 +1,31 @@
+(* 学科知识：历史地理 — 纪元与地理
+   覆盖：纪年、历法、地理计算
+   ============================================================ *)
+
+module 历史地理 {
+
+  func 世纪(年: Int) -> Int =
+    (年) => (年 - 1) / 100 + 1
+
+  func 闰年判断(年: Int) -> Bool =
+    (年) =>
+    (年 % 4 = 0) and ((年 % 100 != 0) or (年 % 400 = 0))
+
+  func 年内天数(年: Int) -> Int =
+    (年) =>
+    (闰年判断(年) ? 366 : 365)
+
+  func 大圆距离(lat1: Float, lon1: Float, lat2: Float, lon2: Float) -> Float =
+    (lat1, lon1, lat2, lon2) =>
+    let R = 6371.0 in
+    let dlat = lat2 - lat1 in
+    let dlon = lon2 - lon1 in
+    let a = sin(dlat/2)^2 + cos(lat1) * cos(lat2) * sin(dlon/2)^2 in
+    R * 2 * atan2(开方(a), 开方(1-a))
+
+  func 时区差(经度1: Float, 经度2: Float) -> Float =
+    (经度1, 经度2) => 绝对值(经度1 - 经度2) / 15
+
+  func 海拔气压(海拔: Float) -> Float =
+    (海拔) => 101.325 * exp(-0.00012 * 海拔)
+}

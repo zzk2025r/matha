@@ -1,0 +1,71 @@
+(* 资源库：游戏开发算法
+   覆盖：A*寻路、碰撞检测、空间分割、状态机
+   ============================================================ *)
+
+module 游戏算法 {
+
+  (* ===== A* 寻路 ===== *)
+  func A星距离(x1: Float, y1: Float, x2: Float, y2: Float) -> Float =
+    (x1, y1, x2, y2) => 开方((x2-x1)^2 + (y2-y1)^2)
+
+  func A星曼哈顿距离(x1: Int, y1: Int, x2: Int, y2: Int) -> Int =
+    (x1, y1, x2, y2) => 绝对值(x2-x1) + 绝对值(y2-y1)
+
+  (* ===== AABB 碰撞检测 ===== *)
+  func AABB碰撞(x1: Float, y1: Float, w1: Float, h1: Float,
+                x2: Float, y2: Float, w2: Float, h2: Float) -> Bool =
+    (x1, y1, w1, h1, x2, y2, w2, h2) =>
+    x1 < x2 + w2 and x1 + w1 > x2 and y1 < y2 + h2 and y1 + h1 > y2
+
+  func 圆形碰撞(cx1: Float, cy1: Float, r1: Float, cx2: Float, cy2: Float, r2: Float) -> Bool =
+    (cx1, cy1, r1, cx2, cy2, r2) =>
+    开方((cx2-cx1)^2 + (cy2-cy1)^2) < r1 + r2
+
+  func 点内矩形(px: Float, py: Float, rx: Float, ry: Float, rw: Float, rh: Float) -> Bool =
+    (px, py, rx, ry, rw, rh) =>
+    px >= rx and px <= rx + rw and py >= ry and py <= ry + rh
+
+  (* ===== 空间分割（简单四叉树）===== *)
+  func 四叉树区域包含(x: Float, y: Float, bx: Float, by: Float, bw: Float, bh: Float) -> Bool =
+    (x, y, bx, by, bw, bh) =>
+    x >= bx and x <= bx + bw and y >= by and y <= by + bh
+
+  func 四叉树细分(区域宽: Float, 区域高: Float) -> (Float, Float, Float, Float, Float, Float, Float, Float) =
+    (区域宽, 区域高) =>
+    let half_w = 区域宽 / 2 in
+    let half_h = 区域高 / 2 in
+    (0, 0, half_w, half_h, half_w, 0, 区域宽, half_h)
+
+  (* ===== 游戏状态机 ===== *)
+  func 状态转换(当前状态: String, 事件: String) -> String =
+    (当前状态, 事件) =>
+    case (当前状态, 事件) of
+      ("idle", "start") -> "playing"
+      ("playing", "pause") -> "paused"
+      ("playing", "game_over") -> "gameover"
+      ("paused", "resume") -> "playing"
+      ("gameover", "restart") -> "idle"
+      _ -> 当前状态
+
+  func 状态可行动作(状态: String) -> List =
+    (状态) =>
+    case 状态 of
+      "idle" -> ["start"]
+      "playing" -> ["pause", "game_over"]
+      "paused" -> ["resume"]
+      "gameover" -> ["restart"]
+      _ -> []
+
+  (* ===== 物理模拟基础 ===== *)
+  func 重力速度(t: Float) -> Float = (t) => 9.80665 * t
+  func 重力位移(t: Float) -> Float = (t) => 0.5 * 9.80665 * t * t
+  func 弹力恢复(v: Float, restitution: Float) -> Float =
+    (v, restitution) => -v * restitution
+
+  (* ===== 粒子系统 ===== *)
+  func 粒子位置(t: Float, vx: Float, vy: Float, px: Float, py: Float) -> (Float, Float) =
+    (t, vx, vy, px, py) => (px + vx * t, py + vy * t - 0.5 * 9.80665 * t * t)
+
+  func 粒子速度(t: Float, vy0: Float) -> Float =
+    (t, vy0) => vy0 - 9.80665 * t
+}
