@@ -282,10 +282,11 @@ class RustBenchmarks:
                           iterations: int, extra_args: tuple = ()) -> BenchmarkEntry:
         """编译并运行 Rust 代码，返回基准结果。"""
         if not self._has_rustc:
+            rustc_path_str = self._get_rustc_path()
             return BenchmarkEntry(
                 test_name=name, language="rust",
                 iterations=iterations, avg_ms=0, min_ms=0, max_ms=0,
-                error="rustc 未找到，跳过 Rust 基准"
+                error=f"rustc 未找到，已尝试: {rustc_path_str}"
             )
 
         src_file = os.path.join(self.work_dir, f"{name}.rs")
@@ -297,8 +298,9 @@ class RustBenchmarks:
             f.write(code)
 
         # 编译
+        rustc_path = self._get_rustc_path()
         compile_result = subprocess.run(
-            ["rustc", "-O", "-o", exe_file, src_file],
+            [rustc_path, "-O", "-o", exe_file, src_file],
             capture_output=True, text=True, timeout=60
         )
         if compile_result.returncode != 0:

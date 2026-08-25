@@ -1,22 +1,27 @@
 # Matha vs 原生 Rust 性能基准测试报告
 
-**生成时间**: 2026-08-25 18:40:28
+**生成时间**: 2026-08-25 19:31:13
 **测试环境**: win32 / Python 3.14.3
 
 ## 测试概览
-- 算法: 5 个
-- 语言: matha
-- 总用例: 5
+- 算法: 10 个
+- 语言: matha, rust
+- 总用例: 10
 
 ## 详细结果
 
 | 算法 | 语言 | 耗时(ms) | 最小 | 最大 | 结果 |
 |------|------|----------|------|------|------|
-| MatrixMultiply | matha | 32.10 | 19.16 | 102.42 | OK |
-| QuickSort | matha | 7.07 | 1.88 | 53.95 | OK |
-| PolynomialEval | matha | 0.00 | 0.00 | 26.25 | OK |
-| Fibonacci | matha | 269.10 | 250.11 | 418.23 | OK |
-| ParallelReduce | matha | 10.32 | 9.01 | 12.35 | OK |
+| MatrixMultiply | matha | 20.79 | 18.81 | 26.38 | OK |
+| matmul_50 | rust | 0.00 | 0.00 | 0.00 | ERR: rustc 未找到，跳过 Rust 基准 |
+| QuickSort | matha | 1.85 | 1.43 | 6.07 | OK |
+| sort_10000 | rust | 0.00 | 0.00 | 0.00 | ERR: rustc 未找到，跳过 Rust 基准 |
+| PolynomialEval | matha | 0.00 | 0.00 | 2.03 | OK |
+| poly_eval | rust | 0.00 | 0.00 | 0.00 | ERR: rustc 未找到，跳过 Rust 基准 |
+| Fibonacci | matha | 266.70 | 252.33 | 372.37 | OK |
+| fib_30 | rust | 0.00 | 0.00 | 0.00 | ERR: rustc 未找到，跳过 Rust 基准 |
+| ParallelReduce | matha | 9.81 | 9.04 | 11.49 | OK |
+| reduce_1000000 | rust | 0.00 | 0.00 | 0.00 | ERR: rustc 未找到，跳过 Rust 基准 |
 
 ## 加速比（相对 Matha）
 
