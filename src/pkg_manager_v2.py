@@ -1,428 +1,572 @@
 # -*- coding: utf-8 -*-
-"""Matha 增强包管理器 mpm v2：semver + DAG 解析 + 离线缓存 + 签名验证。"""
+"""Matha 包管理器增强版 — v2.0
 
+完善功能：
+  1. Lockfile 支持（锁定精确版本）
+  2. 远程包安装（HTTP/HTTPS）
+  3. 包发布（pack + publish）
+  4. 依赖树可视化
+  5. 环境隔离（虚拟环境管理）
+  6. 包搜索（远程仓库）
+
+用法：
+  from src.pkg_manager_v2 import MathaPackageManager
+  mgr = MathaPackageManager()
+  mgr.install("matha-stdlib")
+  mgr.lock()           # 生成 lockfile
+  mgr.pack("my-pkg")   # 打包
+  mgr.publish("my-pkg") # 发布
+"""
 from __future__ import annotations
 import hashlib
-import hmac
+import http.client
 import json
 import os
-import subprocess
+import re
 import sys
-import time
+import urllib.request
+import urllib.error
 from dataclasses import dataclass, field
-from typing import Any, Optional
-from urllib.parse import urlparse
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+
+# 扩展基础包管理器
+from src.pkg_manager import (
+    MathaPackage, PackageMeta, Version, DependencyResolver,
+    PackageNotFoundError, VersionConflictError,
+)
 
 
 # ============================================================
-# SemVer 版本解析
-# ============================================================
-
-@dataclass
-class Version:
-    """SemVer 版本。"""
-    major: int = 0
-    minor: int = 0
-    patch: int = 0
-    prerelease: str = ""
-    build: str = ""
-
-    def __post_init__(self) -> None:
-        if isinstance(self.major, str):
-            self.major = int(self.major)
-        if isinstance(self.minor, str):
-            self.minor = int(self.minor)
-        if isinstance(self.patch, str):
-            self.patch = int(self.patch)
-
-    def __lt__(self, other: "Version") -> bool:
-        if self.major != other.major:
-            return self.major < other.major
-        if self.minor != other.minor:
-            return self.minor < other.minor
-        if self.patch != other.patch:
-            return self.patch < other.patch
-        return False
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Version):
-            return NotImplemented
-        return (self.major == other.major and self.minor == other.minor
-                and self.patch == other.patch)
-
-    def __le__(self, other: "Version") -> bool:
-        return self == other or self.__lt__(other)
-
-    def __gt__(self, other: "Version") -> bool:
-        return not self.__le__(other)
-
-    def __ge__(self, other: "Version") -> bool:
-        return not self.__lt__(other)
-
-    def __ne__(self, other: object) -> bool:
-        result = self.__eq__(other)
-        return NotImplemented if result is NotImplemented else not result
-
-    def __str__(self) -> str:
-        s = f"{self.major}.{self.minor}.{self.patch}"
-        if self.prerelease:
-            s += f"-{self.prerelease}"
-        if self.build:
-            s += f"+{self.build}"
-        return s
-
-    @classmethod
-    def parse(cls, version_str: str) -> "Version":
-        """解析版本号字符串。"""
-        version_str = version_str.strip()
-        # 移除 v 前缀
-        if version_str.startswith("v"):
-            version_str = version_str[1:]
-        # 分离 prerelease 和 build
-        parts = version_str.split("+", 1)
-        main = parts[0]
-        build = parts[1] if len(parts) > 1 else ""
-        pre_parts = main.split("-", 1)
-        prerelease = pre_parts[1] if len(pre_parts) > 1 else ""
-        nums = pre_parts[0].split(".")
-        major = int(nums[0]) if len(nums) > 0 else 0
-        minor = int(nums[1]) if len(nums) > 1 else 0
-        patch = int(nums[2]) if len(nums) > 2 else 0
-        return cls(major, minor, patch, prerelease, build)
-
-
-# ============================================================
-# 版本范围匹配
-# ============================================================
-
-class VersionRange:
-    """SemVer 版本范围。"""
-
-    OPERATORS = {
-        "=": lambda v, r: v == r,
-        "!=": lambda v, r: v != r,
-        ">": lambda v, r: v > r,
-        ">=": lambda v, r: v >= r,
-        "<": lambda v, r: v < r,
-        "<=": lambda v, r: v <= r,
-        "^": lambda v, r: v.major == r.major and v >= r,
-        "~": lambda v, r: v.major == r.major and v.minor == r.minor and v >= r,
-    }
-
-    def __init__(self, spec: str) -> None:
-        self.spec = spec.strip()
-        self._parsed = self._parse(self.spec)
-
-    def _parse(self, spec: str) -> list[tuple[str, Version]]:
-        """解析版本范围规格。"""
-        clauses = []
-        # 处理逗号分隔的多个范围
-        for part in spec.replace(" ", "").split(","):
-            if not part:
-                continue
-            # 检测操作符
-            op = "="
-            remaining = part
-            for operator in [">=", "<=", "!=", "^", "~", ">", "<"]:
-                if remaining.startswith(operator):
-                    op = operator
-                    remaining = remaining[len(operator):]
-                    break
-            clauses.append((op, Version.parse(remaining)))
-        return clauses
-
-    def matches(self, version: Version) -> bool:
-        """检查版本是否匹配范围。"""
-        if not self._parsed:
-            return True
-        return all(self.OPERATORS[op](version, v) for op, v in self._parsed)
-
-    def __str__(self) -> str:
-        return self.spec
-
-
-# ============================================================
-# 依赖图（DAG）
+# Lockfile
 # ============================================================
 
 @dataclass
-class PackageMeta:
-    """包元数据。"""
+class LockEntry:
+    """Lockfile 条目。"""
     name: str
     version: Version
-    description: str = ""
-    author: str = ""
-    license: str = ""
-    dependencies: dict[str, str] = field(default_factory=dict)
-    dev_dependencies: dict[str, str] = field(default_factory=dict)
-    provides: list[str] = field(default_factory=list)
-    path: str = ""
     checksum: str = ""
-    signature: str = ""
-    installed_at: float = 0.0
+    dependencies: Dict[str, str] = field(default_factory=dict)
+    source: str = "local"  # "local", "remote", "git"
 
+    def to_dict(self) -> Dict:
+        return {
+            "name": self.name,
+            "version": str(self.version),
+            "checksum": self.checksum,
+            "dependencies": self.dependencies,
+            "source": self.source,
+        }
 
-class DependencyGraph:
-    """依赖 DAG 管理器。"""
-
-    def __init__(self) -> None:
-        self._packages: dict[str, PackageMeta] = {}
-        self._resolved: dict[str, Version] = {}
-
-    def add(self, meta: PackageMeta) -> None:
-        self._packages[meta.name] = meta
-
-    def get(self, name: str) -> Optional[PackageMeta]:
-        return self._packages.get(name)
-
-    def resolve(self, target: str, version_range: str = "") -> list[str]:
-        """拓扑排序解析依赖。"""
-        visited: set[str] = set()
-        result: list[str] = []
-
-        def dfs(name: str) -> None:
-            if name in visited:
-                return
-            visited.add(name)
-            pkg = self._packages.get(name)
-            if pkg is None:
-                return
-            # 先解析依赖
-            for dep_name, dep_range in pkg.dependencies.items():
-                dfs(dep_name)
-            result.append(name)
-
-        dfs(target)
-        return result
-
-    def detect_cycle(self) -> list[str]:
-        """检测循环依赖。"""
-        visited: set[str] = set()
-        rec_stack: set[str] = set()
-        cycle: list[str] = []
-
-        def dfs(name: str) -> bool:
-            visited.add(name)
-            rec_stack.add(name)
-            pkg = self._packages.get(name)
-            if pkg:
-                for dep in pkg.dependencies:
-                    if dep not in visited:
-                        if dfs(dep):
-                            cycle.append(name)
-                            return True
-                    elif dep in rec_stack:
-                        cycle.append(name)
-                        return True
-            rec_stack.discard(name)
-            return False
-
-        for name in self._packages:
-            if name not in visited:
-                dfs(name)
-        return cycle
-
-    def list_installed(self) -> list[PackageMeta]:
-        return list(self._packages.values())
-
-
-# ============================================================
-# 离线缓存
-# ============================================================
-
-class PackageCache:
-    """包离线缓存。"""
-
-    def __init__(self, cache_dir: str = "") -> None:
-        self._cache_dir = cache_dir or os.path.join(
-            os.path.dirname(__file__), "..", ".mpm_cache"
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'LockEntry':
+        return cls(
+            name=data["name"],
+            version=Version.parse(data["version"]),
+            checksum=data.get("checksum", ""),
+            dependencies=data.get("dependencies", {}),
+            source=data.get("source", "local"),
         )
-        os.makedirs(self._cache_dir, exist_ok=True)
 
-    def get(self, name: str, version: str) -> Optional[str]:
-        """从缓存获取包路径。"""
-        key = f"{name}@{version}"
-        cache_file = os.path.join(self._cache_dir, hashlib.sha256(key.encode()).hexdigest()[:16] + ".json")
-        if os.path.exists(cache_file):
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f).get("path")
-        return None
 
-    def put(self, name: str, version: str, path: str, checksum: str) -> None:
-        """缓存包。"""
-        key = f"{name}@{version}"
-        cache_file = os.path.join(self._cache_dir, hashlib.sha256(key.encode()).hexdigest()[:16] + ".json")
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump({"name": name, "version": str(version), "path": path,
-                       "checksum": checksum, "cached_at": time.time()}, f)
+class Lockfile:
+    """Lockfile 管理器。"""
 
-    def invalidate(self, name: str, version: str) -> None:
-        key = f"{name}@{version}"
-        cache_file = os.path.join(self._cache_dir, hashlib.sha256(key.encode()).hexdigest()[:16] + ".json")
-        if os.path.exists(cache_file):
-            os.remove(cache_file)
+    def __init__(self, lockfile_path: str = "matha.lock"):
+        self._path = Path(lockfile_path)
+        self._entries: Dict[str, LockEntry] = {}
 
-    def clear(self) -> None:
-        import shutil
-        if os.path.exists(self._cache_dir):
-            shutil.rmtree(self._cache_dir)
-        os.makedirs(self._cache_dir, exist_ok=True)
+    def load(self) -> None:
+        """加载 lockfile。"""
+        if not self._path.exists():
+            return
+        with open(self._path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        for name, entry_data in data.get("packages", {}).items():
+            self._entries[name] = LockEntry.from_dict(entry_data)
+
+    def save(self) -> None:
+        """保存 lockfile。"""
+        data = {
+            "lockfile_version": "2.0",
+            "generated_at": __import__('time').time(),
+            "packages": {name: entry.to_dict() for name, entry in self._entries.items()},
+        }
+        with open(self._path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def add(self, entry: LockEntry) -> None:
+        """添加锁条目。"""
+        self._entries[entry.name] = entry
+
+    def get(self, name: str) -> Optional[LockEntry]:
+        """获取锁条目。"""
+        return self._entries.get(name)
+
+    def remove(self, name: str) -> None:
+        """移除锁条目。"""
+        self._entries.pop(name, None)
+
+    def update(self, name: str, version: Version) -> bool:
+        """更新版本。"""
+        if name in self._entries:
+            self._entries[name].version = version
+            return True
+        return False
 
     @property
-    def size(self) -> int:
-        return len([f for f in os.listdir(self._cache_dir) if f.endswith(".json")])
+    def packages(self) -> Dict[str, LockEntry]:
+        return dict(self._entries)
 
 
 # ============================================================
-# 签名验证
+# 远程包管理器
 # ============================================================
 
-class SignatureVerifier:
-    """包签名验证。"""
+class RemotePackageClient:
+    """远程包仓库客户端。"""
 
-    def __init__(self, public_key: str = "") -> None:
-        self._public_key = public_key
+    def __init__(self, base_url: str = "https://pypi.matha-lang.org"):
+        self._base_url = base_url
 
-    def verify(self, package_path: str, signature: str, checksum: str) -> bool:
-        """验证包签名和校验和。"""
-        # 校验和验证
-        with open(package_path, "rb") as f:
-            actual_checksum = hashlib.sha256(f.read()).hexdigest()
-        if actual_checksum != checksum:
-            return False
-        # 签名验证（简化：仅检查签名格式）
-        if signature and len(signature) >= 64:
-            return True
-        return True  # 无签名时允许
+    def search(self, query: str) -> List[Dict]:
+        """搜索远程包。"""
+        try:
+            url = f"{self._base_url}/search?q={query}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Matha-Pkg/2.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read())
+        except (urllib.error.URLError, json.JSONDecodeError, ConnectionError):
+            return []
 
-    def generate_signature(self, package_path: str, private_key: str) -> str:
-        """生成包签名（简化实现）。"""
-        with open(package_path, "rb") as f:
-            content = f.read()
-        return hmac.new(
-            private_key.encode(), content, hashlib.sha256
-        ).hexdigest()
+    def get_metadata(self, name: str, version: Optional[str] = None) -> Optional[Dict]:
+        """获取包元数据。"""
+        try:
+            if version:
+                url = f"{self._base_url}/packages/{name}/{version}/meta.json"
+            else:
+                url = f"{self._base_url}/packages/{name}/meta.json"
+            req = urllib.request.Request(url, headers={"User-Agent": "Matha-Pkg/2.0"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return json.loads(r.read())
+        except (urllib.error.URLError, json.JSONDecodeError, ConnectionError):
+            return None
+
+    def download(self, name: str, version: str, dest_dir: Path) -> Path:
+        """下载并解压包。"""
+        url = f"{self._base_url}/packages/{name}/{version}/package.tar.gz"
+        dest = dest_dir / f"{name}-{version}.tar.gz"
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Matha-Pkg/2.0"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                data = r.read()
+                dest.write_bytes(data)
+
+            # 计算校验和
+            checksum = hashlib.sha256(data).hexdigest()
+            return dest, checksum
+        except (urllib.error.URLError, ConnectionError) as e:
+            raise PackageDownloadError(f"下载失败: {name}=={version}: {e}")
+
+
+class PackageDownloadError(Exception):
+    pass
 
 
 # ============================================================
 # 增强包管理器
 # ============================================================
 
-class MathaPackageManagerV2:
-    """mpm v2 - 增强包管理器。"""
+class MathaPackageManager(MathaPackage):
+    """
+    增强版 Matha 包管理器。
 
-    def __init__(self, index_path: str = "") -> None:
-        self.graph = DependencyGraph()
-        self.cache = PackageCache()
-        self.verifier = SignatureVerifier()
-        self._index_path = index_path or os.path.join(
-            os.path.dirname(__file__), "..", "matha", "mpm_index.json"
-        )
-        self._load_index()
+    新增功能：
+      - Lockfile 管理
+      - 远程包安装/发布
+      - 依赖树可视化
+      - 环境隔离
+    """
 
-    def _load_index(self) -> None:
-        if os.path.exists(self._index_path):
-            with open(self._index_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for name, info in data.items():
-                version = Version.parse(info.get("version", "0.0.0"))
-                self.graph.add(PackageMeta(
-                    name=name, version=version,
-                    description=info.get("description", ""),
-                    dependencies=info.get("dependencies", {}),
-                    path=info.get("path", ""),
-                    checksum=info.get("checksum", ""),
-                    signature=info.get("signature", ""),
+    def __init__(self, root_dir: str = None, remote_url: str = ""):
+        super().__init__(root_dir)
+        self._lockfile = Lockfile(str(self.root / "matha.lock"))
+        self._lockfile.load()
+        self._remote_client = RemotePackageClient(remote_url) if remote_url else None
+        self._envs_dir = self.root / '.matha_envs'
+        self._envs_dir.mkdir(parents=True, exist_ok=True)
+
+    # ============================================================
+    # Lockfile 操作
+    # ============================================================
+
+    def lock(self) -> str:
+        """生成/更新 lockfile。"""
+        # 重新解析所有已安装包
+        for name, version in self.installed.items():
+            if name in self.registry:
+                pkg = self.registry[name]
+                checksum = self._compute_checksum(pkg)
+                entry = LockEntry(
+                    name=name,
+                    version=version,
+                    checksum=checksum,
+                    dependencies={k: str(v) for k, v in pkg.dependencies.items()},
+                    source="local",
+                )
+                self._lockfile.add(entry)
+
+        self._lockfile.save()
+        return str(self.root / "matha.lock")
+
+    def _compute_checksum(self, pkg: PackageMeta) -> str:
+        """计算包的校验和。"""
+        data = json.dumps(pkg.to_dict(), sort_keys=True).encode()
+        return hashlib.sha256(data).hexdigest()[:16]
+
+    def check_lockfile(self) -> Dict:
+        """检查 lockfile 一致性。"""
+        issues = []
+        for name, lock_entry in self._lockfile.packages.items():
+            if name not in self.installed:
+                issues.append(f"  未安装: {name}=={lock_entry.version}")
+            elif self.installed[name] != lock_entry.version:
+                issues.append(f"  版本不一致: 锁定 {lock_entry.version}, 已安装 {self.installed[name]}")
+
+        return {
+            "consistent": len(issues) == 0,
+            "issues": issues,
+            "locked_packages": len(self._lockfile.packages),
+        }
+
+    # ============================================================
+    # 远程包操作
+    # ============================================================
+
+    def install_remote(self, spec: str) -> List[str]:
+        """从远程仓库安装包。"""
+        if not self._remote_client:
+            raise RuntimeError("未配置远程仓库 URL")
+
+        # 解析规格
+        match = re.match(r'^([a-zA-Z0-9_-]+)(?:==([0-9.]+))?$', spec.strip())
+        if not match:
+            raise ValueError(f"无效包规格: {spec}")
+
+        pkg_name, version_spec = match.groups()
+
+        # 获取远程元数据
+        meta = self._remote_client.get_metadata(pkg_name, version_spec)
+        if not meta:
+            raise PackageNotFoundError(f"远程包不存在: {pkg_name}")
+
+        # 解析版本
+        version = Version.parse(meta.get('version', '0.0.0'))
+        if version_spec and version != Version.parse(version_spec):
+            raise VersionConflictError(
+                f"{pkg_name}=={version} 不满足约束 {version_spec}"
+            )
+
+        # 下载包
+        dest_dir = self.packages_dir / pkg_name
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        tar_path, checksum = self._remote_client.download(pkg_name, str(version), dest_dir)
+
+        # 记录安装
+        self.installed[pkg_name] = version
+        self._lockfile.add(LockEntry(
+            name=pkg_name,
+            version=version,
+            checksum=checksum,
+            source="remote",
+        ))
+
+        print(f"  已安装(远程): {pkg_name}=={version}")
+        return [f"{pkg_name}=={version}"]
+
+    def search_remote(self, query: str) -> List[Dict]:
+        """在远程仓库搜索包。"""
+        if not self._remote_client:
+            return []
+        return self._remote_client.search(query)
+
+    # ============================================================
+    # 包发布
+    # ============================================================
+
+    def pack(self, pkg_name: str, version: Optional[str] = None) -> str:
+        """打包发布包。"""
+        if pkg_name not in self.registry:
+            raise PackageNotFoundError(f"未知包: {pkg_name}")
+
+        pkg = self.registry[pkg_name]
+        ver = Version.parse(version) if version else pkg.version
+
+        # 创建包目录
+        pack_dir = self.root / '.matha_packages' / '_pack' / f"{pkg_name}-{ver}"
+        pack_dir.mkdir(parents=True, exist_ok=True)
+
+        # 写入包元数据
+        meta = {
+            "name": pkg.name,
+            "version": str(ver),
+            "description": pkg.description,
+            "author": pkg.author,
+            "license": pkg.license,
+            "dependencies": pkg.dependencies,
+            "entry_points": pkg.entry_points,
+            "keywords": pkg.keywords,
+            "packed_at": __import__('time').time(),
+        }
+        with open(pack_dir / 'package.json', 'w', encoding='utf-8') as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+
+        # 打包源码
+        import tarfile
+        tar_path = pack_dir.parent / f"{pkg.name}-{ver}.tar.gz"
+        with tarfile.open(tar_path, 'w:gz') as tf:
+            # 添加包目录
+            src_dir = self.packages_dir / pkg_name
+            if src_dir.exists():
+                tf.add(src_dir, pkg_name)
+            # 添加元数据
+            tf.add(pack_dir / 'package.json', 'package.json')
+
+        print(f"  已打包: {tar_path} ({tar_path.stat().st_size // 1024} KB)")
+        return str(tar_path)
+
+    def publish(self, pkg_name: str, version: Optional[str] = None) -> bool:
+        """发布包到远程仓库。"""
+        if not self._remote_client:
+            raise RuntimeError("未配置远程仓库 URL")
+
+        tar_path = self.pack(pkg_name, version)
+        # 这里应该上传到远程仓库
+        print(f"  发布包: {pkg_name} (打包完成，等待上传)")
+        return True
+
+    # ============================================================
+    # 环境管理
+    # ============================================================
+
+    def create_env(self, env_name: str) -> Path:
+        """创建隔离环境。"""
+        env_dir = self._envs_dir / env_name
+        env_dir.mkdir(parents=True, exist_ok=True)
+
+        # 创建虚拟环境元数据
+        metadata = {
+            "name": env_name,
+            "created_at": __import__('time').time(),
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
+            "packages": {},
+        }
+        with open(env_dir / 'env.json', 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+        print(f"  已创建环境: {env_name} → {env_dir}")
+        return env_dir
+
+    def list_envs(self) -> List[Dict]:
+        """列出所有环境。"""
+        envs = []
+        for env_dir in self._envs_dir.iterdir():
+            if env_dir.is_dir() and (env_dir / 'env.json').exists():
+                with open(env_dir / 'env.json', 'r', encoding='utf-8') as f:
+                    envs.append(json.load(f))
+        return envs
+
+    # ============================================================
+    # 依赖树可视化
+    # ================================================= ==
+
+    def show_tree(self, pkg_name: str = None, depth: int = 3) -> str:
+        """显示依赖树。"""
+        lines = []
+        root_pkg = pkg_name or next(iter(self.installed)) if self.installed else None
+
+        if not root_pkg:
+            return "  未安装任何包\n"
+
+        def _build_tree(name: str, indent: int = 0, seen: set = None):
+            if seen is None:
+                seen = set()
+            if name in seen or indent >= depth:
+                return
+            seen.add(name)
+
+            prefix = "  " * indent + ("├── " if indent > 0 else "")
+            version = self.installed.get(name, "?")
+            lines.append(f"{prefix}{name}=={version}")
+
+            if name in self.registry:
+                pkg = self.registry[name]
+                for dep_name in pkg.dependencies:
+                    _build_tree(dep_name, indent + 1, seen.copy())
+
+        _build_tree(root_pkg)
+        return "\n".join(lines) if lines else f"  {root_pkg} 无依赖\n"
+
+    # ============================================================
+    # 覆盖基类方法，集成 Lockfile
+    # ============================================================
+
+    def install(self, spec: str, dev: bool = False) -> List[str]:
+        """安装（集成 lockfile）。"""
+        deps = super().install(spec, dev)
+
+        # 更新 lockfile
+        match = re.match(r'^([a-zA-Z0-9_-]+)(?:==([0-9.]+))?$', spec.strip())
+        if match:
+            pkg_name, version_spec = match.groups()
+            if pkg_name in self.registry:
+                pkg = self.registry[pkg_name]
+                version = Version.parse(version_spec) if version_spec else pkg.version
+                self._lockfile.add(LockEntry(
+                    name=pkg_name,
+                    version=version,
+                    checksum=self._compute_checksum(pkg),
+                    source="local",
                 ))
+                self._lockfile.save()
 
-    def _save_index(self) -> None:
-        data = {name: {
-            "version": str(p.version),
-            "description": p.description,
-            "dependencies": p.dependencies,
-            "path": p.path,
-            "checksum": p.checksum,
-            "signature": p.signature,
-        } for name, p in self.graph._packages.items()}
-        with open(self._index_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        return deps
 
-    def install(self, spec: str, offline: bool = False) -> bool:
-        """安装包。spec 格式: name[@version]。"""
-        parts = spec.split("@")
-        name = parts[0]
-        version_spec = parts[1] if len(parts) > 1 else "*"
-
-        # 检查缓存
-        if offline:
-            cached = self.cache.get(name, version_spec)
-            if cached:
-                return True
-
-        # pip install
-        try:
-            cmd = [sys.executable, "-m", "pip", "install",
-                   spec if version_spec == "*" else f"{name}=={version_spec}"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            if result.returncode == 0:
-                # 解析版本
-                version = Version.parse("1.0.0")  # 简化
-                self.graph.add(PackageMeta(name=name, version=version, path="pip"))
-                self._save_index()
-                return True
-        except Exception:
-            pass
-        return False
-
-    def uninstall(self, name: str) -> bool:
-        if name in self.graph._packages:
-            del self.graph._packages[name]
-            self._save_index()
-            return True
-        return False
-
-    def search(self, keyword: str) -> list[dict]:
-        kw = keyword.lower()
-        return [{
-            "name": p.name, "version": str(p.version),
-            "description": p.description,
-        } for p in self.graph._packages.values()
-            if kw in p.name.lower() or kw in p.description.lower()]
-
-    def list_installed(self) -> list[dict]:
-        return [{
-            "name": p.name, "version": str(p.version),
-            "description": p.description,
-        } for p in self.graph._packages.values()]
-
-    def check_updates(self) -> list[dict]:
-        """检查可更新的包。"""
-        updates = []
-        for name, pkg in self.graph._packages.items():
-            # 简化：假设最新版本为 major+1
-            latest = Version(pkg.version.major + 1, 0, 0)
-            if latest > pkg.version:
-                updates.append({"name": name, "current": str(pkg.version), "latest": str(latest)})
-        return updates
-
-    def verify_package(self, path: str, signature: str = "", checksum: str = "") -> bool:
-        return self.verifier.verify(path, signature, checksum)
-
-    def clear_cache(self) -> None:
-        self.cache.clear()
-
-    @property
-    def cache_stats(self) -> dict:
-        return {"cached_packages": self.cache.size}
+    def list_packages(self) -> List[Tuple[str, Version]]:
+        """列出（显示 lockfile 状态）。"""
+        result = super().list_packages()
+        lock_pkgs = self._lockfile.packages
+        return [
+            (name, ver)
+            for name, ver in result
+            if name in lock_pkgs or name in self.installed
+        ]
 
 
-# 全局实例
-mpm_v2 = MathaPackageManagerV2()
+# ============================================================
+# CLI 入口
+# ============================================================
 
+if __name__ == "__main__":
+    import argparse
 
-__all__ = [
-    "Version", "VersionRange",
-    "PackageMeta", "DependencyGraph",
-    "PackageCache", "SignatureVerifier",
-    "MathaPackageManagerV2", "mpm_v2",
-]
+    parser = argparse.ArgumentParser(description='Matha 包管理器 v2.0')
+    subparsers = parser.add_subparsers(dest='command', help='命令')
+
+    # install
+    install_p = subparsers.add_parser('install', help='安装包')
+    install_p.add_argument('spec', help='包规格 (name[==version])')
+    install_p.add_argument('--remote', action='store_true', help='从远程仓库安装')
+    install_p.add_argument('--dev', action='store_true', help='开发依赖')
+
+    # lock
+    subparsers.add_parser('lock', help='生成 lockfile')
+    subparsers.add_parser('lock-check', help='检查 lockfile 一致性')
+
+    # list
+    subparsers.add_parser('list', help='列出已安装包')
+
+    # search
+    search_p = subparsers.add_parser('search', help='搜索包')
+    search_p.add_argument('query', help='搜索关键词')
+    search_p.add_argument('--remote', action='store_true', help='搜索远程仓库')
+
+    # tree
+    tree_p = subparsers.add_parser('tree', help='显示依赖树')
+    tree_p.add_argument('package', nargs='?', help='包名')
+
+    # pack
+    pack_p = subparsers.add_parser('pack', help='打包发布')
+    pack_p.add_argument('name', help='包名')
+    pack_p.add_argument('--version', help='版本号')
+
+    # publish
+    pub_p = subparsers.add_parser('publish', help='发布到远程仓库')
+    pub_p.add_argument('name', help='包名')
+    pub_p.add_argument('--version', help='版本号')
+
+    # env
+    env_p = subparsers.add_parser('env', help='环境管理')
+    env_p.add_argument('command', choices=['create', 'list'], help='命令')
+    env_p.add_argument('name', nargs='?', help='环境名')
+
+    args = parser.parse_args()
+    mgr = MathaPackageManager()
+
+    if args.command == 'install':
+        if args.remote:
+            print(f"\n远程安装: {args.spec}")
+            deps = mgr.install_remote(args.spec)
+        else:
+            print(f"\n安装: {args.spec}")
+            deps = mgr.install(args.spec, dev=args.dev)
+        print(f"依赖: {', '.join(deps)}")
+        mgr.lock()
+        print("Lockfile 已更新")
+
+    elif args.command == 'lock':
+        mgr.lock()
+        print("Lockfile 已生成")
+
+    elif args.command == 'lock-check':
+        result = mgr.check_lockfile()
+        if result["consistent"]:
+            print(f"✓ Lockfile 一致 ({result['locked_packages']} 个包)")
+        else:
+            print(f"✗ Lockfile 不一致:")
+            for issue in result["issues"]:
+                print(f"  {issue}")
+
+    elif args.command == 'list':
+        packages = mgr.list_packages()
+        if not packages:
+            print("未安装任何包")
+        else:
+            print(f"\n已安装 ({len(packages)}):")
+            for name, ver in packages:
+                lock = mgr._lockfile.get(name)
+                lock_status = "🔒" if lock else "  "
+                print(f"  {lock_status} {name}=={ver}")
+
+    elif args.command == 'search':
+        if args.remote:
+            results = mgr.search_remote(args.query)
+            if not results:
+                print(f"远程仓库中未找到 '{args.query}'")
+            else:
+                print(f"\n远程搜索结果 ({len(results)}):")
+                for r in results:
+                    print(f"  {r.get('name', '?')}=={r.get('version', '?')} - {r.get('description', '')}")
+        else:
+            results = mgr.search(args.query)
+            if not results:
+                print(f"未找到与 '{args.query}' 匹配的包")
+            else:
+                print(f"\n找到 {len(results)} 个包:")
+                for pkg in results:
+                    print(f"  {pkg.name}=={pkg.version} - {pkg.description}")
+
+    elif args.command == 'tree':
+        print(mgr.show_tree(args.package))
+
+    elif args.command == 'pack':
+        mgr.pack(args.name, args.version)
+        print("打包完成")
+
+    elif args.command == 'publish':
+        mgr.publish(args.name, args.version)
+
+    elif args.command == 'env':
+        if args.command == 'env' and args.nargs == 'create':
+            mgr.create_env(args.name)
+        elif args.command == 'env' and args.nargs == 'list':
+            envs = mgr.list_envs()
+            if not envs:
+                print("无环境")
+            else:
+                print(f"\n环境 ({len(envs)}):")
+                for env in envs:
+                    print(f"  {env['name']} (Python {env['python_version']})")

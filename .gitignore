@@ -54,3 +54,10 @@ temp/
 coverage/
 .htmlcov/
 .pytest_cache/
+
+# 大文件（LLVM/二进制）
+lib/llvmlite_pkg/
+*.dll
+*.exe
+*.so
+*.dylib
