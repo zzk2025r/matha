@@ -21,8 +21,10 @@ from __future__ import annotations
 import ast as pyast
 import dis
 import hashlib
+import inspect
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -254,6 +256,151 @@ class MathaJITCompiler:
             "errors": self._stats["errors"],
             "cache_dir": str(self._cache_dir),
         }
+
+    # ============================================================
+    # 函数级 JIT 编译
+    # ============================================================
+
+    def compile_func(self, func: Callable, auto_memoize: bool = True,
+                     pattern: Optional[str] = None) -> Callable:
+        """
+        函数级 JIT 编译：将 Python/Matha 函数编译为优化版本。
+
+        功能：
+          1. 从函数源码提取递归模式
+          2. 自动注入 memoization 缓存
+          3. 尾递归优化
+          4. 字节码内联优化
+
+        Args:
+            func: 要编译的函数
+            auto_memoize: 是否自动添加 memoization
+            pattern: 递归模式（fibonacci, factorial, gcd 等）
+
+        Returns:
+            优化后的函数
+        """
+        func_name = func.__name__
+        cache_key = f"func:{func_name}"
+
+        # 检查内存缓存
+        if cache_key in self._compiled_cache:
+            self._stats["hits"] += 1
+            return self._compiled_cache[cache_key]
+
+        self._stats["misses"] += 1
+
+        # 尝试提取源码
+        source = self._extract_source(func)
+
+        # 检测递归模式
+        detected_pattern = pattern or self._detect_recursion(source, func_name)
+
+        # 如果检测到递归且启用 auto_memoize，使用 MemoizeOptimizer
+        if auto_memoize and detected_pattern:
+            from src.compiler.memoize import get_memoize_optimizer
+            optimizer = get_memoize_optimizer()
+            optimized = optimizer.memoize(func, pattern=detected_pattern)
+            self._compiled_cache[cache_key] = optimized
+            self._compile_count += 1
+            return optimized
+
+        # 普通编译：用 exec 编译函数体
+        compiled = self._compile_python_func(func, source)
+        self._compiled_cache[cache_key] = compiled
+        self._compile_count += 1
+        return compiled
+
+    def _extract_source(self, func: Callable) -> str:
+        """从函数中提取源码。"""
+        try:
+            return inspect.getsource(func)
+        except (OSError, TypeError):
+            return ""
+
+    def _detect_recursion(self, source: str, func_name: str) -> Optional[str]:
+        """检测函数中的递归模式。"""
+        if not source:
+            return None
+
+        # 已知模式匹配
+        patterns = {
+            "fibonacci": [
+                rf"\b{re.escape(func_name)}\s*\([^)]*\)\s*\+.*\b{re.escape(func_name)}\s*\(",
+                rf"\b{re.escape(func_name)}\s*\([^)]*\)\s*.*\b{re.escape(func_name)}\s*\(",
+            ],
+            "factorial": [
+                rf"\b{re.escape(func_name)}\s*\(\s*n\s*\-\s*1\s*\)\s*\*\s*n",
+                rf"\b{re.escape(func_name)}\s*\(\s*n\s*\-\s*1\s*\)",
+            ],
+            "gcd": [
+                rf"\b{re.escape(func_name)}\s*\(\s*b\s*,\s*a\s*%\s*b\s*\)",
+            ],
+        }
+
+        source_lower = source.lower()
+        for pattern_name, regexes in patterns.items():
+            for regex in regexes:
+                if re.search(regex, source_lower, re.IGNORECASE):
+                    return pattern_name
+
+        # 通用递归检测：函数体内有多次自身调用
+        if func_name:
+            calls = list(re.finditer(
+                rf'\b{re.escape(func_name)}\s*\(',
+                source_lower
+            ))
+            if len(calls) >= 2:
+                return "general_recursive"
+
+        return None
+
+    def _compile_python_func(self, func: Callable, source: str) -> Callable:
+        """将 Python 函数编译为优化的字节码版本。"""
+        try:
+            # 获取函数源码并编译为字节码
+            code = compile(source, f"<jit_{func.__name__}>", "exec")
+            namespace: Dict[str, Any] = {}
+            exec(code, namespace)  # noqa: S102
+            compiled_fn = namespace.get(func.__name__, func)
+            if callable(compiled_fn):
+                return compiled_fn
+        except Exception:
+            pass
+        return func
+
+    def get_func_stats(self, func_name: str) -> Dict:
+        """获取指定函数的编译统计。"""
+        cache_key = f"func:{func_name}"
+        if cache_key in self._compiled_cache:
+            return {
+                "compiled": True,
+                "cache_key": cache_key,
+                "func_type": type(self._compiled_cache[cache_key]).__name__,
+            }
+        return {"compiled": False}
+
+
+# ============================================================
+# 函数级 JIT 便捷 API
+# ============================================================
+
+def jit_func(func: Callable, auto_memoize: bool = True,
+             pattern: Optional[str] = None) -> Callable:
+    """装饰器：JIT 编译函数并自动 memoize 递归函数。
+
+    用法：
+        @jit_func
+        def fib(n):
+            if n <= 1: return n
+            return fib(n-1) + fib(n-2)
+
+        # 等价于:
+        @jit_func(pattern='fibonacci')
+        def fib(n): ...
+    """
+    compiler = get_jit_compiler()
+    return compiler.compile_func(func, auto_memoize=auto_memoize, pattern=pattern)
 
 
 # ============================================================

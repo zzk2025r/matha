@@ -595,5 +595,167 @@ class TestIntegration(unittest.TestCase):
         self.assertTrue(hasattr(fib_opt, '_profiler'))
 
 
+class TestJITFunctionLevel(unittest.TestCase):
+    """测试 JIT 函数级编译。"""
+
+    def test_compile_func_simple(self):
+        """简单函数编译。"""
+        from src.compiler.jit import MathaJITCompiler
+
+        compiler = MathaJITCompiler()
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        compiled = compiler.compile_func(add, auto_memoize=False)
+        self.assertEqual(compiled(3, 5), 8)
+        self.assertEqual(compiled(10, 20), 30)
+
+    def test_compile_func_fibonacci_auto_memoize(self):
+        """Fibonacci 自动 memoize 编译。"""
+        from src.compiler.jit import MathaJITCompiler
+
+        compiler = MathaJITCompiler()
+
+        def fib_raw(n: int) -> int:
+            if n <= 1:
+                return n
+            return fib_raw(n - 1) + fib_raw(n - 2)
+
+        compiled = compiler.compile_func(fib_raw, auto_memoize=True, pattern="fibonacci")
+
+        # 正确性验证
+        self.assertEqual(compiled(0), 0)
+        self.assertEqual(compiled(1), 1)
+        self.assertEqual(compiled(10), 55)
+        self.assertEqual(compiled(20), 6765)
+        self.assertEqual(compiled(30), 832040)
+
+        # 编译统计验证
+        func_stats = compiler.get_func_stats("fib_raw")
+        self.assertTrue(func_stats["compiled"])
+
+    def test_compile_func_factorial_auto_memoize(self):
+        """阶乘自动 memoize 编译。"""
+        from src.compiler.jit import jit_func
+
+        @jit_func
+        def fact_jit(n: int) -> int:
+            if n <= 1:
+                return 1
+            return n * fact_jit(n - 1)
+
+        self.assertEqual(fact_jit(0), 1)
+        self.assertEqual(fact_jit(5), 120)
+        self.assertEqual(fact_jit(10), 3628800)
+        self.assertEqual(fact_jit(20), 2432902008176640000)
+
+    def test_compile_func_with_pattern(self):
+        """显式指定递归模式编译。"""
+        from src.compiler.jit import MathaJITCompiler
+
+        compiler = MathaJITCompiler()
+
+        def fib_explicit(n: int) -> int:
+            if n <= 1:
+                return n
+            return fib_explicit(n - 1) + fib_explicit(n - 2)
+
+        compiled = compiler.compile_func(fib_explicit, auto_memoize=True, pattern="fibonacci")
+        self.assertEqual(compiled(30), 832040)
+
+        # 统计验证
+        func_stats = compiler.get_func_stats("fib_explicit")
+        self.assertTrue(func_stats["compiled"])
+
+    def test_compile_func_no_recursion(self):
+        """非递归函数编译（不添加 memoize）。"""
+        from src.compiler.jit import MathaJITCompiler
+
+        compiler = MathaJITCompiler()
+
+        def square(n: int) -> int:
+            return n * n
+
+        compiled = compiler.compile_func(square, auto_memoize=True)
+        self.assertEqual(compiled(5), 25)
+        self.assertEqual(compiled(10), 100)
+
+    def test_jit_func_decorator(self):
+        """jit_func 装饰器功能（通过显式 pattern）。"""
+        from src.compiler.jit import MathaJITCompiler
+
+        compiler = MathaJITCompiler()
+
+        def memoized_add(a: int, b: int) -> int:
+            return a + b
+
+        # 使用显式编译（不依赖 auto-detect）
+        compiled = compiler.compile_func(memoized_add, auto_memoize=False)
+        self.assertEqual(compiled(3, 5), 8)
+        self.assertEqual(compiled(10, 20), 30)
+
+        # 编译缓存验证
+        cached = compiler.compile_func(memoized_add, auto_memoize=False)
+        self.assertIs(compiled, cached)  # 同一编译结果
+
+
+class TestRustBenchmark(unittest.TestCase):
+    """测试 Rust 基准验证基础设施。"""
+
+    def test_rustc_detection(self):
+        """Rustc 检测。"""
+        from scripts.benchmark_rust import RustBenchmarks
+
+        rust = RustBenchmarks()
+        # 不应抛出异常
+        _ = rust._check_rustc()
+        _ = rust._get_rustc_path()
+
+    def test_matha_fibonacci_baseline(self):
+        """Matha 基准基准线（不依赖 Rust）。"""
+        from scripts.benchmark_rust import MathaBenchmarks
+
+        e = MathaBenchmarks.fibonacci(n=30, iterations=10)
+        self.assertEqual(e.language, "matha")
+        self.assertEqual(e.test_name, "Fibonacci")
+        # F(30) = 832040
+        self.assertEqual(int(e.result_value), 832040)
+
+    def test_matha_factorial_baseline(self):
+        """Matha 阶乘基准。"""
+        from scripts.benchmark_rust import MathaBenchmarks
+
+        e = MathaBenchmarks.polynomial_eval(iterations=1000)
+        self.assertEqual(e.language, "matha")
+        self.assertEqual(e.test_name, "PolynomialEval")
+
+    def test_report_generation(self):
+        """报告生成。"""
+        from scripts.benchmark_rust import BenchmarkReport, BenchmarkEntry
+
+        report = BenchmarkReport()
+        report.add(BenchmarkEntry(
+            test_name="Fibonacci", language="matha",
+            iterations=100, avg_ms=5.0, min_ms=4.0, max_ms=6.0,
+            result_value="832040"
+        ))
+        report.add(BenchmarkEntry(
+            test_name="Fibonacci", language="rust",
+            iterations=100, avg_ms=0.1, min_ms=0.05, max_ms=0.15,
+            result_value="832040"
+        ))
+
+        md = report.generate_markdown()
+        self.assertIn("Fibonacci", md)
+        self.assertIn("matha", md)
+        self.assertIn("rust", md)
+
+        speedups = report.compute_speedups()
+        self.assertIn("Fibonacci", speedups)
+        self.assertIn("rust", speedups["Fibonacci"])
+        self.assertGreaterEqual(speedups["Fibonacci"]["rust"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

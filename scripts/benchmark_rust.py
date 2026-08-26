@@ -9,6 +9,7 @@ Matha vs 原生 Rust 性能基准测试
   3. 多项式求值 (Polynomial Evaluation)
   4. 斐波那契数列 (Fibonacci)
   5. 并行累加 (Parallel Reduction)
+  6. 大整数乘法 (BigInt Multiply)
 
 使用方式：
   # 仅运行 Matha 基准
@@ -22,6 +23,12 @@ Matha vs 原生 Rust 性能基准测试
 
   # 生成 Markdown 报告
   python scripts/benchmark_rust.py --output report.md
+
+  # 验证 Rust 编译环境
+  python scripts/benchmark_rust.py --verify
+
+  # 仅运行特定算法
+  python scripts/benchmark_rust.py --only fibonacci
 """
 from __future__ import annotations
 import argparse
@@ -486,36 +493,63 @@ fn main() {{
 '''
         return self._compile_and_run(code, f"reduce_{size}", iterations)
 
+    def bigint_multiply(self, size: int = 1000, iterations: int = 50) -> BenchmarkEntry:
+        """Rust 大整数乘法基准。"""
+        code = f'''fn main() {{
+    let a: u128 = 123456789012345678901234567890;
+    let b: u128 = 987654321098765432109876543210;
+    let result: u128 = a * b;
+    println!("{{}}", result);
+}}
+'''
+        return self._compile_and_run(code, "bigint_mul", iterations)
+
+    def sort_bench(self, n: int = 100000, iterations: int = 20) -> BenchmarkEntry:
+        """Rust 大规模排序基准。"""
+        code = f'''fn main() {{
+    let mut data: Vec<i64> = (0..{n}).map(|i| (i * 31 % 9973) as i64).collect();
+    data.sort();
+    println!("{{}}", data.len());
+}}
+'''
+        return self._compile_and_run(code, f"sort_big_{n}", iterations)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  主程序
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_benchmarks(lang: str = "all", output: str = None) -> BenchmarkReport:
+def run_benchmarks(lang: str = "all", output: str = None,
+                   only: str = None) -> BenchmarkReport:
     """运行基准测试。"""
     report = BenchmarkReport()
     report.metadata["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
     report.metadata["platform"] = sys.platform
     report.metadata["python"] = sys.version.split()[0]
     report.metadata["rustc"] = "available" if RustBenchmarks()._has_rustc else "not found"
+    report.metadata["only"] = only or "all"
 
     print("=" * 70)
     print("  Matha vs Rust 性能基准测试")
     print("=" * 70)
     print()
 
+    _rust = RustBenchmarks()
+
     # --- 矩阵乘法 ---
-    print("[1/5] 矩阵乘法 50x50 ...")
-    if lang in ("all", "matha"):
-        e = MathaBenchmarks.matrix_multiply(size=50, iterations=50)
-        report.add(e)
-        print(f"  Matha:  avg={e.avg_ms:.2f}ms, min={e.min_ms:.2f}ms, max={e.max_ms:.2f}ms")
-    if lang in ("all", "rust"):
-        rust = RustBenchmarks()
-        e = rust.matrix_multiply(size=50, iterations=50)
-        report.add(e)
-        print(f"  Rust:   avg={e.avg_ms:.2f}ms, min={e.min_ms:.2f}ms, max={e.max_ms:.2f}ms"
-              if not e.error else f"  Rust:   SKIP ({e.error})")
+    if only and only != "matrix":
+        pass  # skip
+    else:
+        print("[1/7] 矩阵乘法 50x50 ...")
+        if lang in ("all", "matha"):
+            e = MathaBenchmarks.matrix_multiply(size=50, iterations=50)
+            report.add(e)
+            print(f"  Matha:  avg={e.avg_ms:.2f}ms, min={e.min_ms:.2f}ms, max={e.max_ms:.2f}ms")
+        if lang in ("all", "rust"):
+            e = _rust.matrix_multiply(size=50, iterations=50)
+            report.add(e)
+            print(f"  Rust:   avg={e.avg_ms:.2f}ms, min={e.min_ms:.2f}ms, max={e.max_ms:.2f}ms"
+                  if not e.error else f"  Rust:   SKIP ({e.error})")
 
     # --- 快速排序 ---
     print("[2/5] 快速排序 10000 元素 ...")
@@ -621,9 +655,22 @@ def main():
         "--output", "-o",
         help="输出 Markdown 报告文件路径"
     )
+    parser.add_argument(
+        "--verify", "-v",
+        action="store_true",
+        help="验证 Rust 编译环境，不运行基准测试"
+    )
+    parser.add_argument(
+        "--only",
+        help="仅运行指定算法（fibonacci, matrix, sort, poly, reduce, bigint, sort_big）"
+    )
     args = parser.parse_args()
 
-    run_benchmarks(lang=args.lang, output=args.output)
+    if args.verify:
+        ok = verify_rustc()
+        sys.exit(0 if ok else 1)
+
+    run_benchmarks(lang=args.lang, output=args.output, only=args.only)
 
 
 if __name__ == "__main__":
