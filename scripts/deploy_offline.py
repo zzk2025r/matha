@@ -47,18 +47,19 @@ REQUIRED_MODULES = [
     ("src.mir_codegen", "MIRToCGenerator"),
     ("src.mir_converter", "convert"),
     ("src.compiler.memoize", "get_memoize_optimizer"),
-    ("src.compiler.jit", "compile_func, jit_func"),
+    ("src.compiler.jit", "get_jit_compiler"),
     ("src.compiler.llvm_hybrid", "HybridLLVMBackend"),
     ("src.profiler", "MathaProfiler"),
     ("src.lsp", "MathaLSP"),
     ("src.doc_gen", "DocGenerator"),
     ("src.pkg_manager_v2", "MathaPackageManager"),
-    ("src.multi_lang_codegen", "MultiLangCodegen"),
+    ("src.multi_lang_codegen", "MultiLangCodeGen"),
     ("src.multi_lang_verifier", "MultiLangVerifier"),
     ("src.csp_os_thread", "CSPRuntime"),
-    ("src.type_system_v2", "TypeSystemV2"),
+    ("src.type_system_v2", "TypeChecker"),
     ("src.offline_store", "get_offline_store"),
     ("src.offline.sqlite_storage", "SQLiteStorage"),
+    ("src.offline.sync", "OfflineSyncManager"),
 ]
 
 
