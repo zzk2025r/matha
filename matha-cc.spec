@@ -1,0 +1,98 @@
+# -*- coding: utf-8 -*-
+"""
+matha-cc 编译器独立可执行文件 - PyInstaller 配置文件
+
+构建命令:
+    pyinstaller --onefile matha-cc.spec
+"""
+
+a = Analysis(
+    ['src/compiler/matha_cc_cli.py'],
+    pathex=[],
+    binaries=[],
+    datas=[],
+    hiddenimports=[
+        'src.compiler.matha_cc',
+        'src.mir',
+        'src.mir_codegen',
+        'src.mir_converter',
+        'src.compiler.memoize',
+        'src.compiler.jit',
+        'src.compiler.llvm_hybrid',
+        'src.compiler.aot',
+        'src.compiler.native',
+        'src.profiler',
+        'src.lsp',
+        'src.doc_gen',
+        'src.pkg_manager_v2',
+        'src.multi_lang_codegen',
+        'src.multi_lang_verifier',
+        'src.type_system_v2',
+        'src.stdlib.core',
+        'src.stdlib.arithmetic',
+        'src.stdlib.calculus',
+        'src.stdlib.calculus_symbolic',
+        'src.stdlib.linear_algebra',
+        'src.parser',
+        'src.ast_nodes',
+        'src.tokens',
+        'src.lexer',
+        'src.semantic',
+        'src.symbolic',
+        'src.symbols',
+        'src.interp',
+        'src.math_driver',
+        'src.result',
+        # 领域模块
+        'src.domains.hal',
+        'src.domains.kernel_math',
+        'src.domains.software_app',
+        'src.domains.hardware',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'matplotlib',
+        'tkinter',
+        'pytest',
+        'unittest',
+        'IPython',
+        'jupyter',
+        'notebook',
+        'flask',
+        'django',
+        'openai',
+        'anthropic',
+        'google.generativeai',
+        'requests',
+        'numpy',
+        'scipy',
+        'numba',
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='matha-cc',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,
+)

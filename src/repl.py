@@ -367,5 +367,75 @@ def run_repl(debug: bool = False) -> None:
     repl.run()
 
 
+def main(argv=None) -> int:
+    """CLI 入口。支持：matha（REPL）、matha eval <expr>、matha run <file>。"""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="matha",
+        description="Matha 数学编程语言 — 自然语言 → 数学核心 → 可读输出",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  matha                    # 启动交互式 REPL
+  matha eval "sin(pi)"     # 计算表达式
+  matha run demo.matha     # 运行 Matha 文件
+  matha-cc compile demo.matha -o c   # 编译到 C
+        """,
+    )
+    parser.add_argument("--debug", action="store_true", help="启用调试模式")
+    parser.add_argument("--version", action="version", version="Matha v4.4")
+
+    sub = parser.add_subparsers(dest="command", help="子命令")
+
+    # eval: 单行表达式计算
+    p_eval = sub.add_parser("eval", help="计算单行表达式")
+    p_eval.add_argument("expr", help="Matha 表达式")
+    p_eval.set_defaults(func=lambda args: _cmd_eval(args))
+
+    # run: 运行 .matha 文件
+    p_run = sub.add_parser("run", help="运行 Matha 源文件")
+    p_run.add_argument("file", help=".matha 源文件路径")
+    p_run.set_defaults(func=lambda args: _cmd_run(args))
+
+    # help
+    p_help = sub.add_parser("help", help="显示帮助")
+    p_help.set_defaults(func=lambda args: parser.print_help())
+
+    args = parser.parse_args(argv)
+    if hasattr(args, "func"):
+        return args.func(args)
+    else:
+        # 无子命令 → 启动 REPL
+        run_repl(debug=args.debug)
+        return 0
+
+
+def _cmd_eval(args) -> int:
+    """计算单行表达式。"""
+    from src.mir_converter import convert
+    c_code = convert(args.expr, "matha", "python")
+    print(c_code)
+    return 0
+
+
+def _cmd_run(args) -> int:
+    """运行 .matha 文件。"""
+    import sys
+    try:
+        with open(args.file, "r", encoding="utf-8") as f:
+            source = f.read()
+        from src.mir_converter import convert
+        py_code = convert(source, "matha", "python")
+        exec(py_code, {"__name__": "__main__"})
+        return 0
+    except FileNotFoundError:
+        print(f"错误: 文件不存在: {args.file}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 1
+
+
 if __name__ == "__main__":
-    run_repl()
+    sys.exit(main())
