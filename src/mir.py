@@ -426,13 +426,15 @@ class MIRGenerator:
             main = self._program.functions["main"]
             main.instructions.append(MIRStoreInstr("", MIRInstrType.STORE, [result], {"target": name}))
 
-    # 类型分派表（避免字符串比较）
-    _COMPILE_EXPR_DISPATCH = {}
+    # 类型分派表（避免字符串比较）- 实例变量，避免跨实例污染
+    _COMPILE_EXPR_DISPATCH: dict = None
 
     def _compile_expr(self, expr: Any) -> str:
         if expr is None:
             return "0.0"
         expr_type = type(expr)
+        if self._COMPILE_EXPR_DISPATCH is None:
+            self._COMPILE_EXPR_DISPATCH = {}
         handler = self._COMPILE_EXPR_DISPATCH.get(expr_type)
         if handler is None:
             kind = expr_type.__name__
