@@ -8,13 +8,13 @@
 """
 from __future__ import annotations
 
-from offline.sqlite_storage import (
+from .sqlite_storage import (
     SQLiteStorage,
     HistoryRecord,
     get_storage,
 )
 
-from offline.sync import (
+from .sync import (
     SyncConflictResolver,
     ConflictStrategy,
     SyncConflict,
@@ -22,7 +22,7 @@ from offline.sync import (
     OfflineSyncManager,
 )
 
-from offline.mobile_api_client import (
+from .mobile_api_client import (
     MathaAPIClient,
     APIResponse,
     SyncStatus,
