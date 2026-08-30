@@ -64,6 +64,7 @@ a = Analysis(
         'src.domains.kernel_math',
         'src.domains.software_app',
         'src.domains.hardware',
+        'src.domains.hardware_reverse',
         'src.domains.acoustics',
         'src.domains.aerospace',
         'src.domains.ai_data_science',

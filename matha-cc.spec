@@ -45,6 +45,8 @@ a = Analysis(
         'src.result',
         # 领域模块
         'src.domains.hal',
+        'src.domains.hardware',
+        'src.domains.hardware_reverse',
         'src.domains.kernel_math',
         'src.domains.software_app',
         'src.domains.hardware',
