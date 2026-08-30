@@ -160,6 +160,12 @@ def verify_installation() -> bool:
     """验证安装。"""
     log("验证模块导入...")
     all_ok = True
+    # 确保项目根目录在 Python 路径中
+    _root = str(PROJECT_ROOT)
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
+    # 也设置 PYTHONPATH 供 subprocess 子进程使用
+    os.environ["PYTHONPATH"] = _root
 
     for module, names in REQUIRED_MODULES:
         try:
