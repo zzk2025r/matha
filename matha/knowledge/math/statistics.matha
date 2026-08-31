@@ -2,30 +2,27 @@
    覆盖：平均值、方差、标准差、概率、组合
    ============================================================ *)
 
-module 统计 {
+func 求和(数据: List) -> Float = (数据) =>
+  let rec s(i: Int, acc: Float) -> Float =
+    (i, acc) => (i >= len(数据)) ? acc : s(i+1, acc + 数据[i])
+  s(0, 0)
 
-  func 平均值(数据: List) -> Float = (数据) =>
-    求和(数据) / len(数据)
+func 平均值(数据: List) -> Float = (数据) =>
+  求和(数据) / len(数据)
 
-  func 求和(数据: List) -> Float = (数据) =>
-    let rec s(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(数据)) ? acc : s(i+1, acc + 数据[i])
-    s(0, 0)
+func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) =>
+  let rec s(i: Int, acc: Float) -> Float =
+    (i, acc) => (i >= len(数据)) ? acc :
+      s(i+1, acc + (数据[i] - 均值)^2)
+  s(0, 0) / len(数据)
 
-  func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) =>
-    let rec s(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(数据)) ? acc :
-        s(i+1, acc + (数据[i] - 均值)^2)
-    s(0, 0) / len(数据)
+func 标准差(方差: Float) -> Float = (方差) => 开方(方差)
 
-  func 标准差(方差: Float) -> Float = (方差) => 开方(方差)
+func 古典概率(有利: Int, 总数: Int) -> Float =
+  (有利, 总数) => 有利 / 总数
 
-  func 古典概率(有利: Int, 总数: Int) -> Float =
-    (有利, 总数) => 有利 / 总数
+func 阶乘(n: Int) -> Int = (n) =>
+  (n <= 1) ? 1 : n * 阶乘(n - 1)
 
-  func 组合(n: Int, r: Int) -> Int = (n, r) =>
-    阶乘(n) / (阶乘(r) * 阶乘(n - r))
-
-  func 阶乘(n: Int) -> Int = (n) =>
-    (n <= 1) ? 1 : n * 阶乘(n - 1)
-}
+func 组合(n: Int, r: Int) -> Int = (n, r) =>
+  阶乘(n) / (阶乘(r) * 阶乘(n - r))

@@ -424,6 +424,7 @@ class FuncDef:
     annotation: Optional[Annotation] = None
     func_type: Any = None
     body: Any = None  # Lambda
+    else_body: Any = None  # 后续语句（如 let rec f = lambda; f(args) 中的 f(args)）
 
 
 @dataclass

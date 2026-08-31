@@ -344,6 +344,14 @@ class Lexer:
                 self._skip_comment()
                 continue
 
+            # 跳过 # 行注释（# 后跟非数字非冒号字符时视为注释）
+            if ch == "#":
+                peek = self._peek(1)
+                if peek and peek not in ("：", ":", "") and not (peek and peek.isdigit()):
+                    while self.pos < self.n and self.src[self.pos] != "\n":
+                        self._advance()
+                    continue
+
             # 换行
             if ch == "\n":
                 yield Token(TokenType.NEWLINE, "\\n", self.line, self.col)
@@ -471,6 +479,17 @@ class Lexer:
             if self.pos + 1 < self.n and is_digit(self.src[self.pos + 1]):
                 is_float = True
                 num_parts.append(self._advance())  # .
+                while self.pos < self.n and is_digit(self.src[self.pos]):
+                    num_parts.append(self._advance())
+                num_str = "".join(num_parts)
+        # 科学计数法：XeY 或 Xe+Y 或 Xe-Y（必须用 if 而非 elif，因为小数后也可能有 e）
+        if self.pos < self.n and self.src[self.pos].lower() == "e":
+            peek = self._peek(1)
+            if peek and (peek.isdigit() or peek in ("+", "-")):
+                is_float = True
+                num_parts.append(self._advance())  # e
+                if self.pos < self.n and self.src[self.pos] in ("+", "-"):
+                    num_parts.append(self._advance())
                 while self.pos < self.n and is_digit(self.src[self.pos]):
                     num_parts.append(self._advance())
                 num_str = "".join(num_parts)

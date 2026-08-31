@@ -1365,7 +1365,13 @@ class Parser:
                 finally:
                     self._in_func_app = False
                 self._expect(TokenType.PUNCT_RPAREN, ")")
-                expr = ast.FuncApp(func=expr, arg=args[0])
+                # 多参数：构建嵌套 FuncApp（柯里化应用）f(a, b, c) → f(a)(b)(c)
+                if len(args) == 1:
+                    expr = ast.FuncApp(func=expr, arg=args[0])
+                else:
+                    # f(a)(b)(c)：从左到右嵌套
+                    for i, arg in enumerate(args):
+                        expr = ast.FuncApp(func=expr, arg=arg)
             # 继续检查后续属性访问
         return expr
 
@@ -1885,7 +1891,29 @@ class Parser:
                     else:
                         param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
                     func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
-                    return ast.FuncDef(name=name, annotation=None, func_type=func_type, body=body)
+                    func_def = ast.FuncDef(name=name, annotation=None, func_type=func_type, body=body)
+                    # 检查后面是否有对同一变量的调用：let rec f = lambda; f(args) → LetBinding with body
+                    if is_rec and self._check(TokenType.IDENTIFIER) and self._current().value == name:
+                        next_saved = self.pos
+                        try:
+                            self._advance()  # consume name
+                            if self._check(TokenType.PUNCT_LPAREN):
+                                # 是一个函数调用，解析为 body
+                                self._advance()  # consume (
+                                call_args = [self._parse_expr()]
+                                while self._check(TokenType.PUNCT_COMMA):
+                                    self._advance()
+                                    call_args.append(self._parse_expr())
+                                self._expect(TokenType.PUNCT_RPAREN, ")")
+                                # 构建嵌套 FuncApp（多参数 → 柯里化）
+                                call_expr = ast.FuncApp(func=ast.Variable(name=name), arg=call_args[0])
+                                for arg in call_args[1:]:
+                                    call_expr = ast.FuncApp(func=call_expr, arg=arg)
+                                # 返回 LetBinding，让解释器先注册再执行 body
+                                return ast.LetBinding(name=name, value=func_def.body, is_recursive=True, params=params, body=call_expr)
+                        except ParseError:
+                            pass  # 不是函数调用，回退
+                    return func_def
             except ParseError:
                 # 回退到普通 let 绑定（恢复名字消费前的位置）
                 self.pos = saved
@@ -2396,6 +2424,27 @@ class Parser:
         while not self._check(TokenType.PUNCT_RBRACE, TokenType.EOF):
             decl = self._parse_top_level()
             if decl is not None:
+                # 检查 let rec f = lambda; f(args) 模式：将后续调用合并到 FuncDef.else_body
+                if isinstance(decl, ast.FuncDef) and decl.else_body is None:
+                    self._skip_newlines()
+                    if self._check(TokenType.IDENTIFIER) and self._current().value == decl.name:
+                        saved = self.pos
+                        try:
+                            self._advance()  # consume name
+                            if self._check(TokenType.PUNCT_LPAREN):
+                                self._advance()  # consume (
+                                call_args = [self._parse_expr()]
+                                while self._check(TokenType.PUNCT_COMMA):
+                                    self._advance()
+                                    call_args.append(self._parse_expr())
+                                self._expect(TokenType.PUNCT_RPAREN, ")")
+                                # 构建嵌套 FuncApp
+                                call_expr = ast.FuncApp(func=ast.Variable(name=decl.name), arg=call_args[0])
+                                for arg in call_args[1:]:
+                                    call_expr = ast.FuncApp(func=call_expr, arg=arg)
+                                decl.else_body = call_expr
+                        except ParseError:
+                            self.pos = saved
                 decls.append(decl)
             self._skip_newlines()
         self._expect(TokenType.PUNCT_RBRACE, "}")

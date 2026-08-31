@@ -578,6 +578,8 @@ class Interpreter:
         if isinstance(decl, ast.FuncDef):
             self.funcs[decl.name] = decl
             self._log(logging.INFO, f"register func '{decl.name}'")
+            if decl.else_body is not None:
+                self._exec_stmt(decl.else_body)
         elif isinstance(decl, ast.EnumDef):
             self.constructors.update(decl.ctors)
             self._log(logging.INFO,

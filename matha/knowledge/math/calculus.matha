@@ -2,20 +2,17 @@
    覆盖：数值导数、数值积分
    ============================================================ *)
 
-module 微积分 {
+func 数值导数(f, x: Float) -> Float =
+  (f, x) => (f(x + 0.0001) - f(x - 0.0001)) / 0.0002
 
-  func 数值导数(f, x: Float) -> Float =
-    (f, x) => (f(x + 0.0001) - f(x - 0.0001)) / 0.0002
+func 梯形积分(f, a: Float, b: Float, n: Int) -> Float =
+  (f, a, b, n) =>
+  let h = (b - a) / n in
+  let rec trap(i: Int, acc: Float) -> Float =
+    (i, acc) =>
+      (i >= n) ? acc :
+      trap(i + 1, acc + 0.5 * h * (f(a + i*h) + f(a + (i+1)*h)))
+  trap(0, 0)
 
-  func 梯形积分(f, a: Float, b: Float, n: Int) -> Float =
-    (f, a, b, n) =>
-    let h = (b - a) / n in
-    let rec trap(i: Int, acc: Float) -> Float =
-      (i, acc) =>
-        (i >= n) ? acc :
-        trap(i + 1, acc + 0.5 * h * (f(a + i*h) + f(a + (i+1)*h)))
-    trap(0, 0)
-
-  func 幂积分(x: Float, n: Int) -> Float =
-    (x, n) => (n = -1) ? log(x) : x ^ (n + 1) / (n + 1)
-}
+func 幂积分(x: Float, n: Int) -> Float =
+  (x, n) => (n = -1) ? log(x) : x ^ (n + 1) / (n + 1)

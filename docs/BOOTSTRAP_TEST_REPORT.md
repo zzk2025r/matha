@@ -1,19 +1,19 @@
 # Matha 大文件自举测试报告
 
-生成时间: 2026-08-31 13:48:32
+生成时间: 2026-08-31 15:35:56
 
-总计: 127 文件 | 通过: 58 | 失败: 69
+总计: 127 文件 | 通过: 62 | 失败: 65
 
 ## 总体统计
 
 | 指标 | 数值 |
 |------|------|
 | 总文件数 | 127 |
-| 通过 | 58 |
-| 失败 | 69 |
-| 通过率 | 45.7% |
-| 总字符数 | 251,412 |
-| 总行数 | 6,931 |
+| 通过 | 62 |
+| 失败 | 65 |
+| 通过率 | 48.8% |
+| 总字符数 | 251,246 |
+| 总行数 | 6,922 |
 
 ## 失败测试详情
 
@@ -32,7 +32,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 11 行, 230 字符
-- 耗时: 2ms
+- 耗时: 1ms
 - 错误: RuntimeError: 未定义变量 'b'
 
 ```matha
@@ -43,7 +43,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 14 行, 334 字符
-- 耗时: 1ms
+- 耗时: 2ms
 - 错误: ParseError at L7:33: 期望表达式 (got OP_FATARROW '=>')
 
 ```matha
@@ -54,7 +54,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 29 行, 442 字符
-- 耗时: 5ms
+- 耗时: 3ms
 - 错误: RuntimeError: 未定义变量 'end'
 
 ```matha
@@ -65,7 +65,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 11 行, 313 字符
-- 耗时: 2ms
+- 耗时: 1ms
 - 错误: RuntimeError: 未定义变量 'y'
 
 ```matha
@@ -76,7 +76,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 10 行, 216 字符
-- 耗时: 6ms
+- 耗时: 1ms
 - 错误: RuntimeError: 未定义变量 '数量'
 
 ```matha
@@ -87,7 +87,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 10 行, 391 字符
-- 耗时: 3ms
+- 耗时: 1ms
 - 错误: RuntimeError: 未定义变量 '最大尝试'
 
 ```matha
@@ -98,7 +98,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 10 行, 421 字符
-- 耗时: 3ms
+- 耗时: 1ms
 - 错误: RuntimeError: 未定义变量 '描述'
 
 ```matha
@@ -109,7 +109,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 13 行, 374 字符
-- 耗时: 52ms
+- 耗时: 25ms
 - 错误: RuntimeError: 暂不支持求值: GlobalIdStmt
 
 ```matha
@@ -127,34 +127,12 @@
 (无法读取源文件)
 ```
 
-### examples\10_web_app.matha
-
-- 状态: **PARSE_ERROR**
-- 大小: 19 行, 624 字符
-- 耗时: 1ms
-- 错误: ParseError at L1:3: 期望冒号 : 或 ： (got IDENTIFIER 'Matha')
-
-```matha
-(无法读取源文件)
-```
-
 ### examples\11_library_grow.matha
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 10 行, 374 字符
-- 耗时: 3ms
-- 错误: RuntimeError: 未定义变量 '学科'
-
-```matha
-(无法读取源文件)
-```
-
-### examples\12_backend.matha
-
-- 状态: **PARSE_ERROR**
-- 大小: 16 行, 273 字符
 - 耗时: 1ms
-- 错误: ParseError at L1:3: 期望冒号 : 或 ： (got IDENTIFIER 'Matha')
+- 错误: RuntimeError: 未定义变量 '学科'
 
 ```matha
 (无法读取源文件)
@@ -175,7 +153,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 10 行, 259 字符
-- 耗时: 2ms
+- 耗时: 1ms
 - 错误: RuntimeError: 未定义变量 'tau_allow'
 
 ```matha
@@ -186,19 +164,8 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 21 行, 660 字符
-- 耗时: 6ms
+- 耗时: 4ms
 - 错误: RuntimeError: 未定义变量 'a'
-
-```matha
-(无法读取源文件)
-```
-
-### firewall_rules.matha
-
-- 状态: **PARSE_ERROR**
-- 大小: 75 行, 4316 字符
-- 耗时: 16ms
-- 错误: ParseError at L1:3: 期望冒号 : 或 ： (got OP_ASSIGN '=')
 
 ```matha
 (无法读取源文件)
@@ -208,7 +175,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 279 行, 11218 字符
-- 耗时: 38ms
+- 耗时: 29ms
 - 错误: ParseError at L165:12: 期望 { (got IDENTIFIER '求值')
 
 ```matha
@@ -241,7 +208,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 80 行, 2387 字符
-- 耗时: 6ms
+- 耗时: 7ms
 - 错误: ParseError at L9:7: 期望类型表达式 (got NEWLINE '\\n')
 
 ```matha
@@ -273,8 +240,8 @@
 ### knowledge\math\calculus.matha
 
 - 状态: **RUNTIME_ERROR**
-- 大小: 22 行, 666 字符
-- 耗时: 3ms
+- 大小: 19 行, 620 字符
+- 耗时: 2ms
 - 错误: RuntimeError: 未定义函数 'trap'
 
 ```matha
@@ -284,8 +251,8 @@
 ### knowledge\math\number_theory.matha
 
 - 状态: **RUNTIME_ERROR**
-- 大小: 36 行, 1015 字符
-- 耗时: 7ms
+- 大小: 33 行, 950 字符
+- 耗时: 6ms
 - 错误: RuntimeError: 未定义函数 'power'
 
 ```matha
@@ -295,20 +262,9 @@
 ### knowledge\math\statistics.matha
 
 - 状态: **RUNTIME_ERROR**
-- 大小: 32 行, 1030 字符
+- 大小: 29 行, 975 字符
 - 耗时: 4ms
 - 错误: RuntimeError: 未定义函数 's'
-
-```matha
-(无法读取源文件)
-```
-
-### knowledge\physics\celestial.matha
-
-- 状态: **PARSE_ERROR**
-- 大小: 18 行, 529 字符
-- 耗时: 2ms
-- 错误: ParseError at L8:27: 期望 ) (got IDENTIFIER 'e')
 
 ```matha
 (无法读取源文件)
@@ -318,7 +274,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 118 行, 4873 字符
-- 耗时: 14ms
+- 耗时: 10ms
 - 错误: ParseError at L33:17: 期望 = (got PUNCT_LPAREN '(')
 
 ```matha
@@ -340,7 +296,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 112 行, 4240 字符
-- 耗时: 12ms
+- 耗时: 13ms
 - 错误: ParseError at L105:17: 期望 = (got PUNCT_LPAREN '(')
 
 ```matha
@@ -351,7 +307,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 113 行, 4608 字符
-- 耗时: 9ms
+- 耗时: 8ms
 - 错误: ParseError at L21:16: 期望 = (got PUNCT_LPAREN '(')
 
 ```matha
@@ -395,7 +351,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 72 行, 2851 字符
-- 耗时: 13ms
+- 耗时: 5ms
 - 错误: ParseError at L15:58: 期望 参数名 (got NEWLINE '\\n')
 
 ```matha
@@ -406,7 +362,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 129 行, 5113 字符
-- 耗时: 19ms
+- 耗时: 13ms
 - 错误: ParseError at L36:58: 期望 参数名 (got NEWLINE '\\n')
 
 ```matha
@@ -417,7 +373,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 81 行, 2818 字符
-- 耗时: 8ms
+- 耗时: 4ms
 - 错误: ParseError at L11:30: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -428,7 +384,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 128 行, 4706 字符
-- 耗时: 9ms
+- 耗时: 10ms
 - 错误: ParseError at L74:16: 期望 = (got PUNCT_LPAREN '(')
 
 ```matha
@@ -439,7 +395,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 33 行, 1030 字符
-- 耗时: 5ms
+- 耗时: 2ms
 - 错误: ParseError at L25:18: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -450,7 +406,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 83 行, 2971 字符
-- 耗时: 9ms
+- 耗时: 6ms
 - 错误: ParseError at L31:44: 期望 参数名 (got NEWLINE '\\n')
 
 ```matha
@@ -461,7 +417,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 119 行, 4198 字符
-- 耗时: 12ms
+- 耗时: 11ms
 - 错误: ParseError at L24:22: 期望 { (got OP_COLON ':')
 
 ```matha
@@ -472,7 +428,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 51 行, 1580 字符
-- 耗时: 6ms
+- 耗时: 5ms
 - 错误: RuntimeError: 未定义函数 'npv'
 
 ```matha
@@ -494,7 +450,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 92 行, 3283 字符
-- 耗时: 4ms
+- 耗时: 3ms
 - 错误: ParseError at L13:17: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -505,7 +461,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 25 行, 796 字符
-- 耗时: 2ms
+- 耗时: 3ms
 - 错误: RuntimeError: 未定义函数 'count'
 
 ```matha
@@ -516,7 +472,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 119 行, 4150 字符
-- 耗时: 10ms
+- 耗时: 7ms
 - 错误: ParseError at L10:18: 期望 = (got PUNCT_LPAREN '(')
 
 ```matha
@@ -538,7 +494,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 97 行, 4015 字符
-- 耗时: 12ms
+- 耗时: 10ms
 - 错误: ParseError at L5:8: 期望 模块名 (got LIT_INTEGER '3')
 
 ```matha
@@ -549,7 +505,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 75 行, 2356 字符
-- 耗时: 6ms
+- 耗时: 8ms
 - 错误: ParseError at L19:14: 期望 { (got OP_COLON ':')
 
 ```matha
@@ -560,7 +516,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 97 行, 3815 字符
-- 耗时: 3ms
+- 耗时: 2ms
 - 错误: ParseError at L17:32: 期望 ( (got LIT_INTEGER '512')
 
 ```matha
@@ -571,7 +527,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 88 行, 3287 字符
-- 耗时: 5ms
+- 耗时: 6ms
 - 错误: ParseError at L23:16: 期望 = (got PUNCT_LPAREN '(')
 
 ```matha
@@ -582,7 +538,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 121 行, 3968 字符
-- 耗时: 9ms
+- 耗时: 8ms
 - 错误: ParseError at L82:23: 期望 { (got OP_COLON ':')
 
 ```matha
@@ -626,7 +582,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 111 行, 4186 字符
-- 耗时: 10ms
+- 耗时: 8ms
 - 错误: ParseError at L30:15: 期望 { (got OP_COLON ':')
 
 ```matha
@@ -648,7 +604,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 105 行, 3747 字符
-- 耗时: 8ms
+- 耗时: 6ms
 - 错误: ParseError at L52:29: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -659,7 +615,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 76 行, 3272 字符
-- 耗时: 5ms
+- 耗时: 6ms
 - 错误: ParseError at L11:17: 期望 = (got PUNCT_LPAREN '(')
 
 ```matha
@@ -670,7 +626,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 101 行, 4144 字符
-- 耗时: 6ms
+- 耗时: 7ms
 - 错误: ParseError at L22:15: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -681,7 +637,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 143 行, 4858 字符
-- 耗时: 9ms
+- 耗时: 8ms
 - 错误: ParseError at L11:15: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -692,7 +648,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 109 行, 3464 字符
-- 耗时: 12ms
+- 耗时: 13ms
 - 错误: ParseError at L50:37: 期望 { (got OP_COLON ':')
 
 ```matha
@@ -714,7 +670,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 143 行, 4790 字符
-- 耗时: 12ms
+- 耗时: 11ms
 - 错误: ParseError at L14:11: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -736,7 +692,7 @@
 
 - 状态: **PARSE_ERROR**
 - 大小: 137 行, 4754 字符
-- 耗时: 10ms
+- 耗时: 9ms
 - 错误: ParseError at L11:13: 期望表达式 (got OP_ARROW '->')
 
 ```matha
@@ -758,7 +714,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 11 行, 316 字符
-- 耗时: 4ms
+- 耗时: 1ms
 - 错误: RuntimeError: 未定义变量 'tau_allow'
 
 ```matha
@@ -769,7 +725,7 @@
 
 - 状态: **RUNTIME_ERROR**
 - 大小: 14 行, 462 字符
-- 耗时: 2ms
+- 耗时: 3ms
 - 错误: RuntimeError: 未定义变量 'n'
 
 ```matha
@@ -778,71 +734,75 @@
 
 ## 通过测试
 
-- ✅ bootstrap_test_v2.matha (105L, 68ms)
-- ✅ examples\04_pipeline.matha (9L, 2ms)
+- ✅ bootstrap_test_v2.matha (105L, 57ms)
+- ✅ examples\04_pipeline.matha (9L, 1ms)
 - ✅ examples\05_sensor_read.matha (9L, 1ms)
-- ✅ examples\07_debug_sub.matha (8L, 5ms)
-- ✅ examples\08_auto_optimize.matha (12L, 22ms)
+- ✅ examples\07_debug_sub.matha (8L, 4ms)
+- ✅ examples\08_auto_optimize.matha (12L, 4ms)
 - ✅ examples\08_optimize_sub.matha (11L, 1ms)
-- ✅ examples\09_grow_sub.matha (11L, 2ms)
-- ✅ examples\11_desktop.matha (25L, 4ms)
+- ✅ examples\09_grow_sub.matha (11L, 1ms)
+- ✅ examples\10_web_app.matha (19L, 1ms)
+- ✅ examples\11_desktop.matha (25L, 3ms)
 - ✅ examples\11_grow_sub.matha (10L, 4ms)
+- ✅ examples\12_backend.matha (16L, 1ms)
+- ✅ firewall_rules.matha (75L, 4ms)
 - ✅ knowledge\biology\cell.matha (16L, 1ms)
-- ✅ knowledge\biology\ecology_human.matha (23L, 5ms)
+- ✅ knowledge\biology\ecology_human.matha (23L, 2ms)
 - ✅ knowledge\biology\genetics.matha (22L, 1ms)
 - ✅ knowledge\chemistry\organic.matha (16L, 2ms)
 - ✅ knowledge\chemistry\stoichiometry.matha (22L, 2ms)
-- ✅ knowledge\cs\complexity.matha (20L, 3ms)
+- ✅ knowledge\cs\complexity.matha (20L, 2ms)
 - ✅ knowledge\engineering\civil.matha (18L, 2ms)
-- ✅ knowledge\engineering\electrical.matha (21L, 3ms)
+- ✅ knowledge\engineering\electrical.matha (21L, 4ms)
 - ✅ knowledge\engineering\mechanical.matha (21L, 2ms)
-- ✅ knowledge\history\chronology.matha (32L, 5ms)
-- ✅ knowledge\index.matha (52L, 2ms)
-- ✅ knowledge\math\algebra.matha (41L, 8ms)
-- ✅ knowledge\math\arithmetic.matha (38L, 14ms)
-- ✅ knowledge\math\geometry.matha (52L, 9ms)
+- ✅ knowledge\history\chronology.matha (32L, 4ms)
+- ✅ knowledge\index.matha (52L, 1ms)
+- ✅ knowledge\math\algebra.matha (41L, 6ms)
+- ✅ knowledge\math\arithmetic.matha (38L, 5ms)
+- ✅ knowledge\math\geometry.matha (52L, 6ms)
 - ✅ knowledge\math\logic.matha (19L, 3ms)
 - ✅ knowledge\math\trigonometry.matha (30L, 4ms)
-- ✅ knowledge\physics\electromagnetism.matha (23L, 3ms)
+- ✅ knowledge\physics\celestial.matha (18L, 2ms)
+- ✅ knowledge\physics\electromagnetism.matha (23L, 4ms)
 - ✅ knowledge\physics\mechanics.matha (27L, 4ms)
-- ✅ knowledge\physics\optics.matha (20L, 9ms)
-- ✅ knowledge\physics\quantum.matha (14L, 2ms)
-- ✅ knowledge\physics\thermodynamics.matha (20L, 8ms)
+- ✅ knowledge\physics\optics.matha (20L, 2ms)
+- ✅ knowledge\physics\quantum.matha (14L, 4ms)
+- ✅ knowledge\physics\thermodynamics.matha (20L, 3ms)
 - ✅ lexer.matha (215L, 35ms)
 - ✅ library\core\arithmetic.matha (11L, 2ms)
 - ✅ library\core\geometry.matha (9L, 3ms)
-- ✅ library\core\trigonometry.matha (7L, 2ms)
+- ✅ library\core\trigonometry.matha (7L, 4ms)
 - ✅ library\core\圆柱体积.matha (5L, 1ms)
 - ✅ library\core\球体积.matha (5L, 1ms)
 - ✅ library\core\计算球体积.matha (5L, 1ms)
-- ✅ library\index.matha (16L, 3ms)
-- ✅ library\mechanics\bearing.matha (8L, 1ms)
+- ✅ library\index.matha (16L, 1ms)
+- ✅ library\mechanics\bearing.matha (8L, 4ms)
 - ✅ library\mechanics\shaft.matha (8L, 2ms)
-- ✅ library\mechanics\stress.matha (7L, 1ms)
-- ✅ library\physics\mechanics.matha (9L, 3ms)
-- ✅ library\structural\beam.matha (7L, 1ms)
-- ✅ library\structural\column.matha (6L, 1ms)
+- ✅ library\mechanics\stress.matha (7L, 2ms)
+- ✅ library\physics\mechanics.matha (9L, 6ms)
+- ✅ library\structural\beam.matha (7L, 3ms)
+- ✅ library\structural\column.matha (6L, 2ms)
 - ✅ parser.matha (601L, 0ms)
 - ✅ resource\biology\genetics.matha (29L, 4ms)
-- ✅ resource\chemistry\stoichiometry.matha (36L, 7ms)
-- ✅ resource\engineering\mechanical.matha (37L, 5ms)
+- ✅ resource\chemistry\stoichiometry.matha (36L, 3ms)
+- ✅ resource\engineering\mechanical.matha (37L, 6ms)
 - ✅ resource\geography\info.matha (30L, 3ms)
-- ✅ resource\index.matha (57L, 6ms)
-- ✅ resource\math\conic_sections.matha (44L, 9ms)
-- ✅ resource\math\exponent_logarithm.matha (26L, 2ms)
-- ✅ resource\math\trigonometry_advanced.matha (38L, 7ms)
-- ✅ resource\physics\electromagnetism.matha (43L, 8ms)
+- ✅ resource\index.matha (57L, 4ms)
+- ✅ resource\math\conic_sections.matha (44L, 5ms)
+- ✅ resource\math\exponent_logarithm.matha (26L, 3ms)
+- ✅ resource\math\trigonometry_advanced.matha (38L, 6ms)
+- ✅ resource\physics\electromagnetism.matha (43L, 5ms)
 - ✅ resource\physics\optics.matha (34L, 3ms)
-- ✅ resource\physics\quantum.matha (27L, 3ms)
-- ✅ resource\physics\thermodynamics.matha (30L, 5ms)
+- ✅ resource\physics\quantum.matha (27L, 4ms)
+- ✅ resource\physics\thermodynamics.matha (30L, 3ms)
 - ✅ template_old.matha (15L, 2ms)
 
 ## 按目录统计
 
 | 目录 | 通过 | 失败 | 总字符 |
 |------|------|------|--------|
-| . | 4 | 5 | 63,145 |
-| examples | 8 | 15 | 9,572 |
+| . | 5 | 4 | 63,145 |
+| examples | 10 | 13 | 9,572 |
 | knowledge | 1 | 0 | 990 |
 | knowledge\biology | 3 | 0 | 1,663 |
 | knowledge\chemistry | 2 | 1 | 1,875 |
@@ -850,8 +810,8 @@
 | knowledge\engineering | 3 | 0 | 2,070 |
 | knowledge\history | 1 | 0 | 982 |
 | knowledge\linguistics | 0 | 1 | 542 |
-| knowledge\math | 5 | 3 | 8,848 |
-| knowledge\physics | 5 | 1 | 4,042 |
+| knowledge\math | 5 | 3 | 8,682 |
+| knowledge\physics | 6 | 0 | 4,042 |
 | library | 1 | 0 | 357 |
 | library\core | 6 | 0 | 1,714 |
 | library\mechanics | 3 | 0 | 890 |
@@ -882,7 +842,7 @@
 
 ## 错误类型统计
 
-- **PARSE_ERROR**: 48
+- **PARSE_ERROR**: 44
 - **RUNTIME_ERROR**: 20
 - **SKIPPED**: 1
 
