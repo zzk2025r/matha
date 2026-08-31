@@ -1522,12 +1522,24 @@ class Parser:
                 self.pos = saved
             except ParseError:
                 self.pos = saved
-            # 若在函数应用语境中，尝试解析为多参函数调用 f(a, b)
+            # 若在函数应用语境中，尝试解析为多参函数调用 f(a, b) 或 f a b
             if self._in_func_app:
                     args = [self._parse_expr()]
-                    while self._is_comma():
-                        self._advance()
-                        args.append(self._parse_expr())
+                    # 支持无逗号分隔的参数：f(a b c) → FuncApp(FuncApp(a, b), c)
+                    while not self._check(TokenType.PUNCT_RPAREN):
+                        # 如果下一个 token 是表达式起始（标识符、括号等），视为函数应用参数
+                        if self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER,
+                                                     TokenType.LIT_INTEGER, TokenType.LIT_FLOAT,
+                                                     TokenType.LIT_STRING, TokenType.LIT_BOOL,
+                                                     TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACKET,
+                                                     TokenType.PUNCT_LBRACE, TokenType.KW_IF,
+                                                     TokenType.MATHA_READ_OPEN, TokenType.MATHA_READ_OPEN2):
+                            args.append(self._parse_expr())
+                        elif self._is_comma():
+                            self._advance()
+                            args.append(self._parse_expr())
+                        else:
+                            break
                     self._expect(TokenType.PUNCT_RPAREN, ")")
                     # 返回第一个参数，由外层 _parse_postfix 构造 FuncApp
                     if len(args) == 1:
@@ -1803,7 +1815,8 @@ class Parser:
 
     def _parse_let(self) -> ast.AST:
         """let [rec] <name> = <expr> [in <expr>]
-        or: let (name1, name2, ...) = <expr> [in <expr>]"""
+        or: let (name1, name2, ...) = <expr> [in <expr>]
+        or: let rec <name>(<params>) -> <type> = (<params>) => <expr>  (递归函数)"""
         self._expect(TokenType.IDENTIFIER, "let")
         is_rec = False
         if self._check(TokenType.IDENTIFIER) and self._current().value == "rec":
@@ -1813,7 +1826,70 @@ class Parser:
         if self._check(TokenType.PUNCT_LPAREN):
             return self._parse_let_tuple(is_rec)
         name = self._expect(TokenType.IDENTIFIER, "绑定名").value
-        # 可选类型标注
+        # 检查是否为函数定义: name(params) -> Type = (params) => body
+        # 保存位置：在消费 ( 之前，以便失败时回退到普通 let 绑定
+        saved = self.pos
+        if self._check(TokenType.PUNCT_LPAREN):
+            try:
+                # 解析参数列表
+                self._advance()  # consume (
+                params: list[tuple[str, Any]] = []
+                if not self._check(TokenType.PUNCT_RPAREN):
+                    params.append(self._parse_typed_param())
+                    while self._is_comma():
+                        self._advance()
+                        params.append(self._parse_typed_param())
+                self._expect(TokenType.PUNCT_RPAREN, ")")
+                # 检查 -> 返回类型
+                if self._check(TokenType.OP_ARROW):
+                    self._advance()  # consume ->
+                    ret_type = self._parse_type_expr()
+                    # 检查 = (params) => body
+                    self._expect(TokenType.OP_ASSIGN, "=")
+                    self._skip_newlines()
+                    self._expect(TokenType.PUNCT_LPAREN, "(")
+                    lam_params: list[Any] = []
+                    if not self._check(TokenType.PUNCT_RPAREN):
+                        tok = self._current()
+                        if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                                        TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
+                                        TokenType.KW_IN, TokenType.KW_WHILE):
+                            self._advance()
+                            lam_params.append(ast.Variable(name=tok.value))
+                        else:
+                            lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+                        while self._is_comma():
+                            self._advance()
+                            tok = self._current()
+                            if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                                            TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
+                                            TokenType.KW_IN, TokenType.KW_WHILE):
+                                self._advance()
+                                lam_params.append(ast.Variable(name=tok.value))
+                            else:
+                                lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+                    self._expect(TokenType.PUNCT_RPAREN, ")")
+                    self._expect(TokenType.OP_FATARROW, "=>")
+                    self._skip_newlines()
+                    saved_rel = self._in_lambda_rel
+                    self._in_lambda_rel = True
+                    try:
+                        lam_body = self._parse_expr()
+                    finally:
+                        self._in_lambda_rel = saved_rel
+                    body = ast.Lambda(params=lam_params, body=lam_body)
+                    if len(params) == 0:
+                        param_type: Any = ast.BasicType(name="Unit")
+                    elif len(params) == 1:
+                        param_type = params[0][1] or ast.BasicType(name="Int")
+                    else:
+                        param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
+                    func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
+                    return ast.FuncDef(name=name, annotation=None, func_type=func_type, body=body)
+            except ParseError:
+                # 回退到普通 let 绑定（恢复名字消费前的位置）
+                self.pos = saved
+        # 可选类型标注（无参数列表时）
         if self._is_colon():
             self._advance()
             self._parse_type_expr()
