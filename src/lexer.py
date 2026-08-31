@@ -326,15 +326,71 @@ class Lexer:
     # ---------- 主入口 ----------
 
     def tokenize(self):
-        """生成 Token 流（含 NEWLINE / EOF）。
+        """生成 Token 流（含 NEWLINE / EOF / INDENT / DEDENT）。
 
-        缩进块（INDENT/DEDENT）暂未实现，预留接口。
+        缩进块（Python 风格）：在 NEWLINE 后检测下一行的缩进，
+        增加时 Emit INDENT，减少时 Emit DEDENT。
         """
         # 预处理：跳过注释 (* ... *)
+        # 缩进跟踪：栈顶为当前缩进级别（空格数），初始为 0
+        self._indent_stack: list[int] = [0]
+        # 标记是否在行首（刚 yield 了 NEWLINE 或处于文件开头）
+        at_line_start = True
+
         while self.pos < self.n:
             ch = self.src[self.pos]
 
-            # 跳过行内空白
+            # 换行符：先检测缩进变化，再 yield NEWLINE
+            # 注意：不能在 yield NEWLINE 后立即调用 _count_indent，
+            # 因为那时 at_line_start 还是 False，会导致下一行首字符被跳过。
+            # 正确做法：先计算缩进，再 yield NEWLINE。
+            if ch == "\n":
+                # 计算下一行的缩进（此时 pos 指向 \n，_count_indent 会跳过 \n 后的空格）
+                next_indent = self._count_indent_after_newline()
+                # 与栈顶比较，产生 INDENT/DEDENT
+                stack_top = self._indent_stack[-1]
+                if next_indent > stack_top:
+                    self._indent_stack.append(next_indent)
+                    yield Token(TokenType.INDENT, "", self.line, self.col)
+                elif next_indent < stack_top:
+                    # 弹出所有比 next_indent 大的层级
+                    while len(self._indent_stack) > 1 and self._indent_stack[-1] > next_indent:
+                        self._indent_stack.pop()
+                    yield Token(TokenType.DEDENT, "", self.line, self.col)
+                # 现在 yield NEWLINE（pos 已在下一行首字符处）
+                yield Token(TokenType.NEWLINE, "\\n", self.line, self.col)
+                at_line_start = True
+                continue
+
+            # 回车（\r\n 或单独 \r）
+            if ch == "\r":
+                self._advance()
+                if self.pos < self.n and self.src[self.pos] == "\n":
+                    pass  # \r 已消费，\n 会单独处理
+                else:
+                    # 单独 \r，视为换行
+                    next_indent = self._count_indent_after_newline()
+                    stack_top = self._indent_stack[-1]
+                    if next_indent > stack_top:
+                        self._indent_stack.append(next_indent)
+                        yield Token(TokenType.INDENT, "", self.line, self.col)
+                    elif next_indent < stack_top:
+                        while len(self._indent_stack) > 1 and self._indent_stack[-1] > next_indent:
+                            self._indent_stack.pop()
+                        yield Token(TokenType.DEDENT, "", self.line, self.col)
+                    yield Token(TokenType.NEWLINE, "\\n", self.line, self.col)
+                at_line_start = True
+                continue
+
+            # 行首空白（空格/制表符）→ 仅当刚换行时计数，不消费
+            if at_line_start and ch in (" ", "\t"):
+                self._advance()
+                continue
+
+            # 正常 token 处理
+            at_line_start = False
+
+            # 跳过行内空白（空格/制表符，保留行首缩进的特殊处理）
             if ch in (" ", "\t"):
                 self._advance()
                 continue
@@ -351,21 +407,6 @@ class Lexer:
                     while self.pos < self.n and self.src[self.pos] != "\n":
                         self._advance()
                     continue
-
-            # 换行
-            if ch == "\n":
-                yield Token(TokenType.NEWLINE, "\\n", self.line, self.col)
-                self._advance()
-                continue
-
-            # 回车（\r\n 或单独 \r）
-            if ch == "\r":
-                self._advance()
-                if self.pos < self.n and self.src[self.pos] == "\n":
-                    pass  # \r 已消费，下面 \n 会单独产出 NEWLINE
-                else:
-                    yield Token(TokenType.NEWLINE, "\\n", self.line, self.col)
-                continue
 
             # 多字符运算符（最长匹配）
             matched = False
@@ -419,7 +460,35 @@ class Lexer:
             self._advance()
             continue
 
+        # 文件结束：产生足够的 DEDENT 回到缩进 0
+        while len(self._indent_stack) > 1:
+            self._indent_stack.pop()
+            yield Token(TokenType.DEDENT, "", self.line, self.col)
+
         yield Token(TokenType.EOF, "", self.line, self.col)
+
+    def _count_indent_after_newline(self) -> int:
+        """从当前 pos（指向 \n）开始，跳过换行符和后续缩进空格，
+        返回缩进空格数，并将 pos 定位到下一个非空白字符。"""
+        # 先跳过 \n（或 \r）
+        if self.pos < self.n and self.src[self.pos] == "\n":
+            self._advance()
+        elif self.pos < self.n and self.src[self.pos] == "\r":
+            self._advance()
+            if self.pos < self.n and self.src[self.pos] == "\n":
+                self._advance()
+        # 再跳过缩进空格/制表符
+        indent = 0
+        while self.pos < self.n:
+            ch = self.src[self.pos]
+            if ch in (" ", "\t"):
+                indent += 1
+                self._advance()
+            elif ch == "\n" or ch == "\r":
+                break
+            else:
+                break
+        return indent
 
     # ---------- 各类 Token 解析 ----------
 

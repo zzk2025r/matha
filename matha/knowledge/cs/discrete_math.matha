@@ -15,7 +15,7 @@ module 离散数学 {
     [(真, 真, 真), (真, 假, 假), (假, 真, 真), (假, 假, 真)]
 
   func 等价(p: Bool, q: Bool) -> Bool =
-    (p, q) => (p 蕴含 q) and (q 蕴含 p)
+    (p, q) => 蕴含(p, q) and 蕴含(q, p)
 
   func 矛盾式(p: Bool, q: Bool) -> Bool =
     (p, q) => not (p or q)

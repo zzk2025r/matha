@@ -6,12 +6,13 @@ module 语法 {
 
   func 词性标记(word: String) -> String =
     (word) =>
-    case word of
-      "的" -> "助词"
-      "是" -> "动词"
-      "和" -> "连词"
-      "在" -> "介词"
-      _ -> "名词"
+    match word {
+      | "的" => "助词"
+      | "是" => "动词"
+      | "和" => "连词"
+      | "在" => "介词"
+      | _ => "名词"
+    }
 
   func 分词(text: String) -> List =
     (text) => text.split(" ")

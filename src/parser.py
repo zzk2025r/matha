@@ -94,8 +94,8 @@ class Parser:
         raise ParseError(f"期望 {desc or ttype.name}", self._current())
 
     def _skip_newlines(self) -> None:
-        """跳过连续换行。"""
-        while self._check(TokenType.NEWLINE):
+        """跳过连续换行、缩进和去缩进标记。"""
+        while self._check(TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT):
             self._advance()
 
     def _skip_semicolon(self) -> None:
@@ -304,7 +304,7 @@ class Parser:
             # 尝试解析为表达式；失败或未消费完整则回退为路径/文本
             saved_pos = self.pos
             try:
-                value = self._parse_expr()
+                value = self._parse_expr(stop_at_comma=True)
                 # 检查值是否消费完整：当前应为逗号/换行/EOF/|(分格)
                 if not (self._is_comma() or self._check(TokenType.NEWLINE, TokenType.EOF, TokenType.OP_PIPE)):
                     raise ParseError("设定值未消费完整，回退为文本", self._current())
@@ -1023,7 +1023,7 @@ class Parser:
     # 优先级：rel > add > mul > pow > unary > postfix > primary
     # ============================================================
 
-    def _parse_expr(self):
+    def _parse_expr(self, stop_at_comma: bool = False):
         """<expr> = <or_expr> , [ ";" , <expr> ]* （支持分号分隔的表达式序列）
 
         三元是最低优先级表达式，使 a ? b : c 可出现在绑定值 / lambda 体 /
@@ -1031,6 +1031,8 @@ class Parser:
         OP_QUESTION / OP_COLON（与全角 ？占位符、：段号不冲突）。
 
         let 表达式也在此处支持，使 lambda 体内可使用 let ... in。
+
+        stop_at_comma: 遇到全角逗号时停止（用于 setUp 项等语境）。
         """
         self._skip_newlines()
         # let x = expr [in expr] 也作为表达式支持（用于 lambda 体等）
@@ -1049,8 +1051,10 @@ class Parser:
             _is_sep = (
                 (self._check(TokenType.SYMBOL) and self._current().value == ";")
                 or (self._check(TokenType.IDENTIFIER) and self._current().value == ";")
-                or self._check(TokenType.MATHA_COMMA)
             )
+            # 全角逗号仅在 stop_at_comma=False 时作为分隔符
+            if not stop_at_comma:
+                _is_sep = _is_sep or self._check(TokenType.MATHA_COMMA)
             if not _is_sep:
                 break
             _sep_line = self._current().line
@@ -1362,6 +1366,20 @@ class Parser:
                     while self._check(TokenType.PUNCT_COMMA):
                         self._advance()
                         args.append(self._parse_expr())
+                    # 支持无逗号分隔的参数（柯里化）：f(a b c) → FuncApp(FuncApp(a, b), c)
+                    while not self._check(TokenType.PUNCT_RPAREN):
+                        if self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER,
+                                                     TokenType.LIT_INTEGER, TokenType.LIT_FLOAT,
+                                                     TokenType.LIT_STRING, TokenType.LIT_BOOL,
+                                                     TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACKET,
+                                                     TokenType.PUNCT_LBRACE, TokenType.KW_IF,
+                                                     TokenType.MATHA_READ_OPEN, TokenType.MATHA_READ_OPEN2):
+                            args.append(self._parse_expr())
+                        elif self._is_comma():
+                            self._advance()
+                            args.append(self._parse_expr())
+                        else:
+                            break
                 finally:
                     self._in_func_app = False
                 self._expect(TokenType.PUNCT_RPAREN, ")")
@@ -1425,7 +1443,7 @@ class Parser:
             return self._parse_paren_dispatch()
 
         # [ ... ] 列表字面量 / 输出
-        # 空列表 [] 始终解析为列表字面量；非空列表仅在函数应用语境中解析为列表字面量
+        # 空列表 [] 始终解析为列表字面量；非空列表在函数应用语境中或独立使用时均解析为列表字面量
         if tok.type == TokenType.PUNCT_LBRACKET:
             saved = self.pos
             self._advance()  # consume [
@@ -1434,7 +1452,11 @@ class Parser:
                 self._advance()
                 return ast.ListLiteral(elements=[])
             self.pos = saved  # 回退，可能是输出或非空列表
-            if self._in_func_app:
+            # 非空列表：在函数应用语境中，或紧跟 => (lambda 体中) / = (绑定右值) / 逗号 (setUp) 时解析为列表
+            if self._in_func_app or self._check(TokenType.OP_FATARROW) or self._check(TokenType.OP_ASSIGN):
+                return self._parse_list_literal()
+            # 独立使用：检查是否紧跟换行、EOF 或 | (输出语境)
+            if self._check(TokenType.NEWLINE, TokenType.EOF, TokenType.OP_PIPE, TokenType.MATHA_COMMA):
                 return self._parse_list_literal()
             return self._parse_output()
 
@@ -1505,6 +1527,7 @@ class Parser:
                 params = [self._parse_lambda_param()]
                 while self._is_comma():
                     self._advance()
+                    self._skip_newlines()
                     params.append(self._parse_lambda_param())
                 self._expect(TokenType.PUNCT_RPAREN, ")")
                 if self._check(TokenType.OP_FATARROW):
@@ -2247,9 +2270,15 @@ class Parser:
         else:
             param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
         func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
-        # 函数体：(params) => expr
+        # 函数体：(params) => expr 或 expr（直接表达式，零参 lambda）
         self._expect(TokenType.OP_ASSIGN, "=")
         self._skip_newlines()
+        # 支持零参函数直接返回表达式（如 func f() -> List = [...]）
+        if not self._check(TokenType.PUNCT_LPAREN):
+            # 直接表达式作为 body，包装为零参 lambda
+            lam_body = self._parse_expr()
+            body = ast.Lambda(params=[], body=lam_body)
+            return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
         self._expect(TokenType.PUNCT_LPAREN, "(")
         lam_params: list[Any] = []
         if not self._check(TokenType.PUNCT_RPAREN):
@@ -2264,6 +2293,7 @@ class Parser:
                 lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
             while self._is_comma():
                 self._advance()
+                self._skip_newlines()
                 tok = self._current()
                 if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
                                 TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
@@ -2288,6 +2318,7 @@ class Parser:
 
     def _parse_typed_param(self) -> tuple[str, Any]:
         """name: Type（类型标注可选）"""
+        self._skip_newlines()
         # 参数名可以是关键字（如 func、and、or），作为标识符使用
         tok = self._current()
         if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,

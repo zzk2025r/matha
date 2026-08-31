@@ -542,13 +542,65 @@ class Interpreter:
             self._register(decl)
         self._log_exit("register-pass")
         self._log_enter("exec-pass")
-        for i, decl in enumerate(program.decls):
-            self._log(logging.INFO, f"── decl[{i}] {type(decl).__name__} ──")
-            self._exec_decl(decl)
+        # 预处理：收集需要提前执行以注册递归函数的 FuncApp
+        self._deferred_calls: set[tuple] = set()
+        self._collect_deferred_calls(program.decls, self._deferred_calls, prefix=())
+        # 执行声明，遇到延迟调用时先执行前置 FuncDef
+        self._exec_with_deferreds(program.decls, self._deferred_calls, ())
         self._log_exit("exec-pass", self.outputs)
         self._log(logging.INFO,
                   f"run 完成: outputs={len(self.outputs)} trace={len(self.trace)}")
         return self.outputs, self.trace
+
+    def _collect_deferred_calls(self, decls, deferred: set, prefix: tuple) -> None:
+        """递归收集所有需要延迟执行的 FuncApp。"""
+        for i, decl in enumerate(decls):
+            if isinstance(decl, ast.FuncApp):
+                _func = decl.func
+                while isinstance(_func, ast.FuncApp):
+                    _func = _func.func
+                _fname = _func.name if isinstance(_func, ast.Variable) else None
+                if _fname and i > 0:
+                    for j in range(i - 1, -1, -1):
+                        _prev = decls[j]
+                        if isinstance(_prev, ast.FuncDef) and _prev.body is not None:
+                            if self._lambda_body_contains(_prev.body, _fname):
+                                deferred.add(prefix + (i,))
+                                break
+            elif isinstance(decl, ast.ModuleDecl):
+                self._collect_deferred_calls(decl.decls, deferred, prefix + (i,))
+
+    def _exec_with_deferreds(self, decls, deferred: set, prefix: tuple) -> None:
+        """递归执行声明，处理延迟调用。"""
+        for i, decl in enumerate(decls):
+            key = prefix + (i,)
+            self._log(logging.INFO, f"── decl[{key}] {type(decl).__name__} ──")
+            if key in deferred:
+                self._exec_decl(decls[i - 1])
+            if key in deferred:
+                continue
+            self._exec_decl(decl)
+            if isinstance(decl, ast.ModuleDecl):
+                self._exec_with_deferreds(decl.decls, deferred, key)
+
+    @staticmethod
+    def _lambda_body_contains(body, func_name: str) -> bool:
+        """检查 lambda 体中是否包含名为 func_name 的 FuncDef。"""
+        if body is None:
+            return False
+        if isinstance(body, ast.Lambda):
+            body = body.body
+        if isinstance(body, ast.FuncDef) and body.name == func_name:
+            return True
+        if isinstance(body, ast.LetBinding) and body.body is not None:
+            if isinstance(body.body, ast.FuncDef) and body.body.name == func_name:
+                return True
+            return Interpreter._lambda_body_contains(body.body, func_name)
+        if isinstance(body, ast.CodeBlock):
+            for s in body.stmts:
+                if Interpreter._lambda_body_contains(s, func_name):
+                    return True
+        return False
 
     def call(self, name: str, *args) -> object:
         # funcs 优先于 builtins：用户定义函数可覆写同名内建
