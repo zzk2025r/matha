@@ -596,9 +596,15 @@ class Interpreter:
             self._exec_set_up(decl)
         elif isinstance(decl, ast.MechUnit):
             seg = decl.generate.seg_id
+            body = decl.body
+            body_type = type(body).__name__ if not isinstance(body, list) else f"list[{len(body)}]"
             self._log(logging.INFO,
-                      f"exec MechUnit #{seg} body={type(decl.body).__name__}")
-            self._exec_stmt(decl.body)
+                      f"exec MechUnit #{seg} body={body_type}")
+            if isinstance(body, list):
+                for item in body:
+                    self._exec_stmt(item)
+            else:
+                self._exec_stmt(body)
         elif isinstance(decl, ast.ModuleDecl):
             self._log(logging.INFO, f"exec Module '{decl.name}'")
             for inner in decl.decls:
@@ -797,6 +803,10 @@ class Interpreter:
         elif isinstance(stmt, ast.FuncApp):
             # 表达式语句：func(...) 无返回值，执行后丢弃结果
             self._eval(stmt)
+        elif isinstance(stmt, ast.FuncDef):
+            # 代码块内的函数定义：注册到解释器
+            self.funcs[stmt.name] = stmt
+            self._log(logging.INFO, f"exec func '{stmt.name}' in block")
         else:
             self._log(logging.DEBUG, f"expr-stmt fallback eval {kind}")
             self._eval(stmt)
@@ -1712,7 +1722,13 @@ def interpret(source: str, debug: bool | None = None) -> tuple[list, list[str]]:
     """解析并执行 Matha 源码，返回 (outputs, trace)。
 
     debug=None 服从 MATHA_DEBUG 环境变量；显式 True/False 优先。
+    自动抬高递归深度以支持大文件和深度递归（自举编译等）。
     """
+    # 抬高递归深度以支持大文件/深度递归
+    _min_limit = 5000 + len(source) // 10
+    _current = sys.getrecursionlimit()
+    if _min_limit > _current:
+        sys.setrecursionlimit(_min_limit)
     from src.parser import parse
     program = parse(source)
     return Interpreter(debug=debug).run(program)

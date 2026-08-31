@@ -486,6 +486,7 @@ class Parser:
 
         #：{ ... }  → generate + code_block
         #1：【命令】 → generate + GenStmt(content=command)
+        #1：【命令】{ ... }  → generate + [GenStmt, CodeBlock]
         #1：？公式   → generate + GenStmt(content=expr)
         #1：[输出]   → generate + GenStmt(content=output_trail)
         """
@@ -498,6 +499,12 @@ class Parser:
             body = self._parse_code_block()
         else:
             body = self._parse_gen_stmt_content(generate)
+            # 如果命令后紧跟代码块，将两者组合进同一个 MechUnit
+            if isinstance(body, ast.GenStmt):
+                self._skip_newlines()
+                if self._check(TokenType.PUNCT_LBRACE):
+                    code_block = self._parse_code_block()
+                    body = [body, code_block]
         self._current_seg = None
         return ast.MechUnit(generate=generate, body=body)
 
@@ -620,8 +627,9 @@ class Parser:
         if self._check(TokenType.LIT_INTEGER) and self._peek(1).type in (TokenType.NEWLINE, TokenType.EOF):
             return self._parse_global_id_stmt()
 
-        # go / if / while / for / match 等控制流语句（代码块内裸语句）
-        if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR, TokenType.KW_MATCH):
+        # go / if / while / for / match / func 等控制流语句（代码块内裸语句）
+        if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR,
+                       TokenType.KW_MATCH, TokenType.KW_FUNC):
             return self._parse_statement()
 
         # 其他 → 表达式 / 绑定
@@ -1770,7 +1778,7 @@ class Parser:
     # ============================================================
 
     def _parse_statement(self):
-        """<statement> = let | while | if | for | match | go | expr_or_binding"""
+        """<statement> = let | while | if | for | match | go | func | expr_or_binding"""
         tok = self._current()
         # let x = expr [in expr]
         if tok.type == TokenType.IDENTIFIER and tok.value == "let":
@@ -1789,6 +1797,8 @@ class Parser:
         if tok.type == TokenType.KW_GO:
             self._advance()
             return ast.GoStmt(expr=self._parse_expr())
+        if tok.type == TokenType.KW_FUNC:
+            return self._parse_func_def()
         return self._parse_expr_or_binding()
 
     def _parse_let(self) -> ast.AST:

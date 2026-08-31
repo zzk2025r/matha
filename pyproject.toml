@@ -63,12 +63,10 @@ Issues = "https://github.com/matha-project/matha/issues"
 Changelog = "https://github.com/matha-project/matha/blob/main/CHANGELOG.md"
 
 [project.scripts]
-matha = "src.repl:main"
-matha-cc = "src.compiler.matha_cc_cli:main"
+matha = "src.matha_main:main"
 
 [project.entry-points."console_scripts"]
-matha = "src.repl:main"
-matha-cc = "src.compiler.matha_cc_cli:main"
+matha = "src.matha_main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

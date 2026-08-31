@@ -16,6 +16,7 @@ a = Analysis(
     hiddenimports=[
         # 核心模块
         'src.math_driver',
+        'src.matha_main',
         'src.compiler.matha_cc',
         'src.mir',
         'src.mir_codegen',
@@ -169,7 +170,7 @@ exe = EXE(
 
 # 打包为单文件
 a_onedir = Analysis(
-    ['src/repl.py'],
+    ['src/matha_main.py'],
     pathex=[],
     binaries=[],
     datas=[],
