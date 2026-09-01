@@ -8,7 +8,7 @@ module 操作系统知识 {
   func 平均周转时间(完成时间: List, 到达时间: List) -> Float =
     (完成时间, 到达时间) =>
     let n = len(完成时间) in
-    求和(i in 0..n-1 => 完成时间[i] - 到达时间[i]) / n
+    求和(i in range(0, n) => 完成时间[i] - 到达时间[i]) / n
 
   (* 平均等待时间 = 平均周转时间 - 平均服务时间 *)
   func 平均等待时间(完成时间: List, 到达时间: List, 服务时间: List) -> Float =

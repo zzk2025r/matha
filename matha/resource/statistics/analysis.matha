@@ -9,7 +9,7 @@ module 统计分析 {
 
   func 求和(数据: List) -> Float = (数据) =>
     let rec s(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(数据)) ? acc : s(i+1, acc + 数据[i])
+    (i, acc) => (i >= len(数据)) ? acc : s(i+1, acc + 数据[i])
     s(0, 0)
 
   func 中位数(数据: List) -> Float = (数据) =>
@@ -19,7 +19,7 @@ module 统计分析 {
 
   func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) =>
     let rec s(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(数据)) ? acc :
+    (i, acc) => (i >= len(数据)) ? acc :
         s(i+1, acc + (数据[i] - 均值)^2)
     s(0, 0) / len(数据)
 
@@ -30,13 +30,13 @@ module 统计分析 {
 
   func 最大值(数据: List) -> Float = (数据) =>
     let rec max(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(数据)) ? acc :
+    (i, acc) => (i >= len(数据)) ? acc :
         max(i+1, if 数据[i] > acc then 数据[i] else acc)
     max(0, 数据[0])
 
   func 最小值(数据: List) -> Float = (数据) =>
     let rec min(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(数据)) ? acc :
+    (i, acc) => (i >= len(数据)) ? acc :
         min(i+1, if 数据[i] < acc then 数据[i] else acc)
     min(0, 数据[0])
 
@@ -63,7 +63,7 @@ module 统计分析 {
     let mx = 平均值(x) in
     let my = 平均值(y) in
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) =>
+    (i, acc) =>
         (i >= nx) ? acc :
         sum(i+1, acc + (x[i] - mx) * (y[i] - my))
     sum(0, 0) / nx
@@ -73,7 +73,7 @@ module 统计分析 {
     let cx = 协方差(x, y) in
     let sx = 标准差(方差(平均值(x), x)) in
     let sy = 标准差(方差(平均值(y), y)) in
-    if sx = 0 or sy = 0: 0
+    if if sx = 0 or sy = 0 then 0 else None
     else: cx / (sx * sy)
 
   func 线性回归斜率(x: List, y: List) -> Float =
@@ -88,13 +88,13 @@ module 统计分析 {
   func 求和乘积(a: List, b: List) -> Float =
     (a, b) =>
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(a)) ? acc : sum(i+1, acc + a[i] * b[i])
+    (i, acc) => (i >= len(a)) ? acc : sum(i+1, acc + a[i] * b[i])
     sum(0, 0)
 
   func 各元素平方(data: List) -> List =
     (data) =>
     let rec sq(i: Int, result: List) -> List =
-      (i, result) => (i >= len(data)) ? result :
+    (i, result) => (i >= len(data)) ? result :
         sq(i+1, result + [data[i] * data[i]])
     sq(0, [])
 

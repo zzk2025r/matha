@@ -39,23 +39,25 @@ module 游戏算法 {
   (* ===== 游戏状态机 ===== *)
   func 状态转换(当前状态: String, 事件: String) -> String =
     (当前状态, 事件) =>
-    case (当前状态, 事件) of
-      ("idle", "start") -> "playing"
-      ("playing", "pause") -> "paused"
-      ("playing", "game_over") -> "gameover"
-      ("paused", "resume") -> "playing"
-      ("gameover", "restart") -> "idle"
-      _ -> 当前状态
+    match (当前状态, 事件) {
+      | ("idle", "start") => "playing"
+      | ("playing", "pause") => "paused"
+      | ("playing", "game_over") => "gameover"
+      | ("paused", "resume") => "playing"
+      | ("gameover", "restart") => "idle"
+      | _ => 当前状态
 
+    }
   func 状态可行动作(状态: String) -> List =
     (状态) =>
-    case 状态 of
-      "idle" -> ["start"]
-      "playing" -> ["pause", "game_over"]
-      "paused" -> ["resume"]
-      "gameover" -> ["restart"]
-      _ -> []
+    match 状态 {
+      | "idle" => ["start"]
+      | "playing" => ["pause", "game_over"]
+      | "paused" => ["resume"]
+      | "gameover" => ["restart"]
+      | _ => []
 
+    }
   (* ===== 物理模拟基础 ===== *)
   func 重力速度(t: Float) -> Float = (t) => 9.80665 * t
   func 重力位移(t: Float) -> Float = (t) => 0.5 * 9.80665 * t * t

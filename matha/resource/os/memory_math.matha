@@ -27,7 +27,7 @@ module 内存管理 {
     (* working set: 最近窗口内访问的不同页数 *)
     (访问序列, 窗口) =>
     let n = len(访问序列) in
-    if n <= 窗口: n
+    if if n <= 窗口 then n else None
     else: n  (* 简化：返回序列长度 *)
 
   func 逐页置换率(缺页次数: Int, 时间单位: Int) -> Float =
@@ -58,8 +58,8 @@ module 内存管理 {
   func 首次适配(可用块: List, 大小: Int) -> Int =
     (可用块, 大小) =>
     let rec find(i: Int) -> Int =
-      (i) =>
-        if i >= len(可用块): -1
+    (i) =>
+        if if i >= len(可用块) then -1 else None
         elif 可用块[i] >= 大小: i
         else: find(i + 1)
     find(0)
@@ -67,8 +67,8 @@ module 内存管理 {
   func 最佳适配(可用块: List, 大小: Int) -> Int =
     (可用块, 大小) =>
     let rec find(i: Int, best: Int, best_size: Int) -> Int =
-      (i, best, best_size) =>
-        if i >= len(可用块): best
+    (i, best, best_size) =>
+        if if i >= len(可用块) then best else None
         elif 可用块[i] >= 大小 and (best = -1 or 可用块[i] < best_size):
           find(i + 1, i, 可用块[i])
         else: find(i + 1, best, best_size)
@@ -78,8 +78,8 @@ module 内存管理 {
     (可用块, 大小, 上次位置) =>
     let n = len(可用块) in
     let rec find(i: Int, start: Int) -> Int =
-      (i, start) =>
-        if i >= n: -1
+    (i, start) =>
+        if if i >= n then -1 else None
         elif 可用块[i] >= 大小: i
         else: find(i + 1, start)
     find(上次位置 % n, 上次位置 % n)
@@ -89,8 +89,8 @@ module 内存管理 {
     (页面序列, 帧数) =>
     let n = len(页面序列) in
     let rec count(i: Int, 帧列表: List, 缺页数: Int) -> Int =
-      (i, 帧列表, 缺页数) =>
-        if i >= n: 缺页数
+    (i, 帧列表, 缺页数) =>
+        if if i >= n then 缺页数 else None
         elif 帧列表包含(页面序列[i]):
           count(i + 1, 帧列表, 缺页数)
         elif len(帧列表) < 帧数:
@@ -102,8 +102,8 @@ module 内存管理 {
   func 帧列表包含(帧列表: List, 页面: Int) -> Bool =
     (帧列表, 页面) =>
     let rec check(i: Int) -> Bool =
-      (i) =>
-        if i >= len(帧列表): 假
+    (i) =>
+        if if i >= len(帧列表) then 假 else None
         elif 帧列表[i] = 页面: 真
         else: check(i + 1)
     check(0)

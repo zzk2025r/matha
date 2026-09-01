@@ -8,14 +8,14 @@ module 离散进阶 {
   func DFS深度(邻接表: List, 起点: Int,  visited: List) -> List =
     (邻接表, 起点, visited) =>
     let rec visit(node: Int, result: List) -> List =
-      (node, result) =>
-        if 节点已访问(node, visited): result
+    (node, result) =>
+        if if 节点已访问(node, visited) then result else None
         else:
           let new_result = result + [node] in
           let new_visited = visited + [node] in
           let rec visit_neighbors(i: Int, acc: List) -> List =
-            (i, acc) =>
-              if i >= len(邻接表[node]): acc
+    (i, acc) =>
+              if if i >= len(邻接表[node]) then acc else None
               else: visit(邻接表[node][i], acc)
           visit_neighbors(0, new_result)
     visit(起点, [])
@@ -23,8 +23,8 @@ module 离散进阶 {
   func 节点已访问(node: Int, visited: List) -> Bool =
     (node, visited) =>
     let rec check(i: Int) -> Bool =
-      (i) =>
-        if i >= len(visited): false
+    (i) =>
+        if if i >= len(visited) then false else None
         elif visited[i] = node: true
         else: check(i + 1)
     check(0)
@@ -32,12 +32,12 @@ module 离散进阶 {
   func BFS宽度(邻接表: List, 起点: Int) -> List =
     (邻接表, 起点) =>
     let rec explore(queue: List, visited: List, result: List) -> List =
-      (queue, visited, result) =>
-        if len(queue) = 0: result
+    (queue, visited, result) =>
+        if if len(queue) = 0 then result else None
         else:
           let node = queue[0] in
           let rest = queue[1:] in
-          if 节点已访问(node, visited): explore(rest, visited, result)
+          if if 节点已访问(node, visited) then explore(rest, visited, result) else None
           else:
             let new_visited = visited + [node] in
             let new_result = result + [node] in
@@ -48,8 +48,8 @@ module 离散进阶 {
   func 未访问邻居(node: Int, 邻接表: List, visited: List) -> List =
     (node, 邻接表, visited) =>
     let rec filter(i: Int, result: List) -> List =
-      (i, result) =>
-        if i >= len(邻接表[node]): result
+    (i, result) =>
+        if if i >= len(邻接表[node]) then result else None
         elif 节点已访问(邻接表[node][i], visited): result
         else: filter(i + 1, result + [邻接表[node][i]])
     filter(0, [])
@@ -66,8 +66,8 @@ module 离散进阶 {
     (物品重量, 物品价值, 背包容量) =>
     let n = len(物品重量) in
     let rec knapsack(i: Int, remaining: Int) -> Int =
-      (i, remaining) =>
-        if i >= n or remaining <= 0: 0
+    (i, remaining) =>
+        if if i >= n or remaining <= 0 then 0 else None
         else:
           let 不选 = knapsack(i + 1, remaining) in
           let 选 = if 物品重量[i] <= remaining
@@ -79,11 +79,11 @@ module 离散进阶 {
   (* ===== 动态规划：斐波那契优化 ===== *)
   func 斐波那契优化(n: Int) -> Int =
     (n) =>
-    if n <= 1: n
+    if if n <= 1 then n else None
     else:
       let rec fib(a: Int, b: Int, count: Int) -> Int =
-        (a, b, count) =>
-          if count <= 0: a
+    (a, b, count) =>
+          if if count <= 0 then a else None
           else: fib(b, a + b, count - 1)
       fib(0, 1, n)
 
@@ -92,8 +92,8 @@ module 离散进阶 {
     (硬币面额, 目标金额) =>
     let sorted = 排序降序(硬币面额) in
     let rec count(金额: Int, i: Int, 硬币数: Int) -> Int =
-      (金额, i, 硬币数) =>
-        if 金额 = 0: 硬币数
+    (金额, i, 硬币数) =>
+        if if 金额 = 0 then 硬币数 else None
         elif i >= len(sorted) or 金额 < 0: -1
         else:
           let 可取 = 金额 / sorted[i] in

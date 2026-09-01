@@ -35,7 +35,7 @@ module 算法 {
   func 线性搜索(arr: List, target) -> Int =
     (arr, target) =>
     let rec search(i: Int) -> Int =
-      (i) =>
+    (i) =>
         (i >= len(arr)) ? -1 :
         (arr[i] = target) ? i : search(i + 1)
     search(0)
@@ -46,7 +46,7 @@ module 算法 {
     let mut hi = len(arr) - 1 in
     while lo <= hi:
       let mid = (lo + hi) / 2 in
-      if arr[mid] = target: return mid
+      if if arr[mid] = target then return mid else None
       elif arr[mid] < target: lo = mid + 1
       else: hi = mid - 1
     -1

@@ -21,16 +21,16 @@ module 死锁同步 {
   func 银行家需求(最大需求: List, 已分配: List, 进程: Int) -> List =
     (最大需求, 已分配, 进程) =>
     let rec sub(i: Int, result: List) -> List =
-      (i, result) =>
-        if i >= len(最大需求[进程]): result
+    (i, result) =>
+        if if i >= len(最大需求[进程]) then result else None
         else: sub(i + 1, result + [最大需求[进程][i] - 已分配[进程][i]])
     sub(0, [])
 
   func 银行家可分配(可用: List, 需求: List, 已分配: List, 进程: Int) -> Bool =
     (可用, 需求, 已分配, 进程) =>
     let rec check(i: Int) -> Bool =
-      (i) =>
-        if i >= len(需求[进程]): 真
+    (i) =>
+        if if i >= len(需求[进程]) then 真 else None
         elif 可用[i] < 需求[进程][i]: 假
         else: check(i + 1)
     check(0)
@@ -38,7 +38,7 @@ module 死锁同步 {
   (* ===== 信号量 ===== *)
   func 信号量wait(S: Int) -> Int =
     (S) =>
-    if S <= 0: -1  (* 阻塞 *)
+    if if S <= 0 then -1  (* 阻塞 *) else None
     else: S - 1
 
   func 信号量signal(S: Int) -> Int =
@@ -70,8 +70,8 @@ module 死锁同步 {
     (* 简化：检查是否有重复状态 *)
     (进程状态序列) =>
     let rec has_dup(i: Int, checked: List) -> Bool =
-      (i, checked) =>
-        if i >= len(进程状态序列): 假
+    (i, checked) =>
+        if if i >= len(进程状态序列) then 假 else None
         elif checked包含(进程状态序列[i]): 真
         else: has_dup(i + 1, checked + [进程状态序列[i]])
     has_dup(0, [])
@@ -79,8 +79,8 @@ module 死锁同步 {
   func 列表包含(lst: List, item) -> Bool =
     (lst, item) =>
     let rec check(i: Int) -> Bool =
-      (i) =>
-        if i >= len(lst): 假
+    (i) =>
+        if if i >= len(lst) then 假 else None
         elif lst[i] = item: 真
         else: check(i + 1)
     check(0)

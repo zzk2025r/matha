@@ -14,13 +14,13 @@ module 数据结构 {
 
   func 链表长度(head: 节点) -> Int = (head) =>
     let rec count(node: 节点, acc: Int) -> Int =
-      (node, acc) => (node = None) ? acc : count(node.下一, acc + 1)
+    (node, acc) => (node = None) ? acc : count(node.下一, acc + 1)
     count(head, 0)
 
   func 链表查找(head: 节点, 目标: ) -> Bool =
     (head, 目标) =>
     let rec find(node: 节点) -> Bool =
-      (node) =>
+    (node) =>
         (node = None) ? 假 :
         (node.值 = 目标) ? 真 : find(node.下一)
     find(head)
@@ -52,7 +52,7 @@ module 数据结构 {
   func 哈希函数(key: String, table_size: Int) -> Int =
     (key, table_size) =>
     let rec hash(i: Int, acc: Int) -> Int =
-      (i, acc) =>
+    (i, acc) =>
         (i >= len(key)) ? acc % table_size :
         hash(i + 1, acc + ord(key[i]) * 31 ^ i)
     hash(0, 0)
@@ -66,7 +66,7 @@ module 数据结构 {
   func 图顶点数(g: 图) -> Int = (g) => len(g.顶点)
   func 图边数(g: 图) -> Int = (g) =>
     let rec count(i: Int, acc: Int) -> Int =
-      (i, acc) =>
+    (i, acc) =>
         (i >= len(g.邻接表)) ? acc :
         count(i + 1, acc + len(g.邻接表[i]))
     count(0, 0) / 2

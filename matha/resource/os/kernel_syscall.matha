@@ -19,27 +19,28 @@
  *)
 
 func syscall_num(name: String) -> Int =
-    case name of
-      "exit"    -> 1
-      "fork"    -> 2
-      "read"    -> 3
-      "write"   -> 4
-      "open"    -> 5
-      "close"   -> 6
-      "kill"    -> 37
-      "mmap"    -> 192
-      "mprotect"-> 125
-      "munmap"  -> 91
-      "brk"     -> 45
-      "ioctl"   -> 54
-      "pipe"    -> 42
-      "execve"  -> 11
-      "clone"   -> 120
-      "select"  -> 115
-      "socket"  -> 102
-      "futex"   -> 202
-      _         -> -1
+    match name {
+      | "exit"    => 1
+      | "fork"    => 2
+      | "read"    => 3
+      | "write"   => 4
+      | "open"    => 5
+      | "close"   => 6
+      | "kill"    => 37
+      | "mmap"    => 192
+      | "mprotect"=> 125
+      | "munmap"  => 91
+      | "brk"     => 45
+      | "ioctl"   => 54
+      | "pipe"    => 42
+      | "execve"  => 11
+      | "clone"   => 120
+      | "select"  => 115
+      | "socket"  => 102
+      | "futex"   => 202
+      | _         => -1
 
+    }
 (* ── syscall 表大小估算 ──────────────────────────────────── *)
 (* 每项 8 字节：跳转目标(4B) + padding(4B) *)
 func syscall_table_entry_size() -> Int = 8
@@ -94,25 +95,25 @@ func syscall64_latency_ns() -> Float = 50.0
  * 128     System Call (int 0x80)  系统调用入口
  *)
 func exception_name(vector: Int) -> String =
-    case vector of
-      0  -> "Divide-by-zero (#DE)"
-      1  -> "Debug (#DB)"
-      2  -> "NMI"
-      3  -> "Breakpoint (#BP)"
-      4  -> "Overflow (#OF)"
-      5  -> "Bound Range (#BR)"
-      6  -> "Invalid Opcode (#UD)"
-      7  -> "Device Not Available (#NM)"
-      8  -> "Double Fault (#DF)"
-      10 -> "Invalid TSS (#TS)"
-      11 -> "Segment Not Present (#NP)"
-      12 -> "Stack Exception (#SS)"
-      13 -> "General Protection (#GP)"
-      14 -> "Page Fault (#PF)"
-      16 -> "x87 FPU Error (#MF)"
-      17 -> "Alignment Check (#AC)"
-      18 -> "Machine Check (#MC)"
-      32 -> "IRQ0: Timer"
-      33 -> "IRQ1: Keyboard"
-      128 -> "System Call (int 0x80)"
-      _  -> "Unknown vector " + str(vector)
+    match vector {
+      | 0  => "Divide-by-zero (#DE)"
+      | 1  => "Debug (#DB)"
+      | 2  => "NMI"
+      | 3  => "Breakpoint (#BP)"
+      | 4  => "Overflow (#OF)"
+      | 5  => "Bound Range (#BR)"
+      | 6  => "Invalid Opcode (#UD)"
+      | 7  => "Device Not Available (#NM)"
+      | 8  => "Double Fault (#DF)"
+      | 10 => "Invalid TSS (#TS)"
+      | 11 => "Segment Not Present (#NP)"
+      | 12 => "Stack Exception (#SS)"
+      | 13 => "General Protection (#GP)"
+      | 14 => "Page Fault (#PF)"
+      | 16 => "x87 FPU Error (#MF)"
+      | 17 => "Alignment Check (#AC)"
+      | 18 => "Machine Check (#MC)"
+      | 32 => "IRQ0: Timer"
+      | 33 => "IRQ1: Keyboard"
+      | 128 => "System Call (int 0x80)"
+      | _  => "Unknown vector " + str(vector)

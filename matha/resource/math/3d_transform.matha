@@ -2,7 +2,7 @@
    覆盖：向量运算、矩阵变换、四元数旋转、透视投影
    ============================================================ *)
 
-module 3D变换 {
+module D3变换 {
 
   (* ===== 向量运算 ===== *)
   func 向量长度(x: Float, y: Float, z: Float) -> Float =
@@ -11,7 +11,7 @@ module 3D变换 {
   func 向量归一化(x: Float, y: Float, z: Float) -> (Float, Float, Float) =
     (x, y, z) =>
     let len = 向量长度(x, y, z) in
-    if len = 0: (0, 0, 0)
+    if if len = 0 then (0, 0, 0) else None
     else: (x/len, y/len, z/len)
 
   func 向量点积(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float) -> Float =
@@ -84,8 +84,8 @@ module 3D变换 {
     (a, b) =>
     let r = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0] in
     let rec mul(i: Int, j: Int, k: Int, acc: List) -> List =
-      (i, j, k, acc) =>
-        if i >= 4: acc
+    (i, j, k, acc) =>
+        if if i >= 4 then acc else None
         else if j >= 4: mul(i+1, 0, 0, acc)
         else if k >= 4: mul(i, j+1, 0, acc)
         else:

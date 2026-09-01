@@ -105,9 +105,9 @@ module 离散进阶 {
     let n = len(lst) in
     let arr = lst in
     let i = 0 in
-    while i < n - 1:
+    if i < n - 1:
       let j = 0 in
-      while j < n - i - 1:
+      if j < n - i - 1:
         if arr[j] < arr[j + 1]:
           let tmp = arr[j] in
           arr[j] = arr[j + 1] in

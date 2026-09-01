@@ -8,9 +8,9 @@ module 算法 {
     let n = len(arr) in
     let result = arr in
     let i = 0 in
-    while i < n - 1:
+    if i < n - 1:
       let j = 0 in
-      while j < n - i - 1:
+      if j < n - i - 1:
         if result[j] > result[j + 1]:
           let tmp = result[j] in
           result[j] = result[j + 1] in

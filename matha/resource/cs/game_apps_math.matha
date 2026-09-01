@@ -71,14 +71,15 @@ module 游戏数学 {
 
   func 状态机转换(当前: String, 事件: String) -> String =
     (当前, 事件) =>
-    case (当前, 事件) of
-      ("idle", "start") -> "playing"
-      ("playing", "pause") -> "paused"
-      ("playing", "die") -> "gameover"
-      ("gameover", "restart") -> "idle"
-      ("paused", "resume") -> "playing"
-      _ -> 当前
+    match (当前, 事件) {
+      | ("idle", "start") => "playing"
+      | ("playing", "pause") => "paused"
+      | ("playing", "die") => "gameover"
+      | ("gameover", "restart") => "idle"
+      | ("paused", "resume") => "playing"
+      | _ => 当前
 
+    }
   func 行为树评估(node: String, context: List) -> String =
     (* 简化：返回动作 *)
     (node, context) => "action_" + node

@@ -21,7 +21,7 @@ module 金融进阶 {
 
   func BlackScholes_看涨(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
     (S, K, T, r, σ) =>
-    if σ = 0 or T = 0: max(S - K, 0)
+    if if σ = 0 or T = 0 then max(S - K, 0) else None
     else:
       let d1 = (log(S/K) + (r + σ*σ/2) * T) / (σ * 开方(T)) in
       let d2 = d1 - σ * 开方(T) in
@@ -36,8 +36,8 @@ module 金融进阶 {
     (权重, 波动率, 相关系数) =>
     let n = len(权重) in
     let rec sum(i: Int, j: Int, acc: Float) -> Float =
-      (i, j, acc) =>
-        if i >= n: acc
+    (i, j, acc) =>
+        if if i >= n then acc else None
         elif j >= n: sum(i + 1, i + 1, acc)
         else:
           let cov = 波动率[i] * 波动率[j] * (if i = j then 1.0 else 相关系数[i*n+j]) in
@@ -51,7 +51,7 @@ module 金融进阶 {
 
   func 正态分位数(p: Float) -> Float =
     (p) =>
-    if p < 0.5: -正态分位数(1.0 - p)
+    if if p < 0.5 then -正态分位数(1.0 - p) else None
     elif p = 0.5: 0.0
     else:
       let t = 开方(-2.0 * log(1.0 - p)) in
@@ -67,8 +67,8 @@ module 金融进阶 {
   func 投资组合收益(权重: List, 收益: List) -> Float =
     (权重, 收益) =>
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) =>
-        if i >= len(权重): acc
+    (i, acc) =>
+        if if i >= len(权重) then acc else None
         else: sum(i + 1, acc + 权重[i] * 收益[i])
     sum(0, 0)
 
@@ -80,15 +80,15 @@ module 金融进阶 {
     (收益列表) =>
     let n = len(收益列表) in
     let rec calc(i: Int, result: List) -> List =
-      (i, result) =>
-        if i >= n: result
+    (i, result) =>
+        if if i >= n then result else None
         else: result + [标准差(收益列表[i])]
     calc(0, [])
 
   func 标准差(收益: List) -> Float =
     (收益) =>
     let n = len(收益) in
-    if n <= 1: 0.0
+    if if n <= 1 then 0.0 else None
     else:
       let mean = 求和(收益) / n in
       开方(求和(各元素平方差(收益, mean)) / (n - 1))
@@ -96,13 +96,13 @@ module 金融进阶 {
   func 求和(lst: List) -> Float =
     (lst) =>
     let rec s(i: Int, acc: Float) -> Float =
-      (i, acc) => if i >= len(lst): acc else s(i+1, acc + lst[i])
+    (i, acc) => if i >= len(lst): acc else s(i+1, acc + lst[i])
     s(0, 0)
 
   func 各元素平方差(lst: List, mean: Float) -> List =
     (lst, mean) =>
     let rec sq(i: Int, result: List) -> List =
-      (i, result) => if i >= len(lst): result else sq(i+1, result + [(lst[i]-mean)^2])
+    (i, result) => if i >= len(lst): result else sq(i+1, result + [(lst[i]-mean)^2])
     sq(0, [])
 
   (* ===== 高级复利 ===== *)

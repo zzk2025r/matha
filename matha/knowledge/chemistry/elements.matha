@@ -15,6 +15,6 @@ module 元素 {
   func 摩尔质量(元素列表: List, 原子量列表: List) -> Float =
     (元素列表, 原子量列表) =>
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) => (i >= len(元素列表)) ? acc : sum(i+1, acc + 原子量列表[i])
+    (i, acc) => (i >= len(元素列表)) ? acc : sum(i+1, acc + 原子量列表[i])
     sum(0, 0)
 }

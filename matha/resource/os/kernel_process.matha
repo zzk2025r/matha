@@ -61,7 +61,7 @@ func scheduler_tick_latency_us(tsc_mhz: Int) -> Float =
 (* 基于上下文切换开销估算 *)
 func max_throughput_tasks(swap_cycles: Int, tsc_mhz: Int) -> Float =
     (swap_cycles, tsc_mhz) =>
-    float(tsc_mhz) * 1_000_000.0 / float(swap_cycles)
+    float(tsc_mhz) * 1000000.0 / float(swap_cycles)
 
 (* ── 任务控制块（TCB）数组内存 ──────────────────────────── *)
 func tcb_array_size(num_tasks: Int, tcb_size: Int) -> Int =

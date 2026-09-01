@@ -36,7 +36,7 @@ module 金融数学 {
   func 净现值(cashflows: List, r: Float) -> Float =
     (cashflows, r) =>
     let rec npv(i: Int, acc: Float) -> Float =
-      (i, acc) =>
+    (i, acc) =>
         (i >= len(cashflows)) ? acc :
         npv(i + 1, acc + cashflows[i] / (1 + r) ^ i)
     npv(0, 0)

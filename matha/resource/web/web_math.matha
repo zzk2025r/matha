@@ -7,24 +7,25 @@ module Web数学 {
   (* ===== HTTP 状态码 ===== *)
   func HTTP状态名称(代码: Int) -> String =
     (代码) =>
-    case 代码 of
-      200 -> "OK"
-      201 -> "Created"
-      204 -> "No Content"
-      301 -> "Moved Permanently"
-      302 -> "Found"
-      304 -> "Not Modified"
-      400 -> "Bad Request"
-      401 -> "Unauthorized"
-      403 -> "Forbidden"
-      404 -> "Not Found"
-      405 -> "Method Not Allowed"
-      429 -> "Too Many Requests"
-      500 -> "Internal Server Error"
-      502 -> "Bad Gateway"
-      503 -> "Service Unavailable"
-      _ -> "Unknown"
+    match 代码 {
+      | 200 => "OK"
+      | 201 => "Created"
+      | 204 => "No Content"
+      | 301 => "Moved Permanently"
+      | 302 => "Found"
+      | 304 => "Not Modified"
+      | 400 => "Bad Request"
+      | 401 => "Unauthorized"
+      | 403 => "Forbidden"
+      | 404 => "Not Found"
+      | 405 => "Method Not Allowed"
+      | 429 => "Too Many Requests"
+      | 500 => "Internal Server Error"
+      | 502 => "Bad Gateway"
+      | 503 => "Service Unavailable"
+      | _ => "Unknown"
 
+    }
   func HTTP是成功(代码: Int) -> Bool =
     (代码) => 代码 >= 200 and 代码 < 300
 
@@ -71,8 +72,8 @@ module Web数学 {
     let start = max(1, 当前页 - 2) in
     let end_ = min(总页数, 当前页 + 2) in
     let rec pages(i: Int, result: List) -> List =
-      (i, result) =>
-        if i > end_: result
+    (i, result) =>
+        if if i > end_ then result else None
         else: pages(i + 1, result + [i])
     pages(start, [])
 
@@ -86,8 +87,8 @@ module Web数学 {
   func 滑动窗口计数(请求时间戳: List, 窗口大小: Float, 当前时间: Float) -> Int =
     (请求时间戳, 窗口大小, 当前时间) =>
     let rec count(i: Int, acc: Int) -> Int =
-      (i, acc) =>
-        if i >= len(请求时间戳): acc
+    (i, acc) =>
+        if if i >= len(请求时间戳) then acc else None
         elif 当前时间 - 请求时间戳[i] <= 窗口大小: count(i + 1, acc + 1)
         else: count(i + 1, acc)
     count(0, 0)
@@ -110,8 +111,8 @@ module Web数学 {
   func CORS允许源(请求源: String, 允许列表: List) -> Bool =
     (请求源, 允许列表) =>
     let rec check(i: Int) -> Bool =
-      (i) =>
-        if i >= len(允许列表): 假
+    (i) =>
+        if if i >= len(允许列表) then 假 else None
         elif 允许列表[i] = 请求源 or 允许列表[i] = "*": 真
         else: check(i + 1)
     check(0)

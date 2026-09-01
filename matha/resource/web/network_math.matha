@@ -24,7 +24,7 @@ module Web网络 {
 
   func WebSocket帧开销(payload_len: Int) -> Int =
     (payload_len) =>
-    if payload_len < 126: 2
+    if if payload_len < 126 then 2 else None
     elif payload_len < 65536: 4
     else: 10
 
@@ -54,8 +54,8 @@ module Web网络 {
   func script_snippet包含(text: String, substr: String) -> Bool =
     (text, substr) =>
     let rec find(i: Int) -> Bool =
-      (i) =>
-        if i + len(substr) > len(text): 假
+    (i) =>
+        if if i + len(substr) > len(text) then 假 else None
         elif text[i:i+len(substr)] = substr: 真
         else: find(i + 1)
     find(0)

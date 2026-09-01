@@ -9,8 +9,8 @@ module 调度算法 {
     (到达时间, Burst时间) =>
     let n = len(到达时间) in
     let rec calc(i: Int, 当前时间: Float, result: List) -> List =
-      (i, 当前时间, result) =>
-        if i >= n: result
+    (i, 当前时间, result) =>
+        if if i >= n then result else None
         else:
           let start = if 当前时间 < 到达时间[i] then 到达时间[i] else 当前时间 in
           let完成 = start + Burst时间[i] in
@@ -55,8 +55,8 @@ module 调度算法 {
   func 平均等待时间(周转时间列表: List, Burst时间列表: List) -> Float =
     (周转时间列表, Burst时间列表) =>
     let rec wait_sum(i: Int, acc: Float) -> Float =
-      (i, acc) =>
-        if i >= len(周转时间列表): acc
+    (i, acc) =>
+        if if i >= len(周转时间列表) then acc else None
         else: wait_sum(i + 1, acc + 周转时间列表[i] - Burst时间列表[i])
     wait_sum(0, 0) / len(周转时间列表)
 
@@ -70,6 +70,6 @@ module 调度算法 {
   func 求和(lst: List) -> Float =
     (lst) =>
     let rec s(i: Int, acc: Float) -> Float =
-      (i, acc) => if i >= len(lst): acc else s(i + 1, acc + lst[i])
+    (i, acc) => if i >= len(lst): acc else s(i + 1, acc + lst[i])
     s(0, 0)
 }

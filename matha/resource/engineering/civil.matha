@@ -21,12 +21,13 @@ module 土木结构 {
 
   func 钢筋屈服强度(牌号: String) -> Float =
     (牌号) =>
-    case 牌号 of
-      "HRB335" -> 335
-      "HRB400" -> 400
-      "HRB500" -> 500
-      _ -> 335
+    match 牌号 {
+      | "HRB335" => 335
+      | "HRB400" => 400
+      | "HRB500" => 500
+      | _ => 335
 
+    }
   func 地基承载力(σ: Float, A: Float) -> Float =
     (σ, A) => σ * A
 }

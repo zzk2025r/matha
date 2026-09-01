@@ -24,11 +24,11 @@ module 离散数学 {
     (p, q) => p or not p
 
   (* ===== 集合论 ===== *)
-  func 并集基数(|A|: Int, |B|: Int, |A∩B|: Int) -> Int =
-    (|A|, |B|, |A∩B|) => |A| + |B| - |A∩B|
+  func 并集基数(cardA: Int, cardB: Int, cardIntersect: Int) -> Int =
+    (cardA, cardB, cardIntersect) => cardA + cardB - cardIntersect
 
-  func 笛卡尔积基数(|A|: Int, |B|: Int) -> Int =
-    (|A|, |B|) => |A| * |B|
+  func 笛卡尔积基数(cardA: Int, cardB: Int) -> Int =
+    (cardA, cardB) => cardA * cardB
 
   func 幂集基数(n: Int) -> Int =
     (n) => 2 ^ n
@@ -53,7 +53,7 @@ module 离散数学 {
   func 所有偶数(lst: List) -> Bool =
     (lst) =>
     let rec check(i: Int) -> Bool =
-      (i) =>
+    (i) =>
         (i >= len(lst)) ? 真 :
         (lst[i] % 2 = 0) ? check(i + 1) : 假
     check(0)

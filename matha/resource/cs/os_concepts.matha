@@ -7,25 +7,26 @@ module 操作系统 {
   (* ===== 进程管理 ===== *)
   func 进程状态转换(当前: String, 事件: String) -> String =
     (当前, 事件) =>
-    case (当前, 事件) of
-      ("新建", " admission") -> "就绪"
-      ("就绪", "dispatch") -> "运行"
-      ("运行", "interrupt") -> "就绪"
-      ("运行", "block") -> "阻塞"
-      ("阻塞", "wake") -> "就绪"
-      ("运行", "exit") -> "终止"
-      _ -> 当前
+    match (当前, 事件) {
+      | ("新建", " admission") => "就绪"
+      | ("就绪", "dispatch") => "运行"
+      | ("运行", "interrupt") => "就绪"
+      | ("运行", "block") => "阻塞"
+      | ("阻塞", "wake") => "就绪"
+      | ("运行", "exit") => "终止"
+      | _ => 当前
 
+    }
   func 进程数量上限(内存: Int, 每进程: Int) -> Int =
     (内存, 每进程) =>
-    if 每进程 = 0: 0 else 内存 / 每进程
+    if if 每进程 = 0 then 0 else 内存 / 每进程 else None
 
   (* ===== 内存管理 ===== *)
   func 首次适配分配(可用块: List, 大小: Int) -> Int =
     (可用块, 大小) =>
     let rec find(i: Int) -> Int =
-      (i) =>
-        if i >= len(可用块): -1
+    (i) =>
+        if if i >= len(可用块) then -1 else None
         elif 可用块[i] >= 大小: i
         else: find(i + 1)
     find(0)
@@ -33,8 +34,8 @@ module 操作系统 {
   func 最佳适配分配(可用块: List, 大小: Int) -> Int =
     (可用块, 大小) =>
     let rec find(i: Int, best: Int, best_size: Int) -> Int =
-      (i, best, best_size) =>
-        if i >= len(可用块): best
+    (i, best, best_size) =>
+        if if i >= len(可用块) then best else None
         elif 可用块[i] >= 大小 and (best = -1 or 可用块[i] < best_size):
           find(i + 1, i, 可用块[i])
         else: find(i + 1, best, best_size)
@@ -42,7 +43,7 @@ module 操作系统 {
 
   func 内存碎片率(总空闲: Int, 最大连续: Int) -> Float =
     (总空闲, 最大连续) =>
-    if 总空闲 = 0: 0 else 1.0 - 最大连续 / 总空闲
+    if if 总空闲 = 0 then 0 else 1.0 - 最大连续 / 总空闲 else None
 
   (* ===== 文件系统 ===== *)
   func 目录深度(path: String) -> Int =
@@ -61,10 +62,10 @@ module 操作系统 {
     let 完成时间 = [] in
     let 当前时间 = 0 in
     let rec schedule(i: Int) -> List =
-      (i) =>
-        if i >= n: 完成时间
+    (i) =>
+        if if i >= n then 完成时间 else None
         else:
-          if 当前时间 < 到达时间[i]: 当前时间 = 到达时间[i]
+          if if 当前时间 < 到达时间[i] then 当前时间 = 到达时间[i] else None
           当前时间 = 当前时间 + burst时间[i]
           完成时间 = 完成时间 + [当前时间]
           schedule(i + 1)

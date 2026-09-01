@@ -7,13 +7,14 @@ module 安全密码 {
   (* ===== 哈希函数 ===== *)
   func 哈希长度(算法: String) -> Int =
     (算法) =>
-    case 算法 of
-      "MD5" -> 128
-      "SHA1" -> 160
-      "SHA256" -> 256
-      "SHA512" -> 512
-      _ -> 256
+    match 算法 {
+      | "MD5" => 128
+      | "SHA1" => 160
+      | "SHA256" => 256
+      | "SHA512" => 512
+      | _ => 256
 
+    }
   func 哈希熵(哈希长度: Int) -> Float =
     (哈希长度) => 浮点(哈希长度) * log(2)
 
@@ -31,12 +32,13 @@ module 安全密码 {
 
   func AES轮数(密钥长度: Int) -> Int =
     (密钥长度) =>
-    case 密钥长度 of
-      128 -> 10
-      192 -> 12
-      256 -> 14
-      _ -> 10
+    match 密钥长度 {
+      | 128 => 10
+      | 192 => 12
+      | 256 => 14
+      | _ => 10
 
+    }
   func 对称加密安全强度(密钥长度: Int) -> Int =
     (密钥长度) => 密钥长度 / 2  (* 有效安全强度 *)
 
@@ -56,20 +58,21 @@ module 安全密码 {
   func 模幂(base: Int, exp: Int, mod_val: Int) -> Int =
     (base, exp, mod_val) =>
     let rec power(b: Int, e: Int, m: Int, result: Int) -> Int =
-      (b, e, m, result) =>
-        if e = 0: result
+    (b, e, m, result) =>
+        if if e = 0 then result else None
         elif e % 2 = 0: power((b*b) % m, e/2, m, result)
         else: power(b, e-1, m, (result*b) % m)
     power(base % mod_val, exp, mod_val, 1)
 
   func RSA安全性(密钥长度: Int) -> String =
     (密钥长度) =>
-    case 密钥长度 of
-      1024 -> "不安全"
-      2048 -> "安全"
-      3072 -> "强安全"
-      _ -> "未知"
+    match 密钥长度 {
+      | 1024 => "不安全"
+      | 2048 => "安全"
+      | 3072 => "强安全"
+      | _ => "未知"
 
+    }
   (* ===== 认证与授权 ===== *)
   func HMAC哈希(密钥: String, 消息: String) -> String =
     (* 简化：返回消息 *)
@@ -90,12 +93,13 @@ module 安全密码 {
 
   func 风险矩阵(概率: Int, 影响: Int) -> String =
     (概率, 影响) =>
-    case (概率, 影响) of
-      (1, 1) -> "低"
-      (1, 2) or (2, 1) -> "中"
-      (2, 2) or (2, 3) or (3, 2) -> "高"
-      _ -> "严重"
+    match (概率, 影响) {
+      | (1, 1) => "低"
+      | (1, 2) or (2, 1) => "中"
+      | (2, 2) or (2, 3) or (3, 2) => "高"
+      | _ => "严重"
 
+    }
   func 资产估值(重置成本: Float, 贬值率: Float, 年限: Int) -> Float =
     (重置成本, 贬值率, 年限) =>
     重置成本 * (1 - 贬值率) ^ 年限

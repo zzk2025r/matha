@@ -17,7 +17,7 @@ module 语言学基础 {
     (对1, 对2) =>
     let diff = 对1 in
     let rec count(i: Int, acc: Int) -> Int =
-      (i, acc) =>
+    (i, acc) =>
         (i >= len(对1)) ? acc :
         count(i+1, if 对1[i] != 对2[i] then acc + 1 else acc)
     count(0, 0)

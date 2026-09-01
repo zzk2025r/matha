@@ -44,9 +44,9 @@ module 统计分析 {
     let n = len(数据) in
     let result = 复制列表(数据) in
     let i = 0 in
-    while i < n - 1:
+    if i < n - 1:
       let j = 0 in
-      while j < n - i - 1:
+      if j < n - i - 1:
         if result[j] > result[j + 1]:
           let tmp = result[j] in
           result[j] = result[j + 1] in

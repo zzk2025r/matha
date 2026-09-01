@@ -8,7 +8,7 @@ module 代数进阶 {
   func 多项式求值(coeffs: List, x: Float) -> Float =
     (coeffs, x) =>
     let rec eval(i: Int, acc: Float) -> Float =
-      (i, acc) =>
+    (i, acc) =>
         (i < 0) ? acc :
         eval(i - 1, acc * x + coeffs[i])
     eval(len(coeffs) - 1, 0)
@@ -16,10 +16,10 @@ module 代数进阶 {
   func 多项式导数(coeffs: List) -> List =
     (coeffs) =>
     let n = len(coeffs) in
-    if n <= 1: []
+    if if n <= 1 then [] else None
     else:
       let rec derive(i: Int, result: List) -> List =
-        (i, result) =>
+    (i, result) =>
           (i <= 0) ? result :
           derive(i - 1, [(coeffs[i] * i)] + result)
       derive(n - 1, [])

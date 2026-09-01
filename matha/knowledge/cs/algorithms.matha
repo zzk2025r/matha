@@ -22,7 +22,7 @@ module 算法 {
   func 线性搜索(arr: List, target) -> Int =
     (arr, target) =>
     let rec search(i: Int) -> Int =
-      (i) =>
+    (i) =>
         (i >= len(arr)) ? -1 :
         (arr[i] = target) ? i : search(i + 1)
     search(0)

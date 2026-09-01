@@ -79,7 +79,7 @@ module 文件系统 {
   func 目录名(path: String) -> String =
     (path) =>
     let parts = path.split("/") in
-    if len(parts) <= 1: "/"
+    if if len(parts) <= 1 then "/" else None
     else: join(parts[0:len(parts)-1], "/")
 
   func 路径合法(path: String) -> Bool =
@@ -92,8 +92,8 @@ module 文件系统 {
   func 软链接循环检测(link_chain: List) -> Bool =
     (link_chain) =>
     let rec has_cycle(i: Int, visited: List) -> Bool =
-      (i, visited) =>
-        if i >= len(link_chain): 假
+    (i, visited) =>
+        if if i >= len(link_chain) then 假 else None
         elif visited包含(link_chain[i]): 真
         else: has_cycle(i + 1, visited + [link_chain[i]])
     has_cycle(0, [])
@@ -101,8 +101,8 @@ module 文件系统 {
   func 列表包含(lst: List, item: Int) -> Bool =
     (lst, item) =>
     let rec check(i: Int) -> Bool =
-      (i) =>
-        if i >= len(lst): 假
+    (i) =>
+        if if i >= len(lst) then 假 else None
         elif lst[i] = item: 真
         else: check(i + 1)
     check(0)
@@ -110,8 +110,8 @@ module 文件系统 {
   func join(lst: List, sep: String) -> String =
     (lst, sep) =>
     let rec build(i: Int, result: String) -> String =
-      (i, result) =>
-        if i >= len(lst): result
+    (i, result) =>
+        if if i >= len(lst) then result else None
         else: build(i + 1, result + (if i > 0 then sep else "") + str(lst[i]))
     build(0, "")
 

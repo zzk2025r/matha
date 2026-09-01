@@ -11,14 +11,14 @@ module 概率基础 {
     (P_AB, P_A) =>
     (P_A = 0) ? 0 : P_AB / P_A
 
-  func 全概率公式(P_B|A1: Float, P_B|A2: Float, P_A1: Float, P_A2: Float) -> Float =
-    (P_B|A1, P_B|A2, P_A1, P_A2) =>
-    P_B|A1 * P_A1 + P_B|A2 * P_A2
+  func 全概率公式(PB_A1: Float, PB_A2: Float, P_A1: Float, P_A2: Float) -> Float =
+    (PB_A1, PB_A2, P_A1, P_A2) =>
+    PB_A1 * P_A1 + PB_A2 * P_A2
 
-  func 贝叶斯公式(P_B|A: Float, P_A|B: Float, P_B: Float, P_A: Float) -> Float =
-    (P_B|A, P_A|B, P_B, P_A) =>
+  func 贝叶斯公式(PB_A: Float, PA_B: Float, P_B: Float, P_A: Float) -> Float =
+    (PB_A, PA_B, P_B, P_A) =>
     (P_B = 0 or P_A = 0) ? 0 :
-    P_A|B * P_B / P_A
+    PA_B * P_B / P_A
 
   func 独立事件概率(P_A: Float, P_B: Float) -> Float =
     (P_A, P_B) => P_A * P_B
@@ -32,7 +32,7 @@ module 概率基础 {
   func 期望值(值列表: List, 概率列表: List) -> Float =
     (值列表, 概率列表) =>
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) =>
+    (i, acc) =>
         (i >= len(值列表)) ? acc :
         sum(i+1, acc + 值列表[i] * 概率列表[i])
     sum(0, 0)

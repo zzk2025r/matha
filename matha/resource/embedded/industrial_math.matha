@@ -72,8 +72,8 @@ module 工业嵌入式 {
     (* 简化：返回数据异或 *)
     (数据, 多项式) =>
     let rec crc(i: Int, acc: Int) -> Int =
-      (i, acc) =>
-        if i >= len(数据): acc
+    (i, acc) =>
+        if if i >= len(数据) then acc else None
         else: crc(i+1, acc XOR 数据[i])
     crc(0, 0)
 
