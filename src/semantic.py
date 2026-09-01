@@ -1056,7 +1056,7 @@ class SemanticAnalyzer:
 
     def _visit_MatchStmt(self, node: ast.MatchStmt) -> None:
         self._visit(node.scrutinee)
-        for pattern, body in node.branches:
+        for pattern, guard, body in node.branches:
             self._visit(pattern)
             self._visit(body)
 

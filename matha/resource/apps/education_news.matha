@@ -31,8 +31,8 @@ module 教育新闻 {
     (分数列表, 权重列表) =>
     let n = min(len(分数列表), len(权重列表)) in
     let rec calc(i: Int, num: Float, den: Float) -> Float =
-      (i, num, den) =>
-        if i >= n: if den = 0 then 0 else num / den
+    (i, num, den) =>
+        if if i >= n then if den = 0 then 0 else num / den else None
         else: calc(i+1, num + 分数列表[i]*权重列表[i], den + 权重列表[i])
     calc(0, 0, 0)
 
@@ -46,8 +46,8 @@ module 教育新闻 {
     (等级列表, 学分列表) =>
     let n = min(len(等级列表), len(学分列表)) in
     let rec calc(i: Int, num: Float, den: Float) -> Float =
-      (i, num, den) =>
-        if i >= n: if den = 0 then 0 else num / den
+    (i, num, den) =>
+        if if i >= n then if den = 0 then 0 else num / den else None
         else: calc(i+1, num + 等级列表[i]*学分列表[i], den + 学分列表[i])
     calc(0, 0, 0)
 
@@ -57,9 +57,9 @@ module 教育新闻 {
     (userVector, itemVector) =>
     let n = min(len(userVector), len(itemVector)) in
     let rec dot(i: Int) -> Float =
-      (i) => if i >= n: 0 else userVector[i]*itemVector[i] + dot(i+1)
+    (i) => if i >= n: 0 else userVector[i]*itemVector[i] + dot(i+1)
     let rec mag(i: Int) -> Float =
-      (i) => if i >= n: 0 else userVector[i]^2 + mag(i+1)
+    (i) => if i >= n: 0 else userVector[i]^2 + mag(i+1)
     let d = dot(0) in
     let m1 = 开方(mag(0)) in
     let m2 = 开方(itemVector[0]^2 + (if n > 1 then itemVector[1]^2 else 0)) in
@@ -89,7 +89,7 @@ module 教育新闻 {
     (featureVector, classWeights) =>
     let n = min(len(featureVector), len(classWeights)) in
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) => if i >= n: acc else sum(i+1, acc + featureVector[i]*classWeights[i])
+    (i, acc) => if i >= n: acc else sum(i+1, acc + featureVector[i]*classWeights[i])
     sum(0, 0)
 
   func 关键词提取(text: String, 词频列表: List) -> List =
@@ -97,14 +97,14 @@ module 教育新闻 {
     (text, 词频列表) =>
     let n = min(5, len(词频列表)) in
     let rec top(i: Int, result: List) -> List =
-      (i, result) => if i >= n: result else top(i+1, result + [词频列表[i]])
+    (i, result) => if i >= n: result else top(i+1, result + [词频列表[i]])
     top(0, [])
 
   (* ===== 教育系统 ===== *)
   func 班级平均成绩(成绩列表: List) -> Float =
     (成绩列表) =>
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) => if i >= len(成绩列表): acc else sum(i+1, acc + 成绩列表[i])
+    (i, acc) => if i >= len(成绩列表): acc else sum(i+1, acc + 成绩列表[i])
     sum(0, 0) / len(成绩列表)
 
   func 成绩分布统计(成绩列表: List) -> List =

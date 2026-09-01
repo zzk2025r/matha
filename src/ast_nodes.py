@@ -377,9 +377,9 @@ class LoopWhile:
 
 @dataclass
 class MatchStmt:
-    """<match_stmt> = match <expr> { | <pattern> => <expr> }"""
+    """<match_stmt> = match <expr> { | <pattern> [if <guard>] => <expr> }"""
     scrutinee: Any
-    branches: list[tuple[Any, Any]] = field(default_factory=list)
+    branches: list[tuple[Any, Any | None, Any]] = field(default_factory=list)
 
 
 # ============================================================

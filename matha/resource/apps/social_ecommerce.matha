@@ -19,7 +19,7 @@ module 社交电商 {
   func 消息延迟均值(延迟列表: List) -> Float =
     (延迟列表) =>
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) => if i >= len(延迟列表): acc else sum(i+1, acc + 延迟列表[i])
+    (i, acc) => if i >= len(延迟列表): acc else sum(i+1, acc + 延迟列表[i])
     sum(0, 0) / len(延迟列表)
 
   (* ===== 用户关系 ===== *)
@@ -43,7 +43,7 @@ module 社交电商 {
   func 平均好友数(用户列表: List) -> Float =
     (用户列表) =>
     let rec sum(i: Int, acc: Int) -> Int =
-      (i, acc) => if i >= len(用户列表): acc else sum(i+1, acc + 用户列表[i])
+    (i, acc) => if i >= len(用户列表): acc else sum(i+1, acc + 用户列表[i])
     sum(0, 0) / len(用户列表)
 
   (* ===== 推荐算法 ===== *)
@@ -52,11 +52,11 @@ module 社交电商 {
     (user1Prefs, user2Prefs) =>
     let n = min(len(user1Prefs), len(user2Prefs)) in
     let rec dot(i: Int) -> Float =
-      (i) => if i >= n: 0 else user1Prefs[i] * user2Prefs[i] + dot(i+1)
+    (i) => if i >= n: 0 else user1Prefs[i] * user2Prefs[i] + dot(i+1)
     let rec mag1(i: Int) -> Float =
-      (i) => if i >= n: 0 else user1Prefs[i]^2 + mag1(i+1)
+    (i) => if i >= n: 0 else user1Prefs[i]^2 + mag1(i+1)
     let rec mag2(i: Int) -> Float =
-      (i) => if i >= n: 0 else user2Prefs[i]^2 + mag2(i+1)
+    (i) => if i >= n: 0 else user2Prefs[i]^2 + mag2(i+1)
     let d = dot(0) in
     let m1 = 开方(mag1(0)) in
     let m2 = 开方(mag2(0)) in
@@ -75,8 +75,8 @@ module 社交电商 {
     (商品列表, 价格列表, 数量列表) =>
     let n = min(len(价格列表), len(数量列表)) in
     let rec sum(i: Int, acc: Float) -> Float =
-      (i, acc) =>
-        if i >= n: acc
+    (i, acc) =>
+        if if i >= n then acc else None
         else: sum(i+1, acc + 价格列表[i] * 数量列表[i])
     sum(0, 0)
 

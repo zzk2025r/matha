@@ -50,12 +50,13 @@ module 生活服务 {
 
   func BMI分类(bmi: Float) -> String =
     (bmi) =>
-    case bmi of
-      _ if bmi < 18.5 -> "偏瘦"
-      _ if bmi < 24 -> "正常"
-      _ if bmi < 28 -> "偏胖"
-      _ -> "肥胖"
+    match bmi {
+      | _ if bmi < 18.5 => "偏瘦"
+      | _ if bmi < 24 => "正常"
+      | _ if bmi < 28 => "偏胖"
+      | _ => "肥胖"
 
+    }
   func 每日热量需求(基础代谢: Float, 活动系数: Float) -> Float =
     (基础代谢, 活动系数) => 基础代谢 * 活动系数
 

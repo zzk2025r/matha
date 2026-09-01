@@ -55,6 +55,7 @@ class Parser:
         self._in_lambda_body = False   # True when parsing inside a lambda body
         self._in_lambda_rel = False    # True when parsing = right side inside lambda body
         self._in_func_app = False      # True when parsing inside a function call args
+        self._if_depth: int = 0        # 当前 if 表达式嵌套深度
         # 段内步骤追踪（用于 5 步固定顺序校验，M3.1/M3.2）
         self._current_seg: int | None = None
         self._seg_step: int = 0
@@ -1060,8 +1061,8 @@ class Parser:
             _sep_line = self._current().line
             self._advance()
             self._skip_newlines()
-            # 跨行：视为语句分隔符
-            if self._check(TokenType.NEWLINE) or (self._current().line != _sep_line):
+            # 跨行：视为语句分隔符（lambda 体内允许跨行表达式）
+            if (self._check(TokenType.NEWLINE) or (self._current().line != _sep_line)) and not self._in_lambda_body:
                 break
             if self._is_primary_start():
                 exprs.append(self._parse_or_expr())
@@ -1503,6 +1504,9 @@ class Parser:
                 saved_lambda = self._in_lambda_body
                 self._in_lambda_body = True
                 try:
+                    # 跳过空白行/注释后的 DEDENT（lambda 体为空或仅含注释时）
+                    while self._check(TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT):
+                        self._advance()
                     body = self._parse_expr()
                 finally:
                     self._in_lambda_body = saved_lambda
@@ -1852,12 +1856,27 @@ class Parser:
             is_rec = True
             self._advance()
         # 元组解构: let (a, b) = expr [in expr]
+        # 注意：let rec calc(i: Int) -> Float = ... 是函数定义，不是元组解构
+        # 通过 lookahead 区分：( 后跟 identifier: 为函数定义，identifier 后为 ,/) 为元组解构
         if self._check(TokenType.PUNCT_LPAREN):
-            return self._parse_let_tuple(is_rec)
-        name = self._expect(TokenType.IDENTIFIER, "绑定名").value
+            # lookahead: 检查 ( 后是否是 标识符: 形式（函数参数）
+            _peek1 = self._peek(1)
+            _is_typed_param = (
+                _peek1.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                                TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
+                                TokenType.KW_IN, TokenType.KW_WHILE)
+                and self._peek(2).type == TokenType.OP_COLON
+            )
+            if not _is_typed_param:
+                return self._parse_let_tuple(is_rec)
+            # 是函数定义，但 name 为空（匿名函数），直接跳到这里解析参数列表
+            saved = self.pos
+        else:
+            name = self._expect(TokenType.IDENTIFIER, "绑定名").value
+            # 检查是否为函数定义: name(params) -> Type = (params) => body
+            # 保存位置：在消费 ( 之前，以便失败时回退到普通 let 绑定
+            saved = self.pos
         # 检查是否为函数定义: name(params) -> Type = (params) => body
-        # 保存位置：在消费 ( 之前，以便失败时回退到普通 let 绑定
-        saved = self.pos
         if self._check(TokenType.PUNCT_LPAREN):
             try:
                 # 解析参数列表
@@ -1900,12 +1919,17 @@ class Parser:
                     self._expect(TokenType.PUNCT_RPAREN, ")")
                     self._expect(TokenType.OP_FATARROW, "=>")
                     self._skip_newlines()
+                    # 在 lambda 体内比较语境中解析 body，使 = 作为比较而非赋值
+                    # 同时设置 _in_lambda_body = True，使 ( 不被消费为函数应用
                     saved_rel = self._in_lambda_rel
+                    saved_lb = self._in_lambda_body
                     self._in_lambda_rel = True
+                    self._in_lambda_body = True
                     try:
-                        lam_body = self._parse_expr()
+                        lam_body = self._parse_lambda_body()
                     finally:
                         self._in_lambda_rel = saved_rel
+                        self._in_lambda_body = saved_lb
                     body = ast.Lambda(params=lam_params, body=lam_body)
                     if len(params) == 0:
                         param_type: Any = ast.BasicType(name="Unit")
@@ -1932,9 +1956,24 @@ class Parser:
                                 call_expr = ast.FuncApp(func=ast.Variable(name=name), arg=call_args[0])
                                 for arg in call_args[1:]:
                                     call_expr = ast.FuncApp(func=call_expr, arg=arg)
+                                # 继续解析调用后的表达式（如 sum(0, 0) / len(...)）
+                                # 但仅当在同一行时：若跨行则认为是下一个语句，回退位置
+                                saved_expr_pos = self.pos
+                                saved_expr_line = self._current().line
+                                saved_expr = self._in_lambda_body
+                                self._in_lambda_body = False
+                                try:
+                                    body_expr = self._parse_expr()
+                                    # 若跨过了换行（新行），回退到调用位置
+                                    if self._current().line != saved_expr_line:
+                                        self.pos = saved_expr_pos
+                                        body_expr = call_expr
+                                finally:
+                                    self._in_lambda_body = saved_expr
                                 # 返回 LetBinding，让解释器先注册再执行 body
-                                return ast.LetBinding(name=name, value=func_def.body, is_recursive=True, params=params, body=call_expr)
+                                return ast.LetBinding(name=name, value=func_def.body, is_recursive=True, params=params, body=body_expr)
                         except ParseError:
+                            self.pos = next_saved  # 回退到函数调用前的位置
                             pass  # 不是函数调用，回退
                     return func_def
             except ParseError:
@@ -2067,39 +2106,176 @@ class Parser:
     def _parse_if_expr_impl(self) -> ast.IfExpr:
         """内部实现：解析 if 表达式（支持 then/else 关键字形式和 {block} 语句形式）。"""
         self._expect(TokenType.KW_IF, "if")
-        # 条件解析保留控制流上下文（防止 { } 被误判为函数参数）
-        saved = self._in_control_flow
-        self._in_control_flow = True
+        _saved_if_depth = self._if_depth
+        self._if_depth += 1
         try:
-            cond = self._parse_expr()
-        finally:
-            self._in_control_flow = saved
-        # 关键字形式: if cond then expr else expr
-        if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
-            self._advance()
-            then_expr = self._parse_expr()
-            self._skip_newlines()
-            else_expr = None
-            if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
+            # 条件解析保留控制流上下文（防止 { } 被误判为函数参数）
+            saved = self._in_control_flow
+            self._in_control_flow = True
+            try:
+                cond = self._parse_expr()
+            finally:
+                self._in_control_flow = saved
+            # 关键字形式: if cond then expr else expr
+            if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
                 self._advance()
-                else_expr = self._parse_expr()
-            return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
-        # 关键字形式: if cond else expr (省略 then)
-        if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
-            self._advance()
-            else_expr = self._parse_expr()
-            return ast.IfExpr(cond=cond, then=else_expr, else_=None)
-        # 语句形式: if cond { block } [ 否则 { block }]
-        self._expect(TokenType.PUNCT_LBRACE, "{")
-        then_block = self._parse_block_body()
-        self._expect(TokenType.PUNCT_RBRACE, "}")
-        else_block = None
-        if self._check(TokenType.KW_OTHERWISE):
-            self._advance()
+                # 恢复 _in_control_flow 以允许 then/else 分支内解析嵌套 if 表达式
+                self._in_control_flow = saved
+                then_expr = self._parse_expr()
+                self._skip_newlines()
+                else_expr = None
+                # 支持 elif: 作为 else: if ... 的语法糖
+                while self._check(TokenType.IDENTIFIER) and self._current().value == "elif":
+                    self._advance()
+                    self._skip_newlines()
+                    elif_cond = self._parse_expr()
+                    self._skip_newlines()
+                    # 支持 elif then ... 和 elif: ... 两种形式
+                    if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
+                        self._advance()
+                    elif self._check(TokenType.OP_COLON):
+                        self._advance()
+                    self._skip_newlines()
+                    elif_then = self._parse_expr()
+                    self._skip_newlines()
+                    else_expr = ast.IfExpr(cond=elif_cond, then=elif_then, else_=else_expr)
+                if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
+                    # 前瞻：检查当前 else 后是否紧跟另一个 else（属于外层 if-expr），若是则不消费
+                    _saved_else = self.pos
+                    _saved_depth_at_else = self._if_depth
+                    self._advance()  # consume 'else'
+                    _else_expr = self._parse_expr()
+                    self._skip_newlines()
+                    if self._check(TokenType.IDENTIFIER) and self._current().value == "else" and self._if_depth < _saved_depth_at_else:
+                        # 还有 else 且深度更低，回退让外层 if-expr 处理
+                        self.pos = _saved_else
+                        else_expr = None
+                    else:
+                        else_expr = _else_expr
+                return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
+            # 冒号形式: if cond: expr else expr
+            if self._check(TokenType.OP_COLON):
+                self._advance()
+                self._in_control_flow = saved
+                then_expr = self._parse_expr()
+                self._skip_newlines()
+                else_expr = None
+                # 支持 elif: 作为 else: if ... 的语法糖
+                while self._check(TokenType.IDENTIFIER) and self._current().value == "elif":
+                    self._advance()
+                    self._skip_newlines()
+                    # elif 后直接跟条件表达式（不跟冒号）
+                    elif_cond = self._parse_expr()
+                    self._skip_newlines()
+                    if self._check(TokenType.OP_COLON):
+                        self._advance()
+                        self._skip_newlines()
+                    elif_then = self._parse_expr()
+                    self._skip_newlines()
+                    else_expr = ast.IfExpr(cond=elif_cond, then=elif_then, else_=else_expr)
+                if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
+                    _saved_else = self.pos
+                    _saved_depth_at_else = self._if_depth
+                    self._advance()
+                    _else_expr = self._parse_expr()
+                    self._skip_newlines()
+                    if self._check(TokenType.IDENTIFIER) and self._current().value == "else" and self._if_depth < _saved_depth_at_else:
+                        self.pos = _saved_else
+                        else_expr = None
+                    else:
+                        else_expr = _else_expr
+                return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
+            # elif 形式: if cond elif cond2: expr2 else: expr3
+            if self._check(TokenType.IDENTIFIER) and self._current().value == "elif":
+                self._advance()
+                self._skip_newlines()
+                elif_cond = self._parse_expr()
+                self._skip_newlines()
+                if self._check(TokenType.OP_COLON):
+                    self._advance()
+                    self._skip_newlines()
+                elif_then = self._parse_expr()
+                self._skip_newlines()
+                else_expr = None
+                if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
+                    _saved_else = self.pos
+                    _saved_depth_at_else = self._if_depth
+                    self._advance()
+                    # 支持 else: 语法（冒号作为分隔符）
+                    if self._check(TokenType.OP_COLON):
+                        self._advance()
+                        self._skip_newlines()
+                    _else_expr = self._parse_expr()
+                    self._skip_newlines()
+                    if self._check(TokenType.IDENTIFIER) and self._current().value == "else" and self._if_depth < _saved_depth_at_else:
+                        self.pos = _saved_else
+                        else_expr = None
+                    else:
+                        else_expr = _else_expr
+                return ast.IfExpr(cond=cond, then=elif_then, else_=else_expr)
+            # 关键字形式: if cond else expr (省略 then)
+            if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
+                # 前瞻：检查当前 else 后是否紧跟另一个 else（属于外层 if-expr），若是则不消费
+                _saved_else = self.pos
+                _saved_depth_at_else = self._if_depth
+                self._advance()  # consume 'else'
+                self._skip_newlines()
+                # 支持 else: 语法（冒号作为分隔符）
+                if self._check(TokenType.OP_COLON):
+                    self._advance()
+                    self._skip_newlines()
+                # 支持 elif: 作为 else 后跟 if ... 的语法糖
+                elif_exprs = []
+                while True:
+                    # 解析 else 分支
+                    _else_expr = self._parse_expr()
+                    self._skip_newlines()
+                    if self._check(TokenType.IDENTIFIER) and self._current().value == "else" and self._if_depth < _saved_depth_at_else:
+                        # 还有 else 且深度更低，回退让外层 if-expr 处理
+                        self.pos = _saved_else
+                        else_expr = None
+                        return ast.IfExpr(cond=cond, then=None, else_=None)
+                    elif_exprs.append(_else_expr)
+                    # 检查是否有 elif
+                    if not (self._check(TokenType.IDENTIFIER) and self._current().value == "elif"):
+                        break
+                    self._advance()
+                    self._skip_newlines()
+                    elif_cond = self._parse_expr()
+                    self._skip_newlines()
+                    if self._check(TokenType.OP_COLON):
+                        self._advance()
+                        self._skip_newlines()
+                    elif_then = self._parse_expr()
+                    self._skip_newlines()
+                    else_expr = ast.IfExpr(cond=elif_cond, then=elif_then, else_=None)
+                    # 将 elif 分支插入到 elif_exprs 中
+                    if elif_exprs:
+                        elif_exprs[-1] = else_expr
+                    else:
+                        elif_exprs = [else_expr]
+                # 构建嵌套的 if-else 链
+                if elif_exprs:
+                    result = elif_exprs[-1]
+                    for expr in reversed(elif_exprs[:-1]):
+                        result = ast.IfExpr(cond=elif_exprs[elif_exprs.index(expr)+1] if expr in elif_exprs else expr, then=expr, else_=result)
+                    else_expr = result
+                else:
+                    else_expr = None
+                return ast.IfExpr(cond=cond, then=None, else_=else_expr)
+            # 语句形式: if cond { block } [ 否则 { block }]
             self._expect(TokenType.PUNCT_LBRACE, "{")
-            else_block = self._parse_block_body()
+            then_block = self._parse_block_body()
             self._expect(TokenType.PUNCT_RBRACE, "}")
-        return ast.IfExpr(cond=cond, then=then_block, else_=else_block)
+            else_block = None
+            if self._check(TokenType.KW_OTHERWISE):
+                self._advance()
+                self._expect(TokenType.PUNCT_LBRACE, "{")
+                else_block = self._parse_block_body()
+                self._expect(TokenType.PUNCT_RBRACE, "}")
+            return ast.IfExpr(cond=cond, then=then_block, else_=else_block)
+        finally:
+            self._if_depth = _saved_if_depth
 
     def _parse_if_then_else_expr(self, cond) -> ast.IfExpr:
         """解析 if cond then expr else expr 三元表达式形式。
@@ -2127,6 +2303,7 @@ class Parser:
         saved = self.pos
         self._advance()  # consume 'else'
         else_exprs = self._parse_semicolon_exprs()
+        self._skip_newlines()
         if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
             # 还有 else，回退
             self.pos = saved
@@ -2188,9 +2365,15 @@ class Parser:
             if not self._match(TokenType.OP_PIPE):
                 break
             pattern = self._parse_pattern()
+            # 支持 match guard: | _ if cond => value
+            if (self._check(TokenType.IDENTIFIER) or self._check(TokenType.KW_IF)) and self._current().value == "if":
+                self._advance()
+                guard = self._parse_expr()
+            else:
+                guard = None
             self._expect(TokenType.OP_FATARROW, "=>")
             body = self._parse_expr()
-            branches.append((pattern, body))
+            branches.append((pattern, guard, body))
             # 跳过换行或分号
             self._skip_newlines()
             self._skip_semicolon()
@@ -2306,15 +2489,23 @@ class Parser:
         self._expect(TokenType.OP_FATARROW, "=>")
         self._skip_newlines()
         # 在 lambda 体内比较语境中解析 body，使 = 作为比较而非赋值
-        # 但保持 _in_lambda_body 不变，以确保 ( 不被消费为函数应用
+        # 同时设置 _in_lambda_body = True，使 ( 不被消费为函数应用
         saved_rel = self._in_lambda_rel
+        saved_lb = self._in_lambda_body
         self._in_lambda_rel = True
+        self._in_lambda_body = True
         try:
-            lam_body = self._parse_expr()
+            lam_body = self._parse_lambda_body()
         finally:
             self._in_lambda_rel = saved_rel
+            self._in_lambda_body = saved_lb
         body = ast.Lambda(params=lam_params, body=lam_body)
         return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
+
+    def _parse_lambda_body(self) -> ast.AST:
+        """解析 lambda 体：单个表达式，以 DEDENT/EOF 结束。"""
+        self._skip_newlines()
+        return self._parse_expr()
 
     def _parse_typed_param(self) -> tuple[str, Any]:
         """name: Type（类型标注可选）"""

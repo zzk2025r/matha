@@ -103,8 +103,8 @@ module 影音媒体 {
     (* 简化：返回第一个不超过带宽的码率索引 *)
     (当前带宽, 目标码率) =>
     let rec find(i: Int) -> Int =
-      (i) =>
-        if i >= len(目标码率): len(目标码率) - 1
+    (i) =>
+        if if i >= len(目标码率) then len(目标码率) - 1 else None
         elif 目标码率[i] <= 当前带宽: i
         else: find(i + 1)
     find(0)

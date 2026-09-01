@@ -731,7 +731,11 @@ class Interpreter:
         """求值 match 表达式，返回匹配结果。"""
         value = self._eval(stmt.scrutinee)
         default_branch = None
-        for pattern, body in stmt.branches:
+        for pattern, guard, body in stmt.branches:
+            if guard is not None:
+                guard_val = self._eval(guard)
+                if not guard_val:
+                    continue
             if isinstance(pattern, ast.Variable) and pattern.name == "_":
                 default_branch = body
                 continue

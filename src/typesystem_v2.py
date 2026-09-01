@@ -537,7 +537,7 @@ class EnhancedTypeInferencer:
         elif kind == "MatchStmt":
             scrutinee_type = self._infer_expr(expr.scrutinee)
             branches = getattr(expr, "branches", [])
-            branch_types = [self._infer_expr(b.body) for b in branches]
+            branch_types = [self._infer_expr(b[2]) for b in branches]
             return self.pattern_infer._common_type(branch_types) if branch_types else T_ANY
 
         elif kind == "LetBinding":
