@@ -92,4 +92,21 @@ __all__ = [
     "prove_by_contradiction",
     "check_tautology", "check_contradiction",
     "Predicate", "InferenceEngine",
+    # ── KNP-006: 统一别名（中英双语、常见缩写）────────────────────────
+    # 算术别名
+    "square_root", "平方根", "开方",
+    "jiecheng", "阶乘",
+    "abs_val", "绝对值",
+    "square", "平方",
+    "cube", "立方",
+    # 代数别名
+    "解方程", "求根",
+    "因式分解",
+    # 微积分别名
+    "求导", "微分",
+    "积分", "原函数",
+    # 逻辑别名
+    "且", "或", "非",
+    # 集合别名
+    "交集", "并集", "差集",
 ]

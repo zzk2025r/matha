@@ -1091,7 +1091,16 @@ class GrowthEngine:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def create_growth_engine(assistant=None) -> GrowthEngine:
-    """创建成长引擎实例。"""
+    """创建成长引擎实例。
+
+    KNP-010: 未提供 assistant 时自动创建默认助手。
+    """
+    if assistant is None:
+        try:
+            from src.ai_assistant import MathaAIAssistant
+            assistant = MathaAIAssistant()
+        except Exception:
+            pass
     return GrowthEngine(assistant=assistant)
 
 def run_growth_cycle(assistant=None, max_iterations: int = 3) -> dict:

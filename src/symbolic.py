@@ -17,7 +17,9 @@ import re
 import sys
 import os
 import logging
+import math
 from dataclasses import dataclass, field
+from functools import reduce
 from typing import Optional, Any, Callable, Dict, List, Tuple
 from enum import Enum
 
@@ -126,6 +128,7 @@ class Expr:
     def diff(self, var: str) -> 'Expr': raise NotImplementedError
     def evaluate(self, bindings: Dict[str, float] = None) -> float: raise NotImplementedError
     def substitute(self, var: str, value: 'Expr') -> 'Expr': raise NotImplementedError
+    def free_vars(self) -> set: raise NotImplementedError
 
     def __str__(self): raise NotImplementedError
     def __repr__(self): return f"Expr({self})"
@@ -134,10 +137,15 @@ class Expr:
 @dataclass(frozen=True)
 class Num(Expr):
     value: float
-    def simplify(self): return Num(round(self.value, 10))
+    def simplify(self):
+        # 对极小值或极大值保留原始精度，避免 round(value,10) 造成灾难性精度损失
+        if abs(self.value) < 1e-10 or abs(self.value) >= 1e10 or self.value == 0:
+            return self
+        return Num(round(self.value, 10))
     def evaluate(self, _bindings=None): return self.value
     def substitute(self, *a): return self
     def diff(self, var): return Num(0)
+    def free_vars(self) -> set: return set()
     def __str__(self): return str(int(self.value)) if self.value == int(self.value) else str(self.value)
 
 @dataclass(frozen=True)
@@ -151,6 +159,7 @@ class Var(Expr):
         return value if self.name == var else self
     def diff(self, var):
         return Num(1) if self.name == var else Num(0)
+    def free_vars(self) -> set: return {self.name}
     def __str__(self): return self.name
 
 @dataclass(frozen=True)
@@ -163,6 +172,7 @@ class Neg(Expr):
     def evaluate(self, bindings): return -self.expr.evaluate(bindings)
     def substitute(self, var, value): return Neg(self.expr.substitute(var, value))
     def diff(self, var): return Neg(self.expr.diff(var))
+    def free_vars(self) -> set: return self.expr.free_vars()
     def __str__(self): return f"(-{self.expr})"
 
 @dataclass(frozen=True)
@@ -183,6 +193,7 @@ class Add(Expr):
     def substitute(self, var, value):
         return Add(self.left.substitute(var, value), self.right.substitute(var, value))
     def diff(self, var): return Add(self.left.diff(var), self.right.diff(var))
+    def free_vars(self) -> set: return self.left.free_vars() | self.right.free_vars()
     def __str__(self): return f"({self.left} + {self.right})"
 
 @dataclass(frozen=True)
@@ -193,11 +204,13 @@ class Sub(Expr):
         a, b = self.left.simplify(), self.right.simplify()
         if isinstance(a, Num) and isinstance(b, Num): return Num(a.value - b.value)
         if isinstance(b, Num) and b.value == 0: return a
+        if a == b: return Num(0)  # x - x = 0
         return Sub(a, b)
     def evaluate(self, bindings): return self.left.evaluate(bindings) - self.right.evaluate(bindings)
     def substitute(self, var, value):
         return Sub(self.left.substitute(var, value), self.right.substitute(var, value))
     def diff(self, var): return Sub(self.left.diff(var), self.right.diff(var))
+    def free_vars(self) -> set: return self.left.free_vars() | self.right.free_vars()
     def __str__(self): return f"({self.left} - {self.right})"
 
 @dataclass(frozen=True)
@@ -228,6 +241,7 @@ class Mul(Expr):
     def diff(self, var):
         # 乘积法则
         return Add(Mul(self.left, self.right.diff(var)), Mul(self.left.diff(var), self.right))
+    def free_vars(self) -> set: return self.left.free_vars() | self.right.free_vars()
     def __str__(self): return f"({self.left} * {self.right})"
 
 @dataclass(frozen=True)
@@ -237,7 +251,7 @@ class Div(Expr):
     def simplify(self):
         a, b = self.numerator.simplify(), self.denominator.simplify()
         if isinstance(a, Num) and isinstance(b, Num):
-            if b.value == 0: raise ZeroDivisionError(f"除零: {a.value} / 0")
+            if b.value == 0: return Div(a, b)  # 保留除零表达式，延迟到求值时报错
             return Num(a.value / b.value)
         if isinstance(a, Num) and a.value == 0: return Num(0)
         if isinstance(b, Num) and b.value == 1: return a
@@ -255,6 +269,7 @@ class Div(Expr):
             Sub(Mul(n.diff(var), d), Mul(n, d.diff(var))),
             Pow(d, Num(2))
         )
+    def free_vars(self) -> set: return self.numerator.free_vars() | self.denominator.free_vars()
     def __str__(self): return f"({self.numerator} / {self.denominator})"
 
 @dataclass(frozen=True)
@@ -288,6 +303,7 @@ class Pow(Expr):
                 Mul(self.exponent, Div(self.base.diff(var), self.base))
             )
         )
+    def free_vars(self) -> set: return self.base.free_vars() | self.exponent.free_vars()
     def __str__(self): return f"({self.base} ^ {self.exponent})"
 
 
@@ -298,6 +314,7 @@ class Log(Expr):
     def evaluate(self, bindings): import math; return math.log(self.expr.evaluate(bindings))
     def substitute(self, var, value): return Log(self.expr.substitute(var, value))
     def diff(self, var): return Div(self.expr.diff(var), self.expr)
+    def free_vars(self) -> set: return self.expr.free_vars()
     def __str__(self): return f"ln({self.expr})"
 
 
@@ -307,18 +324,21 @@ class FuncCall(Expr):
         return FuncCall(self.name, [a.simplify() for a in self.args])
     def evaluate(self, bindings):
         args = [a.evaluate(bindings) for a in self.args]
-        if self.name == "sin": import math; return math.sin(args[0])
-        if self.name == "cos": import math; return math.cos(args[0])
-        if self.name == "tan": import math; return math.tan(args[0])
-        if self.name == "sqrt": import math; return math.sqrt(args[0])
+        if self.name == "sin": return math.sin(args[0])
+        if self.name == "cos": return math.cos(args[0])
+        if self.name == "tan": return math.tan(args[0])
+        if self.name == "sqrt": return math.sqrt(args[0])
         if self.name == "abs": return abs(args[0])
-        if self.name == "exp": import math; return math.exp(args[0])
-        if self.name == "log": import math; return math.log(args[0]) if len(args) < 2 else math.log(args[0], args[1])
+        if self.name == "exp": return math.exp(args[0])
+        if self.name == "log": return math.log(args[0]) if len(args) < 2 else math.log(args[0], args[1])
         if self.name == "floor": return math.floor(args[0])
         if self.name == "ceil": return math.ceil(args[0])
         if self.name == "factorial":
             v = int(args[0])
             return math.factorial(v) if 0 <= v <= 170 else float('inf')
+        if self.name == "asin": return math.asin(args[0])
+        if self.name == "acos": return math.acos(args[0])
+        if self.name == "atan": return math.atan(args[0])
         raise ValueError(f"未知函数: {self.name}")
     def substitute(self, var, value):
         return FuncCall(self.name, [a.substitute(var, value) for a in self.args])
@@ -326,8 +346,17 @@ class FuncCall(Expr):
         if self.name == "sin": return Mul(FuncCall("cos", self.args), self.args[0].diff(var))
         if self.name == "cos": return Neg(Mul(FuncCall("sin", self.args), self.args[0].diff(var)))
         if self.name == "exp": return self
-        if self.name == "log": return Div(FuncCall("cos", [Num(0)]), self.args[0])  # simplified
+        if self.name == "log": return Div(Num(1), self.args[0])  # d/dx ln(x) = 1/x
+        if self.name == "sqrt": return Div(Num(1), Mul(Num(2), FuncCall("sqrt", self.args)))  # d/dx sqrt(x) = 1/(2sqrt(x))
+        if self.name == "abs": return Div(self.args[0], FuncCall("abs", self.args))  # d/dx |x| = x/|x|
+        if self.name == "asin": return Div(self.args[0].diff(var), FuncCall("sqrt", [Sub(Num(1), Pow(self.args[0], Num(2)))]))
+        if self.name == "acos": return Neg(Div(self.args[0].diff(var), FuncCall("sqrt", [Sub(Num(1), Pow(self.args[0], Num(2)))])))
+        if self.name == "atan": return Div(self.args[0].diff(var), Add(Num(1), Pow(self.args[0], Num(2))))
         return FuncCall(f"d({self.name})", [a.diff(var) for a in self.args])
+    def free_vars(self) -> set:
+        result = set()
+        for a in self.args: result.update(a.free_vars())
+        return result
     def __str__(self):
         args_str = ', '.join(str(a) for a in self.args)
         return f"{self.name}({args_str})"
@@ -377,6 +406,8 @@ class SymbolicParser:
     def parse(self, text: str) -> Expr:
         """解析表达式字符串。"""
         text = text.strip()
+        # 支持全角括号
+        text = text.replace('（', '(').replace('）', ')')
         logger.info(f"  [符号解析] 解析: '{text}'")
         expr = self._parse_expr(text)
         simplified = expr.simplify()
@@ -386,17 +417,25 @@ class SymbolicParser:
     def _parse_expr(self, text: str) -> Expr:
         """解析加减表达式。"""
         text = text.strip()
+        if not text:
+            return Num(0)
+        # 处理一元 + / - 前缀
+        if text.startswith('-') and len(text) > 1:
+            inner = self._parse_expr(text[1:])
+            return Neg(inner)
+        if text.startswith('+') and len(text) > 1:
+            return self._parse_expr(text[1:])
         # 处理加法/减法
         segments = self._split_with_ops(text, ['+', '-'])
         if len(segments) > 1:
-            left = self._parse_expr(segments[0][0])
+            left = self._parse_term(segments[0][0])
             result = left
             for part, op in segments[1:]:
                 p = part.strip()
                 if op == '-':
-                    result = Sub(result, self._parse_expr(p))
+                    result = Sub(result, self._parse_term(p))
                 else:
-                    result = Add(result, self._parse_expr(p))
+                    result = Add(result, self._parse_term(p))
             return result
         return self._parse_term(text)
 
@@ -456,25 +495,37 @@ class SymbolicParser:
             inner = self._parse_primary(text[:-1])
             return FuncCall("factorial", [inner])
 
-        # 括号表达式
+        # 括号表达式（支持全角括号）
+        text = text.replace('（', '(').replace('）', ')')
         if text.startswith('(') and text.endswith(')'):
             return self._parse_expr(text[1:-1])
 
         # 负号
         if text.startswith('-'):
-            inner = self._parse_primary(text[1:])
+            inner_text = text[1:]
+            if not inner_text.strip():
+                return Num(0)  # 负号后为空 → 0
+            inner = self._parse_primary(inner_text)
             return Neg(inner)
+
+        # 空字符串 → 0
+        if not text.strip():
+            return Num(0)
 
         # 数字
         if self.NUM_PATTERN.fullmatch(text):
             return Num(float(text))
 
+        # 特殊常量 π
+        if text == 'π':
+            return Num(math.pi)
+
         # 变量
         if self.VAR_PATTERN.fullmatch(text):
             return Var(text)
 
-        # 带变量的表达式（如 3x → 3*x）
-        match = re.match(r'^([+\-]?\d*\.?\d*)([a-zA-Z_][a-zA-Z0-9_]*)$', text)
+        # 带变量的表达式（如 3x → 3*x，支持中文变量如 质量×加速度）
+        match = re.match(r'^([+\-]?\d*\.?\d*)([a-zA-Z_\u4e00-\u9fff][a-zA-Z0-9_\u4e00-\u9fff]*)$', text)
         if match:
             coeff = match.group(1)
             var_name = match.group(2)
@@ -484,6 +535,17 @@ class SymbolicParser:
                 return Neg(Var(var_name))
             else:
                 return Mul(Num(float(coeff)), Var(var_name))
+
+        # 兜底：含加减号的表达式（如 v-v0），回退到表达式解析
+        has_add = '+' in text
+        has_sub = '-' in text[1:] if text.startswith('-') else '-' in text
+        if has_add or has_sub:
+            return self._parse_expr(text)
+        # 含乘除号的表达式（如 r*r），回退到 term 解析
+        has_mul = '*' in text
+        has_div = '/' in text
+        if has_mul or has_div:
+            return self._parse_term(text)
 
         raise ValueError(f"无法解析表达式: '{text}'")
 

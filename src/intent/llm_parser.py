@@ -432,10 +432,15 @@ class LLMIntentParser:
         }
         fallback_type = node_type_map.get(root.node_type.name, IntentType.UNKNOWN)
 
+        # KNP-008: 动态计算降级置信度（基于文本长度和规则匹配数）
+        import re
+        rule_matches = sum(1 for kw in root.text if any(k in root.text.lower() for k in ["加", "减", "乘", "除", "算", "求", "多少"]))
+        dynamic_confidence = min(0.9, 0.3 + rule_matches * 0.1 + len(root.text) * 0.005)
+
         return Intent(
             intent_type=fallback_type,
             description=text,
-            confidence=0.5,
+            confidence=dynamic_confidence,
             suggested_code=root.to_math_code(),
             follow_up_questions=["LLM 解析失败，使用正则兜底"],
         )

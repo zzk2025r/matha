@@ -208,10 +208,15 @@ class IntentDecomposer:
         if self.use_llm:
             return self._llm_decompose(text)
 
+        # KNP-008: 动态计算降级置信度（基于文本长度和规则匹配数）
+        import re
+        rule_matches = sum(1 for kw in text if any(k in text.lower() for k in ["加", "减", "乘", "除", "算", "求", "多少"]))
+        dynamic_confidence = min(0.9, 0.3 + rule_matches * 0.1 + len(text) * 0.005)
+
         return IntentNode(
             node_type=IntentNodeType.ATOMIC,
             text=text,
-            confidence=0.5,
+            confidence=dynamic_confidence,
             follow_up=["无法识别意图，请提供更多上下文"],
         )
 
@@ -272,31 +277,61 @@ class IntentDecomposer:
         return self._simulate_llm_decomposition(text)
 
     def _heuristic_long_decompose(self, text: str) -> IntentNode:
-        """长文本启发式分解（无 LLM 时的降级方案）。"""
+        """长文本启发式分解（无 LLM 时的降级方案）。
+
+        KNP-005: 改进长文本分解，支持多句、多任务混合输入。
+        """
         # 按句号/分号/换行拆分
-        sentences = re.split(r'[。；;]\s*', text)
+        sentences = re.split(r'[。；;\n]+', text)
         sentences = [s.strip() for s in sentences if s.strip()]
 
         if len(sentences) <= 1:
             # 尝试按连接词拆分
-            parts = re.split(r'(并且|同时|以及|然后|接着)', text)
+            parts = re.split(r'(并且|同时|以及|然后|接着|另外|还有)', text)
             parts = [p.strip() for p in parts if p.strip() and p.strip() not in
-                     ['并且', '同时', '以及', '然后', '接着']]
+                     ['并且', '同时', '以及', '然后', '接着', '另外', '还有']]
         else:
             parts = sentences
 
         sub_intents = []
         for part in parts:
-            if len(part) > 5:
+            if len(part) > 3:  # KNP-005: 降低最小长度阈值
                 child = self.decompose(part)
-                if child.confidence >= 0.5:
+                # KNP-008: 动态置信度阈值
+                if child.confidence >= 0.3:  # 从 0.5 降到 0.3，更宽容
                     sub_intents.append(child)
+
+        # KNP-005: 如果没有子意图，尝试按关键词分块
+        if not sub_intents and len(text) > 50:
+            keywords = ['计算', '求', '找出', '分解', '判断', '验证', '比较']
+            for kw in keywords:
+                if kw in text:
+                    # 找到关键词后的内容作为独立任务
+                    idx = text.find(kw)
+                    if idx > 0:
+                        before = text[:idx].strip()
+                        after = text[idx:].strip()
+                        if before and len(before) > 3:
+                            child1 = self.decompose(before)
+                            if child1.confidence >= 0.3:
+                                sub_intents.append(child1)
+                        if after and len(after) > 3:
+                            child2 = self.decompose(after)
+                            if child2.confidence >= 0.3:
+                                sub_intents.append(child2)
+                        if sub_intents:
+                            return IntentNode(
+                                node_type=IntentNodeType.ROOT,
+                                text=text,
+                                sub_intents=sub_intents,
+                                confidence=0.75,
+                            )
 
         return IntentNode(
             node_type=IntentNodeType.ROOT,
             text=text,
             sub_intents=sub_intents,
-            confidence=0.7,
+            confidence=0.6,  # KNP-008: 动态置信度
         )
 
     # ============================================================
@@ -367,10 +402,14 @@ class IntentDecomposer:
 
         if not sub_intents:
             # 无法分解 → 返回单节点
+            # KNP-008: 动态置信度
+            import re
+            rule_matches = sum(1 for kw in text if any(k in text.lower() for k in ["加", "减", "乘", "除", "算", "求", "多少"]))
+            dynamic_confidence = min(0.9, 0.3 + rule_matches * 0.1 + len(text) * 0.005)
             return IntentNode(
                 node_type=IntentNodeType.ROOT,
                 text=text,
-                confidence=0.5,
+                confidence=dynamic_confidence,
                 follow_up=["请输入更具体的计算任务"],
             )
 

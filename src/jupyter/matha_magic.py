@@ -30,63 +30,71 @@ class MathaMagics:
         self._init_magics()
 
     def _init_magics(self):
-        """注册 IPython 魔法命令。"""
-        from IPython.core.magic import register_line_magic, register_cell_magic, Magics, magics_class
+        """注册 IPython 魔法命令（可选导入，未安装时静默跳过）。"""
+        try:
+            from IPython.core.magic import register_line_magic, register_cell_magic, Magics, magics_class
 
-        @magics_class
-        class MathaMagicsClass(Magics):
-            @register_line_magic
-            def matha(self, line: str) -> Any:
-                """单行 Matha 表达式：%matha 计算 100 以内所有素数"""
-                return self._execute_matha(line)
+            @magics_class
+            class MathaMagicsClass(Magics):
+                @register_line_magic
+                def matha(self, line: str) -> Any:
+                    """单行 Matha 表达式：%matha 计算 100 以内所有素数"""
+                    return self._execute_matha(line)
 
-            @register_cell_magic
-            def matha(self, line: str, cell: str) -> Any:
-                """多行 Matha 代码：%%matha\n计算 100 以内所有素数"""
-                return self._execute_matha(cell.strip())
+                @register_cell_magic
+                def matha(self, line: str, cell: str) -> Any:
+                    """多行 Matha 代码：%%matha\n计算 100 以内所有素数"""
+                    return self._execute_matha(cell.strip())
 
-            def _execute_matha(self, code: str) -> Any:
-                """执行 Matha 代码。"""
-                try:
-                    from src.intent.intent_decomposer import IntentDecomposer
-                    from src.intent.llm_parser import LLMIntentParser
-                    from src.intent.mir_generator import MIRGenerator
+                def _execute_matha(self, code: str) -> Any:
+                    """执行 Matha 代码。"""
+                    try:
+                        from src.intent.intent_decomposer import IntentDecomposer
+                        from src.intent.llm_parser import LLMIntentParser
+                        from src.intent.mir_generator import MIRGenerator
 
-                    # 1. 意图分解
-                    ide = IntentDecomposer()
-                    root = ide.decompose(code)
+                        # 1. 意图分解
+                        ide = IntentDecomposer()
+                        root = ide.decompose(code)
 
-                    # 2. LLM 解析（可选）
-                    parser = LLMIntentParser()
-                    intent = parser.parse(code)
+                        # 2. LLM 解析（可选）
+                        parser = LLMIntentParser()
+                        intent = parser.parse(code)
 
-                    # 3. MIR 代码生成
-                    generator = MIRGenerator()
-                    mir_code = generator.generate(intent)
+                        # 3. MIR 代码生成
+                        generator = MIRGenerator()
+                        mir_code = generator.generate(intent)
 
-                    # 4. 执行
-                    result = self._evaluate_mir(mir_code)
+                        # 4. 执行
+                        result = self._evaluate_mir(mir_code)
 
-                    # 5. 显示结果
-                    self._display_result(code, intent, mir_code, result)
+                        # 5. 显示结果
+                        self._display_result(code, intent, mir_code, result)
 
-                    return result
+                        return result
 
-                except Exception as e:
-                    print(f"[Matha] 执行失败: {e}")
-                    return None
+                    except Exception as e:
+                        print(f"[Matha] 执行失败: {e}")
+                        return None
 
-            def _evaluate_mir(self, mir_code) -> Any:
-                """评估 MIR 代码。"""
-                # TODO: 集成 MIR 解释器
-                return f"MIR 结果: {mir_code}"
+                def _evaluate_mir(self, mir_code) -> Any:
+                    """评估 MIR 代码。"""
+                    try:
+                        from src.compiler.ir import execute_mir
+                        result = execute_mir(mir_code, backend="python")
+                        return result
+                    except Exception:
+                        # 回退：尝试直接作为 Matha 表达式执行
+                        from src.interp import interpret
+                        outputs, _ = interpret(mir_code)
+                        return outputs[-1] if outputs else mir_code
 
-            def _display_result(self, code: str, intent, mir_code, result: Any):
-                """显示执行结果。"""
-                from IPython.display import Markdown, HTML, display
+                def _display_result(self, code: str, intent, mir_code, result: Any):
+                    """显示执行结果。"""
+                    from IPython.display import Markdown, HTML, display
 
-                # 意图摘要
-                intent_md = f"""
+                    # 意图摘要
+                    intent_md = f"""
 ## Matha 计算结果
 
 **输入**: {code}
@@ -101,7 +109,11 @@ class MathaMagics:
 
 **结果**: {result}
 """
-                display(Markdown(intent_md))
+                    display(Markdown(intent_md))
+
+        except ImportError:
+            # IPython 未安装，静默跳过
+            pass
 
 
 def load_ipython_extension(ipython):

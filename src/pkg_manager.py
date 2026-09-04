@@ -290,6 +290,27 @@ class DependencyResolver:
 
 
 # ============================================================
+# KNP-004: 便捷函数
+# ============================================================
+
+def clear_pkg_cache() -> None:
+    """清空包管理器缓存（KNP-004 便捷接口）。"""
+    from src.pkg_manager import DependencyResolver
+    resolver = DependencyResolver()
+    resolver.clear_cache()
+
+
+def get_pkg_cache_size() -> dict:
+    """获取缓存大小统计（KNP-004）。"""
+    from src.pkg_manager import DependencyResolver
+    resolver = DependencyResolver()
+    return {
+        "resolve_cache_entries": len(resolver._resolve_cache),
+        "constraint_cache_entries": len(resolver._constraint_cache),
+    }
+
+
+# ============================================================
 # 包管理器核心
 # ============================================================
 
