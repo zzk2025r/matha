@@ -32,7 +32,8 @@ from src.errors import (
     CompositeError, RecoveryStrategy,
 )
 from src.result import Ok, Err
-from src.stdlib.core import register_core_builtins
+# KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载
+# from src.stdlib.core import register_core_builtins  ← 已移除，按需调用
 
 
 logger = logging.getLogger("matha.repl")

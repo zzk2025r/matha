@@ -23,7 +23,8 @@ from src import ast_nodes as ast
 from src.interp import interpret
 from src.intent_parser import IntentParser, explain_intent
 from src.result import Ok, Err, MathaResultError
-from src.stdlib.core import register_core_builtins
+# KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载，不默认激活
+# from src.stdlib.core import register_core_builtins  ← 已移除，按需调用
 from src.repl_completion import REPLCompleter, REPLHistoryManager
 
 
@@ -65,6 +66,8 @@ class MathaREPL:
         # 初始化补全器和历史记录管理器
         self.completer = REPLCompleter(self.state)
         self.history_manager = REPLHistoryManager()
+        # 初始化语法高亮器
+        self.highlighter = SyntaxHighlighter(enabled=True)
         # 设置 readline 补全
         self._setup_readline()
         if debug:
@@ -270,18 +273,19 @@ class MathaREPL:
         print()
         # 尝试生成并执行代码
         if intent.confidence > 0.5 and intent.suggested_code:
-            print("  生成代码:")
+            print(f"  {self.highlighter.CYAN}生成代码:{self.highlighter.RESET}")
             for code_line in intent.suggested_code.split("\n"):
-                print(f"    {code_line}")
+                highlighted = self.highlighter.highlight(code_line)
+                print(f"    {highlighted}")
             print()
             # 执行生成的代码
             try:
                 outputs, trace = interpret(intent.suggested_code)
                 for out in outputs:
-                    print(f"  → 结果: {out}")
+                    print(f"  {self.highlighter.GREEN}→ 结果:{self.highlighter.RESET} {out}")
                 self.state.success_count += 1
             except Exception as e:
-                print(f"  [执行失败] {e}")
+                print(f"  {self.highlighter.RED}[执行失败]{self.highlighter.RESET} {e}")
                 self.state.error_count += 1
 
     def _parse_intent(self, line: str) -> None:
@@ -343,7 +347,8 @@ class MathaREPL:
         print()
         print("  输入历史:")
         for i, line in enumerate(self.state.history[-20:], 1):
-            print(f"    {i:3d}. {line}")
+            highlighted = self.highlighter.highlight(line)
+            print(f"    {i:3d}. {highlighted}")
         print()
 
     def _print_summary(self) -> None:
