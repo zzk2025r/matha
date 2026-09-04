@@ -1057,6 +1057,19 @@ class MathaInnerLoop:
             logger.info(f"  [自扩展] 新增: {expanded_concepts} 概念, "
                          f"{expanded_intents} 意图映射")
 
+        # Phase 4.55: 公式生长（新增）
+        if verbose:
+            logger.info("  [公式生长] 检测公式缺口并自动成长...")
+        try:
+            from src.unified_growth import get_unified_growth
+            ug = get_unified_growth(self._interp)
+            formula_result = ug.formula_grow(op_type="auto", max_combinations=3, max_derivatives=5)
+            if formula_result.get("success"):
+                logger.info(f"  [公式生长] 成长统计: {formula_result.get('stats', {})}")
+                logger.info(f"  [公式生长] 注册新公式: {formula_result.get('registered', 0)} 个")
+        except Exception as e:
+            logger.warning(f"  [公式生长] 公式成长失败: {e}")
+
         # Phase 4.6: 自升级检查
         if verbose:
             logger.info("  [自升级] 检查版本和补丁状态...")

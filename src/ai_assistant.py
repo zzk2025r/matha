@@ -64,6 +64,7 @@ class IntentType(str, Enum):
     统计概率 = "stats_prob"
     离散数学 = "discrete"
     应用数学 = "applied_math"
+    公式推导 = "formula_growth"   # 公式组合/推导/生成
     未知 = "unknown"
 
 
@@ -151,6 +152,11 @@ class FriendlyIntentParser:
             "换算", "转换", "千米", "米", "厘米", "毫米",
             "千克", "克", "吨", "摄氏度", "华氏度",
             "秒", "分", "小时", "天", "毫秒",
+        ],
+        IntentType.公式推导: [
+            "推导", "生成", "组合", "公式", "生长", "优化",
+            "等价", "替换", "变形", "消元",
+            "公式推导", "公式生成", "公式组合", "公式生长",
         ],
     }
 
@@ -313,6 +319,12 @@ class FriendlyIntentParser:
         "速度": IntentType.应用数学, "距离": IntentType.应用数学,
         "工作问题": IntentType.应用数学, "合作完成": IntentType.应用数学,
         "等差数列求和": IntentType.应用数学, "等比数列求和": IntentType.应用数学,
+        # 公式推导/生长表达
+        "推导": IntentType.公式推导, "推导公式": IntentType.公式推导,
+        "组合公式": IntentType.公式推导, "公式组合": IntentType.公式推导,
+        "生成公式": IntentType.公式推导, "自动公式": IntentType.公式推导,
+        "公式生成": IntentType.公式推导, "公式生长": IntentType.公式推导,
+        "公式推导": IntentType.公式推导, "公式优化": IntentType.公式推导,
         "多少平方公里": IntentType.单位换算, "多少英里": IntentType.单位换算,
         "多少英尺": IntentType.单位换算, "多少英寸": IntentType.单位换算,
         "多少磅": IntentType.单位换算, "多少盎司": IntentType.单位换算,
@@ -391,6 +403,10 @@ class FriendlyIntentParser:
         {"pattern": r".*(百分比|百分数|勾股定理|幂运算|对数法则).*", "intent": IntentType.应用数学, "reason": "应用数学", "weight": 5.0},
         {"pattern": r".*(工作问题|合作完成|效率相加).*", "intent": IntentType.应用数学, "reason": "工程应用数学", "weight": 5.0},
         {"pattern": r".*(等差数列求和|等比数列求和).*", "intent": IntentType.应用数学, "reason": "数列求和", "weight": 5.0},
+        # 公式推导规则
+        {"pattern": r".*(推导|推导公式|组合公式|公式组合|生成公式|公式生成|公式生长|公式推导|公式优化).*", "intent": IntentType.公式推导, "reason": "公式推导/生长", "weight": 6.0},
+        {"pattern": r".*(导数.*公式|积分.*公式|微分.*公式).*", "intent": IntentType.微积分, "reason": "微积分公式", "weight": 5.0},
+        {"pattern": r".*(公式.*等价|公式.*替换|公式.*变形).*", "intent": IntentType.公式推导, "reason": "公式变换", "weight": 5.0},
     ]
 
     # 错误解释模板
@@ -656,6 +672,9 @@ class FriendlyIntentParser:
         elif intent_type == IntentType.单位换算:
             _logger.debug("  [decompose] 单位换算分支: text='%s' nums=%s", text, numbers)
             steps = self._decompose_unit_convert(text, numbers)
+        elif intent_type == IntentType.公式推导:
+            _logger.debug("  [decompose] 公式推导分支: text='%s'", text)
+            steps = self._decompose_formula_growth(text)
         else:
             _logger.debug("  [decompose] 未知意图，返回引导步骤")
             steps = [Step(
@@ -863,6 +882,50 @@ class FriendlyIntentParser:
         return [Step("单位换算",
                      f"#1: 换算_千米_米({nums[0]}) = 结果\n#1: [结果]",
                      f"{nums[0]} 千米 = ? 米（1千米 = 1000米）")]
+
+    # ── 公式推导/生长分解 ──────────────────────────────────────
+
+    def _decompose_formula_growth(self, text: str) -> list[Step]:
+        """将公式推导/生长意图分解为可执行步骤。"""
+        _logger.debug("  [公式推导分解] text='%s'", text)
+        steps = []
+        from src.matha.growth import FormulaGrowthEngine
+        from src.formula_system import FormulaRegistry
+
+        # 检测操作类型
+        if "组合" in text or "组合公式" in text:
+            # 从文本提取公式名
+            formula_names = re.findall(r'[\u4e00-\u9fa5]+', text)
+            name_pairs = []
+            for i in range(len(formula_names) - 1):
+                name_pairs.append((formula_names[i], formula_names[i + 1]))
+            if not name_pairs:
+                name_pairs = [("动能", "动量")]  # 默认示例
+            steps.append(Step(
+                description=f"组合公式: {' + '.join(name_pairs[0])}",
+                matha_code="",
+                explanation=f"从已有公式 {name_pairs[0][0]} 和 {name_pairs[0][1]} 中找共享变量，自动代数组合",
+            ))
+        elif "推导" in text or "生成公式" in text:
+            steps.append(Step(
+                description="公式推导/生成",
+                matha_code="",
+                explanation="使用符号微分、代入、代数变形从已知公式推导出新公式",
+            ))
+        elif "优化" in text or "生长" in text:
+            steps.append(Step(
+                description="公式自动生长",
+                matha_code="",
+                explanation="运行完整成长循环：组合 → 推导 → 生成 → 注册",
+            ))
+        else:
+            # 默认：运行自动化成长
+            steps.append(Step(
+                description="自动公式生长",
+                matha_code="",
+                explanation="将运行 FormulaGrowthEngine 的 auto_grow，自动组合/推导/生成新公式",
+            ))
+        return steps
 
     # ── 执行与结果解释 ───────────────────────────────────────
 

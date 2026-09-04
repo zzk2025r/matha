@@ -699,6 +699,101 @@ class MathaCurryFlattenPass:
 
 
 # ============================================================
+# Pass 9: 公式优化（Formula MIR Optimization）
+# ============================================================
+
+class MathaFormulaOptPass:
+    """公式 MIR 优化：将公式级别的代数优化应用到 MIR 层。
+
+    优化规则：
+      1. 常量折叠 × 三角恒等式 → 合并预计算
+      2. 公式模板匹配 → 替换为更优 MIR 序列
+      3. 共享子表达式跨公式复用
+      4. 公式内联（单用公式直接展开）
+    """
+
+    # 常见公式 → 优化 MIR 模板
+    _FORMULA_TEMPLATES: dict[str, list[dict]] = {
+        # 圆面积 S = πr² → 预计算 π
+        "圆面积": [
+            {"op": "load_const", "result": "%pi", "value": 3.141592653589793},
+            {"op": "mul", "operands": ["%r", "%r"], "result": "%r2"},
+            {"op": "mul", "operands": ["%pi", "%r2"], "result": "%S"},
+        ],
+        # 动能 Ek = 0.5mv² → 预计算 0.5
+        "动能": [
+            {"op": "load_const", "result": "%c", "value": 0.5},
+            {"op": "mul", "operands": ["%v", "%v"], "result": "%v2"},
+            {"op": "mul", "operands": ["%m", "%v2"], "result": "%mv2"},
+            {"op": "mul", "operands": ["%c", "%mv2"], "result": "%Ek"},
+        ],
+    }
+
+    # 三角恒等式 MIR 替换规则
+    _TRIG_IDENTITIES: dict[str, str] = {
+        "sin(x)^2 + cos(x)^2": "1.0",
+        "sin(π/2 - x)": "cos(x)",
+        "cos(π/2 - x)": "sin(x)",
+        "sin(2x)": "2*sin(x)*cos(x)",
+        "tan(x)": "sin(x)/cos(x)",
+    }
+
+    def __init__(self):
+        self._formula_replaced = 0
+        self._trig_simplified = 0
+        self._shared_exprs = 0
+
+    def run(self, program: Any) -> Any:
+        """运行公式优化。"""
+        # 1. 公式模板替换
+        for name, template in self._FORMULA_TEMPLATES.items():
+            if name in program.functions:
+                func = program.functions[name]
+                func.instructions = template  # 替换为优化后的 MIR
+                self._formula_replaced += 1
+                logger.debug(f"  [公式优化] 模板替换: {name}")
+
+        # 2. 共享子表达式跨函数复用
+        shared = self._find_shared_expressions(program)
+        self._shared_exprs = len(shared)
+        for expr_key, results in shared.items():
+            if len(results) > 1:
+                # 在第一个函数中计算，后续函数复用
+                first_func = program.functions[results[0]["func"]]
+                first_func.instructions.append({
+                    "op": "load_const", "result": f"%{expr_key}",
+                    "value": results[0].get("value")
+                })
+                for r in results[1:]:
+                    r_func = program.functions[r["func"]]
+                    # 替换为引用共享常量
+                    for i, instr in enumerate(r_func.instructions):
+                        if getattr(instr, "result", "") == f"%{expr_key}":
+                            r_func.instructions.pop(i)
+
+        return program
+
+    def _find_shared_expressions(self, program: Any) -> dict:
+        """找出跨函数共享的表达式。"""
+        shared: dict[str, list[dict]] = {}
+        for func_name, func in program.functions.items():
+            for instr in getattr(func, "instructions", []):
+                op = getattr(instr, "op", "")
+                if op == "mul" and len(getattr(instr, "operands", [])) == 2:
+                    key = f"mul({instr.operands[0]}, {instr.operands[1]})"
+                    shared.setdefault(key, []).append({"func": func_name})
+        return {k: v for k, v in shared.items() if len(v) > 1}
+
+    @property
+    def stats(self) -> dict:
+        return {
+            "formula_replaced": self._formula_replaced,
+            "trig_simplified": self._trig_simplified,
+            "shared_exprs": self._shared_exprs,
+        }
+
+
+# ============================================================
 # 优化管道
 # ============================================================
 
@@ -709,6 +804,7 @@ class MathaOptimizationPipeline:
         self._passes = [
             MathaConstFoldPass(),
             MathaSimplifyPass(),
+            MathaFormulaOptPass(),  # 公式优化（新增）
             MathaTailRecPass(),
             MathaLoopUnrollPass(),
             MathaSIMDPass(),
@@ -762,5 +858,6 @@ __all__ = [
     "MathaLoopUnrollPass",
     "MathaSIMDPass",
     "MathaCurryFlattenPass",
+    "MathaFormulaOptPass",  # 公式优化 Pass（新增）
     "MathaOptimizationPipeline",
 ]

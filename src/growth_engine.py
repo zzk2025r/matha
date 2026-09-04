@@ -157,6 +157,12 @@ class GrowthEngine:
             {"name": "net_security_engine", "kind": "security_engine", "check": self._check_security},
             # 防火墙
             {"name": "firewall_system", "kind": "firewall", "check": self._check_firewall},
+            # 公式资源库
+            {"name": "formula_registry", "kind": "formula_resource", "check": self._check_formula_registry},
+            # 领域公式覆盖
+            {"name": "domain_formulas", "kind": "domain_formula", "check": self._check_domain_formulas},
+            # 公式成长引擎
+            {"name": "formula_growth_engine", "kind": "formula_growth", "check": self._check_formula_growth},
         ]
 
     def _check_keywords(self, kwargs: dict) -> tuple[bool, str]:
@@ -259,6 +265,50 @@ class GrowthEngine:
             return True, f"防火墙正常，级别={fw.level.value}，拦截数={blocked}"
         except Exception as e:
             return False, f"防火墙异常: {e}"
+
+    def _check_formula_registry(self, kwargs: dict) -> tuple[bool, str]:
+        """检查公式注册表完整性。"""
+        try:
+            from src.formula_system import FormulaRegistry
+            reg = FormulaRegistry()
+            reg.register_geometric_defaults()
+            count = len(reg.list_formulas())
+            if count >= 20:
+                return True, f"公式注册表完整，{count} 个公式"
+            return False, f"公式注册表不足: {count} 个（需要 >= 20）"
+        except ImportError:
+            return False, "公式系统未导入"
+        except Exception as e:
+            return False, f"公式注册表异常: {e}"
+
+    def _check_domain_formulas(self, kwargs: dict) -> tuple[bool, str]:
+        """检查领域公式覆盖度。"""
+        try:
+            from src.domain_formula import DomainFormulaRegistry
+            reg = DomainFormulaRegistry()
+            count = reg.register_all_domains()
+            if count >= 50:
+                return True, f"领域公式覆盖完整: {count} 个公式"
+            return False, f"领域公式不足: {count} 个（需要 >= 50）"
+        except ImportError:
+            return False, "领域公式系统未导入"
+        except Exception as e:
+            return False, f"领域公式异常: {e}"
+
+    def _check_formula_growth(self, kwargs: dict) -> tuple[bool, str]:
+        """检查公式成长引擎。"""
+        try:
+            from src.matha.growth import FormulaGrowthEngine
+            from src.formula_system import FormulaRegistry
+            reg = FormulaRegistry()
+            engine = FormulaGrowthEngine(reg)
+            # 简单测试：auto_grow 是否可用
+            stats = engine.auto_grow(max_combinations=1, max_derivatives=1)
+            return True, f"公式成长引擎正常，compose={stats.get('compose', 0)} infer={stats.get('infer', 0)}"
+        except ImportError:
+            return False, "公式成长引擎未导入"
+        except Exception as e:
+            return False, f"公式成长引擎异常: {e}"
 
     def audit_resources(self) -> list[ResourceEntry]:
         """完整资源审计。"""
