@@ -198,6 +198,11 @@ def _raise(msg: str, line: int = None, col: int = None) -> None:
     raise MathaRuntimeError(msg, line=line, col=col)
 
 
+def builtin_throw(msg: str) -> None:
+    """Matha DSL 可用的异常抛出函数（名称避免下划线前缀，兼容词法分析器）。"""
+    raise MathaRuntimeError(msg)
+
+
 class _BreakException(Exception):
     """break 中断循环的内部异常。"""
     pass
@@ -526,6 +531,8 @@ BUILTINS: dict[str, object] = {
     "展平": builtin_列表展平,
     "求和": builtin_列表求和,
     "去重": builtin_列表去重,
+    # 异常控制
+    "抛出错误": builtin_throw,
 }
 
 
