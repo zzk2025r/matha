@@ -1,8 +1,8 @@
 // Matha 可视化编程器 - 节点编辑器框架
 // 实现拖拽式界面基础结构
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'node_types.dart';
 import 'connection_system.dart';
 import 'node_widget.dart';
@@ -42,12 +42,11 @@ class _NodesEditorState extends State<NodesEditor> {
   }
 
   void _initializeNodes() {
-    for (final nodeData in widget.initialNodes) {
-      final node = Node.fromDict(nodeData);
+    for (final node in widget.initialNodes) {
       _nodes.add(node);
       _nodePositions[node.id.toString()] = Offset(
-        node.position.$1.toDouble(),
-        node.position.$2.toDouble(),
+        node.position.dx,
+        node.position.dy,
       );
     }
     
@@ -57,7 +56,11 @@ class _NodesEditorState extends State<NodesEditor> {
   }
 
   void _addNode(NodeType nodeType, Offset position) {
-    final node = Node(nodeType, (position.dx.round(), position.dy.round()));
+    final node = Node(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      nodeType: nodeType.id,
+      position: position,
+    );
     _nodes.add(node);
     _nodePositions[node.id.toString()] = position;
     setState(() {});
@@ -82,9 +85,9 @@ class _NodesEditorState extends State<NodesEditor> {
     setState(() {});
   }
 
-  List<Map<String, dynamic>> _serialize() {
+  Map<String, dynamic> _serialize() {
     return {
-      'nodes': _nodes.map((n) => n.toDict()).toList(),
+      'nodes': _nodes.map((n) => n.toMap()).toList(),
       'connections': _connectionController.serialize(),
     };
   }
@@ -143,8 +146,8 @@ class _NodesEditorState extends State<NodesEditor> {
                                     position: position,
                                     onUpdatePosition: (pos) => _updateNodePosition(node.id.toString(), pos),
                                     onRemove: () => _removeNode(node.id.toString()),
-                                    onStartDragConnection: (portName, pos) => 
-                                      _connectionController.startDrag(node.id.toString(), portName, pos),
+                                    onStartDragConnection: (portName, pos) =>
+                                      _connectionController.startDrag(node.id.toString(), portName),
                                     onEndDragConnection: (toNodeId, toPort) => 
                                       _connectionController.endDrag(toNodeId, toPort),
                                     isConnected: (portName) => _connectionController.getNodeConnections(node.id.toString())
@@ -185,9 +188,9 @@ class _NodesEditorState extends State<NodesEditor> {
         initialChildSize: 0.7,
         maxChildSize: 0.9,
         builder: (context, scrollController) => NodePalette(
-          nodeType: type,
-          onAddNode: (nodeType) {
-            _addNode(nodeType, Offset(100, 100));
+          category: type.label,
+          onAddNode: (definition) {
+            _addNode(definition.nodeType == NodeType.MATH_ADD.id ? NodeType.MATH_ADD : type, Offset(100, 100));
             Navigator.pop(context);
           },
         ),
@@ -197,7 +200,7 @@ class _NodesEditorState extends State<NodesEditor> {
 
   void _exportGraph() {
     final data = _serialize();
-    final json = JsonEncoder.withIndent('  ').convert(data);
+    final json = const JsonEncoder.withIndent('  ').convert(data);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -228,7 +231,7 @@ class _NodesEditorState extends State<NodesEditor> {
           ),
           onSubmitted: (value) {
             try {
-              final data = jsonDecode(value) as Map<String, dynamic>;
+              jsonDecode(value) as Map<String, dynamic>;
               // TODO: 实现导入逻辑
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('导入成功')),

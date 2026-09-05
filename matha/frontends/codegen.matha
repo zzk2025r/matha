@@ -1,0 +1,141 @@
+(* ============================================================
+   Matha 多语言代码生成器（Matha → 多语言）
+   ============================================================
+   将 Matha AST 生成为目标语言代码。
+   
+   支持语言：
+     - Python（完整实现）
+     - TypeScript（基础实现）
+     - Rust（基础实现）
+     - Go（基础实现）
+     - C（基础实现）
+   
+   调用入口：生成(语言, 函数名, 参数, 表达式, 返回类型) → 代码
+   ============================================================ *)
+
+module 代码生成器 {
+
+  use 词法器 { Token | 类型 | 扫描 | 做Token }
+  use 语法器
+
+  (* ===== Python 代码生成 ===== *)
+
+  func 生成Python(函数名: String, 参数: List, 表达式: String, 返回类型: String) -> String =
+    (函数名, 参数, 表达式, 返回类型) =>
+    let 参数列表 = 参数_join(参数, "Any") in
+    "def " + 函数名 + "(" + 参数列表 + "):\n    return " + 表达式
+
+  (* ===== TypeScript 代码生成 ===== *)
+
+  func 生成TypeScript(函数名: String, 参数: List, 表达式: String, 返回类型: String) -> String =
+    (函数名, 参数, 表达式, 返回类型) =>
+    let 参数列表 = 参数_类型标注(参数) in
+    "function " + 函数名 + "(" + 参数列表 + "): " + ts_类型(返回类型) + " {\n    return " + 表达式 + ";\n}"
+
+  (* ===== Rust 代码生成 ===== *)
+
+  func 生成Rust(函数名: String, 参数: List, 表达式: String, 返回类型: String) -> String =
+    (函数名, 参数, 表达式, 返回类型) =>
+    let 参数列表 = rust_参数(参数) in
+    "fn " + 函数名 + "(" + 参数列表 + ") -> " + rust_类型(返回类型) + " { " + 表达式 + " }"
+
+  (* ===== Go 代码生成 ===== *)
+
+  func 生成Go(函数名: String, 参数: List, 表达式: String, 返回类型: String) -> String =
+    (函数名, 参数, 表达式, 返回类型) =>
+    let 参数列表 = go_参数(参数) in
+    "func " + 函数名 + "(" + 参数列表 + ") " + go_类型(返回类型) + " { return " + 表达式 + " }"
+
+  (* ===== C 代码生成 ===== *)
+
+  func 生成C(函数名: String, 参数: List, 表达式: String, 返回类型: String) -> String =
+    (函数名, 参数, 表达式, 返回类型) =>
+    let 参数列表 = c_参数(参数) in
+    c_类型(返回类型) + " " + 函数名 + "(" + 参数列表 + ") { return " + 表达式 + "; }"
+
+  (* ===== 主生成入口 ===== *)
+
+  func 生成(语言: String, 函数名: String, 参数: List, 表达式: String, 返回类型: String) -> String =
+    (语言, 函数名, 参数, 表达式, 返回类型) =>
+    match 语言 with
+    | "python" | "py" => 生成Python(函数名, 参数, 表达式, 返回类型)
+    | "typescript" | "ts" => 生成TypeScript(函数名, 参数, 表达式, 返回类型)
+    | "rust" | "rs" => 生成Rust(函数名, 参数, 表达式, 返回类型)
+    | "go" | "go" => 生成Go(函数名, 参数, 表达式, 返回类型)
+    | "c" | "c" => 生成C(函数名, 参数, 表达式, 返回类型)
+    | _ => "# 不支持的语言: " + 语言
+    end
+
+  (* ===== 辅助函数 ===== *)
+
+  func 参数_join(参数: List, 默认类型: String) -> String = (参数, 默认类型) =>
+    let rec 扫描 = (ps, acc) =>
+      ps = [] ? acc :
+      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0])
+    in 扫描(参数, "")
+
+  func 参数_类型标注(参数: List) -> String = (参数) =>
+    let rec 扫描 = (ps, acc) =>
+      ps = [] ? acc :
+      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + ": any")
+    in 扫描(参数, "")
+
+  func rust_参数(参数: List) -> String = (参数) =>
+    let rec 扫描 = (ps, acc) =>
+      ps = [] ? acc :
+      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + ": i32")
+    in 扫描(参数, "")
+
+  func go_参数(参数: List) -> String = (参数) =>
+    let rec 扫描 = (ps, acc) =>
+      ps = [] ? acc :
+      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + " int")
+    in 扫描(参数, "")
+
+  func c_参数(参数: List) -> String = (参数) =>
+    let rec 扫描 = (ps, acc) =>
+      ps = [] ? acc :
+      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + "int " + ps[0])
+    in 扫描(参数, "")
+
+  func rust_类型(ty: String) -> String = (ty) =>
+    match ty with
+    | "Int" | "int" => "i32"
+    | "Float" | "float" => "f64"
+    | "String" | "string" => "String"
+    | "Bool" | "bool" => "bool"
+    | _ => "i32"
+    end
+
+  func go_类型(ty: String) -> String = (ty) =>
+    match ty with
+    | "Int" | "int" => "int"
+    | "Float" | "float" => "float64"
+    | "String" | "string" => "string"
+    | "Bool" | "bool" => "bool"
+    | _ => "int"
+    end
+
+  func c_类型(ty: String) -> String = (ty) =>
+    match ty with
+    | "Int" | "int" => "int"
+    | "Float" | "float" => "double"
+    | "String" | "string" => "char*"
+    | "Bool" | "bool" => "int"
+    | _ => "int"
+    end
+
+  func ts_类型(ty: String) -> String = (ty) =>
+    match ty with
+    | "Int" | "int" => "number"
+    | "Float" | "float" => "number"
+    | "String" | "string" => "string"
+    | "Bool" | "bool" => "boolean"
+    | _ => "any"
+    end
+}
+
+(* ===== 测试 ===== *)
+(* let py = 生成("python", "加倍", ["x"], "x * 2", "Int") in [py] *)
+(* let rust = 生成("rust", "double", ["x"], "x * 2", "i32") in [rust] *)
+(* let go = 生成("go", "double", ["x"], "x * 2", "int") in [go] *)

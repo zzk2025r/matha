@@ -53,6 +53,40 @@ class TokenType(Enum):
     OP_SET_PROD = auto()       # ×
     OP_SET_SUBSET = auto()     # ⊆
 
+    # ── 跨语言符号（多语言兼容模式） ───────────────────────────────────────
+    # 逻辑运算符（C/JS 风格，优先级高于 and/or）
+    OP_LAND = auto()       # &&  逻辑与
+    OP_LOR = auto()        # ||  逻辑或
+    OP_LNOT = auto()       # !   逻辑非
+    # 位运算符（C/JS 风格）
+    OP_BIT_AND = auto()    # &   位与
+    OP_BIT_XOR = auto()    # ^   位异或
+    OP_BIT_LSHIFT = auto() # <<  左移
+    OP_BIT_RSHIFT = auto() # >>  右移
+    OP_BIT_NOT = auto()    # ~   位取反
+    # Python 风格
+    OP_FDIV = auto()       # //  Python 整除
+    OP_IDENTITY = auto()   # is  同一性判断
+    # JS 风格
+    OP_STRICT_EQ = auto()  # === 严格相等
+    OP_STRICT_NEQ = auto() # !== 严格不等
+    OP_NULL_COAL = auto()  # ??  空值合并
+    OP_OPT_CHAIN = auto()  # ?.  可选链
+    OP_SPREAD = auto()     # ...  展开运算符
+    # 复合赋值
+    OP_ASGN_PLUS = auto()  # +=
+    OP_ASGN_MINUS = auto() # -=
+    OP_ASGN_STAR = auto()  # *=
+    OP_ASGN_SLASH = auto() # /=
+    OP_ASGN_MOD = auto()   # %=
+    OP_ASGN_POWER = auto() # **=
+    OP_ASGN_FDIV = auto()  # //=
+    OP_ASGN_BIT_AND = auto() # &=
+    OP_ASGN_BIT_OR = auto()  # |=
+    OP_ASGN_BIT_XOR = auto() # ^=
+    OP_ASGN_LSHIFT = auto()  # <<=
+    OP_ASGN_RSHIFT = auto()  # >>=
+
     # ---------- 标点 / 括号 ----------
     PUNCT_LPAREN = auto()   # (
     PUNCT_RPAREN = auto()   # )
@@ -111,6 +145,50 @@ class TokenType(Enum):
     KW_AND = auto()         # and
     KW_OR = auto()          # or
 
+    # ── 跨语言关键字（多语言兼容模式） ──────────────────────────────────────
+    KW_BREAK = auto()       # break  中断循环
+    KW_CONTINUE = auto()    # continue 继续循环
+    KW_RETURN = auto()      # return 返回值
+    KW_TRY = auto()         # try    尝试块
+    KW_CATCH = auto()       # catch  捕获异常
+    KW_FINALLY = auto()     # finally 最终块
+    KW_THROW = auto()       # throw  抛出异常
+    KW_SWITCH = auto()      # switch 开关
+    KW_CASE = auto()        # case   分支
+    KW_DEFAULT = auto()     # default 默认分支
+    KW_TYPEOF = auto()      # typeof 类型检查
+    KW_INSTANCEOF = auto()  # instanceof 实例检查
+    KW_NEW = auto()         # new    创建实例
+    KW_DELETE = auto()      # delete 删除属性
+    KW_VOID = auto()        # void   空操作
+    KW_LET = auto()         # let    块级变量（JS）
+    KW_CONST = auto()       # const  常量（JS）
+    KW_VAR = auto()         # var    变量（JS）
+    KW_FUNCTION = auto()    # function 函数声明（JS）
+    KW_ASYNC = auto()       # async  异步（JS）
+    KW_AWAIT = auto()       # await  等待（JS）
+    KW_CLASS = auto()       # class  类声明
+    KW_EXTENDS = auto()     # extends 继承
+    KW_SUPER = auto()       # super  父类引用
+    KW_THIS = auto()        # this   当前对象
+    KW_EXPORT = auto()      # export 导出
+    KW_IMPORT = auto()      # import 导入
+    KW_FROM = auto()        # from   导入来源
+    KW_ELIF = auto()        # elif   否则如果（Python）
+    KW_ELSE = auto()        # else   否则分支
+    KW_YIELD = auto()       # yield  生成器
+    KW_WITH = auto()        # with   上下文管理器
+    KW_RAISE = auto()       # raise  抛出异常
+    KW_PASS = auto()        # pass   空语句
+    KW_GLOBAL = auto()      # global 全局变量
+    KW_NONLOCAL = auto()    # nonlocal 非局部变量
+    KW_IS = auto()          # is     同一性（Python）
+    KW_TRUE = auto()        # True   布尔真
+    KW_FALSE = auto()       # False  布尔假
+    KW_NONE = auto()        # None   空值
+    KW_NULL = auto()        # null   空引用（JS）
+    KW_UNDEFINED = auto()   # undefined 未定义（JS）
+
     # ---------- 特殊 ----------
     NEWLINE = auto()        # 换行
     INDENT = auto()         # 缩进增加
@@ -140,7 +218,7 @@ class Token:
         return False
 
 
-# ---------- 关键字表（EBNF §14） ----------
+# ---------- 关键字表（EBNF §14 + 跨语言扩展） ----------
 KEYWORDS: dict[str, TokenType] = {
     "struct": TokenType.KW_STRUCT,
     "enum": TokenType.KW_ENUM,
@@ -164,6 +242,36 @@ KEYWORDS: dict[str, TokenType] = {
     "假": TokenType.LIT_BOOL,
     "true": TokenType.LIT_BOOL,
     "false": TokenType.LIT_BOOL,
+    "break": TokenType.KW_BREAK,
+    "continue": TokenType.KW_CONTINUE,
+    "return": TokenType.KW_RETURN,
+    "try": TokenType.KW_TRY,
+    "catch": TokenType.KW_CATCH,
+    "finally": TokenType.KW_FINALLY,
+    "throw": TokenType.KW_THROW,
+    "switch": TokenType.KW_SWITCH,
+    "case": TokenType.KW_CASE,
+    "default": TokenType.KW_DEFAULT,
+    "typeof": TokenType.KW_TYPEOF,
+    "instanceof": TokenType.KW_INSTANCEOF,
+    "new": TokenType.KW_NEW,
+    "delete": TokenType.KW_DELETE,
+    "void": TokenType.KW_VOID,
+    "async": TokenType.KW_ASYNC,
+    "await": TokenType.KW_AWAIT,
+    "class": TokenType.KW_CLASS,
+    "extends": TokenType.KW_EXTENDS,
+    "super": TokenType.KW_SUPER,
+    "this": TokenType.KW_THIS,
+    "export": TokenType.KW_EXPORT,
+    "import": TokenType.KW_IMPORT,
+    "from": TokenType.KW_FROM,
+    "yield": TokenType.KW_YIELD,
+    "with": TokenType.KW_WITH,
+    "raise": TokenType.KW_RAISE,
+    "pass": TokenType.KW_PASS,
+    "global": TokenType.KW_GLOBAL,
+    "nonlocal": TokenType.KW_NONLOCAL,
 }
 
 
@@ -171,6 +279,27 @@ KEYWORDS: dict[str, TokenType] = {
 # 按长度降序排列，保证最长匹配
 MULTI_CHAR_OPS: list[tuple[str, TokenType]] = [
     ("……", TokenType.MATHA_DOUBLE_ELLIPSIS),  # 双省略号优先于单省略号
+    # 跨语言多字符运算符（优先于单字符匹配）
+    ("<<<", TokenType.OP_BIT_LSHIFT),
+    (">>>>", TokenType.OP_BIT_RSHIFT),
+    ("!==", TokenType.OP_STRICT_NEQ),
+    ("===", TokenType.OP_STRICT_EQ),
+    ("??=", TokenType.OP_NULL_COAL),
+    ("?.", TokenType.OP_OPT_CHAIN),
+    ("...", TokenType.OP_SPREAD),
+    ("//=", TokenType.OP_ASGN_FDIV),
+    ("**=", TokenType.OP_ASGN_POWER),
+    ("<<=", TokenType.OP_ASGN_LSHIFT),
+    (">>=", TokenType.OP_ASGN_RSHIFT),
+    ("&=", TokenType.OP_ASGN_BIT_AND),
+    ("|=", TokenType.OP_ASGN_BIT_OR),
+    ("^=", TokenType.OP_ASGN_BIT_XOR),
+    ("+=", TokenType.OP_ASGN_PLUS),
+    ("-=", TokenType.OP_ASGN_MINUS),
+    ("*=", TokenType.OP_ASGN_STAR),
+    ("/=", TokenType.OP_ASGN_SLASH),
+    ("%=", TokenType.OP_ASGN_MOD),
+    # 原有运算符
     ("<<", TokenType.OP_ANGLE),
     (">>", TokenType.OP_NEXT),
     ("<=", TokenType.OP_LE),
@@ -182,6 +311,10 @@ MULTI_CHAR_OPS: list[tuple[str, TokenType]] = [
     ("*/", TokenType.MATHA_ANNOT_START),
     ("/*", TokenType.MATHA_ANNOT_END),
     ("…", TokenType.MATHA_ELLIPSIS),
+    ("&&", TokenType.OP_LAND),
+    ("||", TokenType.OP_LOR),
+    ("??", TokenType.OP_NULL_COAL),
+    ("//", TokenType.OP_FDIV),
     ("++", TokenType.OP_INCR),
     ("--", TokenType.OP_DECR),
 ]

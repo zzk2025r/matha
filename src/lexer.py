@@ -28,7 +28,9 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "?": TokenType.OP_QUESTION,
     ":": TokenType.OP_COLON,
     "|": TokenType.OP_PIPE,
-    "!": TokenType.OP_NEQ,
+    "!": TokenType.OP_LNOT,      # 逻辑非（!= 由多字符匹配处理）
+    "&": TokenType.OP_BIT_AND,  # 位与
+    "~": TokenType.OP_BIT_NOT,  # 位取反
     # ---------- 括号（半角 + 全角） ----------
     "(": TokenType.PUNCT_LPAREN,
     ")": TokenType.PUNCT_RPAREN,
@@ -641,8 +643,8 @@ class Lexer:
                 # 空白字符不纳入标识符
                 break
             else:
-                # 未映射字符（emoji 等）继续纳入标识符
-                parts.append(self._advance())
+                # 未映射字符（emoji 等）停止标识符
+                break
         result = "".join(parts)
         # 查关键字表
         ttype = KEYWORDS.get(result, TokenType.IDENTIFIER)

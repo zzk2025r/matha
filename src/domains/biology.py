@@ -516,7 +516,7 @@ def _register_biology(builtins: dict) -> None:
     builtins["分子_PCR扩增效率"] = _curry2(_分子_PCR扩增效率)
     builtins["分子_质量转摩尔"] = _curry2(_分子_质量转摩尔)
     builtins["分子_密码子查找"] = _分子_密码子查找
-    builtins["分子_mRNA翻译"] = _curry2(_分子_mRNA翻译) if False else _分子_mRNA翻译  # 单参版本 1 个调用
+    builtins["分子_mRNA翻译"] = _curry2(_分子_mRNA翻译)
     builtins["分子_蛋白分子量"] = _分子_蛋白分子量
 
     # ===== 二、细胞生物学 =====

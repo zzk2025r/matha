@@ -56,6 +56,7 @@
 
 from __future__ import annotations
 import math
+from src.stdlib.safe_ops import safe_div
 
 
 # ============================================================
@@ -90,10 +91,12 @@ def _curry4(func):
 # 物理常量
 # ============================================================
 
+# 物理常量（统一来源）
+from src.stdlib.physics_constants import C as _P
 # 真空光速 c = 2.998e8 m/s
-C_LIGHT = 2.99792458e8
+C_LIGHT = _P.c
 # 普朗克常量 h = 6.626e-34 J·s
-H_PLANCK = 6.62607015e-34
+H_PLANCK = _P.h_planck
 # 光视效能最大值 K_m = 683 lm/W
 K_MAX = 683.0
 
@@ -103,24 +106,27 @@ K_MAX = 683.0
 # ============================================================
 
 # 折射定律（斯涅尔定律）：n₁sinθ₁ = n₂sinθ₂ → θ₂ = arcsin(n₁sinθ₁/n₂)
-def _几何_折射角(n1, theta1, n2): return math.asin(n1 * math.sin(theta1) / n2)
+def _几何_折射角(n1, theta1, n2): return math.asin(safe_div(n1 * math.sin(theta1), n2, default=1.0))
 # 全反射临界角：sinθc = n₂/n₁ → θc = arcsin(n₂/n₁)（n₁ > n₂）
-def _几何_全反射角(n1, n2): return math.asin(n2 / n1) if n1 > n2 else math.pi / 2
+def _几何_全反射角(n1, n2): return math.asin(safe_div(n2, n1, default=1.0)) if n1 > n2 else math.pi / 2
 # 球面镜焦距：f = R/2
 def _几何_球面镜焦距(R): return R / 2
 # 球面镜/透镜成像：1/v + 1/u = 1/f → v = uf/(u-f)
-def _几何_像距(u, f): return u * f / (u - f)
+def _几何_像距(u, f): return safe_div(u * f, u - f)
 # 放大率：m = -v/u
-def _几何_放大率(v, u): return -v / u
+def _几何_放大率(v, u): return safe_div(-v, u)
 # 薄透镜造焦公式：1/f = (n-1)(1/R₁ - 1/R₂) → f
 def _几何_透镜焦距(n, R1, R2):
-    return 1.0 / ((n - 1) * (1.0 / R1 - 1.0 / R2))
+    denom = (n - 1) * (1.0 / R1 - 1.0 / R2)
+    return safe_div(1.0, denom)
 # 介质中光速：v = c/n
-def _几何_介质光速(n): return C_LIGHT / n
+def _几何_介质光速(n): return safe_div(C_LIGHT, n)
 # 折射率：n = c/v
-def _几何_折射率(v): return C_LIGHT / v
+def _几何_折射率(v): return safe_div(C_LIGHT, v)
 # 透镜组合焦距（密接）：1/f = 1/f₁ + 1/f₂ → f
-def _几何_透镜组合(f1, f2): return 1.0 / (1.0 / f1 + 1.0 / f2)
+def _几何_透镜组合(f1, f2):
+    denom = 1.0 / f1 + 1.0 / f2
+    return safe_div(1.0, denom)
 
 
 # ============================================================
@@ -128,13 +134,13 @@ def _几何_透镜组合(f1, f2): return 1.0 / (1.0 / f1 + 1.0 / f2)
 # ============================================================
 
 # 双缝干涉条纹间距：Δy = λD/d
-def _波动_双缝条纹间距(wavelength, D, d): return wavelength * D / d
+def _波动_双缝条纹间距(wavelength, D, d): return safe_div(wavelength * D, d)
 # 薄膜干涉光程差（垂直入射）：2nd = mλ → 垂直入射薄膜光学厚度
 def _波动_薄膜光程差(n, d): return 2 * n * d
 # 单缝衍射暗纹位置：a·sinθ = mλ → θ = arcsin(mλ/a)
-def _波动_单缝暗纹角(wavelength, a, m): return math.asin(m * wavelength / a)
+def _波动_单缝暗纹角(wavelength, a, m): return math.asin(safe_div(m * wavelength, a))
 # 光栅方程：d·sinθ = mλ → θ = arcsin(mλ/d)
-def _波动_光栅衍射角(wavelength, d_grating, m): return math.asin(m * wavelength / d_grating)
+def _波动_光栅衍射角(wavelength, d_grating, m): return math.asin(safe_div(m * wavelength, d_grating))
 # 光栅分辨本领：R = mN
 def _波动_光栅分辨本领(m, N): return m * N
 # 马吕斯定律：I = I₀cos²θ
@@ -152,15 +158,15 @@ def _波动_双缝光程差(d, theta): return d * math.sin(theta)
 # 光通量（各向同性点光源）：Φ = 4πI
 def _光度_光通量(I): return 4 * math.pi * I
 # 照度（平方反比）：E = I/r²
-def _光度_照度(I, r): return I / (r * r)
+def _光度_照度(I, r): return safe_div(I, r * r)
 # 照度（斜入射）：E = (I/r²)cosθ
-def _光度_斜照度(I, r, theta): return I / (r * r) * math.cos(theta)
+def _光度_斜照度(I, r, theta): return safe_div(I, r * r) * math.cos(theta)
 # 光亮度：L = I/A
-def _光度_亮度(I, A): return I / A
+def _光度_亮度(I, A): return safe_div(I, A)
 # 光视效能：K = Φ/P
-def _光度_光视效能(Phi, P): return Phi / P
+def _光度_光视效能(Phi, P): return safe_div(Phi, P)
 # 发光强度（由光通量和立体角）：I = Φ/Ω
-def _光度_发光强度(Phi, Omega): return Phi / Omega
+def _光度_发光强度(Phi, Omega): return safe_div(Phi, Omega)
 
 
 # ============================================================
@@ -168,11 +174,11 @@ def _光度_发光强度(Phi, Omega): return Phi / Omega
 # ============================================================
 
 # 放大镜放大率：M = 25/f + 1（近似 M = 25/f）
-def _仪器_放大镜(f): return 0.25 / f  # 25cm/f
+def _仪器_放大镜(f): return safe_div(0.25, f)  # 25cm/f
 # 显微镜放大率：M = (L/f_o)(25/f_e)，L 为镜筒长
-def _仪器_显微镜(L, f_o, f_e): return (L / f_o) * (0.25 / f_e)
+def _仪器_显微镜(L, f_o, f_e): return safe_div(L, f_o) * safe_div(0.25, f_e)
 # 望远镜放大率：M = -f_o/f_e
-def _仪器_望远镜(f_o, f_e): return -f_o / f_e
+def _仪器_望远镜(f_o, f_e): return -safe_div(f_o, f_e)
 # 数值孔径：NA = n·sinα
 def _仪器_数值孔径(n, alpha): return n * math.sin(alpha)
 # 最小分辨角（瑞利判据）：θ = 1.22λ/D
@@ -193,11 +199,11 @@ def _色散_柯西折射率(A, B, wavelength): return A + B / (wavelength ** 2)
 def _色散_色散率(B, wavelength): return -2 * B / (wavelength ** 3)
 # 光子能量：E = hf = hc/λ
 def _色散_光子能量频率(f): return H_PLANCK * f
-def _色散_光子能量波长(wavelength): return H_PLANCK * C_LIGHT / wavelength
+def _色散_光子能量波长(wavelength): return safe_div(H_PLANCK * C_LIGHT, wavelength)
 # 光子动量：p = h/λ
-def _色散_光子动量(wavelength): return H_PLANCK / wavelength
+def _色散_光子动量(wavelength): return safe_div(H_PLANCK, wavelength)
 # 红移因子：z = (λ_obs - λ_emit)/λ_emit
-def _色散_红移(lam_obs, lam_emit): return (lam_obs - lam_emit) / lam_emit
+def _色散_红移(lam_obs, lam_emit): return safe_div(lam_obs - lam_emit, lam_emit)
 # 多普勒红移速度（非相对论）：v = zc
 def _色散_红移速度(z): return z * C_LIGHT
 

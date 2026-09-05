@@ -299,6 +299,12 @@ class DictLiteral(ASTNode):
         self.values = values or []
 
 
+class TupleExpr(ASTNode):
+    def __init__(self, elements=None, line=0, col=0):
+        super().__init__(line, col)
+        self.elements = elements or []
+
+
 class Output(ASTNode):
     def __init__(self, expr=None, line=0, col=0):
         super().__init__(line, col)
@@ -736,6 +742,15 @@ class MathaFrontend:
         self._ir._instructions.append(f"{result} = call ptr @make_dict({keys}, {values})")
         return result
 
+    def _compile_tuple(self, expr: TupleExpr) -> str:
+        """编译元组表达式为 C 数组构造。"""
+        elements = [self._compile_expr(e) for e in expr.elements]
+        result = self._ir._new_temp()
+        self._ir._instructions.append(
+            f"{result} = call ptr @make_tuple({', '.join(elements)})"
+        )
+        return result
+
 
 # ============================================================
 # 6. Matha IR → LLVM IR 生成器
@@ -926,7 +941,7 @@ __all__ = [
     "MathaToken", "MathaLexer",
     "ASTNode", "Program", "Binding", "FuncDef", "BinaryOp", "UnaryOp",
     "FuncApp", "Lambda", "IfExpr", "WhileStmt", "ForStmt",
-    "Literal", "Variable", "ListLiteral", "DictLiteral", "Output",
+    "Literal", "Variable", "ListLiteral", "DictLiteral", "TupleExpr", "Output",
     "MathaParser",
     "MathaIR",
     "MathaFrontend",

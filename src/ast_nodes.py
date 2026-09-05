@@ -382,6 +382,13 @@ class MatchStmt:
     branches: list[tuple[Any, Any | None, Any]] = field(default_factory=list)
 
 
+@dataclass
+class ConstructorPat:
+    """Rust 风格构造子模式：Some(x), Pair(a, b), Left(v) 等。"""
+    name: str  # 构造子名，如 "Some", "Pair", "Left"
+    fields: list[Any] = field(default_factory=list)  # 子模式列表
+
+
 # ============================================================
 # 类型系统（EBNF §5）
 # ============================================================
@@ -496,3 +503,69 @@ class DefineOp:
     precedence: int
     assoc: str  # "left" | "right"
     token_type: Any = None  # 运行时动态创建的 TokenType
+
+
+# ============================================================
+# 跨语言支持节点（多语言兼容模式）
+# ============================================================
+
+@dataclass
+class BreakStmt:
+    """break — 中断当前循环"""
+    pass
+
+
+@dataclass
+class ContinueStmt:
+    """continue — 跳过当前循环迭代"""
+    pass
+
+
+@dataclass
+class ReturnStmt:
+    """return <expr> — 从函数返回"""
+    value: Any = None
+
+
+@dataclass
+class ThrowStmt:
+    """throw <expr> — 抛出异常"""
+    value: Any
+
+
+@dataclass
+class TryStmt:
+    """try { block } catch (<var>) { block } [ finally { block }]"""
+    try_block: Any
+    catch_var: Optional[str] = None
+    catch_block: Any = None
+    finally_block: Any = None
+
+
+@dataclass
+class TypeOfExpr:
+    """typeof <expr> — 返回类型名称"""
+    operand: Any
+
+
+@dataclass
+class IsExpr:
+    """<expr> is <expr> — 同一性判断（Python is）"""
+    left: Any
+    right: Any
+
+
+@dataclass
+class IfElseStmt:
+    """if/elif/else 链式语句"""
+    conditions: list[Any] = field(default_factory=list)
+    blocks: list[Any] = field(default_factory=list)
+    else_block: Optional[Any] = None
+
+
+@dataclass
+class SwitchStmt:
+    """switch <expr> { case <val>: <block> ... default: <block> }"""
+    value: Any
+    cases: list[tuple[Any, Any]] = field(default_factory=list)
+    default_block: Any = None

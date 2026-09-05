@@ -1,7 +1,6 @@
 // Matha 可视化编程器 - 节点类型定义
 // 核心数据结构：Node, NodeDefinition, PortDefinition, NodeRegistry, NodeType
 
-import 'dart:ui';
 import 'package:flutter/material.dart';
 
 /// 节点端口方向
@@ -199,7 +198,7 @@ class NodeDefinition {
             .toList() ??
         [],
     category: map['category'] as String,
-    icon: IconData(map['icon'] as int, fontFamily: 'MaterialIcons'),
+    icon: const IconData(0x0000, fontFamily: 'MaterialIcons'),
     defaultValues: map['defaultValues'] as Map<String, dynamic>?,
   );
 }

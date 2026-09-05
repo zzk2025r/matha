@@ -55,6 +55,7 @@ class Parser:
         self._in_lambda_body = False   # True when parsing inside a lambda body
         self._in_lambda_rel = False    # True when parsing = right side inside lambda body
         self._in_func_app = False      # True when parsing inside a function call args
+        self._in_let_value = False     # True when parsing the value expression of a let statement
         self._if_depth: int = 0        # 当前 if 表达式嵌套深度
         # 段内步骤追踪（用于 5 步固定顺序校验，M3.1/M3.2）
         self._current_seg: int | None = None
@@ -115,6 +116,12 @@ class Parser:
     def _is_colon(self) -> bool:
         """当前是否为冒号（半角 : 或全角 ：）。"""
         return self._check(TokenType.OP_COLON, TokenType.MATHA_COLON_FW)
+
+    def _is_stmt_separator(self) -> bool:
+        """当前 token 是否为语句分隔符（换行、EOF、闭括号等）。"""
+        return self._check(TokenType.NEWLINE, TokenType.DEDENT, TokenType.EOF,
+                           TokenType.PUNCT_RBRACE, TokenType.PUNCT_RPAREN,
+                           TokenType.PUNCT_RBRACKET)
 
     def _is_comma(self) -> bool:
         """当前是否为逗号（半角 , 或全角 ，）。"""
@@ -886,7 +893,11 @@ class Parser:
         作为等于比较，不转换为绑定。
         例：op = "+" ? left + right : 0  →  BinaryOp("=", op, IfExpr(...))
         """
-        expr = self._parse_expr()
+        self._in_bind_value = True
+        try:
+            expr = self._parse_expr()
+        finally:
+            self._in_bind_value = False
         # 语句层：variable = value / a>>b = value → binding
         if isinstance(expr, ast.BinaryOp) and expr.op == "=":
             # 若左侧是 FuncApp（lambda 应用或函数调用），= 为等于比较，不作绑定
@@ -1161,6 +1172,34 @@ class Parser:
             self._advance()
             right = self._parse_add_expr()
             return ast.BinaryOp(op="→", left=left, right=right)
+        # Python in 成员判断
+        if self._check(TokenType.KW_IN) and not self._in_let_value:
+            # 前瞻：如果 in 后面是语句分隔符、语句开头关键字，或换行/EOF（let body 边界），则 not an operator
+            saved = self.pos
+            self._advance()
+            self._skip_newlines()
+            _after_in = self._current()
+            _is_sep = self._is_stmt_separator()
+            _is_stmt_keyword = _after_in.type in (
+                TokenType.KW_FUNC, TokenType.KW_BREAK,
+                TokenType.KW_CONTINUE, TokenType.KW_RETURN, TokenType.KW_IF,
+                TokenType.KW_WHILE, TokenType.KW_FOR, TokenType.KW_MATCH,
+                TokenType.KW_SWITCH, TokenType.KW_TRY, TokenType.KW_CATCH,
+            ) or (_after_in.type == TokenType.IDENTIFIER and _after_in.value in ("let", "rec"))
+            # in 后紧跟换行或 EOF → let body 边界（如 `let x = 1 in\n...`）
+            _is_line_end = _after_in.type in (TokenType.NEWLINE, TokenType.DEDENT, TokenType.EOF)
+            if _is_sep or _is_stmt_keyword or _is_line_end:
+                # in 是 let 语句的关键字，回退
+                self.pos = saved
+            else:
+                # in 是二元运算符
+                right = self._parse_add_expr()
+                return ast.BinaryOp(op=" in ", left=left, right=right)
+        # 属于判断 ∈
+        if self._check(TokenType.SYMBOL) and self._current().value == "∈":
+            self._advance()
+            right = self._parse_add_expr()
+            return ast.Belongs(left=left, right=right)
         return left
 
     def _parse_add_expr(self):
@@ -1455,6 +1494,9 @@ class Parser:
             self.pos = saved  # 回退，可能是输出或非空列表
             # 非空列表：在函数应用语境中，或紧跟 => (lambda 体中) / = (绑定右值) / 逗号 (setUp) 时解析为列表
             if self._in_func_app or self._check(TokenType.OP_FATARROW) or self._check(TokenType.OP_ASSIGN):
+                return self._parse_list_literal()
+            # 绑定右值语境：opt = [...] 中的 [ 应解析为列表
+            if getattr(self, '_in_bind_value', False):
                 return self._parse_list_literal()
             # 独立使用：检查是否紧跟换行、EOF 或 | (输出语境)
             if self._check(TokenType.NEWLINE, TokenType.EOF, TokenType.OP_PIPE, TokenType.MATHA_COMMA):
@@ -1844,6 +1886,14 @@ class Parser:
             return ast.GoStmt(expr=self._parse_expr())
         if tok.type == TokenType.KW_FUNC:
             return self._parse_func_def()
+        # typeof <expr>
+        if tok.type == TokenType.KW_TYPEOF:
+            self._advance()
+            operand = self._parse_expr()
+            return ast.TypeOfExpr(operand=operand)
+        # switch <expr> { case <val>: <expr> ... default: <expr> }
+        if tok.type == TokenType.KW_SWITCH:
+            return self._parse_switch()
         return self._parse_expr_or_binding()
 
     def _parse_let(self) -> ast.AST:
@@ -1984,7 +2034,11 @@ class Parser:
             self._advance()
             self._parse_type_expr()
         self._expect(TokenType.OP_ASSIGN, "=")
-        value = self._parse_expr()
+        self._in_let_value = True
+        try:
+            value = self._parse_expr()
+        finally:
+            self._in_let_value = False
         # 可选 in
         body = None
         if self._check(TokenType.KW_IN):
@@ -2001,7 +2055,11 @@ class Parser:
             names.append(self._expect(TokenType.IDENTIFIER, "绑定名").value)
         self._expect(TokenType.PUNCT_RPAREN, ")")
         self._expect(TokenType.OP_ASSIGN, "=")
-        value = self._parse_expr()
+        self._in_let_value = True
+        try:
+            value = self._parse_expr()
+        finally:
+            self._in_let_value = False
         body = None
         if self._check(TokenType.KW_IN):
             self._advance()
@@ -2331,20 +2389,57 @@ class Parser:
         return self._parse_if_expr_impl()
 
     def _parse_for(self) -> ast.ForStmt:
-        """for <var> in <expr> { <block> }"""
+        """for <var> in <expr> { <block> } 或 for (a, b) in <expr> { <block> }"""
         self._expect(TokenType.KW_FOR, "for")
+        saved = self.pos
+        # 试探元组解构：for (a, b) in ...
+        if self._check(TokenType.PUNCT_LPAREN):
+            self._advance()  # 消费 (
+            params: list[Any] = []
+            while not self._check(TokenType.PUNCT_RPAREN, TokenType.EOF):
+                self._skip_newlines()
+                if self._check(TokenType.PUNCT_RPAREN):
+                    break
+                if params:
+                    self._expect(TokenType.PUNCT_COMMA, ",")
+                p = self._current()
+                if p.type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER):
+                    self._advance()
+                    params.append(p.value)
+                else:
+                    break
+            self._skip_newlines()
+            if self._check(TokenType.PUNCT_RPAREN):
+                self._advance()  # 消费 )
+                self._skip_newlines()
+                if self._check(TokenType.KW_IN):
+                    # 确认是 for (a, b) in 形式
+                    self._expect(TokenType.KW_IN, "in")
+                    saved_cf = self._in_control_flow
+                    self._in_control_flow = True
+                    try:
+                        iterable = self._parse_expr()
+                    finally:
+                        self._in_control_flow = saved_cf
+                    self._expect(TokenType.PUNCT_LBRACE, "{")
+                    block = self._parse_block_body()
+                    self._expect(TokenType.PUNCT_RBRACE, "}")
+                    return ast.ForStmt(var=params, iterable=iterable, block=block)
+            # 回退
+            self.pos = saved
+        # 普通 for var in expr
         var = self._expect(TokenType.IDENTIFIER, "迭代变量").value
         self._expect(TokenType.KW_IN, "in")
-        saved = self._in_control_flow
+        saved_cf = self._in_control_flow
         self._in_control_flow = True
         try:
             iterable = self._parse_expr()
         finally:
-            self._in_control_flow = saved
+            self._in_control_flow = saved_cf
         self._expect(TokenType.PUNCT_LBRACE, "{")
         block = self._parse_block_body()
         self._expect(TokenType.PUNCT_RBRACE, "}")
-        return ast.ForStmt(var=var, iterable=iterable, block=block)
+        return ast.ForStmt(var=[var], iterable=iterable, block=block)
 
     def _parse_match_stmt(self) -> ast.MatchStmt:
         """<match_stmt> = match <expr> { | <pattern> => <expr> }"""
@@ -2380,6 +2475,43 @@ class Parser:
         self._expect(TokenType.PUNCT_RBRACE, "}")
         return ast.MatchStmt(scrutinee=scrutinee, branches=branches)
 
+    def _parse_switch(self) -> ast.SwitchStmt:
+        """switch <expr> { case <val>: <expr> ... default: <expr> }"""
+        self._expect(TokenType.KW_SWITCH, "switch")
+        saved = self._in_control_flow
+        self._in_control_flow = True
+        try:
+            value = self._parse_expr()
+        finally:
+            self._in_control_flow = saved
+        self._expect(TokenType.PUNCT_LBRACE, "{")
+        cases: list[tuple[Any, Any]] = []
+        default_block = None
+        while not self._check(TokenType.PUNCT_RBRACE, TokenType.EOF, TokenType.DEDENT):
+            self._skip_newlines()
+            if self._check(TokenType.KW_DEFAULT):
+                self._advance()
+                self._expect(TokenType.OP_COLON, ":")
+                self._skip_newlines()
+                default_block = self._parse_expr()
+                self._skip_newlines()
+                self._skip_semicolon()
+            elif self._check(TokenType.KW_CASE):
+                self._advance()
+                case_val = self._parse_expr()
+                self._expect(TokenType.OP_COLON, ":")
+                self._skip_newlines()
+                case_body = self._parse_expr()
+                cases.append((case_val, case_body))
+                self._skip_newlines()
+                self._skip_semicolon()
+            else:
+                break
+        if self._check(TokenType.DEDENT):
+            self._advance()
+        self._expect(TokenType.PUNCT_RBRACE, "}")
+        return ast.SwitchStmt(value=value, cases=cases, default_block=default_block)
+
     def _parse_pattern(self):
         """<pattern> = <literal> | <variable> | <constructor> | "_" | <belongs_pat>"""
         if self._check(TokenType.PUNCT_UNDERSCORE):
@@ -2397,6 +2529,23 @@ class Parser:
         if self._check(TokenType.LIT_BOOL):
             tok = self._advance()
             return ast.BoolLit(value=tok.value in ("真", "true"))
+        # 构造子模式：Name(...)
+        if self._check(TokenType.IDENTIFIER):
+            name = self._advance().value
+            if self._check(TokenType.PUNCT_LPAREN):
+                self._advance()  # 消费 (
+                fields: list[Any] = []
+                while not self._check(TokenType.PUNCT_RPAREN, TokenType.EOF):
+                    self._skip_newlines()
+                    if self._check(TokenType.PUNCT_RPAREN):
+                        break
+                    if fields:
+                        self._expect(TokenType.PUNCT_COMMA, ",")
+                    fields.append(self._parse_pattern())
+                self._skip_newlines()
+                self._expect(TokenType.PUNCT_RPAREN, ")")
+                return ast.ConstructorPat(name=name, fields=fields)
+            return ast.Variable(name=name)
         return self._parse_variable()
 
     # ============================================================
@@ -2420,6 +2569,14 @@ class Parser:
             return self._parse_match_stmt()
         if self._check(TokenType.KW_FUNC):
             return self._parse_func_def()
+        # typeof <expr>
+        if tok.type == TokenType.KW_TYPEOF:
+            self._advance()
+            operand = self._parse_expr()
+            return ast.TypeOfExpr(operand=operand)
+        # switch <expr> { case <val>: <expr> ... default: <expr> }
+        if tok.type == TokenType.KW_SWITCH:
+            return self._parse_switch()
         return self._parse_expr_or_binding()
 
     def _parse_func_def(self) -> ast.FuncDef:

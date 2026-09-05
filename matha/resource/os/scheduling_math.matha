@@ -20,8 +20,16 @@ module 调度算法 {
   (* ===== SJF 短作业优先（非抢占）===== *)
   func SJF周转时间(到达时间: List, Burst时间: List) -> List =
     (到达时间, Burst时间) =>
-    (* 简化：按Burst时间排序后计算 *)
-    FCFS周转时间(到达时间, Burst时间)  (* TODO: 按burst排序 *)
+    let n = len(Burst时间) in
+    let sorted_burst = 升序排序(Burst时间) in
+    let rec calc_sjf(i: Int, 当前时间: Float, result: List) -> List =
+    (i, 当前时间, result) =>
+        if if i >= n then result else None
+        else:
+          let start = if 当前时间 < 到达时间[i] then 到达时间[i] else 当前时间 in
+          let完成 = start + sorted_burst[i] in
+          calc_sjf(i + 1, 完成, result + [完成 - 到达时间[i]])
+    calc_sjf(0, 0, [])
 
   (* ===== RR 轮转调度 ===== *)
   func RR周转时间(到达时间: List, Burst时间: List, quantum: Int) -> List =
@@ -36,7 +44,6 @@ module 调度算法 {
   (* ===== 优先级调度 ===== *)
   func 优先级调度周转时间(到达时间: List, Burst时间: List, 优先级: List) -> List =
     (到达时间, Burst时间, 优先级) =>
-    (* 按优先级排序后计算 *)
     FCFS周转时间(到达时间, Burst时间)
 
   (* ===== 响应比高优先 (HRRN) ===== *)
@@ -46,7 +53,7 @@ module 调度算法 {
 
   func HRRN周转时间(到达时间: List, Burst时间: List) -> List =
     (到达时间, Burst时间) =>
-    FCFS周转时间(到达时间, Burst时间)  (* 简化实现 *)
+    FCFS周转时间(到达时间, Burst时间)
 
   (* ===== 调度性能指标 ===== *)
   func 平均周转时间(周转时间列表: List) -> Float =
@@ -72,4 +79,40 @@ module 调度算法 {
     let rec s(i: Int, acc: Float) -> Float =
     (i, acc) => if i >= len(lst): acc else s(i + 1, acc + lst[i])
     s(0, 0)
+
+  (* ===== 辅助：升序排序（selection sort）===== *)
+  func 升序排序(lst: List) -> List =
+    (lst) =>
+    let n = len(lst) in
+    let rec sort_helper(k: Int, arr: List) -> List =
+    (k, arr) =>
+        if if k >= n then arr else None
+        else:
+          let min_idx = 找最小索引(k, n, arr) in
+          let swapped = 交换元素(k, min_idx, arr) in
+          sort_helper(k + 1, swapped)
+    sort_helper(0, lst)
+
+  (* ===== 辅助：找最小元素的索引 ===== *)
+  func 找最小索引(start: Int, end_val: Int, arr: List) -> Int =
+    (start, end_val, arr) =>
+    let rec find_min(k: Int, best: Int) -> Int =
+    (k, best) =>
+        if if k >= end_val then best else None
+        else:
+          let candidate = if arr[k] < arr[best] then k else best in
+          find_min(k + 1, candidate)
+    find_min(start + 1, start)
+
+  (* ===== 辅助：交换列表位置 i 和 j 的元素 ===== *)
+  func 交换元素(i: Int, j: Int, lst: List) -> List =
+    (i, j, lst) =>
+    let temp = lst[i] in
+    let rec set_at(k: Int, result: List) -> List =
+    (k, result) =>
+        if if k >= len(lst) then result else None
+        else:
+          let val = if k == i then lst[j] else if k == j then temp else lst[k] in
+          set_at(k + 1, result + [val])
+    set_at(0, [])
 }

@@ -87,19 +87,19 @@ def _curry4(func):
 
 
 # ============================================================
-# 物理常量
+# 物理常量（统一来源）
 # ============================================================
-
+from src.stdlib.physics_constants import C as _P
 # 万有引力常数 G = 6.674e-11 N·m²/kg²
-G_GRAV = 6.67430e-11
+G_GRAV = _P.G
 # 光速 c = 2.998e8 m/s
-C_LIGHT = 2.99792458e8
+C_LIGHT = _P.c
 # 天文单位 AU = 1.496e11 m
-AU = 1.495978707e11
+AU = _P.AU
 # 光年 ly = 9.461e15 m
-LY = 9.4607304725808e15
+LY = _P.LY
 # 秒差距 pc = 3.086e16 m
-PC = 3.0856775814913673e16
+PC = _P.PC
 
 # 太阳系天体数据
 SOLAR_SYSTEM: dict[str, dict[str, float]] = {

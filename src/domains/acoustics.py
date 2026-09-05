@@ -53,6 +53,7 @@
 
 from __future__ import annotations
 import math
+from src.stdlib.safe_ops import safe_div
 
 
 # ============================================================
@@ -106,15 +107,11 @@ C_AIR_COEFF = 0.6
 # 空气中声速（温度修正）：c = 331.3 + 0.6T
 def _声_空气声速(T_C): return C_AIR_0C + C_AIR_COEFF * T_C
 # 波长 λ = c/f
-def _声_波长(c, f): return c / f
-# 频率 f = c/λ
-def _声_频率(c, wavelength): return c / wavelength
-# 声波周期 T = 1/f
-def _声_周期(f): return 1.0 / f
-# 角频率 ω = 2πf
+def _声_波长(c, f): return safe_div(c, f)
+def _声_频率(c, wavelength): return safe_div(c, wavelength)
+def _声_周期(f): return safe_div(1.0, f)
 def _声_角频率(f): return 2 * math.pi * f
-# 波数 k = 2π/λ
-def _声_波数(wavelength): return 2 * math.pi / wavelength
+def _声_波数(wavelength): return safe_div(2 * math.pi, wavelength)
 # 声速（一般介质纵波）：c = √(E/ρ)
 def _声_介质声速(E, rho): return math.sqrt(E / rho)
 # 声速（一般介质横波）：c = √(G/ρ）
@@ -126,7 +123,7 @@ def _声_横波声速(G, rho): return math.sqrt(G / rho)
 # ============================================================
 
 # 声强（由声压）：I = p²/(ρc)
-def _强级_声强由声压(p, rho, c): return p * p / (rho * c)
+def _强级_声强由声压(p, rho, c): return p * p / safe_div(rho, c) if rho != 0 and c != 0 else float('inf')
 # 声强级：L_I = 10·lg(I/I₀)
 def _强级_声强级(I): return 10 * math.log10(I / I_REF)
 # 声压级：L_p = 20·lg(p/p₀)
@@ -151,13 +148,13 @@ def _强级_分贝叠加(L_list):
 # ============================================================
 
 # 声源不动、观察者运动：f' = f(c + v_o)/c（接近为正）
-def _多普勒_观察者运动(f, c, v_o): return f * (c + v_o) / c
+def _多普勒_观察者运动(f, c, v_o): return safe_div(f * (c + v_o), c)
 # 观察者不动、声源运动：f' = fc/(c - v_s)（接近为正）
-def _多普勒_声源运动(f, c, v_s): return f * c / (c - v_s)
+def _多普勒_声源运动(f, c, v_s): return safe_div(f * c, c - v_s)
 # 通用多普勒：f' = f(c + v_o)/(c - v_s)（接近为正）
-def _多普勒_通用(f, c, v_o, v_s): return f * (c + v_o) / (c - v_s)
+def _多普勒_通用(f, c, v_o, v_s): return safe_div(f * (c + v_o), c - v_s)
 # 马赫数：Ma = v/c
-def _多普勒_马赫数(v, c): return v / c
+def _多普勒_马赫数(v, c): return safe_div(v, c)
 # 马赫角：θ = arcsin(c/v) = arcsin(1/Ma)（返回弧度）
 def _多普勒_马赫角(v, c): return math.asin(c / v) if v > c else math.pi / 2
 
@@ -169,15 +166,17 @@ def _多普勒_马赫角(v, c): return math.asin(c / v) if v > c else math.pi / 
 # 拍频：f_beat = |f₁ - f₂|
 def _现象_拍频(f1, f2): return abs(f1 - f2)
 # 驻波波长（两端固定）：λ_n = 2L/n
-def _现象_驻波波长(L, n): return 2 * L / n
+def _现象_驻波波长(L, n): return safe_div(2 * L, n)
 # 驻波频率（两端固定）：f_n = nv/(2L)
-def _现象_驻波频率(n, v, L): return n * v / (2 * L)
+def _现象_驻波频率(n, v, L): return safe_div(n * v, 2 * L)
 # 反平方律衰减：I₂ = I₁(r₁/r₂)²
-def _现象_反平方衰减(I1, r1, r2): return I1 * (r1 / r2) ** 2
+def _现象_反平方衰减(I1, r1, r2):
+    r = safe_div(r1, r2) if r2 != 0 else float('inf')
+    return I1 * r * r
+# 声压随距离衰减（球面波）：p₂ = p₁(r₁/r₂)
+def _现象_声压衰减(p1, r1, r2): return p1 * safe_div(r1, r2) if r2 != 0 else float('inf')
 # 空气吸收衰减：I₂ = I₁·e^(-αd)（α 为吸收系数）
 def _现象_吸收衰减(I1, alpha, d): return I1 * math.exp(-alpha * d)
-# 声压随距离衰减（球面波）：p₂ = p₁(r₁/r₂)
-def _现象_声压衰减(p1, r1, r2): return p1 * r1 / r2
 
 
 # ============================================================

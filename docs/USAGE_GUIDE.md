@@ -16,7 +16,8 @@
 pip install matha
 
 # 方法 2：源码安装
-git clone https://github.com/zzk2025r/matha.git
+git clone git@github.com:zzk2025r/matha.git  # SSH（推荐）
+# 或: git clone https://github.com/zzk2025r/matha.git  # HTTPS（可能超时）
 cd matha
 pip install -e .
 
@@ -25,7 +26,7 @@ tar -xzf offline_package/matha-pip-packages-20260831.tar.gz
 pip install --no-index --find-links=./offline_package matha
 ```
 
-### 1.2 验证安装
+### 1.3 验证安装
 
 ```powershell
 # 检查版本
@@ -38,6 +39,26 @@ matha test
 
 # 查看工具链信息
 matha info
+```
+
+### 1.4 Git 配置（SSH 推荐）
+
+> **注意：** HTTPS 在部分网络环境下会被 SSL 拦截（连接超时）。推荐使用 SSH。
+
+```powershell
+# 检查 SSH 是否可用
+ssh -T git@github.com
+# 输出: Hi zzk2025r! You've successfully authenticated...
+
+# 配置 SSH 为 GitHub 默认协议（一次性）
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+
+# 配置 SSH 密钥（首次）
+ssh-keygen -t ed25519 -C "your_email@example.com"
+cat ~/.ssh/id_ed25519.pub  # 复制输出内容
+
+# 在 GitHub 添加密钥
+# Settings → SSH and GPG keys → New SSH key
 ```
 
 ### 1.3 启动 REPL

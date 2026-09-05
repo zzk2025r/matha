@@ -101,6 +101,9 @@ class Type:
     def is_numeric(self) -> bool:
         return self.name in ("Int", "Float")
 
+    def is_int_like(self) -> bool:
+        return self.name == "Int"
+
     def is_container(self) -> bool:
         return self.name in ("List", "Dict")
 
@@ -412,14 +415,14 @@ class EnhancedTypeInferencer:
             "round": Type.function((T_FLOAT,), T_INT),
             "log": Type.function((T_FLOAT,), T_FLOAT),
             "exp": Type.function((T_FLOAT,), T_FLOAT),
-            "len": Type.function((T.list_of(T_ANY),), T_INT),
-            "sum": Type.function((T.list_of(T_FLOAT),), T_FLOAT),
+            "len": Type.function((Type.list_of(T_ANY),), T_INT),
+            "sum": Type.function((Type.list_of(T_FLOAT),), T_FLOAT),
             "max": Type.function((T_FLOAT, T_FLOAT), T_FLOAT),
             "min": Type.function((T_FLOAT, T_FLOAT), T_FLOAT),
-            "int": Type.function((T.ANY,), T_INT),
-            "float": Type.function((T.ANY,), T_FLOAT),
-            "str": Type.function((T.ANY,), T_STRING),
-            "bool": Type.function((T.ANY,), T_BOOL),
+            "int": Type.function((T_ANY,), T_INT),
+            "float": Type.function((T_ANY,), T_FLOAT),
+            "str": Type.function((T_ANY,), T_STRING),
+            "bool": Type.function((T_ANY,), T_BOOL),
         }
         for name, typ in builtins.items():
             self.env.define_func(name, typ)
@@ -518,14 +521,14 @@ class EnhancedTypeInferencer:
             return then_type if then_type != T_ANY else else_type
 
         elif kind == "ListLiteral":
-            items = getattr(expr, "items", [])
-            if items:
-                elem_type = self._infer_expr(items[0])
-                return T.list_of(elem_type)
-            return T.list_of(T_ANY)
+            elements = getattr(expr, "elements", [])
+            if elements:
+                elem_type = self._infer_expr(elements[0])
+                return Type.list_of(elem_type)
+            return Type.list_of(T_ANY)
 
         elif kind == "DictLiteral":
-            return T.dict_of(T_ANY, T.ANY)
+            return Type.dict_of(T_ANY, T_ANY)
 
         elif kind == "IndexExpr":
             container_type = self._infer_expr(expr.container)
@@ -539,6 +542,12 @@ class EnhancedTypeInferencer:
             branches = getattr(expr, "branches", [])
             branch_types = [self._infer_expr(b[2]) for b in branches]
             return self.pattern_infer._common_type(branch_types) if branch_types else T_ANY
+
+        elif kind == "ConstructorPat":
+            # 构造子模式本身不产生值，但递归推断各字段模式类型
+            for field in getattr(expr, "fields", []):
+                self._infer_expr(field)
+            return T_ANY
 
         elif kind == "LetBinding":
             val_type = self._infer_expr(getattr(expr, "value", None))
@@ -556,7 +565,10 @@ class EnhancedTypeInferencer:
         if op in ("+", "-", "*", "/", "//", "%", "**"):
             if not (left.is_numeric() and right.is_numeric()):
                 self._errors.append(f"算术运算符 '{op}' 要求数值类型")
-            return T_FLOAT if op in ("/", "//", "%") else left
+            # // 和 % 在 Python 中返回与左操作数相同类型（Int // Int → Int）
+            if op in ("//", "%"):
+                return left if left.is_int_like() else T_INT
+            return T_FLOAT if op == "/" else left
 
         if op in ("<", ">", "<=", ">=", "==", "!=", "∈"):
             return T_BOOL
@@ -602,6 +614,58 @@ class EnhancedTypeInferencer:
         elif kind == "Output":
             if hasattr(stmt, "expr") and stmt.expr:
                 self._infer_expr(stmt.expr)
+        elif kind == "LetTupleBinding":
+            # let (a, b) = expr — 推断各变量类型
+            val_type = self._infer_expr(getattr(stmt, "value", None))
+            names = getattr(stmt, "names", [])
+            elem_type = val_type.element_type() if val_type.is_container() else T_ANY
+            for name in names:
+                self.env.define_var(name, elem_type)
+            if hasattr(stmt, "body") and stmt.body:
+                self._infer_expr(stmt.body)
+        elif kind == "ForStmt":
+            iterable_type = self._infer_expr(getattr(stmt, "iterable", None))
+            var_name = stmt.var[0] if isinstance(stmt.var, list) else stmt.var
+            elem_type = iterable_type.element_type() if iterable_type.is_container() else T_ANY
+            self.env.define_var(var_name, elem_type)
+            if hasattr(stmt, "block") and stmt.block:
+                self._infer_stmt(stmt.block)
+        elif kind == "IfStmt":
+            self._infer_expr(getattr(stmt, "cond", None))
+            if hasattr(stmt, "block") and stmt.block:
+                self._infer_stmt(stmt.block)
+            if hasattr(stmt, "else_block") and stmt.else_block:
+                self._infer_stmt(stmt.else_block)
+        elif kind == "WhileStmt":
+            self._infer_expr(getattr(stmt, "cond", None))
+            if hasattr(stmt, "block") and stmt.block:
+                self._infer_stmt(stmt.block)
+        elif kind == "CodeBlock":
+            for s in getattr(stmt, "stmts", []):
+                self._infer_stmt(s)
+        elif kind == "IfElseStmt":
+            for cond in getattr(stmt, "conditions", []):
+                self._infer_expr(cond)
+            for block in getattr(stmt, "blocks", []):
+                self._infer_stmt(block)
+            if hasattr(stmt, "else_block") and stmt.else_block:
+                self._infer_stmt(stmt.else_block)
+        elif kind == "SwitchStmt":
+            self._infer_expr(getattr(stmt, "value", None))
+            for _, case_body in getattr(stmt, "cases", []):
+                self._infer_stmt(case_body)
+            if hasattr(stmt, "default_block") and stmt.default_block:
+                self._infer_stmt(stmt.default_block)
+        elif kind == "ReturnStmt":
+            if hasattr(stmt, "value") and stmt.value:
+                self._infer_expr(stmt.value)
+        elif kind == "TryStmt":
+            if hasattr(stmt, "try_block") and stmt.try_block:
+                self._infer_stmt(stmt.try_block)
+            if hasattr(stmt, "catch_block") and stmt.catch_block:
+                self._infer_stmt(stmt.catch_block)
+            if hasattr(stmt, "finally_block") and stmt.finally_block:
+                self._infer_stmt(stmt.finally_block)
         elif hasattr(stmt, "stmts"):
             for s in stmt.stmts:
                 self._infer_stmt(s)
@@ -612,15 +676,15 @@ class EnhancedTypeInferencer:
                 "Int": T_INT, "Float": T_FLOAT,
                 "String": T_STRING, "Bool": T_BOOL,
                 "Void": T_VOID, "Any": T_ANY,
-                "List": T.list_of(T_ANY),
-                "Dict": T.dict_of(T.ANY, T.ANY),
-                "Tuple": T.tuple_of(),
-                "Option": T.option_of(T.ANY),
+                "List": Type.list_of(T_ANY),
+                "Dict": Type.dict_of(T_ANY, T_ANY),
+                "Tuple": Type.tuple_of(),
+                "Option": Type.option_of(T_ANY),
             }
-            return type_map.get(type_expr, T.ANY)
+            return type_map.get(type_expr, T_ANY)
         if hasattr(type_expr, "name"):
             return type_expr
-        return T.ANY
+        return T_ANY
 
     def _compatible(self, source: Type, target: Type) -> bool:
         if source == T_ANY or target == T_ANY:

@@ -51,6 +51,7 @@
 
 from __future__ import annotations
 import math
+from src.stdlib.safe_ops import safe_div
 
 
 # ============================================================
@@ -87,8 +88,8 @@ def _curry4(func):
 
 # 牛顿第二定律：F = ma → 力 / 加速度 / 质量
 def _牛顿_力(m, a): return m * a                     # F = ma  N
-def _牛顿_加速度(F, m): return F / m                  # a = F/m  m/s²
-def _牛顿_质量(F, a): return F / a                    # m = F/a  kg
+def _牛顿_加速度(F, m): return safe_div(F, m)                  # a = F/m  m/s²
+def _牛顿_质量(F, a): return safe_div(F, a)                    # m = F/a  kg
 
 # 滑动摩擦力：f = μN
 def _摩擦_滑动摩擦力(mu, N): return mu * N            # f = μN  N
@@ -113,17 +114,17 @@ def _动量_末动量(p1, F, t): return p1 + F * t
 #   m1*v1 + m2*v2 = m1*v1' + m2*v2'
 #   → v1' = (m1*v1 + m2*v2 - m2*v2') / m1
 def _动量_碰后速度1(m1, v1, m2, v2, v2_after):
-    return (m1 * v1 + m2 * v2 - m2 * v2_after) / m1
+    return safe_div(m1 * v1 + m2 * v2 - m2 * v2_after, m1)
 # 完全弹性碰撞（两体）：动量+动能均守恒
 #   v1' = ((m1-m2)*v1 + 2*m2*v2) / (m1+m2)
 #   v2' = ((m2-m1)*v2 + 2*m1*v1) / (m1+m2)
 def _弹性碰撞_速度1(m1, v1, m2, v2):
-    return ((m1 - m2) * v1 + 2 * m2 * v2) / (m1 + m2)
+    return safe_div((m1 - m2) * v1 + 2 * m2 * v2, m1 + m2)
 def _弹性碰撞_速度2(m1, v1, m2, v2):
-    return ((m2 - m1) * v2 + 2 * m1 * v1) / (m1 + m2)
+    return safe_div((m2 - m1) * v2 + 2 * m1 * v1, m1 + m2)
 # 恢复系数 e = (v2' - v1') / (v1 - v2)
 def _碰撞_恢复系数(v1, v2, v1_after, v2_after):
-    return (v2_after - v1_after) / (v1 - v2)
+    return safe_div(v2_after - v1_after, v1 - v2)
 
 
 # ============================================================
@@ -133,7 +134,7 @@ def _碰撞_恢复系数(v1, v2, v1_after, v2_after):
 # 功 W = Fs cosθ
 def _功_功(F, s, theta_rad): return F * s * math.cos(theta_rad)  # W = Fs cosθ  J
 # 功率 P = W/t
-def _功_功率(W, t): return W / t                      # P = W/t  W
+def _功_功率(W, t): return safe_div(W, t)                      # P = W/t  W
 # 功率 P = Fv
 def _功_功率力速(F, v): return F * v                  # P = Fv  W
 # 动能 E_k = ½mv²
@@ -200,11 +201,13 @@ def _振动_速度(A, omega, t): return -A * omega * math.sin(omega * t)
 def _振动_总能量(k, A): return 0.5 * k * A * A       # E = ½kA²  J
 
 # 单摆周期 T = 2π√(L/g)
-def _振动_单摆周期(L, g_val): return 2 * math.pi * math.sqrt(L / g_val)
+def _振动_单摆周期(L, g_val): return 2 * math.pi * math.sqrt(safe_div(L, g_val))
 # 复摆周期 T = 2π√(I/(mgd))  （d 为质心到转轴距离）
-def _振动_复摆周期(I, m, g_val, d): return 2 * math.pi * math.sqrt(I / (m * g_val * d))
+def _振动_复摆周期(I, m, g_val, d): return 2 * math.pi * math.sqrt(safe_div(I, m * g_val * d))
 # 阻尼振动角频率 ω_d = √(ω₀² - β²)  （β 为阻尼系数）
-def _振动_阻尼角频率(omega0, beta): return math.sqrt(omega0 * omega0 - beta * beta)
+def _振动_阻尼角频率(omega0, beta):
+    val = omega0 * omega0 - beta * beta
+    return math.sqrt(val) if val >= 0 else float('inf')
 
 
 # ============================================================

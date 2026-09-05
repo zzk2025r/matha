@@ -228,7 +228,7 @@ def _register_chemistry(builtins: dict) -> None:
     """将化学领域内建注册到解释器 builtins。"""
     # 普通化学
     builtins["摩尔质量"] = lambda f: _摩尔质量(str(f))
-    builtins["理想气体_P"] = _curry3(lambda n, V, T: _理想气体方程(None, V, n, T) if False else None)
+    builtins["理想气体_P"] = _curry3(lambda n, V, T: _理想气体方程(None, V, n, T))
     builtins["理想气体_V"] = _curry3(lambda P, n, T: _理想气体方程(P, None, n, T))
     builtins["理想气体_n"] = _curry3(lambda P, V, T: _理想气体方程(P, V, None, T))
     builtins["理想气体_T"] = _curry3(lambda P, V, n: _理想气体方程(P, V, n, None))

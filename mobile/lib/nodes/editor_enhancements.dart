@@ -3,15 +3,11 @@
 
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'node_types.dart';
 import 'connection_system.dart';
 
 /// 编辑器增强控制器
 class EditorEnhancements extends ChangeNotifier {
-  final ConnectionController _connectionController;
-  
-  EditorEnhancements(this._connectionController);
 
   // ========== 搜索功能 ==========
   
@@ -196,8 +192,8 @@ class EditorEnhancements extends ChangeNotifier {
     }
     
     while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
-      for (final nodeId in sortedNodes) {
+      queue.removeAt(0);
+      for (final _ in sortedNodes) {
         // 简化：假设 sortedNodes 已经按层级排序
       }
     }

@@ -73,20 +73,6 @@ def _thermistor_temperature(R: float, R0: float = 10000.0,
     T0: 标称温度 (K)，通常 298.15K (25°C)
     B: B 值 (K)
     """
-    if R <= 0 or R0 <= 0:
-        return 0.0
-    return B / (B / T0 + (R0 / R).ln() if hasattr(R0 / R, 'ln') else B / (B / T0 + _natural_log(R0 / R)))
-
-
-def _natural_log(x: float) -> float:
-    """自然对数。"""
-    import math
-    return math.log(x)
-
-
-def _thermistor_temperature(R: float, R0: float = 10000.0,
-                            T0: float = 298.15, B: float = 3950.0) -> float:
-    """NTC 热敏电阻温度计算（K）。"""
     import math
     if R <= 0 or R0 <= 0:
         return 0.0
@@ -322,11 +308,3 @@ def _curry4(fn):
             return w3
         return w2
     return w1
-
-
-def _curry2(fn):
-    def wrapper(a, b=None):
-        if b is None:
-            return lambda b: fn(a, b)
-        return fn(a, b)
-    return wrapper

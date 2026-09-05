@@ -4,7 +4,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'session_manager.dart' as sm;
-import 'collab_engine.dart';
 
 /// 邀请类型
 enum InviteType {
@@ -75,7 +74,7 @@ class InviteInfo {
 
 /// 邀请管理器
 class InviteManager extends ChangeNotifier {
-  final SessionManager _sessionManager;
+  final sm.SessionManager _sessionManager;
   
   final Map<String, InviteInfo> _invites = {};
   final List<Map<String, dynamic>> _inviteHistory = [];

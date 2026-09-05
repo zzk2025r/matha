@@ -3,11 +3,7 @@
 
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:encrypt/encrypt.dart' as encrypt;
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 /// 数据库版本
 class DatabaseVersion {
@@ -15,50 +11,19 @@ class DatabaseVersion {
   static const String versionTable = 'schema_version';
 }
 
-/// 数据库加密密钥
-class DatabaseEncryption {
-  static const String _key = 'matha_secret_key_2025'; // 实际生产环境应使用安全存储
-  
-  static encrypt.Encrypter? _encrypter;
-  
-  static encrypt.Encrypter get encrypter {
-    _encrypter ??= encrypt.Encrypter(encrypt.AES(encrypt.Key.fromUtf8(_key)));
-    return _encrypter!;
-  }
-  
-  /// 加密文本
-  static String encryptText(String text) {
-    try {
-      return encrypter.encrypt(text).base64;
-    } catch (e) {
-      return text; // 加密失败时返回原文
-    }
-  }
-  
-  /// 解密文本
-  static String decryptText(String encrypted) {
-    try {
-      return encrypter.decrypt64(encrypted);
-    } catch (e) {
-      return encrypted; // 解密失败时返回原文
-    }
-  }
-}
-
-/// SQLite 数据库管理器
-class MathDatabase {
-  static Database? _database;
-  static const String _dbName = 'matha.db';
-  static const int _dbVersion = 3;
-
-  // 表名
+/// 数据库表名
+class TableNames {
   static const String tableHistory = 'history';
   static const String tablePreferences = 'preferences';
   static const String tableResultCache = 'result_cache';
-  static const String tableCompletionWords = 'completion_words';
   static const String tableSyncQueue = 'sync_queue';
   static const String tableSessions = 'sessions';
   static const String tableComments = 'comments';
+}
+
+/// Matha 数据库管理器
+class MathDatabase {
+  static Database? _database;
 
   // 历史记录表字段
   static const String colId = 'id';
@@ -87,7 +52,6 @@ class MathDatabase {
   static const String colRecordId = 'record_id';
   static const String colData = 'data';
   static const String colPriority = 'priority';
-  static const String colRetryCount = 'retry_count';
   static const String colStatus = 'status';
   static const String colSyncedAt = 'synced_at';
 
@@ -95,8 +59,6 @@ class MathDatabase {
   static const String colSessionId = 'session_id';
   static const String colUserId = 'user_id';
   static const String colUserName = 'user_name';
-  static const String colDocumentId = 'document_id';
-  static const String colCreatedAt = 'created_at';
   static const String colLastActive = 'last_active';
 
   // 评论表字段
@@ -113,15 +75,14 @@ class MathDatabase {
 
   // 初始化数据库
   static Future<Database> _initDatabase() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final path = join(dir.path, _dbName);
-    
-    return await openDatabase(
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, 'matha.db');
+
+    return openDatabase(
       path,
-      version: _dbVersion,
+      version: DatabaseVersion.current,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
-      onOpen: _onOpen,
     );
   }
 
@@ -129,26 +90,23 @@ class MathDatabase {
   static Future<void> _onCreate(Database db, int version) async {
     // 历史记录表
     await db.execute('''
-      CREATE TABLE $tableHistory (
+      CREATE TABLE ${TableNames.tableHistory} (
         $colId INTEGER PRIMARY KEY AUTOINCREMENT,
         $colCode TEXT NOT NULL,
         $colOutput TEXT,
         $colTimestamp INTEGER NOT NULL,
-        $colIsSuccess INTEGER NOT NULL DEFAULT 1,
-        $colMode TEXT DEFAULT 'expression',
-        $colDurationMs REAL DEFAULT 0,
+        $colIsSuccess INTEGER NOT NULL,
+        $colMode TEXT NOT NULL,
+        $colDurationMs INTEGER NOT NULL,
         $colDocumentId TEXT
       )
     ''');
-    
-    // 创建索引
-    await db.execute('CREATE INDEX idx_history_timestamp ON $tableHistory($colTimestamp DESC)');
-    await db.execute('CREATE INDEX idx_history_document ON $tableHistory($colDocumentId)');
-    await db.execute('CREATE INDEX idx_history_mode ON $tableHistory($colMode)');
+    await db.execute('CREATE INDEX idx_history_timestamp ON ${TableNames.tableHistory}($colTimestamp DESC)');
+    await db.execute('CREATE INDEX idx_history_document ON ${TableNames.tableHistory}($colDocumentId)');
 
     // 偏好设置表
     await db.execute('''
-      CREATE TABLE $tablePreferences (
+      CREATE TABLE ${TableNames.tablePreferences} (
         $colKey TEXT PRIMARY KEY,
         $colValue TEXT NOT NULL,
         $colUpdatedAt INTEGER NOT NULL
@@ -157,37 +115,35 @@ class MathDatabase {
 
     // 结果缓存表
     await db.execute('''
-      CREATE TABLE $tableResultCache (
+      CREATE TABLE ${TableNames.tableResultCache} (
         $colInputHash TEXT PRIMARY KEY,
         $colInputCode TEXT NOT NULL,
         $colResult TEXT NOT NULL,
-        $colDurationMs REAL,
         $colCreatedAt INTEGER NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_cache_created ON $tableResultCache($colCreatedAt DESC)');
+    await db.execute('CREATE INDEX idx_cache_created ON ${TableNames.tableResultCache}($colCreatedAt DESC)');
 
     // 同步队列表
     await db.execute('''
-      CREATE TABLE $tableSyncQueue (
+      CREATE TABLE ${TableNames.tableSyncQueue} (
         $colId INTEGER PRIMARY KEY AUTOINCREMENT,
         $colAction TEXT NOT NULL,
         $colRecordType TEXT NOT NULL,
-        $colRecordId TEXT,
+        $colRecordId TEXT NOT NULL,
         $colData TEXT NOT NULL,
-        $colPriority INTEGER DEFAULT 0,
-        $colRetryCount INTEGER DEFAULT 0,
-        $colStatus TEXT DEFAULT 'pending',
+        $colPriority INTEGER NOT NULL DEFAULT 0,
+        $colStatus TEXT NOT NULL DEFAULT 'pending',
         $colCreatedAt INTEGER NOT NULL,
         $colSyncedAt INTEGER
       )
     ''');
-    await db.execute('CREATE INDEX idx_sync_status ON $tableSyncQueue($colStatus)');
-    await db.execute('CREATE INDEX idx_sync_created ON $tableSyncQueue($colCreatedAt DESC)');
+    await db.execute('CREATE INDEX idx_sync_status ON ${TableNames.tableSyncQueue}($colStatus)');
+    await db.execute('CREATE INDEX idx_sync_created ON ${TableNames.tableSyncQueue}($colCreatedAt DESC)');
 
     // 会话表
     await db.execute('''
-      CREATE TABLE $tableSessions (
+      CREATE TABLE ${TableNames.tableSessions} (
         $colSessionId TEXT PRIMARY KEY,
         $colUserId TEXT NOT NULL,
         $colUserName TEXT NOT NULL,
@@ -196,34 +152,36 @@ class MathDatabase {
         $colLastActive INTEGER NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_sessions_user ON $tableSessions($colUserId)');
-    await db.execute('CREATE INDEX idx_sessions_document ON $tableSessions($colDocumentId)');
+    await db.execute('CREATE INDEX idx_sessions_user ON ${TableNames.tableSessions}($colUserId)');
+    await db.execute('CREATE INDEX idx_sessions_document ON ${TableNames.tableSessions}($colDocumentId)');
 
     // 评论表
     await db.execute('''
-      CREATE TABLE $tableComments (
+      CREATE TABLE ${TableNames.tableComments} (
         $colCommentId TEXT PRIMARY KEY,
+        $colDocumentId TEXT NOT NULL,
         $colUserId TEXT NOT NULL,
+        $colUserName TEXT NOT NULL,
         $colContent TEXT NOT NULL,
-        $colPosition INTEGER DEFAULT 0,
-        $colTimestamp INTEGER NOT NULL,
-        $colDocumentId TEXT NOT NULL
+        $colPosition TEXT,
+        $colCreatedAt INTEGER NOT NULL,
+        $colUpdatedAt INTEGER NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_comments_document ON $tableComments($colDocumentId)');
-    await db.execute('CREATE INDEX idx_comments_timestamp ON $tableComments($colTimestamp DESC)');
+    await db.execute('CREATE INDEX idx_comments_document ON ${TableNames.tableComments}($colDocumentId)');
+    await db.execute('CREATE INDEX idx_comments_created ON ${TableNames.tableComments}($colCreatedAt DESC)');
 
-    print('[Database] 数据库创建完成，版本: $_dbVersion');
+    // 写入版本号
+    await db.insert(DatabaseVersion.versionTable, {
+      'version': version,
+    });
   }
 
   // 升级数据库
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    print('[Database] 数据库升级: $oldVersion -> $newVersion');
-    
     if (oldVersion < 2) {
-      // 添加会话表
       await db.execute('''
-        CREATE TABLE IF NOT EXISTS $tableSessions (
+        CREATE TABLE IF NOT EXISTS ${TableNames.tableSessions} (
           $colSessionId TEXT PRIMARY KEY,
           $colUserId TEXT NOT NULL,
           $colUserName TEXT NOT NULL,
@@ -233,48 +191,48 @@ class MathDatabase {
         )
       ''');
     }
-    
+
     if (oldVersion < 3) {
-      // 添加评论表
       await db.execute('''
-        CREATE TABLE IF NOT EXISTS $tableComments (
+        CREATE TABLE IF NOT EXISTS ${TableNames.tableComments} (
           $colCommentId TEXT PRIMARY KEY,
+          $colDocumentId TEXT NOT NULL,
           $colUserId TEXT NOT NULL,
+          $colUserName TEXT NOT NULL,
           $colContent TEXT NOT NULL,
-          $colPosition INTEGER DEFAULT 0,
-          $colTimestamp INTEGER NOT NULL,
-          $colDocumentId TEXT NOT NULL
+          $colPosition TEXT,
+          $colCreatedAt INTEGER NOT NULL,
+          $colUpdatedAt INTEGER NOT NULL
         )
       ''');
-      
-      // 添加索引
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_comments_document ON $tableComments($colDocumentId)');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_comments_timestamp ON $tableComments($colTimestamp DESC)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_comments_document ON ${TableNames.tableComments}($colDocumentId)');
     }
-    
-    print('[Database] 数据库升级完成');
   }
 
-  // 打开数据库回调
-  static Future<void> _onOpen(Database db) async {
-    print('[Database] 数据库已打开');
+  // 关闭数据库
+  static Future<void> close() async {
+    final db = _database;
+    if (db != null) {
+      await db.close();
+      _database = null;
+    }
   }
 
   // ========== 历史记录操作 ==========
 
-  /// 添加历史记录
-  Future<int> insertHistory({
+  /// 保存执行历史
+  Future<int> saveHistory({
     required String code,
     String? output,
     required int timestamp,
-    bool isSuccess = true,
-    String mode = 'expression',
-    double? durationMs,
+    required bool isSuccess,
+    required String mode,
+    int? durationMs,
     String? documentId,
   }) async {
     final db = await database;
-    return await db.insert(
-      tableHistory,
+    return db.insert(
+      TableNames.tableHistory,
       {
         colCode: code,
         colOutput: output,
@@ -292,78 +250,79 @@ class MathDatabase {
   Future<List<Map<String, dynamic>>> getHistory({
     int limit = 50,
     int offset = 0,
-    String? mode,
     String? documentId,
   }) async {
     final db = await database;
-    var where = '';
-    var whereArgs = <dynamic>[];
-    
-    if (mode != null) {
-      where += 'WHERE $colMode = ?';
-      whereArgs.add(mode);
-    }
+    String where = '';
+    List<dynamic> whereArgs = [];
     if (documentId != null) {
-      where += where.isEmpty ? 'WHERE' : ' AND';
-      where += ' $colDocumentId = ?';
+      where = '$colDocumentId = ?';
       whereArgs.add(documentId);
     }
-    
-    return await db.query(
-      tableHistory,
-      where: where,
+    return db.query(
+      TableNames.tableHistory,
+      where: where.isEmpty ? null : where,
+      whereArgs: where.isEmpty ? null : whereArgs,
       orderBy: '$colTimestamp DESC',
       limit: limit,
       offset: offset,
     );
   }
 
+  /// 获取历史记录数量
+  Future<int> getHistoryCount({String? documentId}) async {
+    final db = await database;
+    if (documentId != null) {
+      return Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM ${TableNames.tableHistory} WHERE $colDocumentId = ?', [documentId]),
+      ) ?? 0;
+    }
+    return Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM ${TableNames.tableHistory}'),
+    ) ?? 0;
+  }
+
   /// 删除历史记录
   Future<int> deleteHistory(int id) async {
     final db = await database;
-    return await db.delete(
-      tableHistory,
+    return db.delete(
+      TableNames.tableHistory,
       where: '$colId = ?',
       whereArgs: [id],
     );
   }
 
   /// 清空历史记录
-  Future<int> clearHistory() async {
+  Future<int> clearHistory({String? documentId}) async {
     final db = await database;
-    return await db.delete(tableHistory);
+    if (documentId != null) {
+      return db.delete(
+        TableNames.tableHistory,
+        where: '$colDocumentId = ?',
+        whereArgs: [documentId],
+      );
+    }
+    return db.delete(TableNames.tableHistory);
   }
 
-  /// 获取历史记录数量
-  Future<int> getHistoryCount({String? mode, String? documentId}) async {
+  /// 清理过期记录
+  Future<int> cleanExpiredHistory({int maxAgeDays = 30}) async {
     final db = await database;
-    var where = '';
-    var whereArgs = <dynamic>[];
-    
-    if (mode != null) {
-      where += 'WHERE $colMode = ?';
-      whereArgs.add(mode);
-    }
-    if (documentId != null) {
-      where += where.isEmpty ? 'WHERE' : ' AND';
-      where += ' $colDocumentId = ?';
-      whereArgs.add(documentId);
-    }
-    
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $tableHistory $where', whereArgs);
-    return result.first['count'] as int;
+    final cutoff = DateTime.now().millisecondsSinceEpoch - (maxAgeDays * 24 * 60 * 60 * 1000);
+    return db.delete(
+      TableNames.tableHistory,
+      where: '$colTimestamp < ?',
+      whereArgs: [cutoff],
+    );
   }
 
   // ========== 偏好设置操作 ==========
 
   /// 保存偏好设置
-  Future<int> savePreference({
-    required String key,
-    required String value,
-  }) async {
+  Future<void> savePreference(String key, String value) async {
     final db = await database;
-    return await db.insert(
-      tablePreferences,
+    await db.insert(
+      TableNames.tablePreferences,
       {
         colKey: key,
         colValue: value,
@@ -376,43 +335,47 @@ class MathDatabase {
   /// 获取偏好设置
   Future<String?> getPreference(String key) async {
     final db = await database;
-    final results = await db.query(
-      tablePreferences,
+    final List<Map<String, dynamic>> result = await db.query(
+      TableNames.tablePreferences,
       where: '$colKey = ?',
       whereArgs: [key],
       limit: 1,
     );
-    if (results.isEmpty) return null;
-    return results.first[colValue] as String?;
+    if (result.isEmpty) return null;
+    return result.first[colValue] as String?;
   }
 
   /// 删除偏好设置
   Future<int> deletePreference(String key) async {
     final db = await database;
-    return await db.delete(
-      tablePreferences,
+    return db.delete(
+      TableNames.tablePreferences,
       where: '$colKey = ?',
       whereArgs: [key],
     );
   }
 
+  /// 获取所有偏好设置
+  Future<Map<String, String>> getAllPreferences() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(TableNames.tablePreferences);
+    return {
+      for (final row in results) row[colKey] as String: row[colValue] as String,
+    };
+  }
+
   // ========== 结果缓存操作 ==========
 
-  /// 缓存计算结果
-  Future<void> cacheResult({
-    required String inputHash,
-    required String inputCode,
-    required String result,
-    double? durationMs,
-  }) async {
+  /// 缓存执行结果
+  Future<void> cacheResult(String inputCode, String result) async {
     final db = await database;
+    final hash = inputCode.hashCode.toString();
     await db.insert(
-      tableResultCache,
+      TableNames.tableResultCache,
       {
-        colInputHash: inputHash,
+        colInputHash: hash,
         colInputCode: inputCode,
         colResult: result,
-        colDurationMs: durationMs,
         colCreatedAt: DateTime.now().millisecondsSinceEpoch,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -420,24 +383,25 @@ class MathDatabase {
   }
 
   /// 获取缓存结果
-  Future<Map<String, dynamic>?> getCacheResult(String inputHash) async {
+  Future<String?> getCachedResult(String inputCode) async {
     final db = await database;
-    final results = await db.query(
-      tableResultCache,
+    final hash = inputCode.hashCode.toString();
+    final List<Map<String, dynamic>> results = await db.query(
+      TableNames.tableResultCache,
       where: '$colInputHash = ?',
-      whereArgs: [inputHash],
+      whereArgs: [hash],
       limit: 1,
     );
     if (results.isEmpty) return null;
-    return results.first;
+    return results.first[colResult] as String?;
   }
 
-  /// 清除过期缓存
-  Future<int> clearExpiredCache({int maxAgeDays = 7}) async {
+  /// 清理过期缓存
+  Future<int> cleanExpiredCache({int maxAgeDays = 7}) async {
     final db = await database;
     final cutoff = DateTime.now().millisecondsSinceEpoch - (maxAgeDays * 24 * 60 * 60 * 1000);
-    return await db.delete(
-      tableResultCache,
+    return db.delete(
+      TableNames.tableResultCache,
       where: '$colCreatedAt < ?',
       whereArgs: [cutoff],
     );
@@ -446,76 +410,70 @@ class MathDatabase {
   // ========== 同步队列操作 ==========
 
   /// 添加同步任务
-  Future<int> addSyncTask({
-    required String action,
-    required String recordType,
-    String? recordId,
-    required String data,
-    int priority = 0,
-  }) async {
+  Future<int> addSyncTask(Map<String, dynamic> task) async {
     final db = await database;
-    return await db.insert(
-      tableSyncQueue,
+    return db.insert(
+      TableNames.tableSyncQueue,
       {
-        colAction: action,
-        colRecordType: recordType,
-        colRecordId: recordId,
-        colData: data,
-        colPriority: priority,
-        colRetryCount: 0,
+        colAction: task['action'],
+        colRecordType: task['recordType'],
+        colRecordId: task['recordId'],
+        colData: task['data'],
+        colPriority: task['priority'] ?? 0,
         colStatus: 'pending',
         colCreatedAt: DateTime.now().millisecondsSinceEpoch,
-        colSyncedAt: null,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// 更新同步任务状态
+  Future<int> updateSyncTaskStatus({
+    required int id,
+    required String status,
+    DateTime? syncedAt,
+  }) async {
+    final db = await database;
+    return db.update(
+      TableNames.tableSyncQueue,
+      {
+        colStatus: status,
+        if (syncedAt != null) colSyncedAt: syncedAt.millisecondsSinceEpoch,
+      },
+      where: '$colId = ?',
+      whereArgs: [id],
     );
   }
 
   /// 获取待同步任务
   Future<List<Map<String, dynamic>>> getPendingSyncTasks({int limit = 10}) async {
     final db = await database;
-    return await db.query(
-      tableSyncQueue,
-      where: '$colStatus = ? ORDER BY $colPriority DESC, $colCreatedAt ASC',
+    return db.query(
+      TableNames.tableSyncQueue,
+      where: '$colStatus = ?',
       whereArgs: ['pending'],
+      orderBy: '$colPriority DESC, $colCreatedAt ASC',
       limit: limit,
     );
   }
 
-  /// 更新任务状态
-  Future<int> updateSyncTaskStatus({
-    required int id,
-    required String status,
-    int? retryCount,
-    DateTime? syncedAt,
-  }) async {
+  /// 获取队列统计
+  Future<Map<String, dynamic>> getQueueStats() async {
     final db = await database;
-    return await db.update(
-      tableSyncQueue,
-      {
-        colStatus: status,
-        colRetryCount: retryCount,
-        colSyncedAt: syncedAt?.millisecondsSinceEpoch,
-      },
-      where: '$colId = ?',
-      whereArgs: [id],
-    );
-  }
-
-  /// 删除同步任务
-  Future<int> deleteSyncTask(int id) async {
-    final db = await database;
-    return await db.delete(
-      tableSyncQueue,
-      where: '$colId = ?',
-      whereArgs: [id],
-    );
+    final pending = await db.query(TableNames.tableSyncQueue, where: '$colStatus = ?', whereArgs: ['pending']);
+    final synced = await db.query(TableNames.tableSyncQueue, where: '$colStatus = ?', whereArgs: ['synced']);
+    final failed = await db.query(TableNames.tableSyncQueue, where: '$colStatus = ?', whereArgs: ['failed']);
+    return {
+      'pending': pending.length,
+      'synced': synced.length,
+      'failed': failed.length,
+    };
   }
 
   // ========== 会话操作 ==========
 
-  /// 创建会话
-  Future<int> createSession({
+  /// 创建或更新会话
+  Future<int> upsertSession({
     required String sessionId,
     required String userId,
     required String userName,
@@ -523,8 +481,8 @@ class MathDatabase {
   }) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    return await db.insert(
-      tableSessions,
+    return db.insert(
+      TableNames.tableSessions,
       {
         colSessionId: sessionId,
         colUserId: userId,
@@ -537,11 +495,11 @@ class MathDatabase {
     );
   }
 
-  /// 更新会话活动状态
-  Future<int> updateSessionActivity(String sessionId) async {
+  /// 更新会话最后活跃时间
+  Future<int> updateSessionLastActive(String sessionId) async {
     final db = await database;
-    return await db.update(
-      tableSessions,
+    return db.update(
+      TableNames.tableSessions,
       {colLastActive: DateTime.now().millisecondsSinceEpoch},
       where: '$colSessionId = ?',
       whereArgs: [sessionId],
@@ -552,21 +510,21 @@ class MathDatabase {
   Future<List<Map<String, dynamic>>> getActiveSessions({int maxAgeMinutes = 5}) async {
     final db = await database;
     final cutoff = DateTime.now().millisecondsSinceEpoch - (maxAgeMinutes * 60 * 1000);
-    return await db.query(
-      tableSessions,
+    return db.query(
+      TableNames.tableSessions,
       where: '$colLastActive > ?',
       whereArgs: [cutoff],
-      orderBy: '$colLastActive DESC',
     );
   }
 
-  /// 删除会话
-  Future<int> deleteSession(String sessionId) async {
+  /// 获取文档的所有会话
+  Future<List<Map<String, dynamic>>> getDocumentSessions(String documentId) async {
     final db = await database;
-    return await db.delete(
-      tableSessions,
-      where: '$colSessionId = ?',
-      whereArgs: [sessionId],
+    return db.query(
+      TableNames.tableSessions,
+      where: '$colDocumentId = ?',
+      whereArgs: [documentId],
+      orderBy: '$colLastActive DESC',
     );
   }
 
@@ -575,112 +533,84 @@ class MathDatabase {
   /// 添加评论
   Future<int> addComment({
     required String commentId,
-    required String userId,
-    required String content,
-    int position = 0,
     required String documentId,
+    required String userId,
+    required String userName,
+    required String content,
+    String? position,
   }) async {
     final db = await database;
-    return await db.insert(
-      tableComments,
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return db.insert(
+      TableNames.tableComments,
       {
         colCommentId: commentId,
+        colDocumentId: documentId,
         colUserId: userId,
+        colUserName: userName,
         colContent: content,
         colPosition: position,
-        colTimestamp: DateTime.now().millisecondsSinceEpoch,
-        colDocumentId: documentId,
+        colCreatedAt: now,
+        colUpdatedAt: now,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
-  /// 获取文档评论
-  Future<List<Map<String, dynamic>>> getComments(String documentId, {int limit = 50}) async {
+  /// 获取文档的评论
+  Future<List<Map<String, dynamic>>> getComments(String documentId) async {
     final db = await database;
-    return await db.query(
-      tableComments,
-      where: '$colDocumentId = ? ORDER BY $colTimestamp DESC',
+    return db.query(
+      TableNames.tableComments,
+      where: '$colDocumentId = ?',
       whereArgs: [documentId],
-      limit: limit,
+      orderBy: '$colCreatedAt ASC',
+    );
+  }
+
+  /// 更新评论
+  Future<int> updateComment(String commentId, String content) async {
+    final db = await database;
+    return db.update(
+      TableNames.tableComments,
+      {
+        colContent: content,
+        colUpdatedAt: DateTime.now().millisecondsSinceEpoch,
+      },
+      where: '$colCommentId = ?',
+      whereArgs: [commentId],
     );
   }
 
   /// 删除评论
   Future<int> deleteComment(String commentId) async {
     final db = await database;
-    return await db.delete(
-      tableComments,
+    return db.delete(
+      TableNames.tableComments,
       where: '$colCommentId = ?',
       whereArgs: [commentId],
     );
   }
 
-  // ========== 数据统计 ==========
+  // ========== 数据库统计 ==========
 
   /// 获取数据库统计信息
   Future<Map<String, dynamic>> getStats() async {
-    final db = await database;
-    
     final historyCount = await getHistoryCount();
     final pendingSyncs = await _getPendingSyncCount();
     final activeSessions = (await getActiveSessions()).length;
-    
+
     return {
       'historyCount': historyCount,
       'pendingSyncs': pendingSyncs,
       'activeSessions': activeSessions,
-      'dbSize': await _getDbSize(),
-      'version': _dbVersion,
     };
   }
 
-  /// 获取待同步任务数量
   Future<int> _getPendingSyncCount() async {
     final db = await database;
-    final result = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM $tableSyncQueue WHERE $colStatus = ?',
-      ['pending'],
-    );
-    return result.first['count'] as int;
-  }
-
-  /// 获取数据库文件大小
-  Future<int> _getDbSize() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final path = join(dir.path, _dbName);
-    final file = File(path);
-    return await file.length();
-  }
-
-  // ========== 数据库维护 ==========
-
-  /// 优化数据库
-  Future<void> optimize() async {
-    final db = await database;
-    await db.execute('PRAGMA optimize');
-    await db.execute('PRAGMA auto_vacuum = FULL');
-    await db.execute('VACUUM');
-    print('[Database] 数据库优化完成');
-  }
-
-  /// 备份数据库
-  Future<String> backup() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final backupPath = join(dir.path, 'matha_backup_${DateTime.now().millisecondsSinceEpoch}.db');
-    // TODO: 实现数据库备份逻辑
-    print('[Database] 数据库备份: $backupPath (待实现)');
-    return backupPath;
-  }
-
-  /// 关闭数据库
-  Future<void> close() async {
-    final db = _database;
-    if (db != null) {
-      await db.close();
-      _database = null;
-      print('[Database] 数据库已关闭');
-    }
+    final count = await db.rawQuery('SELECT COUNT(*) FROM ${TableNames.tableSyncQueue} WHERE $colStatus = ?', ['pending']);
+    return Sqflite.firstIntValue(count) ?? 0;
   }
 
   // ========== 同步队列便捷方法 ==========
@@ -693,18 +623,5 @@ class MathDatabase {
   /// 获取待同步任务（兼容旧接口）
   Future<List<Map<String, dynamic>>> getPendingSync({int limit = 100}) async {
     return getPendingSyncTasks(limit: limit);
-  }
-
-  /// 获取队列统计
-  Future<Map<String, dynamic>> getQueueStats() async {
-    final db = await database;
-    final pending = await db.query(tableSyncQueue, where: '$colStatus = ?', whereArgs: ['pending']);
-    final synced = await db.query(tableSyncQueue, where: '$colStatus = ?', whereArgs: ['synced']);
-    final failed = await db.query(tableSyncQueue, where: '$colStatus = ?', whereArgs: ['failed']);
-    return {
-      'pending': pending.length,
-      'synced': synced.length,
-      'failed': failed.length,
-    };
   }
 }

@@ -5,18 +5,18 @@ import 'package:flutter/material.dart';
 import 'node_types.dart';
 
 class NodePalette extends StatelessWidget {
-  final NodeType nodeType;
-  final Function(NodeType) onAddNode;
+  final String category;
+  final Function(NodeDefinition) onAddNode;
 
   const NodePalette({
     super.key,
-    required this.nodeType,
+    required this.category,
     required this.onAddNode,
   });
 
   @override
   Widget build(BuildContext context) {
-    final nodes = NodeRegistry.get_by_category(nodeType.toString().split('.').last);
+    final nodes = NodeRegistry.get_by_category(category);
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -25,7 +25,7 @@ class NodePalette extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '选择 ${nodeType.toString().split('.').last} 节点',
+            '选择 $category 节点',
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
@@ -42,7 +42,7 @@ class NodePalette extends StatelessWidget {
                 final node = nodes[index];
                 return _NodeCard(
                   node: node,
-                  onTap: () => onAddNode(node.nodeType),
+                  onTap: () => onAddNode(node),
                 );
               },
             ),
@@ -70,7 +70,7 @@ class _NodeCard extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(_getIcon(NodeType.values.firstWhere((t) => t.id == node.nodeType, orElse: () => NodeType.MATH_ADD)), size: 32, color: _getColor(node.category)),
+              Icon(_getIconFromDef(node), size: 32, color: _getColor(node.category)),
               const SizedBox(height: 4),
               Text(
                 node.label,
@@ -91,42 +91,43 @@ class _NodeCard extends StatelessWidget {
     );
   }
 
-  IconData _getIcon(NodeType type) {
-    switch (type) {
-      case NodeType.MATH_ADD:
-      case NodeType.MATH_SUBTRACT:
-      case NodeType.MATH_MULTIPLY:
-      case NodeType.MATH_DIVIDE:
-        return Icons.calculate;
-      case NodeType.MATH_SIN:
-      case NodeType.MATH_COS:
-      case NodeType.MATH_TAN:
-        return Icons.science;
-      case NodeType.LOGIC_AND:
-      case NodeType.LOGIC_OR:
-      case NodeType.LOGIC_NOT:
-        return Icons.compare_arrows;
-      case NodeType.VARIABLE:
-      case NodeType.ASSIGN:
-        return Icons.variable_channel;
-      case NodeType.INPUT:
-        return Icons.input;
-      case NodeType.OUTPUT:
-        return Icons.output;
-      case NodeType.IF:
-        return Icons.flow_chart;
-      case NodeType.MATRIX_CREATE:
-        return Icons.grid_on;
-      case NodeType.STATS_MEAN:
-        return Icons.analytics;
-      case NodeType.MATH_PI:
-      case NodeType.MATH_E:
-        return Icons.constant;
-      case NodeType.SEQUENCE:
-        return Icons.format_list_numbered;
-      default:
-        return Icons.help;
+  IconData _getIconFromDef(NodeDefinition def) {
+    final id = def.nodeType;
+    if (id == NodeType.MATH_ADD.id || id == NodeType.MATH_SUBTRACT.id ||
+        id == NodeType.MATH_MULTIPLY.id || id == NodeType.MATH_DIVIDE.id) {
+      return Icons.calculate;
     }
+    if (id == NodeType.MATH_SIN.id || id == NodeType.MATH_COS.id || id == NodeType.MATH_TAN.id) {
+      return Icons.science;
+    }
+    if (id == NodeType.LOGIC_AND.id || id == NodeType.LOGIC_OR.id || id == NodeType.LOGIC_NOT.id) {
+      return Icons.compare_arrows;
+    }
+    if (id == NodeType.VARIABLE.id || id == NodeType.ASSIGN.id) {
+      return Icons.tune;
+    }
+    if (id == NodeType.INPUT.id) {
+      return Icons.input;
+    }
+    if (id == NodeType.OUTPUT.id) {
+      return Icons.output;
+    }
+    if (id == NodeType.IF.id) {
+      return Icons.account_tree;
+    }
+    if (id == NodeType.MATRIX_CREATE.id) {
+      return Icons.grid_on;
+    }
+    if (id == NodeType.STATS_MEAN.id) {
+      return Icons.analytics;
+    }
+    if (id == NodeType.MATH_PI.id || id == NodeType.MATH_E.id) {
+      return Icons.numbers;
+    }
+    if (id == NodeType.SEQUENCE.id) {
+      return Icons.format_list_numbered;
+    }
+    return Icons.help;
   }
 
   Color _getColor(String category) {

@@ -57,9 +57,7 @@ class PyodidePackage {
 
 /// Pyodide 桥接控制器
 class PyodideController extends ChangeNotifier {
-  static const String _pyodideVersion = '0.24.1';
   static const String _pyodideUrl = 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js';
-  static const String _micropipUrl = 'https://pypi.org/project/micropip/';
 
   Pyodide? _pyodide;
   bool _isLoaded = false;
@@ -179,7 +177,7 @@ class PyodideController extends ChangeNotifier {
     debugPrint('[Pyodide] ========== 创建 Pyodide 实例 ==========');
     debugPrint('[Pyodide] 尝试获取 loadPyodide 函数...');
     
-    final loadPyodide = html.window['loadPyodide'] as dynamic;
+    final loadPyodide = (html.window as dynamic)['loadPyodide'];
     if (loadPyodide == null) {
       debugPrint('[Pyodide] ✗ 错误: loadPyodide 函数未找到');
       throw Exception('Pyodide JS 未正确加载');
@@ -460,7 +458,7 @@ sys.stdout = old_stdout
       try {
         final result = _pyodide!.runPythonSync('list(globals().keys())');
         debugPrint('[Pyodide] ✓ 获取变量列表，数量: ${(result as List).length}');
-        return (result as List).cast<String>();
+        return result as List<String>;
       } catch (e, stackTrace) {
         debugPrint('[Pyodide] ✗ 获取变量列表失败');
         debugPrint('[Pyodide] 错误: $e');

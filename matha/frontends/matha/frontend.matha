@@ -1,0 +1,82 @@
+(* ============================================================
+   Matha 原生前端（Matha → Matha IR）
+   ============================================================
+   用 Matha 自身语言实现编译器前端。
+   包含：词法分析、语法分析、IR 生成
+   ============================================================ *)
+
+module 前端 {
+
+  use 词法器 { Token | 类型 | 扫描 | 做Token }
+  use 语法器
+
+  (* ===== 前端结果 ===== *)
+  func 做前端结果(语言: String, 函数: Dict, 类型: Dict, 效应: Dict) -> Dict =
+    (语言, 函数, 类型, 效应) =>
+    {"类型": "前端结果", "语言": 语言, "函数": 函数, "类型": 类型, "效应": 效应}
+
+  (* ===== 编译入口 ===== *)
+  func 编译(源码: String) -> Dict = (源码) =>
+    let toks = 扫描(源码) in
+    let prog = parse(toks) in
+    let funcs = 提取函数(prog) in
+    let types = 提取类型(funcs) in
+    let effects = 提取效应(funcs) in
+    做前端结果("matha", funcs, types, effects)
+
+  (* ===== 提取函数定义 ===== *)
+  func 提取函数(prog: Dict) -> Dict = (prog) =>
+    let decls = prog["声明"] in
+    let rec 提取 = (decls, acc) =>
+      decls = [] ? acc :
+      let d = decls[0] in
+      d["类型"] = "函数定义" ?
+        let 名 = d["名"] in
+        let 体 = d["体"] in
+        提取(decls[1:], {**acc, 名: 体}) :
+        提取(decls[1:], acc)
+    in 提取(decls, {})
+
+  (* ===== 提取类型注解 ===== *)
+  func 提取类型(funcs: Dict) -> Dict = (funcs) =>
+    let rec 收集 = (fs, acc) =>
+      fs = {} ? acc :
+      let 名 = fs.keys()[0] in
+      let 体 = fs[名] in
+      let 返回类型 = 体["返回类型"] if 体["返回类型"] != "" then 体["返回类型"] else "Any" in
+      收集({**fs, 名: null}, {**acc, 名: 返回类型})
+    in 收集(funcs, {})
+
+  (* ===== 效应分析 ===== *)
+  func 提取效应(funcs: Dict) -> Dict = (funcs) =>
+    let rec 收集 = (fs, acc) =>
+      fs = {} ? acc :
+      let 名 = fs.keys()[0] in
+      let 体 = fs[名] in
+      let 有IO = 包含IO(体) in
+      收集({**fs, 名: null}, {**acc, 名: (if 有IO then "IO" else "Pure")})
+    in 收集(funcs, {})
+
+  func 包含IO(body: Dict) -> Bool = (body) =>
+    let 体字符串 = 序列化(body) in
+    包含(body, "输出") or 包含(body, "打印") or 包含(body, "读取")
+
+  func 包含(dict: Dict, key: String) -> Bool = (dict, key) =>
+    let rec 检查 = (d, k) =>
+      d = {} ? false :
+      let ks = d.keys() in
+      ks = [] ? false :
+      ks[0] = k ? true : 检查({**d, ks[0]: null}, k)
+    in 检查(dict, key)
+
+  func 序列化(node: Any) -> String = (node) =>
+    match node with
+    | {"类型": t, ...} as n => t + ":" + 序列化(n)
+    | list => "[" + (list = [] ? "" else 序列化(list[0]) + "," + 序列化(list[1:])) + "]"
+    | _ => str(node)
+    end
+}
+
+(* ===== 测试 ===== *)
+(* 编译一个简单的 Matha 程序 *)
+(* let result = 编译("func 加倍(x) -> Int = (x) => x * 2") in [result] *)

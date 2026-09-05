@@ -175,8 +175,9 @@ class CommentManager extends ChangeNotifier {
     await _db.addComment(
       commentId: commentId,
       userId: userId,
+      userName: userName,
       content: content,
-      position: position,
+      position: position.toString(),
       documentId: documentId,
     );
 

@@ -398,7 +398,7 @@ class RustFrontend:
         # 数字常量
         try:
             val = float(atom)
-            return [IRNode(IRKind.CONST, value=val, result=f"t{len([])}", typ=T_FLOAT)]
+            return [IRNode(IRKind.CONST, value=val, result=f"t{hash(atom) & 0xFFFF}", typ=T_FLOAT)]
         except ValueError:
             pass
 

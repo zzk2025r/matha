@@ -2,7 +2,6 @@
 // 用于验证日志埋点是否正确工作
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../pyodide/pyodide_bridge.dart';
 
 /// Pyodide 加载失败模拟页面
@@ -206,7 +205,7 @@ class _PyodideFailureSimulationState extends State<PyodideFailureSimulation> {
                       padding: const EdgeInsets.all(12.0),
                       child: Row(
                         children: [
-                          const Icon(Icons.console, size: 20),
+                          const Icon(Icons.bug_report, size: 20),
                           const SizedBox(width: 8),
                           const Text(
                             '日志输出',

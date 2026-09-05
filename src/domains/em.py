@@ -55,6 +55,8 @@
 from __future__ import annotations
 import math
 
+from src.stdlib.safe_ops import safe_div
+
 
 # ============================================================
 # 柯里化工具
@@ -115,15 +117,15 @@ ELEMENTARY_CHARGE = 1.602176634e-19
 # ============================================================
 
 # 库仑定律：F = k·q1·q2/r²
-def _电_库仑力(q1, q2, r): return K_ELECTROSTATIC * q1 * q2 / (r * r)
+def _电_库仑力(q1, q2, r): return safe_div(K_ELECTROSTATIC * q1 * q2, r * r)
 # 电场强度（点电荷）：E = kQ/r²
-def _电_电场(Q, r): return K_ELECTROSTATIC * Q / (r * r)
+def _电_电场(Q, r): return safe_div(K_ELECTROSTATIC * Q, r * r)
 # 电势（点电荷）：V = kQ/r
-def _电_电势(Q, r): return K_ELECTROSTATIC * Q / r
+def _电_电势(Q, r): return safe_div(K_ELECTROSTATIC * Q, r)
 # 电势能：U = kq1q2/r
-def _电_电势能(q1, q2, r): return K_ELECTROSTATIC * q1 * q2 / r
+def _电_电势能(q1, q2, r): return safe_div(K_ELECTROSTATIC * q1 * q2, r)
 # 平行板电容器电容：C = ε₀S/d
-def _电_平行板电容(S, d): return EPSILON_0 * S / d
+def _电_平行板电容(S, d): return safe_div(EPSILON_0 * S, d)
 # 电容器储能：W = ½CV²
 def _电_电容储能(C, V): return 0.5 * C * V * V
 # 电容器电荷：Q = CV
@@ -158,7 +160,7 @@ def _电路_功率(V, I): return V * I
 # 电功率（焦耳热形式）：P = I²R
 def _电路_功率热(I, R): return I * I * R
 # 电功率（电压形式）：P = V²/R
-def _电路_功率压(V, R): return V * V / R
+def _电路_功率压(V, R): return safe_div(V * V, R)
 # 焦耳热：Q = I²Rt
 def _电路_焦耳热(I, R, t): return I * I * R * t
 
@@ -190,11 +192,11 @@ def _磁_回旋频率(q, B, m): return abs(q) * B / (2 * math.pi * m)
 # ============================================================
 
 # 法拉第定律：ε = -N·dΦ/dt（取绝对值）
-def _感应_法拉第电动势(N, dPhi, dt): return abs(N * dPhi / dt)
+def _感应_法拉第电动势(N, dPhi, dt): return abs(safe_div(N * dPhi, dt))
 # 动生电动势：ε = BLv
 def _感应_动生电动势(B, L, v): return B * L * v
 # 自感电动势：ε = L·dI/dt（取绝对值）
-def _感应_自感电动势(L, dI, dt): return abs(L * dI / dt)
+def _感应_自感电动势(L, dI, dt): return abs(safe_div(L * dI, dt))
 # 磁场能量（电感储能）：W = ½LI²
 def _感应_磁场能量(L, I): return 0.5 * L * I * I
 # 互感：M = N₂·Φ₂₁/I₁
@@ -210,17 +212,17 @@ def _感应_RL时间常数(L, R): return L / R
 # 感抗：X_L = ωL = 2πfL
 def _交流_感抗(f, L): return 2 * math.pi * f * L
 # 容抗：X_C = 1/(ωC) = 1/(2πfC)
-def _交流_容抗(f, C): return 1 / (2 * math.pi * f * C)
+def _交流_容抗(f, C): return safe_div(1.0, 2 * math.pi * f * C)
 # 阻抗（串联RLC）：Z = √(R² + (X_L - X_C)²)
 def _交流_阻抗(R, XL, XC): return math.sqrt(R * R + (XL - XC) ** 2)
 # 谐振频率：f₀ = 1/(2π√(LC))
-def _交流_谐振频率(L, C): return 1 / (2 * math.pi * math.sqrt(L * C))
+def _交流_谐振频率(L, C): return safe_div(1.0, 2 * math.pi * math.sqrt(L * C))
 # 有效值（峰值/√2）
 def _交流_有效值(V_max): return V_max / math.sqrt(2)
 # 峰值（有效值×√2）
 def _交流_峰值(V_rms): return V_rms * math.sqrt(2)
 # 功率因数：cosφ = R/Z
-def _交流_功率因数(R, Z): return R / Z
+def _交流_功率因数(R, Z): return safe_div(R, Z)
 # 交流有功功率：P = V·I·cosφ
 def _交流_有功功率(V, I, cos_phi): return V * I * cos_phi
 # 视在功率：S = VI

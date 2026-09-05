@@ -2,7 +2,6 @@
 // 实现无冲突复制数据类型
 
 import 'dart:async';
-import 'dart:collection';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 
@@ -121,9 +120,6 @@ class CollaborativeEngine extends ChangeNotifier {
   CRDTState _state;
   final List<CollaborativeOp> _pendingOps = [];
   final Map<String, CollaborativeOp> _opHistory = {};
-  
-  // 远程操作队列
-  final Queue<CollaborativeOp> _remoteOpsQueue = Queue();
   
   // 监听器
   StreamController<CRDTState>? _stateController;

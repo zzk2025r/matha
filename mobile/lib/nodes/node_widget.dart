@@ -3,7 +3,6 @@
 
 import 'package:flutter/material.dart';
 import 'node_types.dart';
-import 'connection_system.dart';
 
 class NodeWidget extends StatefulWidget {
   final Node node;
@@ -32,7 +31,6 @@ class NodeWidget extends StatefulWidget {
 class _NodeWidgetState extends State<NodeWidget> {
   late Offset _position;
   Offset? _dragStartPos;
-  String? _draggingPort;
   bool _isHovered = false;
 
   @override
@@ -68,19 +66,18 @@ class _NodeWidgetState extends State<NodeWidget> {
   }
 
   void _onPortDragStart(DragStartDetails details, String portName, bool isInput) {
-    _draggingPort = portName;
     final localPos = details.localPosition;
     final globalPos = _position + localPos;
     widget.onStartDragConnection(portName, globalPos);
   }
 
   void _onPortDragEnd(DragEndDetails details) {
-    _draggingPort = null;
   }
 
   @override
   Widget build(BuildContext context) {
     final definition = widget.node.definition;
+    if (definition == null) return const SizedBox.shrink();
     final color = _getNodeColor(definition.category);
     
     return GestureDetector(
@@ -224,17 +221,17 @@ class _NodeWidgetState extends State<NodeWidget> {
       case '逻辑':
         return Icons.compare_arrows;
       case '变量':
-        return Icons.variable_channel;
+        return Icons.tune;
       case '输入输出':
         return Icons.input;
       case '控制流':
-        return Icons.flow_chart;
+        return Icons.account_tree;
       case '矩阵':
         return Icons.grid_on;
       case '统计':
         return Icons.analytics;
       case '常量':
-        return Icons.constant;
+        return Icons.numbers;
       case '序列':
         return Icons.format_list_numbered;
       default:
@@ -358,7 +355,7 @@ class _NodeContent extends StatelessWidget {
         definition.nodeType == NodeType.MATH_E.id) {
       return Center(
         child: Text(
-          node.outputs.values.firstOrNull?.toString() ?? '',
+          node.values.values.firstOrNull?.toString() ?? '',
           style: const TextStyle(fontSize: 11, color: Colors.grey),
         ),
       );

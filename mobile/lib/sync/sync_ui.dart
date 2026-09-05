@@ -224,7 +224,7 @@ class _SyncLogItem extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '[${log.category}] ${log.message}',
+              '[${log.recordType}] ${log.message}',
               style: TextStyle(
                 fontSize: 12,
                 color: color,

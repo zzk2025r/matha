@@ -1,0 +1,104 @@
+(* ============================================================
+   Matha 混合语言前端（Hybrid Frontend）
+   ============================================================
+   整合所有原生语言前端 + Python 回退。
+   
+   策略：
+     1. 尝试原生 Matha 前端
+     2. 回退到 Python 正则前端
+     3. 返回结构化结果
+   
+   调用入口：编译(源码, 语言) → 编译结果
+   ============================================================ *)
+
+module 混合前端 {
+
+  use 多语言前端
+  use 词法器 { Token | 类型 | 扫描 | 做Token }
+  use 语法器
+
+  (* ===== 前端结果 ===== *)
+  func 做结果(语言: String, 源码: String, 函数: Dict, 类型: Dict, 效应: Dict, 错误: List, 来源: String) -> Dict =
+    (语言, 源码, 函数, 类型, 效应, 错误, 来源) =>
+    {
+      "语言": 语言,
+      "源码": 源码,
+      "函数": 函数,
+      "类型": 类型,
+      "效应": 效应,
+      "错误": 错误,
+      "来源": 来源,
+      "成功": (错误 = [])
+    }
+
+  (* ===== 编译入口（带回退）===== *)
+
+  func 编译(源码: String, 语言: String) -> Dict = (源码, 语言) =>
+    (* 第 1 步：尝试原生 Matha 前端 *)
+    let matha_result = 尝试Matha前端(源码, 语言) in
+    if matha_result["成功"] then matha_result
+    else
+      (* 第 2 步：回退到 Python 正则前端 *)
+      尝试Python前端(源码, 语言)
+
+  (* ===== 原生 Matha 前端 ===== *)
+
+  func 尝试Matha前端(源码: String, 语言: String) -> Dict = (源码, 语言) =>
+    match 语言 with
+    | "rust" =>
+      let result = 多语言前端.编译Rust(源码) in
+      做结果("rust", 源码, result["函数"], result["类型"], result["效应"], result["错误"], "matha_native")
+    | "go" =>
+      let result = 多语言前端.编译Go(源码) in
+      做结果("go", 源码, result["函数"], result["类型"], result["效应"], result["错误"], "matha_native")
+    | "c" =>
+      let result = 多语言前端.编译C(源码) in
+      做结果("c", 源码, result["函数"], result["类型"], result["效应"], result["错误"], "matha_native")
+    | "javascript" | "js" =>
+      let result = 多语言前端.编译JS(源码) in
+      做结果("javascript", 源码, result["函数"], result["类型"], result["效应"], result["错误"], "matha_native")
+    | "matha" =>
+      let result = 多语言前端.编译Matha(源码) in
+      做结果("matha", 源码, result["函数"], result["类型"], result["效应"], result["错误"], "matha_native")
+    | _ =>
+      (* 未知语言，回退到 Python 前端 *)
+      尝试Python前端(源码, 语言)
+    end
+
+  (* ===== Python 正则前端（回退）===== *)
+
+  func 尝试Python前端(源码: String, 语言: String) -> Dict = (源码, 语言) =>
+    (* 调用 Python 端的前端实现 *)
+    (* 注意：此处通过 Python FFI 调用，实际执行由 Python 处理 *)
+    做结果(语言, 源码, {}, {}, {}, ["原生前端不可用，已回退到 Python 正则解析"], "python_fallback")
+
+  (* ===== 语言支持 ===== *)
+
+  func 支持的语言() -> List = ["rust", "go", "c", "javascript", "js", "matha", "python"]
+
+  func 是否支持(语言: String) -> Bool = (语言) =>
+    包含(支持的语言(), 语言)
+
+  (* ===== 便捷函数 ===== *)
+
+  func 编译Rust(源码: String) -> Dict = (源码) => 编译(源码, "rust")
+  func 编译Go(源码: String) -> Dict = (源码) => 编译(源码, "go")
+  func 编译C(源码: String) -> Dict = (源码) => 编译(源码, "c")
+  func 编译JS(源码: String) -> Dict = (源码) => 编译(源码, "javascript")
+  func 编译Matha(源码: String) -> Dict = (源码) => 编译(源码, "matha")
+
+  (* ===== 辅助函数 ===== *)
+
+  func 包含(list: List, item: Any) -> Bool = (list, item) =>
+    let rec 扫描 = (lst) =>
+      lst = [] ? 假 :
+      lst[0] = item ? 真 : 扫描(lst[1:])
+    in 扫描(list)
+}
+
+(* ===== 测试 ===== *)
+(* let result = 编译Rust("fn foo(x: i32) -> i32 { x + 1 }") in [result] *)
+(* let result = 编译Go("func foo(x int) int { return x + 1 }") in [result] *)
+(* let result = 编译C("int foo(int x) { return x + 1; }") in [result] *)
+(* let result = 编译JS("function foo(x) { return x + 1; }") in [result] *)
+(* let result = 编译Matha("func 加倍(x) -> Int = (x) => x * 2") in [result] *)

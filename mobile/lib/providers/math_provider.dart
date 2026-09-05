@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/result_panel.dart';
 import '../widgets/history_panel.dart';
@@ -151,16 +150,6 @@ class MathProvider extends ChangeNotifier {
       debugPrint('保存历史记录: ${item.code}');
     } catch (e) {
       debugPrint('保存历史记录失败: $e');
-    }
-  }
-
-  // 从离线存储加载历史记录
-  Future<void> _loadFromOfflineStorage() async {
-    try {
-      // TODO: 从 SQLite 加载
-      debugPrint('从离线存储加载历史记录');
-    } catch (e) {
-      debugPrint('加载历史记录失败: $e');
     }
   }
 
