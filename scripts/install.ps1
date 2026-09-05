@@ -143,15 +143,13 @@ function CreateUninstaller($InstallDir) {
 param([switch]$Force)
 
 $InstallDir = "C:\Program Files\Matha"
-$Version = "4.4"
+$Version = "4.5"
 
 Write-Host "卸载 Matha v$Version..." -ForegroundColor Yellow
 
-# 删除桌面快捷方式
+# 删除桌面快捷方式（v4.5 单图标）
 $Desktop = [Environment]::GetFolderPath("Desktop")
-Remove-Item "$Desktop\Matha REPL.lnk" -Force -ErrorAction SilentlyContinue
-Remove-Item "$Desktop\Matha 编译器.lnk" -Force -ErrorAction SilentlyContinue
-Remove-Item "$Desktop\Matha 安装目录.lnk" -Force -ErrorAction SilentlyContinue
+Remove-Item "$Desktop\Matha.lnk" -Force -ErrorAction SilentlyContinue
 
 # 删除开始菜单
 $StartMenu = [Environment]::GetFolderPath("CommonPrograms")
@@ -281,13 +279,15 @@ function InstallMatha {
     Log "=========================================="
     Log ""
     Log "使用方法:"
-    Log "  matha                          # 启动 REPL"
+    Log "  matha                          # 统一入口（REPL + 编译器 + 公式生长）"
     Log "  matha eval 'sin(3.14)'         # 计算表达式"
-    Log "  matha-cc compile demo.matha -o c  # 编译到 C"
+    Log "  matha run demo.matha           # 运行 Matha 文件"
+    Log "  matha compile demo.matha -o c  # 编译到 C"
+    Log "  matha-update                   # 一键更新"
     Log ""
     Log "快捷方式:"
-    Log "  桌面: Matha REPL / Matha 编译器"
-    Log "  开始菜单: Matha 程序组"
+    Log "  桌面: Matha（单一入口）"
+    Log "  开始菜单: Matha / Matha 更新"
     Log ""
     Log "安装目录: $InstallDir"
     Log ""

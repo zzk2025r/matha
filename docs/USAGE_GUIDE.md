@@ -1,6 +1,6 @@
 # Matha 使用文档
 
-> **版本：** v4.4.57  
+> **版本：** v4.5.0  
 > **更新日期：** 2026-09-05  
 > **Python 要求：** 3.10+  
 > **测试通过率：** 344/344 (100%)
@@ -12,17 +12,39 @@
 ### 1.1 安装
 
 ```powershell
-# 方法 1：pip 安装（推荐，最小依赖）
-pip install matha
+# 方式 1：一键安装（推荐）
+cd d:\trae
+python scripts/install.py
 
-# 方法 2：源码安装
-git clone https://github.com/zzk2025r/matha.git
-cd matha
-pip install -e .
+# 方式 2：指定开发源码路径
+python scripts/install.py --dev D:\trae
 
-# 方法 3：离线安装（无网络环境）
-tar -xzf offline_package/matha-pip-packages-20260831.tar.gz
-pip install --no-index --find-links=./offline_package matha
+# 方式 3：强制重装
+python scripts/install.py --force
+```
+
+安装后自动创建 `~/Matha/` 独立文件夹，包含：
+- `matha` — 统一入口（REPL + 编译器 + 公式生长）
+- `src/` — 当前版本源码
+- `workspace/` — 您的项目、公式、笔记
+- `MathaIDE/` — 自举开发环境
+- `matha-update` — 一键更新
+
+### 1.2 启动
+
+```powershell
+# 方式 A：桌面图标（手动创建）
+# 右键桌面 → 新建快捷方式
+# 位置: python.exe
+# 参数: -m matha
+# 起始位置: %USERPROFILE%\Matha
+
+# 方式 B：命令行
+cd %USERPROFILE%\Matha
+python matha
+
+# 方式 C：直接运行启动器
+.\matha
 ```
 
 ### 1.3 验证安装
@@ -30,11 +52,11 @@ pip install --no-index --find-links=./offline_package matha
 ```powershell
 # 检查版本
 matha --version
-# Matha v4.4
+# Matha v4.5.0
 
 # 运行自检
 matha test
-# 结果: 6 通过, 0 失败
+# 结果: 344 通过, 0 失败
 
 # 查看工具链信息
 matha info
@@ -60,14 +82,25 @@ cat ~/.ssh/id_ed25519.pub  # 复制输出内容
 # Settings → SSH and GPG keys → New SSH key
 ```
 
-### 1.3 启动 REPL
+### 1.5 启动 Matha
 
 ```powershell
-# 启动交互式 REPL
+# 启动统一入口（REPL + 编译器 + 公式生长一体化）
 matha
 
-# 或直接运行 Python
-python -m src.matha_main
+# 或直接运行
+cd %USERPROFILE%\Matha
+python matha
+```
+
+### 1.6 更新
+
+```powershell
+# 一键更新（从 GitHub 拉取最新版本）
+matha-update
+
+# 检查是否有新版本
+matha-update --check
 ```
 
 ---
