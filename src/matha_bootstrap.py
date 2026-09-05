@@ -28,8 +28,8 @@ from typing import Optional
 #   安装端: C:\Users\Admin\Matha\src\matha_bootstrap.py → C:\Users\Admin\Matha\matha\
 _SCRIPT_DIR = Path(__file__).parent
 _CANDIDATES = [
-    _SCRIPT_DIR.parent.parent / "matha",  # src/matha/
-    _SCRIPT_DIR.parent / "matha",          # 根/matha/ (安装端)
+    _SCRIPT_DIR.parent / "matha",          # 根/matha/ (安装端 C:\Users\Admin\Matha\matha)
+    _SCRIPT_DIR.parent.parent / "matha",   # src/matha/ (开发端 d:\trae\matha)
     Path.cwd().parent / "matha",           # 运行时 cwd 推断
 ]
 _MATHA_DIR = next((p for p in _CANDIDATES if p.exists()), _SCRIPT_DIR.parent.parent / "matha")
