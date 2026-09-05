@@ -666,7 +666,7 @@ python -m src.mcp_server
     "matha": {
       "command": "python",
       "args": ["-m", "src.mcp_server"],
-      "cwd": "C:\\Users\\Admin\\Matha\\src"
+      "cwd": "C:\\Users\\Admin\\Matha"
     }
   }
 }
