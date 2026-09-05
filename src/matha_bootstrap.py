@@ -23,7 +23,16 @@ from pathlib import Path
 from typing import Optional
 
 # 自举模块路径（相对于 src/matha_bootstrap.py）
-_MATHA_DIR = Path(__file__).parent.parent / "matha"
+# 支持两种布局：
+#   开发端: d:\trae\src\matha_bootstrap.py → d:\trae\matha\
+#   安装端: C:\Users\Admin\Matha\src\matha_bootstrap.py → C:\Users\Admin\Matha\matha\
+_SCRIPT_DIR = Path(__file__).parent
+_CANDIDATES = [
+    _SCRIPT_DIR.parent.parent / "matha",  # src/matha/
+    _SCRIPT_DIR.parent / "matha",          # 根/matha/ (安装端)
+    Path.cwd().parent / "matha",           # 运行时 cwd 推断
+]
+_MATHA_DIR = next((p for p in _CANDIDATES if p.exists()), _SCRIPT_DIR.parent.parent / "matha")
 
 
 def _load_matha_module(module_name: str) -> str:
