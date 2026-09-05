@@ -604,24 +604,86 @@ start web/index.html
 
 ---
 
-## 十二、VSCode 扩展
+## 十二、IDE 集成
+
+### 12.1 VS Code 扩展
 
 ```powershell
-# 安装
 cd extensions/vscode-matha
 npm install
 npm run compile
 code --install-extension matha-0.1.0.vsix
-
-# 开发模式
-npm run watch
 ```
 
-功能：
-- 语法高亮
-- 符号补全
-- 悬停提示
-- 实时诊断
+功能：语法高亮、符号补全、悬停提示、实时诊断。
+
+---
+
+### 12.2 MCP Server（Trae / Cursor / Claude Desktop 等）
+
+Matha 提供 MCP（Model Context Protocol）服务器，可向 AI IDE 暴露计算工具。
+
+```powershell
+# 安装 MCP 依赖
+pip install mcp>=1.0.0
+
+# 启动 MCP Server
+python -m src.mcp_server
+```
+
+**可用的 MCP 工具：**
+
+| 工具名 | 参数 | 说明 |
+|--------|------|------|
+| `eval_expression` | `expr: str` | 计算 Matha 表达式 |
+| `run_file` | `file_path: str` | 运行 .matha 源文件 |
+| `compile_source` | `source: str, output: str?` | 编译 Matha 源码为 C |
+| `diagnose_source` | `source: str` | 源码诊断（LSP 格式） |
+| `parse_intent` | `text: str` | 自然语言意图解析 |
+| `get_info` | — | 系统版本与配置信息 |
+
+**Trae 配置方式：**
+
+在项目根目录创建 `.trae/mcp_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "matha": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "D:\\trae"
+    }
+  }
+}
+```
+
+**其他 IDE 配置示例（Claude Desktop）：**
+
+```json
+{
+  "mcpServers": {
+    "matha": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "C:\\Users\\Admin\\Matha\\src"
+    }
+  }
+}
+```
+
+---
+
+### 12.3 JetBrains / IntelliJ 集成
+
+通过 MathaIDE 启动内置语言服务器：
+
+```powershell
+python -m src.ai_assistant_server
+# 默认监听 http://localhost:8765
+```
+
+在 JetBrains 中安装插件后配置 `http://localhost:8765` 作为 Matha LSP 端点。
 
 ---
 

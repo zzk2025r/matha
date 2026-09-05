@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "matha": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "D:\\trae"
+    }
+  }
+}
