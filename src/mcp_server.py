@@ -52,10 +52,10 @@ def _safe_compile(source: str, output: Optional[str] = None) -> str:
 
 def _safe_diagnose(source: str) -> list[dict]:
     """诊断 Matha 源码。"""
-    from src.diagnostics import DiagnosticCollector
-    collector = DiagnosticCollector()
+    from src.diagnostics import LSPServer
+    server = LSPServer()
     try:
-        results = collector.analyze(source)
+        results = server.analyze(source)
         return results if results else [{"message": "无诊断问题", "severity": "hint"}]
     except Exception as e:
         return [{"message": f"诊断错误: {e}", "severity": "error"}]
