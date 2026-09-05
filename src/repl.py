@@ -26,6 +26,7 @@ from src.result import Ok, Err, MathaResultError
 # KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载，不默认激活
 # from src.stdlib.core import register_core_builtins  ← 已移除，按需调用
 from src.repl_completion import REPLCompleter, REPLHistoryManager
+from src.repl_highlight import SyntaxHighlighter
 
 
 logger = logging.getLogger("matha.repl")
