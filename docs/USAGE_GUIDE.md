@@ -25,26 +25,24 @@ python scripts/install.py --force
 
 安装后自动创建 `~/Matha/` 独立文件夹，包含：
 - `matha` — 统一入口（REPL + 编译器 + 公式生长）
-- `src/` — 当前版本源码
+- `matha.cmd` / `matha.ps1` — Windows 启动器
+- `src/` — 当前版本源码（133 个文件）
 - `workspace/` — 您的项目、公式、笔记
 - `MathaIDE/` — 自举开发环境
-- `matha-update` — 一键更新
+- `matha-update.cmd` — 一键更新
 
 ### 1.2 启动
 
 ```powershell
-# 方式 A：桌面图标（手动创建）
-# 右键桌面 → 新建快捷方式
-# 位置: python.exe
-# 参数: -m matha
-# 起始位置: %USERPROFILE%\Matha
+# 方式 A：命令行（推荐）
+cd $env:USERPROFILE\Matha
+.\matha.cmd
 
-# 方式 B：命令行
-cd %USERPROFILE%\Matha
+# 方式 B：直接运行
+.\matha.cmd
+
+# 方式 C：Python 直接运行
 python matha
-
-# 方式 C：直接运行启动器
-.\matha
 ```
 
 ### 1.3 验证安装
@@ -82,25 +80,14 @@ cat ~/.ssh/id_ed25519.pub  # 复制输出内容
 # Settings → SSH and GPG keys → New SSH key
 ```
 
-### 1.5 启动 Matha
-
-```powershell
-# 启动统一入口（REPL + 编译器 + 公式生长一体化）
-matha
-
-# 或直接运行
-cd %USERPROFILE%\Matha
-python matha
-```
-
-### 1.6 更新
+### 1.5 更新
 
 ```powershell
 # 一键更新（从 GitHub 拉取最新版本）
-matha-update
+matha-update.cmd
 
 # 检查是否有新版本
-matha-update --check
+matha-update.cmd --check
 ```
 
 ---
@@ -783,7 +770,7 @@ pip install --no-index --find-links=./offline_package matha
 | v4.4.50 | 2026-08 | 初始发布 |
 | v4.4.55 | 2026-09 | 成长引擎升级（公式生长融合） |
 | v4.4.56 | 2026-09 | Parser 规范化 (case...of→match...{}) |
-| v4.4.57 | 2026-09 | **当前版本**: 解决 KNP-001~010 + Python 非默认语言 + SSH 配置 |
+| v4.4 | 2026-09 | **当前版本**: 统一入口 + SSH 就绪 + 安装脚本完善 |
 
 ---
 
