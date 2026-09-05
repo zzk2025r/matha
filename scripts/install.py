@@ -310,6 +310,7 @@ def main():
     print("创建启动器...")
     launcher = create_launcher(home)
     autoupdate = create_autoupdate(home)
+    create_mcp_config(home)
 
     # 创建配置
     config = create_config(home, dev_dir)
