@@ -3,9 +3,9 @@
 用法: python -m src.mcp_server
 """
 from __future__ import annotations
+import asyncio
 import json
 import sys
-import traceback
 from pathlib import Path
 from typing import Any, Optional
 
@@ -14,8 +14,8 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
-    from mcp.server import Server
-    from mcp.types import Tool, TextContent
+    from mcp.server.mcpserver import MCPServer
+    from mcp.types import TextContent
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -65,8 +65,8 @@ def _safe_parse(text: str) -> dict:
     return parser.explain_intent(text)
 
 
-def _create_server() -> "Server":
-    server = Server("matha")
+def create_server() -> MCPServer:
+    server = MCPServer(name="matha", version="4.4")
 
     @server.tool()
     async def eval_expression(expr: str) -> list[TextContent]:
@@ -137,15 +137,8 @@ def main():
         print("Matha MCP: mcp 包未安装，运行: pip install mcp", file=sys.stderr)
         sys.exit(1)
 
-    from mcp.server.stdio import stdio_server
-    server = _create_server()
-
-    async def run():
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(read_stream, write_stream)
-
-    import asyncio
-    asyncio.run(run())
+    server = create_server()
+    asyncio.run(server.run_stdio_async())
 
 
 if __name__ == "__main__":
