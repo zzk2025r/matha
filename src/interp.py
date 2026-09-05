@@ -183,6 +183,19 @@ class MathaRuntimeError(Exception):
         self.col = col
 
     def __str__(self) -> str:
+        return super().__str__()
+
+
+class _EnumNamespace:
+    """Matha enum 命名空间，支持 类型.整数 这样的属性访问。"""
+    def __init__(self, name: str, ctors: list):
+        self.name = name
+        self.ctors = ctors
+        for ctor in ctors:
+            setattr(self, ctor, ctor)
+
+    def __repr__(self):
+        return f"<Enum {self.name}>"
         base = super().__str__()
         loc = ""
         if self.line is not None:
@@ -557,6 +570,8 @@ class Interpreter:
         self.outputs: list = []
         self.trace: list[str] = []
         self.builtins: dict[str, object] = dict(BUILTINS)  # 可继承覆写
+        # 模块系统：module_name → {name → bound_value}
+        self.modules: dict[str, dict] = {}
         # debug=None → 服从 MATHA_DEBUG 环境变量；显式 True/False 优先
         self.debug = _env_debug_flag() if debug is None else bool(debug)
         # 递归深度缩进，让 _eval / _exec_stmt / _call_lambda 嵌套可读
@@ -735,8 +750,19 @@ class Interpreter:
                 self._exec_stmt(body)
         elif isinstance(decl, ast.ModuleDecl):
             self._log(logging.INFO, f"exec Module '{decl.name}'")
+            saved_env = set(self.env.keys())
+            saved_funcs = set(self.funcs.keys())
             for inner in decl.decls:
                 self._exec_decl(inner)
+            # 收集模块新增的绑定到 modules 字典
+            new_env = set(self.env.keys()) - saved_env
+            new_funcs = set(self.funcs.keys()) - saved_funcs
+            self.modules[decl.name] = {
+                k: self.env[k] for k in new_env if k not in self.builtins
+            }
+            self.modules[decl.name].update({
+                k: self.funcs[k] for k in new_funcs
+            })
         elif isinstance(decl, ast.Binding):
             # 顶层绑定（如 inc = (x) => x + 1）写入全局 env，
             # 使 lambda 变量在各段内可见，与 func 定义行为一致。
@@ -768,6 +794,16 @@ class Interpreter:
             self._exec_try(decl)
         elif isinstance(decl, ast.SwitchStmt):
             self._exec_switch_stmt(decl)
+        elif isinstance(decl, ast.ImportDecl):
+            self._log(logging.INFO,
+                      f"use {decl.module_name} {decl.import_list}")
+            self._exec_use(decl)
+        elif isinstance(decl, ast.EnumDef):
+            # 为 enum 创建命名空间对象，支持 类型.整数 属性访问
+            ns = _EnumNamespace(decl.name, decl.ctors)
+            self.env[decl.name] = ns
+            self._log(logging.INFO,
+                      f"register enum '{decl.name}' ns={ns}")
         else:
             self._log(logging.DEBUG, f"skip decl {type(decl).__name__}（无运行时副作用）")
 
@@ -933,6 +969,32 @@ class Interpreter:
             self.env[target] = val
         else:
             self._exec_stmt_or_expr(case_body)
+
+    def _exec_use(self, decl: ast.ImportDecl) -> None:
+        """处理 use 语句：从模块导入命名到当前命名空间。"""
+        module_name = decl.module_name
+        import_list = decl.import_list or []
+        alias = decl.alias
+
+        if module_name not in self.modules:
+            raise MathaRuntimeError(f"未找到模块 '{module_name}'")
+
+        module_ns = self.modules[module_name]
+        for name in import_list:
+            if name in module_ns:
+                target = alias or name
+                self.env[target] = module_ns[name]
+                self._log(logging.DEBUG, f"use import '{name}' → '{target}'")
+            elif name in self.constructors:
+                # 兼容：枚举构造函数已在全局 constructors 中
+                self.env[name] = name
+                self._log(logging.DEBUG, f"use import ctor '{name}'")
+            elif name in self.funcs:
+                # 兼容：函数已在全局 funcs 中（模块执行时已注册）
+                self.env[name] = self.funcs[name]
+                self._log(logging.DEBUG, f"use import func '{name}' (from funcs)")
+            else:
+                raise MathaRuntimeError(f"模块 '{module_name}' 中未找到 '{name}'")
 
     def _exec_match_stmt(self, stmt: ast.MatchStmt) -> None:
         """执行 match 模式匹配语句，输出匹配结果。"""
