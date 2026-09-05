@@ -804,6 +804,13 @@ class Interpreter:
             self.env[decl.name] = ns
             self._log(logging.INFO,
                       f"register enum '{decl.name}' ns={ns}")
+        elif isinstance(decl, ast.StructDef):
+            # struct 注册为工厂函数，支持 Token(类型.整数, "x", 1, 1) 调用
+            def _struct_factory(*args):
+                return {decl.name: args}
+            self.env[decl.name] = _struct_factory
+            self._log(logging.INFO,
+                      f"register struct '{decl.name}'")
         else:
             self._log(logging.DEBUG, f"skip decl {type(decl).__name__}（无运行时副作用）")
 
