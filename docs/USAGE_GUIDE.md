@@ -16,8 +16,7 @@
 pip install matha
 
 # 方法 2：源码安装
-git clone git@github.com:zzk2025r/matha.git  # SSH（推荐）
-# 或: git clone https://github.com/zzk2025r/matha.git  # HTTPS（可能超时）
+git clone https://github.com/zzk2025r/matha.git
 cd matha
 pip install -e .
 
@@ -679,7 +678,58 @@ loop._interval = 60.0  # 60秒（默认30秒）
 
 ---
 
-## 十五、参考文档
+## 十五、网络与部署故障排除
+
+### 15.1 GitHub HTTPS 连接失败
+
+**症状：** `Failed to connect to github.com:443 after 21000 ms: Could not connect to server`
+
+**原因：** 部分网络环境（企业防火墙/审查）阻断 HTTPS 443 端口的 TLS 握手，但 TCP 443 端口开放。
+
+**解决方案：切换 SSH 协议**
+
+```powershell
+# 1. 确认 SSH 可用
+ssh -T git@github.com
+
+# 2. 修改远程 URL 为 SSH
+git remote set-url origin git@github.com:zzk2025r/matha.git
+
+# 3. 推送
+git push origin main
+```
+
+**永久配置（全局）：**
+```powershell
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+```
+
+### 15.2 SSL 握手失败（curl 28）
+
+```powershell
+# 强制使用 HTTP/1.1 + schannel
+git -c http.version=HTTP/1.1 -c http.sslBackend=schannel push origin main
+```
+
+### 15.3 .gitconfig.lock 文件残留
+
+```powershell
+# 清除锁文件
+Get-Process git -ErrorAction SilentlyContinue | Stop-Process -Force
+Remove-Item "$env:USERPROFILE\.gitconfig.lock" -Force
+```
+
+### 15.4 离线环境
+
+```powershell
+# 使用离线包
+tar -xzf offline_package/matha-pip-packages-20260831.tar.gz
+pip install --no-index --find-links=./offline_package matha
+```
+
+---
+
+## 十六、参考文档
 
 | 文档 | 路径 |
 |------|------|
@@ -693,17 +743,17 @@ loop._interval = 60.0  # 60秒（默认30秒）
 
 ---
 
-## 十六、版本历史
+## 十七、版本历史
 
 | 版本 | 日期 | 主要变更 |
 |------|------|---------|
 | v4.4.50 | 2026-08 | 初始发布 |
 | v4.4.55 | 2026-09 | 成长引擎升级（公式生长融合） |
 | v4.4.56 | 2026-09 | Parser 规范化 (case...of→match...{}) |
-| v4.4.57 | 2026-09 | **当前版本**: 解决 KNP-001~010 + Python 非默认语言 |
+| v4.4.57 | 2026-09 | **当前版本**: 解决 KNP-001~010 + Python 非默认语言 + SSH 配置 |
 
 ---
 
-## 十七、许可证
+## 十八、许可证
 
 Matha 由 Sapiens AI 开发，采用 MIT 许可证。
