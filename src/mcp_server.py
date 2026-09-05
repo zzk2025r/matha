@@ -52,17 +52,13 @@ def _safe_compile(source: str, output: Optional[str] = None) -> str:
 
 def _safe_diagnose(source: str) -> list[dict]:
     """诊断 Matha 源码。"""
+    from src.diagnostics import DiagnosticCollector
+    collector = DiagnosticCollector()
     try:
-        from src.diagnostics import EnhancedDiagnosticCollector
-        collector = EnhancedDiagnosticCollector()
-        collector.analyze(source)
-        return [d.to_lsp() for d in collector.diagnostics]
+        results = collector.analyze(source)
+        return results if results else [{"message": "无诊断问题", "severity": "hint"}]
     except Exception as e:
-        from src.diagnostics import DiagnosticCollector
-        collector = DiagnosticCollector()
-        collector.clear()
-        collector.add_error(f"诊断系统错误: {e}")
-        return [d.to_lsp() for d in collector._diagnostics]
+        return [{"message": f"诊断错误: {e}", "severity": "error"}]
 
 
 def _safe_parse(text: str) -> dict:
