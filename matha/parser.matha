@@ -71,8 +71,9 @@ module 语法器 {
   func 匹配(p: 解析器, t: 类型) -> Bool = (p, t) =>
     当前(p).类型 = t
 
-  func 期望(p: 解析器, t: 类型) -> Token = (p, t) =>
-    if 匹配(p, t) then (p = 推进(p); 当前(p))
+  (* 期望当前 token 类型为 t：匹配则推进并返回【新解析器状态】，否则报错 *)
+  func 期望(p: 解析器, t: 类型) -> 解析器 = (p, t) =>
+    if 匹配(p, t) then 推进(p)
     else 错误("期望 " + 类型名(t))
 
   (* ===== 关键字匹配辅助函数 ===== *)
@@ -112,10 +113,10 @@ module 语法器 {
     t = 类型.结束 ? "EOF" :
     "未知"
 
-  func 错误(msg: String) -> Dict = (msg) =>
-    {"类型": "错误", "消息": msg}
+  (* 错误：直接使用宿主/VM 提供的抛出式「错误」内建（msg -> 抛出异常），
+     不在此重定义为 dict 构造子，否则错误值会沿状态线程传播而非中止解析。 *)
 
-  (* ===== 优先级解析器（表达式解析核心）===== *)
+  (* ===== 优先级解析器（递归下降）===== *)
 
   (* 解析表达式（递归下降 + 算符优先级）=====
      表达式层次（由低到高）：
@@ -251,8 +252,22 @@ module 语法器 {
       let p2 = 推进(p) in
       (* 试探 lambda：(params) => body *)
       解析括号消解(p2)
+    else if 匹配(p, 类型.关键字) and 当前(p).文本 = "if" then
+      解析if表达式(p)
     else
       (错误("期望表达式，实际 " + 类型名(当前(p).类型)), p)
+
+  (* if 表达式：if cond then e1 else e2（纯表达式形态，无大括号）*)
+  func 解析if表达式(p: 解析器) -> (Dict, 解析器) = (p) =>
+    let p2 = 推进(p) in  (* 消费 if *)
+    let (cond, p3) = 解析表达式(p2) in
+    let p4 = if 匹配(p3, 类型.关键字) and 当前(p3).文本 = "then" then 推进(p3)
+             else 错误("期望 then") in
+    let (then_e, p5) = 解析表达式(p4) in
+    let p6 = if 匹配(p5, 类型.关键字) and 当前(p5).文本 = "else" then 推进(p5)
+             else 错误("期望 else") in
+    let (else_e, p7) = 解析表达式(p6) in
+    (做If(cond, then_e, else_e), p7)
 
   (* 括号内消解：lambda 或普通分组 *)
   func 解析括号消解(p: 解析器) -> (Dict, 解析器) = (p) =>
@@ -276,13 +291,17 @@ module 语法器 {
   func 解析_lambda_or_group(p: 解析器) -> (Dict, 解析器) = (p) =>
     let saved = p in
     let (param, p2) = 解析_lambda_param(p) in
-    let (params, p3) = 解析_lambda_params_rest([], param, p2) in
-    let p4 = 期望(p3, 类型.右括号) in
-    if 匹配(p4, 类型.胖箭头) then
-      let p5 = 推进(p4) in
-      let (body, p6) = 解析表达式(p5) in
-      (做Lambda(params, body), p6)
-    else (做Variable(param.名), saved)
+    (* 前瞻：若参数后既不是 ) 也不是 , 则不是 lambda，回退为分组表达式 *)
+    if not 匹配(p2, 类型.右括号) and not 匹配(p2, 类型.逗号) then
+      解析表达式(saved)
+    else
+      let (params, p3) = 解析_lambda_params_rest([], param, p2) in
+      let p4 = 期望(p3, 类型.右括号) in
+      if 匹配(p4, 类型.胖箭头) then
+        let p5 = 推进(p4) in
+        let (body, p6) = 解析表达式(p5) in
+        (做Lambda(params, body), p6)
+      else (做Variable(param.名), saved)
 
   func 解析_lambda_param(p: 解析器) -> (Dict, 解析器) = (p) =>
     let tok = 当前(p) in
@@ -293,7 +312,7 @@ module 语法器 {
     if 匹配(p, 类型.逗号) then
       let p2 = 推进(p) in
       let (param2, p3) = 解析_lambda_param(p2) in
-      解析_lambda_params_rest(acc + [param] + param2, param2, p3)
+      解析_lambda_params_rest(acc + [param, param2], param2, p3)
     else (acc + [param], p)
 
   (* 整数值/浮点值转换 ===== *)
@@ -349,7 +368,7 @@ module 语法器 {
     if idx < 0 then reverse(acc + [s])
     else
       let before = 子串(s, 0, idx) in
-      let after = 子串(s, idx + len(sep)) in
+      let after = substr(s, idx + len(sep)) in
       分割_helper(after, sep, acc + [before])
 
   func 查找(s: String, sub: String) -> Int = (s, sub) =>
@@ -386,7 +405,7 @@ module 语法器 {
     reverse_helper(lst, [])
 
   func reverse_helper(lst: List, acc: List) -> List = (lst, acc) =>
-    lst = [] ? acc : reverse_helper(lst[1:], acc + lst[0])
+    lst = [] ? acc : reverse_helper(lst[1:], acc + [lst[0]])
 
   (* ===== 解析顶层声明 ===== *)
 
@@ -433,7 +452,8 @@ module 语法器 {
     let p8 = 推进(p7) in
     let p9 = 期望(p8, 类型.等于) in  (* = *)
     let p10 = 期望(p9, 类型.左括号) in  (* (params) => *)
-    let (lam_params, p11) = 解析_lambda_params_rest([], 解析_lambda_param(p10), p10) in
+    let (lparam, p10b) = 解析_lambda_param(p10) in
+    let (lam_params, p11) = 解析_lambda_params_rest([], lparam, p10b) in
     let p12 = 期望(p11, 类型.右括号) in
     let p13 = 期望(p12, 类型.胖箭头) in  (* => *)
     let (body, p14) = 解析表达式(p13) in
@@ -454,9 +474,13 @@ module 语法器 {
       ([param] + rest, p4)
     else ([], p)
 
+  (* 解析函数定义中的参数：name（必选）后跟「: 类型」标注（可选）。
+     消费参数名，若存在冒号则额外跳过类型 token，返回 (参数名, 新状态)。 *)
   func 解析参数(p: 解析器) -> (String, 解析器) = (p) =>
     let tok = 当前(p) in
-    (tok.文本, 推进(p))
+    let p2 = 推进(p) in
+    let p3 = if 匹配(p2, 类型.冒号) then 推进(推进(p2)) else p2 in
+    (tok.文本, p3)
 
   (* let 绑定：let name = expr *)
   func 解析let绑定(p: 解析器) -> (Dict, 解析器) = (p) =>

@@ -277,6 +277,48 @@ class UnifiedGrowth:
             return self._inner_loop.run(task, max_rounds)
         return {"success": False, "error": "inner_loop 不可用"}
 
+    # ── 语言吞噬（语言桥） ────────────────────────────────────────────────
+
+    def devour(self, lang: str, source: str, module_name: str) -> dict:
+        """吞噬外部语言源码 → 转化为 Matha 模块 → 融合（验证+写文件）。"""
+        from src.matha.language_bridge import LanguageBridge
+        if getattr(self, "_bridge", None) is None:
+            self._bridge = LanguageBridge()
+        record = self._bridge.devour(lang, source, module_name)
+        fused = self._bridge.fuse(record) if record.success else False
+        return {
+            "success": record.success and fused,
+            "summary": record.summary(),
+            "verified": record.verified,
+            "written": record.written,
+            "functions": [
+                {"name": f.name, "generated": f.generated, "body": f.body}
+                for f in record.functions
+            ],
+            "steps": record.steps,
+            "error": record.error,
+        }
+
+    def devour_file(self, path: str, module_name: str = None) -> dict:
+        """吞噬外部语言源文件（按扩展名识别语言）。"""
+        from src.matha.language_bridge import LanguageBridge
+        if getattr(self, "_bridge", None) is None:
+            self._bridge = LanguageBridge()
+        record = self._bridge.devour_file(path, module_name)
+        fused = self._bridge.fuse(record) if record.success else False
+        return {
+            "success": record.success and fused,
+            "summary": record.summary(),
+            "verified": record.verified,
+            "written": record.written,
+            "functions": [
+                {"name": f.name, "generated": f.generated, "body": f.body}
+                for f in record.functions
+            ],
+            "steps": record.steps,
+            "error": record.error,
+        }
+
     # ── 原始扩展注册 ───────────────────────────────────────────────────────
 
     def register_extension(self, name: str, func) -> bool:

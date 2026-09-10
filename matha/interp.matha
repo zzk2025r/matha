@@ -103,14 +103,14 @@ module 解释器 {
       let new_env = 绑定环境(captured, params[0], arg) in
       let result = 求值(body, new_env) in
       (* 柯里化：若还有多余参数，返回部分应用闭包 *)
-      if len(params) > 1 then
+      if 标准库.len(params) > 1 then
         let remaining_params = params[1:] in
         ("__closure__", remaining_params, body, new_env)
       else result
     else if f[0] = "builtin" then
       f[1](arg)
     else
-      错误("不可调用的值: " + str(f))
+      错误("不可调用的值: " + 标准库.str(f))
 
   (* ===== 语句执行 ===== *)
 
@@ -203,27 +203,27 @@ module 解释器 {
     env21
 
   (* 内建函数实现 ===== *)
-  func func_ord(c) -> Int = (c) => ord(str(c))
-  func func_chr(n) -> String = (n) => chr(int(n))
-  func func_len(seq) -> Int = (seq) => len(list(seq))
+  func func_ord(c) -> Int = (c) => 标准库.ord_matha(c)
+  func func_chr(n) -> String = (n) => 标准库.chr_matha(n)
+  func func_len(seq) -> Int = (seq) => 标准库.len(seq)
   func func_get(seq) -> Value = (seq) =>
-    (idx) => list(seq)[int(idx)]
+    (idx) => 标准库.list_get(seq, 标准库.int(idx))
   func func_slice(seq) -> Value = (seq) =>
-    (start) => (end) => list(seq)[int(start):int(end)]
+    (start) => (end) => 标准库.list_slice(seq, 标准库.int(start), 标准库.int(end))
   func func_append(lst) -> Value = (lst) =>
-    (elem) => list(lst) + [elem]
-  func func_list(args) -> List = (args) => list(args)
-  func func_sin(x) -> Float = (x) => math.sin(float(x))
-  func func_cos(x) -> Float = (x) => math.cos(float(x))
-  func func_tan(x) -> Float = (x) => math.tan(float(x))
-  func func_sqrt(x) -> Float = (x) => math.sqrt(float(x))
-  func func_abs(x) -> Float = (x) => abs(float(x))
-  func func_floor(x) -> Int = (x) => math.floor(float(x))
-  func func_ceil(x) -> Int = (x) => math.ceil(float(x))
-  func func_round(x) -> Int = (x) => math.round(float(x))
-  func func_max(lst) -> Value = (lst) => max(list(lst))
-  func func_min(lst) -> Value = (lst) => min(list(lst))
-  func func_sum(lst) -> Float = (lst) => sum(list(lst))
+    (elem) => 标准库.list_append(lst, elem)
+  func func_list(args) -> List = (args) => args
+  func func_sin(x) -> Float = (x) => 运行时引擎.sin(x)
+  func func_cos(x) -> Float = (x) => 运行时引擎.cos(x)
+  func func_tan(x) -> Float = (x) => 运行时引擎.tan(x)
+  func func_sqrt(x) -> Float = (x) => 运行时引擎.sqrt(x)
+  func func_abs(x) -> Float = (x) => 运行时引擎.abs(x)
+  func func_floor(x) -> Int = (x) => 运行时引擎.floor(x)
+  func func_ceil(x) -> Int = (x) => 运行时引擎.ceil(x)
+  func func_round(x) -> Int = (x) => 运行时引擎.round(x)
+  func func_max(lst) -> Value = (lst) => 标准库.list_max(lst)
+  func func_min(lst) -> Value = (lst) => 标准库.list_min(lst)
+  func func_sum(lst) -> Float = (lst) => 标准库.list_sum(lst)
 
   (* ===== 顶层入口 ===== *)
 

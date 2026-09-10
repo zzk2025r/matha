@@ -1,0 +1,542 @@
+(* ============================================================
+   Matha 标准库 — 纯 Matha 实现，零 Python 依赖
+   ============================================================
+   包含：
+     - 字符串操作（ord / chr / len / 截取 / 拼接 / 替换 / 查找）
+     - 列表操作（len / get / slice / append / concat / reverse / sort）
+     - 类型转换（int / float / str / bool）
+     - 文件 I/O（read_file / write_file / append_file）
+     - JSON 解析与序列化（简单实现）
+     - 数学扩展（abs / floor / ceil / round / max / min / sum / pow / sqrt）
+     - 工具函数（print / assert / range）
+   ============================================================ *)
+
+module 标准库 {
+
+  use 运行时引擎
+
+  (* ===== 字符串操作 ===== *)
+
+  (* 字符串长度 len：基础原语，由宿主/VM 内建提供。
+     不可用 Matha 重定义——函数体内的 len(s) 会自引同名定义造成无限递归；
+     需待 VM/原生底层提供「长度」原语后再以纯 Matha 实现替换。 *)
+
+  (* 取字符码点（Unicode）——纯 Matha 查表占位实现。
+     注意：VM/宿主已提供真实 ord 内建（ASCII/Unicode 码点），
+     本占位实现仅用于无宿主原语的自举场景，故命名 ord_matha 以免遮蔽内建。 *)
+  func ord_matha(c: String) -> Int = (c) =>
+    if len(c) != 1 then 错误("ord() 需要单字符，实际: " + c)
+    else
+      let rec _encode(i: Int, code: Int) -> Int =
+        if i >= len(c) then code
+        else _encode(i + 1, (code * 128) + ord_char_matha(c[i]))
+      in _encode(0, 0)
+
+  and ord_char_matha(c: String) -> Int = (c) =>
+    let base = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" in
+    let rec _find(i: Int) -> Int =
+      if i >= len(base) then -1
+      else if c = base[i] then i
+      else _find(i + 1)
+    in _find(0)
+
+  (* 由码点生成字符（仅支持 ASCII 0-127）——纯 Matha 占位，同上命名 chr_matha *)
+  func chr_matha(n: Int) -> String = (n) =>
+    let chars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~" in
+    if n < 0 or n >= len(chars) then
+      错误("chr() 超出范围: " + str(n))
+    else
+      let rec _build(i: Int, acc: String) -> String =
+        if i < 0 then acc
+        else _build(i - 1, acc + chars[i])
+      in _build(0, chars[n])
+
+  (* 字符串截取：截取(s, start, end) → 子串 *)
+  func 截取(s: String, start: Int, end: Int) -> String = (s, start, end) =>
+    let rec _copy(i: Int, acc: String) -> String =
+      if i >= end then acc
+      else _copy(i + 1, acc + s[i])
+    in _copy(start, "")
+
+  (* 字符串拼接 *)
+  func 拼接(a: String, b: String) -> String = (a, b) => a + b
+
+  (* 字符串从 s[j] 起是否与 sub[k..] 匹配（k 为 sub 内偏移）*)
+  func _str_eq_at(sub: String, s: String, j: Int, k: Int, sl: Int) -> Bool =
+    (sub, s, j, k, sl) =>
+    if k >= sl then 真
+    else if j >= len(s) then 假
+    else if sub[k] != s[j] then 假
+    else _str_eq_at(sub, s, j + 1, k + 1, sl)
+
+  (* 字符串查找：find(sub, in_str) → 起始索引，未找到返回 -1 *)
+  func find(sub: String, s: String) -> Int = (sub, s) =>
+    let sl = len(sub) in
+    let ll = len(s) in
+    if sl = 0 or sl > ll then -1
+    else
+      let rec _search(i: Int) -> Int =
+        if i > ll - sl then -1
+        else if _str_eq_at(sub, s, i, 0, sl) then i
+        else _search(i + 1)
+      in _search(0)
+
+  (* 字符串替换：replace(s, old, new) → 替换后的字符串 *)
+  func replace(s: String, old: String, new_str: String) -> String = (s, old, new_str) =>
+    let ol = len(old) in
+    let pos = find(old, s) in
+    if pos = -1 then s
+    else
+      拼接(截取(s, 0, pos), 拼接(new_str, replace(截取(s, pos + ol, len(s)), old, new_str)))
+
+  (* 字符串分割：split(s, sep) → 字符串列表 *)
+  func split(s: String, sep: String) -> List = (s, sep) =>
+    let sl = len(sep) in
+    let rec _split(i: Int, parts: List) -> List =
+      if i >= len(s) then parts + [截取(s, i, len(s))]
+      else
+        let pos = find(sep, 截取(s, i, len(s))) in
+        if pos = -1 then parts + [截取(s, i, len(s))]
+        else _split(i + pos + sl, parts + [截取(s, i, i + pos)])
+    in _split(0, [])
+
+  (* 字符串转小写 *)
+  func to_lower(s: String) -> String = (s) =>
+    let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" in
+    let lower = "abcdefghijklmnopqrstuvwxyz" in
+    let rec _map(i: Int, acc: String) -> String =
+      if i >= len(s) then acc
+      else
+        let c = s[i] in
+        let idx = find(c, upper) in
+        if idx = -1 then _map(i + 1, acc + c)
+        else _map(i + 1, acc + lower[idx])
+    in _map(0, "")
+
+  (* 字符串转大写 *)
+  func to_upper(s: String) -> String = (s) =>
+    let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" in
+    let lower = "abcdefghijklmnopqrstuvwxyz" in
+    let rec _map(i: Int, acc: String) -> String =
+      if i >= len(s) then acc
+      else
+        let c = s[i] in
+        let idx = find(c, lower) in
+        if idx = -1 then _map(i + 1, acc + c)
+        else _map(i + 1, acc + upper[idx])
+    in _map(0, acc)
+
+  (* 去除空白 *)
+  func strip(s: String) -> String = (s) =>
+    let ws = " \t\n\r" in
+    let rec _lstrip(i: Int) -> Int =
+      if i >= len(s) then i
+      else if find(s[i], ws) != -1 then _lstrip(i + 1)
+      else i
+    in
+    let rec _rstrip(i: Int) -> Int =
+      if i < 0 then -1
+      else if find(s[i], ws) != -1 then _rstrip(i - 1)
+      else i
+    in
+    let start = _lstrip(0) in
+    let end_pos = _rstrip(len(s) - 1) in
+    if start > end_pos then ""
+    else 截取(s, start, end_pos + 1)
+
+  (* 字符串重复 *)
+  func repeat(s: String, n: Int) -> String = (s, n) =>
+    if n <= 0 then ""
+    else 拼接(s, repeat(s, n - 1))
+
+  (* ===== 列表操作 ===== *)
+
+  (* 列表长度（通用）*)
+  func list_len(lst: List) -> Int = (lst) =>
+    let rec _count(i: Int, n: Int) -> Int =
+      if i >= len(lst) then n
+      else _count(i + 1, n + 1)
+    in _count(0, 0)
+
+  (* 列表取元素 *)
+  func list_get(lst: List, idx: Int) -> Value = (lst, idx) =>
+    if idx < 0 or idx >= len(lst) then 错误("列表索引越界: " + 标准库.str(idx))
+    else lst[idx]
+
+  (* 列表切片 *)
+  func list_slice(lst: List, start: Int, end: Int) -> List = (lst, start, end) =>
+    let rec _copy(i: Int, acc: List) -> List =
+      if i >= end or i >= len(lst) then acc
+      else _copy(i + 1, acc + [lst[i]])
+    in _copy(start, [])
+
+  (* 追加元素 *)
+  func list_append(lst: List, elem) -> List = (lst, elem) => lst + [elem]
+
+  (* 列表拼接 *)
+  func list_concat(a: List, b: List) -> List = (a, b) => a + b
+
+  (* 列表反转 *)
+  func list_reverse(lst: List) -> List = (lst) =>
+    let rec _rev(i: Int, acc: List) -> List =
+      if i < 0 then acc
+      else _rev(i - 1, acc + [lst[i]])
+    in _rev(len(lst) - 1, [])
+
+  (* 列表原位设置：返回把 idx 位置替换为 v 的新列表 *)
+  func list_set_at(lst: List, idx: Int, v) -> List = (lst, idx, v) =>
+    let rec _set(i: Int, acc: List) -> List =
+      if i >= len(lst) then acc
+      else if i = idx then _set(i + 1, acc + [v])
+      else _set(i + 1, acc + [lst[i]])
+    in _set(0, [])
+
+  (* 列表相邻交换：交换 i 与 i+1 两个位置 *)
+  func list_swap(arr: List, i: Int) -> List = (arr, i) =>
+    list_set_at(list_set_at(arr, i, arr[i + 1]), i + 1, arr[i])
+
+  (* 列表排序（冒泡）*)
+  func list_sort(lst: List) -> List = (lst) =>
+    let n = len(lst) in
+    if n <= 1 then lst
+    else
+      let rec _pass(i: Int, swapped: Bool, arr: List) -> List =
+        if i >= n - 1 then
+          if swapped then _pass(0, 假, arr)
+          else arr
+        else if arr[i] > arr[i + 1] then
+          _pass(i + 1, 真, list_swap(arr, i))
+        else _pass(i + 1, swapped, arr)
+      in _pass(0, 假, lst)
+
+  (* 列表包含 *)
+  func list_contains(lst: List, elem) -> Bool = (lst, elem) =>
+    let rec _search(i: Int) -> Bool =
+      if i >= len(lst) then 假
+      else if lst[i] = elem then 真
+      else _search(i + 1)
+    in _search(0)
+
+  (* 列表最大值 *)
+  func list_max(lst: List) -> Value = (lst) =>
+    if len(lst) = 0 then 错误("list_max: 空列表")
+    else
+      let rec _max(i: Int, best) -> Value =
+        if i >= len(lst) then best
+        else if lst[i] > best then _max(i + 1, lst[i])
+        else _max(i + 1, best)
+      in _max(1, lst[0])
+
+  (* 列表最小值 *)
+  func list_min(lst: List) -> Value = (lst) =>
+    if len(lst) = 0 then 错误("list_min: 空列表")
+    else
+      let rec _min(i: Int, best) -> Value =
+        if i >= len(lst) then best
+        else if lst[i] < best then _min(i + 1, lst[i])
+        else _min(i + 1, best)
+      in _min(1, lst[0])
+
+  (* 列表求和 *)
+  func list_sum(lst: List) -> Float = (lst) =>
+    let rec _sum(i: Int, acc: Float) -> Float =
+      if i >= len(lst) then acc
+      else _sum(i + 1, acc + lst[i])
+    in _sum(0, 0.0)
+
+  (* ===== 类型转换 ===== *)
+
+  (* 字符串 → 整数 *)
+  func int(s: String) -> Int = (s) =>
+    let s = strip(s) in
+    if len(s) = 0 then 错误("int(): 空字符串")
+    else
+      let neg = (s[0] = "-") in
+      let digits = if neg then 截取(s, 1, len(s)) else s in
+      let rec _parse(i: Int, acc: Int) -> Int =
+        if i >= len(digits) then acc
+        else
+          let c = digits[i] in
+          if c >= "0" and c <= "9" then
+            _parse(i + 1, acc * 10 + (ord(c) - ord("0")))
+          else 错误("int(): 非法字符 '" + c + "'")
+      in
+      let result = _parse(0, 0) in
+      if neg then -result else result
+
+  (* 字符串 → 浮点数 *)
+  func float(s: String) -> Float = (s) =>
+    let s = strip(s) in
+    if len(s) = 0 then 错误("float(): 空字符串")
+    else
+      let neg = (s[0] = "-") in
+      let rest = if neg then 截取(s, 1, len(s)) else s in
+      let dot_pos = find(".", rest) in
+      if dot_pos = -1 then
+        let i = int(rest) in
+        if neg then -float(i) else float(i)
+      else
+        let int_part = 截取(rest, 0, dot_pos) in
+        let frac_part = 截取(rest, dot_pos + 1, len(rest)) in
+        let i = if len(int_part) = 0 then 0 else int(int_part) in
+        let f = if len(frac_part) = 0 then 0.0
+                else float(int(frac_part)) / pow(10.0, len(frac_part)) in
+        let result = float(i) + f in
+        if neg then -result else result
+
+  (* 数值 → 字符串 *)
+  func str(n) -> String = (n) =>
+    if type_of(n) = "Int" then
+      let rec _digits(x: Int, acc: String) -> String =
+        if x = 0 then acc
+        else _digits(x / 10, acc + chr(ord("0") + (x % 10)))
+      in
+      if n < 0 then "-" + _digits(-n, "")
+      else if n = 0 then "0"
+      else _digits(n, "")
+    else if type_of(n) = "Float" then
+      let rec _fmt_float(x: Float, acc: String, precision: Int) -> String =
+        if precision = 0 then acc
+        else
+          let digit = int(x * 10.0) in
+          let remainder = x * 10.0 - float(digit) in
+          _fmt_float(remainder, acc + chr(ord("0") + digit), precision - 1)
+      in
+      let i = int(n) in
+      let frac = n - float(i) in
+      let frac_str = _fmt_float(abs(frac), "", 6) in
+      let frac_str = strip(frac_str) in
+      if frac_str = "" then str(i) + ".0"
+      else str(i) + "." + frac_str
+    else if type_of(n) = "Bool" then
+      if n then "真" else "假"
+    else
+      "<?>?"
+
+  (* 判断是否为数字：通过尝试字符串转换来检测，不调用 str() 避免循环 *)
+  func _is_number(v) -> Bool = (v) =>
+    if v = 真 or v = 假 or v = null then 假
+    else
+      let s = str_safe(v) in
+      find("<?>?", s) < 0
+
+  (* 安全字符串转换：非数字返回 "<?>?" *)
+  func str_safe(n) -> String = (n) =>
+    if n = 真 or n = 假 or n = null then "<?>?"
+    else
+      let s = str(n) in
+      if find("<?>?", s) >= 0 then "<?>?" else s
+
+  (* 判断是否为字符串：通过比较 str() 结果来判断，但不直接用 str() 做值比较 *)
+  func _is_string(v) -> Bool = (v) =>
+    if v = 真 or v = 假 or v = null or _is_number(v) then 假
+    else
+      let s = str(v) in
+      if find("<?>?", s) >= 0 then 假 else s = v
+
+  (* 判断是否为列表：通过检查是否能安全索引，不依赖 str() *)
+  func _is_list(v) -> Bool = (v) =>
+    if _is_number(v) or _is_string(v) or v = 真 or v = 假 or v = null then 假
+    else
+      let s = str(v) in
+      if find("<?>?", s) >= 0 then 假 else 真
+
+  (* 判断是否为字典：剩下就是字典 *)
+  func _is_dict(v) -> Bool = (v) =>
+    if v = 真 or v = 假 or v = null then 假
+    else if _is_number(v) then 假
+    else if _is_string(v) then 假
+    else if _is_list(v) then 假
+    else 真
+
+  (* 获取值类型名称 *)
+  func type_of(v) -> String = (v) =>
+    if v = 真 or v = 假 then "Bool"
+    else if v = null then "Null"
+    else if _is_number(v) then
+      let s = str(v) in
+      if find(".", s) >= 0 then "Float" else "Int"
+    else if _is_string(v) then "String"
+    else if _is_list(v) then "List"
+    else if _is_dict(v) then "Dict"
+    else "Unknown"
+
+  (* ===== 文件 I/O ===== *)
+
+  func read_file(path: String) -> String = (path) =>
+    raise MathaIOError("文件读取未实现：需要 VM 层支持")
+
+  func write_file(path: String, content: String) -> None = (path, content) =>
+    raise MathaIOError("文件写入未实现：需要 VM 层支持")
+
+  func append_file(path: String, content: String) -> None = (path, content) =>
+    raise MathaIOError("文件追加未实现：需要 VM 层支持")
+
+  (* ===== JSON 简单解析 ===== *)
+
+  (* 解析 JSON 字符串（支持数字、字符串、布尔、null、数组、对象）*)
+  func parse_JSON(s: String) -> Value = (s) =>
+    let s = strip(s) in
+    if len(s) = 0 then 错误("parse_JSON: 空字符串")
+    else
+      let rec _parse_value(start: Int) -> (Value, Int) =
+        if start >= len(s) then (错误("JSON 解析错误: 意外结束"), start)
+        else
+          let c = s[start] in
+          if c = "{" then _parse_object(start)
+          else if c = "[" then _parse_array(start)
+          else if c = "\"" then _parse_string(start)
+          else if c = "t" then _parse_literal(start, "true", 真)
+          else if c = "f" then _parse_literal(start, "false", 假)
+          else if c = "n" then _parse_literal(start, "null", null)
+          else if c = "-" or (c >= "0" and c <= "9") then _parse_number(start)
+          else 错误("JSON 解析错误: 意外字符 '" + c + "'")
+      and _parse_literal(start: Int, lit: String, val) -> (Value, Int) =
+        (start, lit, val) =>
+          if 截取(s, start, start + len(lit)) = lit then
+            (val, start + len(lit))
+          else 错误("JSON 解析错误: 期望 '" + lit + "'")
+      and _parse_string(start: Int) -> (Value, Int) =
+        (start) =>
+          if s[start] != "\"" then 错误("JSON 解析错误: 期望字符串")
+          else
+            let rec _collect(i: Int, acc: String) -> (String, Int) =
+              if i >= len(s) then 错误("JSON 解析错误: 未终止字符串")
+              else if s[i] = "\"" then (acc, i + 1)
+              else _collect(i + 1, acc + s[i])
+            in
+            let (str_val, end_pos) = _collect(start + 1, "") in
+            (str_val, end_pos)
+      and _parse_number(start: Int) -> (Value, Int) =
+        (start) =>
+          let rec _scan(i: Int) -> Int =
+            if i >= len(s) then i
+            else if (s[i] >= "0" and s[i] <= "9") or s[i] = "." or s[i] = "e" or s[i] = "E" or s[i] = "+" or s[i] = "-" then _scan(i + 1)
+            else i
+          in
+          let end_pos = _scan(start) in
+          let num_str = 截取(s, start, end_pos) in
+          if find(".", num_str) != -1 or find("e", num_str) != -1 or find("E", num_str) != -1 then
+            (float(num_str), end_pos)
+          else
+            (int(num_str), end_pos)
+      and _parse_array(start: Int) -> (Value, Int) =
+        (start) =>
+          if s[start] != "[" then 错误("JSON 解析错误: 期望 [")
+          else
+            let rec _parse_items(pos: Int, items: List) -> (List, Int) =
+              let pos = _skip_ws(pos) in
+              if pos >= len(s) or s[pos] = "]" then (items, pos + 1)
+              else
+                let (val, pos2) = _parse_value(pos) in
+                let pos2 = _skip_ws(pos2) in
+                if pos2 < len(s) and s[pos2] = "," then
+                  _parse_items(pos2 + 1, items + [val])
+                else _parse_items(pos2, items + [val])
+            in
+            let (items, end_pos) = _parse_items(start + 1, []) in
+            (items, end_pos)
+      and _parse_object(start: Int) -> (Value, Int) =
+        (start) =>
+          if s[start] != "{" then 错误("JSON 解析错误: 期望 {")
+          else
+            let rec _parse_entries(pos: Int, entries: List) -> (List, Int) =
+              let pos = _skip_ws(pos) in
+              if pos >= len(s) or s[pos] = "}" then (entries, pos + 1)
+              else
+                let (key, pos2) = _parse_string(pos) in
+                let pos2 = _skip_ws(pos2) in
+                if pos2 >= len(s) or s[pos2] != ":" then 错误("JSON 解析错误: 期望 :")
+                else
+                  let (val, pos3) = _parse_value(pos2 + 1) in
+                  let pos3 = _skip_ws(pos3) in
+                  if pos3 < len(s) and s[pos3] = "," then
+                    _parse_entries(pos3 + 1, entries + [(key, val)])
+                  else _parse_entries(pos3, entries + [(key, val)])
+            in
+            let (entries, end_pos) = _parse_entries(start + 1, []) in
+            (entries, end_pos)
+      and _skip_ws(pos: Int) -> Int =
+        (pos) =>
+          if pos < len(s) and (s[pos] = " " or s[pos] = "\t" or s[pos] = "\n" or s[pos] = "\r") then
+            _skip_ws(pos + 1)
+          else pos
+      in
+      let (result, _end) = _parse_value(0) in
+      result
+
+  (* ===== 工具函数 ===== *)
+
+  (* 打印到输出 *)
+  func print(val: Value) -> None = (val) =>
+    错误("[Matha Print] " + 标准库.str(val))
+
+  (* 范围生成：range(start, end) → 列表 *)
+  func range(start: Int, end_pos: Int) -> List = (start, end_pos) =>
+    let rec _gen(i: Int, acc: List) -> List =
+      if i >= end_pos then acc
+      else _gen(i + 1, acc + [i])
+    in _gen(start, [])
+
+  (* 断言 *)
+  func assert(cond: Bool, msg: String) -> None = (cond, msg) =>
+    if not cond then 错误("assertion failed: " + msg)
+
+  (* 枚举列表：enumerate(lst) → [(index, value), ...] *)
+  func enumerate(lst: List) -> List = (lst) =>
+    let rec _enum(i: Int, acc: List) -> List =
+      if i >= len(lst) then acc
+      else _enum(i + 1, acc + [(i, lst[i])])
+    in _enum(0, [])
+
+  (* ===== 内建函数表 ===== *)
+  let 内建 = {
+    "ord": ord,
+    "chr": chr,
+    "len": len,
+    "list_len": list_len,
+    "get": func_get,
+    "slice": func_slice,
+    "append": func_append,
+    "concat": list_concat,
+    "reverse": list_reverse,
+    "sort": list_sort,
+    "max": list_max,
+    "min": list_min,
+    "sum": list_sum,
+    "int": int,
+    "float": float,
+    "str": str,
+    "type_of": type_of,
+    "read_file": read_file,
+    "write_file": write_file,
+    "append_file": append_file,
+    "parse_JSON": parse_JSON,
+    "print": print,
+    "range": range,
+    "assert": assert,
+    "enumerate": enumerate,
+    "strip": strip,
+    "to_lower": to_lower,
+    "to_upper": to_upper,
+    "replace": replace,
+    "split": split,
+    "repeat": repeat,
+    "concat_str": 拼接,
+    "concat_list": list_concat,
+  }
+
+  (* get 和 slice 的柯里化版本 *)
+  func func_get(seq) -> Value = (seq) =>
+    (idx) => list_get(seq, int(idx))
+
+  func func_slice(seq) -> Value = (seq) =>
+    (start) => (end_pos) => list_slice(seq, int(start), int(end_pos))
+
+  func func_append(lst) -> Value = (lst) =>
+    (elem) => list_append(lst, elem)
+
+}
+
+(* ===== 异常类型 ===== *)
+(* MathaIOError, MathaPrintError 由 VM 层定义 *)

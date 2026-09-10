@@ -1,0 +1,110 @@
+(* ============================================================
+   Matha 自举加载器 — 纯 Matha 实现，支持运行时模块加载
+   ============================================================
+   功能：
+     1. 通过 加载模块(模块名) 从 .matha 源文件加载模块
+     2. 加载词法器(lexer.matha)、语法器(parser.matha)、标准库(stdlib.matha)
+     3. 使用词法器+语法器解析用户程序
+     4. 使用自举解释器执行
+     5. 输出结果
+
+   调用入口：bootstrap_run(source) -> List
+   ============================================================ *)
+
+module 自举加载器 {
+
+  use 词法器
+  use 语法器
+  use 标准库
+  use 运行时引擎
+  use 解释器
+
+  (* ===== 运行时错误 ===== *)
+  func VM错误(msg: String) -> Value = (msg) =>
+    raise MathaRuntimeError(msg)
+
+  (* ===== 加载并解析 Matha 模块（从文件系统）===== *)
+  (* 通过 加载模块_文件 内建函数实现，避免与同名 Matha 函数冲突 *)
+  func 加载模块(模块名: String) -> Bool = (模块名) =>
+    加载模块_文件(模块名)
+
+  (* ===== 加载核心模块列表 ===== *)
+  func 加载核心模块() -> List = () =>
+    let r1 = 加载模块("词法器") in
+    let r2 = 加载模块("语法器") in
+    let r3 = 加载模块("标准库") in
+    let r4 = 加载模块("运行时引擎") in
+    let r5 = 加载模块("解释器") in
+    let r6 = 加载模块("自举加载器") in
+    [1]
+
+  (* ===== 主执行入口 ===== *)
+  func bootstrap_run(source: String) -> List = (source) =>
+    (* 1. 加载核心模块（若未加载）===== *)
+    let _r = 加载核心模块() in
+
+    (* 2. 词法分析 *)
+    let toks = 词法器.扫描(source) in
+
+    (* 3. 语法分析 *)
+    let ast = 语法器.parse(toks) in
+
+    (* 4. 注册内建函数 *)
+    let env = 解释器.注册内建(解释器.空环境()) in
+
+    (* 5. 执行程序 *)
+    let (result, env2) = 解释器.执行语句(ast, env) in
+
+    (* 6. 返回结果 *)
+    [result]
+
+  (* ===== 表达式求值入口 ===== *)
+  func bootstrap_eval(expr_src: String) -> Value = (expr_src) =>
+    let _r = 加载核心模块() in
+    let toks = 词法器.扫描(expr_src) in
+    let ast = 语法器.parse(toks) in
+    let env = 解释器.注册内建(解释器.空环境()) in
+    解释器.求值(ast, env)
+
+  (* ===== 工具函数：连接词法器和解释器 ===== *)
+  func token_stream(source: String) -> List = (source) =>
+    词法器.扫描(source)
+
+  func parse_tokens(tokens: List) -> Dict = (tokens) =>
+    语法器.parse(tokens)
+
+  func eval_ast(ast: Dict) -> Value = (ast) =>
+    let env = 解释器.注册内建(解释器.空环境()) in
+    解释器.求值(ast, env)
+
+  func run_ast(ast: Dict) -> (Value, List) = (ast) =>
+    let env = 解释器.注册内建(解释器.空环境()) in
+    解释器.执行语句(ast, env)
+
+  (* ===== 测试：模块加载 ===== *)
+  func 测试模块加载() -> List = () =>
+    let before = 标准库.len(标准库.range(0, 0)) in
+    let loaded = 加载模块("词法器") in
+    toks = 词法器.扫描("42 + 1") in
+    [标准库.len(toks)]
+
+}
+
+(* ===== 自测 ===== *)
+#：{
+  (* 测试：tokenize *)
+  toks = 自举加载器.token_stream("3 + 5")
+  [标准库.len(toks)]
+
+  (* 测试：parse *)
+  ast = 自举加载器.parse_tokens(toks)
+  [ast["类型"]]
+
+  (* 测试：eval_ast *)
+  result = 自举加载器.eval_ast(ast)
+  [result]
+
+  (* 测试：模块加载 *)
+  load_result = 自举加载器.加载模块("词法器")
+  [load_result]
+}

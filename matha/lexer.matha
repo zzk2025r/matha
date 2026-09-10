@@ -155,12 +155,12 @@ module 词法器 {
         扫描(src)(pos)(line)(col)(append(toks)(做Token(浮点 if 有小数点 else 整数, 缓存, line, 起列))))
 
   (* ===== 扫描标识符续 ===== *)
-  func 扫描标识符续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
-    (src, pos, line, col, toks, 起列, 缓存) =>
+  func 扫描标识符续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String, 忽略: Bool) -> List =
+    (src, pos, line, col, toks, 起列, 缓存, 忽略) =>
       (pos >= len(src)) ?
         扫描(src)(pos)(line)(col)(append(toks)(做Token(关键字 if 是关键字(缓存) else 标识符, 缓存, line, 起列))) :
       (是标识符续(ord(get(src)(pos))) ?
-        扫描标识符续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
+        扫描标识符续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))(假) :
         扫描(src)(pos)(line)(col)(append(toks)(做Token(关键字 if 是关键字(缓存) else 标识符, 缓存, line, 起列))))
 
   (* ===== 扫描字符串续 ===== *)
@@ -191,7 +191,7 @@ module 词法器 {
         扫描数字续(src)(pos)(line)(col)(toks)(col)("") 假 :
       (* 标识符/关键字 *)
       (是字母码(ord(get(src)(pos))) ?
-        扫描标识符续(src)(pos)(line)(col)(toks)(col)("") :
+        扫描标识符续(src)(pos)(line)(col)(toks)(col)("") 假 :
       (* 多字符操作符检测（先试2字符） *)
       (let (t, txt) = 检测多符(src, pos) in
         (t = 不等于 or t = 大于等于 or t = 小于等于 or t = 胖箭头 or

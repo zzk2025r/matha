@@ -330,7 +330,7 @@ class Parser:
     def _parse_variable_or_path(self):
         """<variable> | <path_expr>（路径 a>>b）"""
         var = self._parse_variable()
-        if self._check(TokenType.OP_NEXT):
+        if self._check(TokenType.OP_BIT_RSHIFT):
             # 检查是否为路径语境（>> 后跟变量，且不在循环头/链式语境）
             if self._is_path_context():
                 self._advance()
@@ -528,7 +528,7 @@ class Parser:
         if self._check(TokenType.MATHA_CMD_OPEN, TokenType.MATHA_READ_OPEN):
             cmd = self._parse_command_literal()
             stmt = ast.GenStmt(generate=generate, content=cmd)
-            if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+            if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
 
@@ -536,7 +536,7 @@ class Parser:
         if self._check(TokenType.PUNCT_LBRACKET):
             trail = self._parse_output_trail()
             stmt = ast.GenStmt(generate=generate, content=trail)
-            if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+            if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
 
@@ -544,14 +544,14 @@ class Parser:
         if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR, TokenType.KW_MATCH):
             node = self._parse_statement()
             stmt = ast.GenStmt(generate=generate, content=node)
-            if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+            if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
 
         # #N：？公式 / #N：字母公式 → expr
         expr = self._parse_expr()
         stmt = ast.GenStmt(generate=generate, content=expr)
-        if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+        if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
             return self._parse_chain(stmt)
         return stmt
 
@@ -619,7 +619,7 @@ class Parser:
         if self._check(TokenType.PUNCT_LBRACKET):
             trail = self._parse_output_trail()
             # 检查 >> 链式（M3.2：单条不够才启用）
-            if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+            if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(trail)
             return trail
 
@@ -716,7 +716,7 @@ class Parser:
             cmd = self._parse_command_literal()
             stmt = ast.GenStmt(generate=generate, content=cmd)
             # >> 链式（M3.2：单条命令不够才启用）
-            if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+            if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
 
@@ -724,7 +724,7 @@ class Parser:
         if self._check(TokenType.PUNCT_LBRACKET):
             trail = self._parse_output_trail()
             stmt = ast.GenStmt(generate=generate, content=trail)
-            if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+            if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
 
@@ -732,14 +732,14 @@ class Parser:
         if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR, TokenType.KW_MATCH):
             node = self._parse_statement()
             stmt = ast.GenStmt(generate=generate, content=node)
-            if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+            if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
 
         # #N：？公式 / #N：字母公式 → expr
         expr = self._parse_expr()
         stmt = ast.GenStmt(generate=generate, content=expr)
-        if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+        if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
             return self._parse_chain(stmt)
         return stmt
 
@@ -781,8 +781,8 @@ class Parser:
     def _parse_brace_dispatch(self):
         """{ } 双义消解：代码块 vs 集合构造 vs 字典字面量（EBNF §16）
 
-        消解规则（前瞻 { 后第一个 token）：
-        - NEWLINE → 代码块（EBNF: { <newline> ... }）
+        消解规则（前瞻 { 后第一个 token，跳过换行/缩进）：
+        - NEWLINE/INDENT → 继续查看下一个 token
         - } → 空集合构造
         - 逗号或管道 → 集合构造（枚举 {1,2,3} / 理解 {x | cond}）
         - 整数/浮点/布尔 → 集合枚举（如 {1, 2, 3}）
@@ -790,9 +790,11 @@ class Parser:
         - 标识符 且 下一 token 为 | → 集合理解（如 {x | x > 5}）
         - 其他 → 代码块（默认规则）
         """
-        next_tok = self._peek(1)
-        if next_tok.type == TokenType.NEWLINE:
-            return self._parse_code_block()
+        # 跳过开头的换行/缩进，找到第一个有意义 token
+        skip = 1
+        while self._peek(skip).type in (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT):
+            skip += 1
+        next_tok = self._peek(skip)
         if next_tok.type == TokenType.PUNCT_RBRACE:
             return self._parse_set_construct()
         # 有逗号或管道分隔符 → 集合构造
@@ -805,7 +807,7 @@ class Parser:
             return self._parse_set_construct()
         # 字符串 → 检查后一个 token：: 则字典，, 或 | 则集合
         if next_tok.type == TokenType.LIT_STRING:
-            next_next = self._peek(2)
+            next_next = self._peek(skip + 1)
             if next_next.type == TokenType.OP_COLON:
                 return self._parse_dict_literal()
             if next_next.type in (TokenType.PUNCT_COMMA, TokenType.OP_PIPE, TokenType.MATHA_COMMA) \
@@ -814,7 +816,7 @@ class Parser:
             return self._parse_code_block()
         # 标识符 → 检查后一个 token：| 则集合理解，: 则字典，否则代码块
         if next_tok.type == TokenType.IDENTIFIER:
-            next_next = self._peek(2)
+            next_next = self._peek(skip + 1)
             if next_next.type == TokenType.OP_PIPE:
                 return self._parse_set_construct()
             if next_next.type == TokenType.OP_COLON:
@@ -871,11 +873,15 @@ class Parser:
         # 后续键值对
         while self._is_comma():
             self._advance()
+            self._skip_newlines()
+            if self._check(TokenType.PUNCT_RBRACE):
+                break  # 允许尾随逗号
             key = self._parse_expr()
             self._expect(TokenType.OP_COLON, ":")
             value = self._parse_expr()
             keys.append(key)
             values.append(value)
+        self._skip_newlines()
         self._expect(TokenType.PUNCT_RBRACE, "字典字面量闭括号 }")
         return ast.DictLiteral(keys=keys, values=values)
 
@@ -917,7 +923,7 @@ class Parser:
                     annotation=None, value=expr.right,
                 )
         # 检查 >> 链式
-        if self._check(TokenType.OP_NEXT) and self._is_chain_context():
+        if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
             return self._parse_chain(expr)
         # 全角冒号作为语句分隔符（如 `a ： b = 1` → binding(a) ; binding(b=1)）
         if self._check(TokenType.MATHA_COLON_FW) or self._check(TokenType.OP_COLON):
@@ -1016,7 +1022,7 @@ class Parser:
         else:
             stmts.append(first_stmt)
         chain_count = 0
-        while self._check(TokenType.OP_NEXT):
+        while self._check(TokenType.OP_BIT_RSHIFT):
             self._advance()
             stmt = self._parse_mech_stmt()
             if isinstance(stmt, ast.ChainStmt):
@@ -1129,19 +1135,48 @@ class Parser:
         return left
 
     def _parse_and_expr(self):
-        """<and_expr> = <rel_expr> , { "and" , <rel_expr> }"""
-        left = self._parse_rel_expr()
+        """<and_expr> = <null_coal_expr> , { "and" , <null_coal_expr> }"""
+        left = self._parse_null_coal_expr()
         while self._check(TokenType.KW_AND):
             self._advance()
             self._skip_newlines()
-            right = self._parse_rel_expr()
+            right = self._parse_null_coal_expr()
             left = ast.BinaryOp(op="and", left=left, right=right)
         return left
 
-    def _parse_rel_expr(self):
-        """<rel_expr> = <add_expr> , [ <rel_op> , <add_expr> | <expr> ]
+    def _parse_null_coal_expr(self):
+        """<null_coal_expr> = <rel_expr> , { "??" , <rel_expr> }（空值合并）"""
+        left = self._parse_rel_expr()
+        while self._check(TokenType.OP_NULL_COAL):
+            self._advance()
+            right = self._parse_rel_expr()
+            left = ast.BinaryOp(op="??", left=left, right=right)
+        return left
 
-        比较运算符（> < >= <=）的右操作数用 _parse_add_expr（标准行为）。
+    def _parse_set_expr(self):
+        """<set_expr> = <add_expr> , { (∪|∩|⊖|~|×|⊆) , <add_expr> }"""
+        left = self._parse_add_expr()
+        while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
+                          TokenType.OP_SET_DIFF, TokenType.OP_SET_COMP,
+                          TokenType.OP_SET_PROD, TokenType.OP_SET_SUBSET):
+            tok = self._advance()
+            op_map = {
+                TokenType.OP_SET_UNION: "∪",
+                TokenType.OP_SET_INTER: "∩",
+                TokenType.OP_SET_DIFF: "⊖",
+                TokenType.OP_SET_COMP: "~",
+                TokenType.OP_SET_PROD: "×",
+                TokenType.OP_SET_SUBSET: "⊆",
+            }
+            op = op_map.get(tok.type, tok.value)
+            right = self._parse_add_expr()
+            left = ast.BinaryOp(op=op, left=left, right=right)
+        return left
+
+    def _parse_rel_expr(self):
+        """<rel_expr> = <set_expr> , [ <rel_op> , <set_expr> | <expr> ]
+
+        比较运算符（> < >= <=）的右操作数用 _parse_set_expr（标准行为）。
         赋值/等于运算符（= ==）的右操作数用 _parse_expr，使绑定值能包含三元表达式。
 
         例：
@@ -1149,10 +1184,19 @@ class Parser:
           `3 > 2 ? 100 : 200`     → IfExpr(cond=3>2, then=100, else=200)
           `z = 3 > 2`             → Binding(z, BinaryOp('>', 3, 2))
         """
-        left = self._parse_add_expr()
+        left = self._parse_set_expr()
+        # 严格相等 / 严格不等
+        if self._check(TokenType.OP_STRICT_EQ):
+            self._advance()
+            right = self._parse_set_expr()
+            return ast.BinaryOp(op="===", left=left, right=right)
+        if self._check(TokenType.OP_STRICT_NEQ):
+            self._advance()
+            right = self._parse_set_expr()
+            return ast.BinaryOp(op="!==", left=left, right=right)
         if self._check(TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE):
             op = self._advance().value
-            right = self._parse_add_expr()
+            right = self._parse_set_expr()
             return ast.BinaryOp(op=op, left=left, right=right)
         if self._check(TokenType.OP_ASSIGN, TokenType.OP_NEQ):
             op = self._advance().value
@@ -1160,17 +1204,17 @@ class Parser:
             if op == "=" and self._check(TokenType.OP_ASSIGN):
                 self._advance()
                 op = "=="
-            # 在 lambda 体内比较语境中，= 作为比较运算符，右操作数用 _parse_add_expr
+            # 在 lambda 体内比较语境中，= 作为比较运算符，右操作数用 _parse_set_expr
             # 在语句层，= 作为赋值运算符，右操作数用 _parse_expr 以支持三元表达式
             if self._in_lambda_rel:
-                right = self._parse_add_expr()
+                right = self._parse_set_expr()
             else:
                 right = self._parse_expr()
             return ast.BinaryOp(op=op, left=left, right=right)
         # → 右箭头：等价于 -> 但作为比较运算符（a → b）
         if self._check(TokenType.OP_ARROW_FW):
             self._advance()
-            right = self._parse_add_expr()
+            right = self._parse_set_expr()
             return ast.BinaryOp(op="→", left=left, right=right)
         # Python in 成员判断
         if self._check(TokenType.KW_IN) and not self._in_let_value:
@@ -1193,21 +1237,36 @@ class Parser:
                 self.pos = saved
             else:
                 # in 是二元运算符
-                right = self._parse_add_expr()
+                right = self._parse_set_expr()
                 return ast.BinaryOp(op=" in ", left=left, right=right)
         # 属于判断 ∈
         if self._check(TokenType.SYMBOL) and self._current().value == "∈":
             self._advance()
-            right = self._parse_add_expr()
+            right = self._parse_set_expr()
             return ast.Belongs(left=left, right=right)
         return left
 
-    def _parse_add_expr(self):
-        """<add_expr> = <mul_expr> , { ("+" | "-") , <mul_expr> }"""
+    def _parse_bit_expr(self):
+        """<bit_expr> = <mul_expr> , { (OP_BIT_AND|OP_PIPE|OP_BIT_XOR|OP_BIT_LSHIFT|OP_BIT_RSHIFT) , <mul_expr> }"""
         left = self._parse_mul_expr()
+        while self._check(TokenType.OP_BIT_AND, TokenType.OP_PIPE, TokenType.OP_BIT_XOR,
+                          TokenType.OP_BIT_LSHIFT, TokenType.OP_BIT_RSHIFT):
+            tok = self._advance()
+            # OP_PIPE 在表达式语境中作为位或（bitwise OR）
+            if tok.type == TokenType.OP_PIPE:
+                op = "|"
+            else:
+                op = tok.value
+            right = self._parse_mul_expr()
+            left = ast.BinaryOp(op=op, left=left, right=right)
+        return left
+
+    def _parse_add_expr(self):
+        """<add_expr> = <bit_expr> , { ("+" | "-") , <bit_expr> }"""
+        left = self._parse_bit_expr()
         while self._check(TokenType.OP_PLUS, TokenType.OP_MINUS):
             op = self._advance().value
-            right = self._parse_mul_expr()
+            right = self._parse_bit_expr()
             left = ast.BinaryOp(op=op, left=left, right=right)
         return left
 
@@ -1221,31 +1280,39 @@ class Parser:
         return left
 
     def _parse_pow_expr(self):
-        """<pow_expr> = <unary> , [ "^" , <pow_expr> ]（中缀次方，右结合）"""
+        """<pow_expr> = <unary> , [ "**" , <pow_expr> ]（中缀次方，右结合）"""
         left = self._parse_unary()
         if self._check(TokenType.OP_POWER):
             self._advance()
             right = self._parse_pow_expr()
-            return ast.BinaryOp(op="^", left=left, right=right)
+            return ast.BinaryOp(op="**", left=left, right=right)
         return left
 
     def _parse_unary(self):
-        """<unary> = [ "-" | "^" | "++" | "--" ] , <postfix>
-        ^ 双语义消解：前无操作数 → 前缀开方（§16）"""
+        """<unary> = [ "-" | "~" | "++" | "--" | "not" ] , <postfix>"""
         if self._check(TokenType.OP_MINUS):
             self._advance()
             operand = self._parse_postfix()
             return ast.UnaryOp(op="-", operand=operand)
-        if self._check(TokenType.OP_POWER):
-            # 前缀开方 ^9=3（前无操作数）
+        if self._check(TokenType.OP_BIT_NOT):
             self._advance()
             operand = self._parse_postfix()
-            return ast.UnaryOp(op="^", operand=operand)
+            return ast.UnaryOp(op="~", operand=operand)
         # 前缀自增 / 自减
         if self._check(TokenType.OP_INCR, TokenType.OP_DECR):
             op = self._advance().value
             operand = self._parse_postfix()
             return ast.UnaryOp(op=op, operand=operand)
+        # 前缀逻辑非：not <expr>
+        if self._check(TokenType.IDENTIFIER) and self._current().value == "not":
+            self._advance()
+            operand = self._parse_postfix()
+            return ast.UnaryOp(op="not", operand=operand)
+        # 前缀 raise：<expr> 抛出异常
+        if self._check(TokenType.KW_RAISE):
+            self._advance()
+            value = self._parse_expr()
+            return ast.RaiseExpr(value=value)
         return self._parse_postfix()
 
     def _parse_postfix(self):
@@ -1271,8 +1338,23 @@ class Parser:
                     self._advance()
                     field = self._expect(TokenType.IDENTIFIER, "属性名").value
                     expr = ast.PathExpr(left=expr, right=field)
+            # 可选链：expr?.field 或 expr?.[index]
+            if self._check(TokenType.OP_OPT_CHAIN):
+                self._advance()
+                if self._check(TokenType.PUNCT_LBRACKET):
+                    # expr?.[expr] 下标可选链
+                    self._advance()
+                    idx = self._parse_expr()
+                    self._expect(TokenType.PUNCT_RBRACKET, "]")
+                    expr = ast.SafePathExpr(left=expr, is_index=True, right=idx)
+                elif self._check(TokenType.IDENTIFIER):
+                    # expr?.field 属性可选链
+                    field = self._advance().value
+                    expr = ast.SafePathExpr(left=expr, is_index=False, right=field)
+                else:
+                    raise ParseError("?. 后需跟属性名或 [ 下标", self._current())
             # 属于判断 / 路径：expr >> expr
-            if self._check(TokenType.OP_NEXT):
+            if self._check(TokenType.OP_BIT_RSHIFT):
                 saved = self.pos
                 self._advance()
                 if self._is_primary_start():
@@ -1280,9 +1362,14 @@ class Parser:
                     if self._is_path_context():
                         right = self._parse_variable()
                         expr = ast.PathExpr(left=expr, right=right)
+                    # 链式语境：由外层 _parse_chain 处理，此处回退让 _parse_bit_expr 处理
+                    elif self._is_chain_context():
+                        self.pos = saved
+                        break
+                    # 裸表达式如 16 >> 2：右操作数是数字/标识符，属于位右移，由 _parse_bit_expr 处理
                     else:
-                        right = self._parse_or_expr()
-                        expr = ast.Belongs(left=expr, right=right)
+                        self.pos = saved
+                        break
                     continue
                 else:
                     self.pos = saved
@@ -1388,13 +1475,18 @@ class Parser:
                     args = [if_expr]
                     self._in_func_app = True
                     try:
-                        while self._check(TokenType.PUNCT_COMMA):
+                        while self._is_comma():
                             self._advance()
                             args.append(self._parse_expr())
                     finally:
                         self._in_func_app = False
                     self._expect(TokenType.PUNCT_RPAREN, ")")
-                    expr = ast.FuncApp(func=expr, arg=args[0])
+                    # 多参数：构建嵌套 FuncApp（柯里化应用）f(a)(b)(c)
+                    if len(args) == 1:
+                        expr = ast.FuncApp(func=expr, arg=args[0])
+                    else:
+                        for i, arg in enumerate(args):
+                            expr = ast.FuncApp(func=expr, arg=arg)
                     continue
             if self._check(TokenType.PUNCT_RPAREN):
                 self._advance()
@@ -1405,9 +1497,20 @@ class Parser:
                     args = [self._parse_expr()]
                     while self._check(TokenType.PUNCT_COMMA):
                         self._advance()
+                        self._skip_newlines()
                         args.append(self._parse_expr())
                     # 支持无逗号分隔的参数（柯里化）：f(a b c) → FuncApp(FuncApp(a, b), c)
                     while not self._check(TokenType.PUNCT_RPAREN):
+                        # 跳过换行/缩进（多行函数调用）
+                        self._skip_newlines()
+                        if self._check(TokenType.PUNCT_RPAREN):
+                            break
+                        # 真/假 后跟 : 是函数链的额外参数（如：扫描标识符续(...)("") 假 :）
+                        # 不在此处消费，留给后面的 postfix fix 处理
+                        if (self._check(TokenType.LIT_BOOL) and
+                                self._current().value in ("真", "假") and
+                                self._peek(1) and self._peek(1).type == TokenType.OP_COLON):
+                            break
                         if self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER,
                                                      TokenType.LIT_INTEGER, TokenType.LIT_FLOAT,
                                                      TokenType.LIT_STRING, TokenType.LIT_BOOL,
@@ -1417,6 +1520,7 @@ class Parser:
                             args.append(self._parse_expr())
                         elif self._is_comma():
                             self._advance()
+                            self._skip_newlines()
                             args.append(self._parse_expr())
                         else:
                             break
@@ -1431,6 +1535,13 @@ class Parser:
                     for i, arg in enumerate(args):
                         expr = ast.FuncApp(func=expr, arg=arg)
             # 继续检查后续属性访问
+            # 函数链后跟 真/假 : → 附加布尔值作为额外参数（lexer 词法器的 假 : 模式）
+            if (self._check(TokenType.LIT_BOOL) and self._current().value in ("真", "假") and
+                self._peek(1) and self._peek(1).type == TokenType.OP_COLON):
+                bool_tok = self._advance()
+                bool_val = bool_tok.value in ("真", "true")
+                expr = ast.FuncApp(func=expr, arg=ast.BoolLit(value=bool_val))
+            # 继续检查后续属性访问
         return expr
 
     def _is_primary_start(self) -> bool:
@@ -1441,6 +1552,7 @@ class Parser:
             TokenType.OP_ANGLE, TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACKET,
             TokenType.PUNCT_LBRACE, TokenType.MATHA_READ_OPEN, TokenType.MATHA_READ_OPEN2,
             TokenType.KW_IF,  # lambda 体内 if 作为表达式
+            TokenType.KW_NULL, TokenType.KW_NONE, TokenType.KW_UNDEFINED,  # null/none/undefined 字面量
             TokenType.SYMBOL,  # 符号 token（emoji、数学符号、BoxDrawing 等）可作为变量名
         )
 
@@ -1468,6 +1580,11 @@ class Parser:
         if tok.type == TokenType.LIT_BOOL:
             self._advance()
             return ast.BoolLit(value=tok.value in ("真", "true"))
+
+        # null / none / undefined 关键字字面量
+        if tok.type in (TokenType.KW_NULL, TokenType.KW_NONE, TokenType.KW_UNDEFINED):
+            self._advance()
+            return ast.UnaryOp(op="null", operand=None)
 
         # 变量 / 占位符
         if tok.type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):
@@ -1498,8 +1615,50 @@ class Parser:
             # 绑定右值语境：opt = [...] 中的 [ 应解析为列表
             if getattr(self, '_in_bind_value', False):
                 return self._parse_list_literal()
+            # 运算符右值语境：[ 的前一个有效 token 是二元运算符 / 逗号 / 左括号 /
+            # => / then / else / in 等，说明处于表达式中途（如 lst + [x]），必为列表
+            _j = self.pos - 1
+            while _j >= 0 and self.tokens[_j].type == TokenType.NEWLINE:
+                _j -= 1
+            _prev_tok = self.tokens[_j] if _j >= 0 else None
+            if _prev_tok is not None and (
+                _prev_tok.type in (
+                    TokenType.OP_PLUS, TokenType.OP_MINUS, TokenType.OP_STAR,
+                    TokenType.OP_SLASH, TokenType.OP_MOD, TokenType.OP_BIT_XOR,
+                    TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE,
+                    TokenType.OP_NEQ, TokenType.OP_ASSIGN, TokenType.OP_FATARROW,
+                    TokenType.OP_PIPE, TokenType.OP_ARROW_FW,
+                    TokenType.PUNCT_COMMA, TokenType.PUNCT_LPAREN,
+                    TokenType.PUNCT_LBRACKET, TokenType.PUNCT_LBRACE,
+                    TokenType.KW_IN,
+                ) or (
+                    _prev_tok.type == TokenType.IDENTIFIER
+                    and _prev_tok.value in ("then", "else", "in", "do")
+                )
+            ):
+                return self._parse_list_literal()
             # 独立使用：检查是否紧跟换行、EOF 或 | (输出语境)
             if self._check(TokenType.NEWLINE, TokenType.EOF, TokenType.OP_PIPE, TokenType.MATHA_COMMA):
+                return self._parse_list_literal()
+            # 列表字面量前瞻：[expr, 形式 → 列表；[expr] 形式 → 输出
+            # 也识别 [expr] ∪/∩/⊖/×/⊆ [expr] 形式（集合运算符后跟 [ 开头）
+            saved2 = self.pos
+            self._advance()  # consume [
+            self._skip_newlines()
+            is_list_lookahead = (
+                self._is_primary_start()
+                and (
+                    self._peek(1).type == TokenType.PUNCT_COMMA
+                    or (self._peek(1).type in (
+                            TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
+                            TokenType.OP_SET_DIFF, TokenType.OP_SET_PROD,
+                            TokenType.OP_SET_SUBSET,
+                        )
+                        and self._peek(2).type in (TokenType.PUNCT_COMMA, TokenType.PUNCT_RBRACKET))
+                )
+            )
+            self.pos = saved2
+            if is_list_lookahead:
                 return self._parse_list_literal()
             return self._parse_output()
 
@@ -1697,7 +1856,8 @@ class Parser:
         # 参数名可以是关键字（如 func、and、or）
         if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
                         TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
-                        TokenType.KW_IN, TokenType.KW_WHILE):
+                        TokenType.KW_IN, TokenType.KW_WHILE,
+                        TokenType.KW_NULL, TokenType.KW_NONE, TokenType.KW_UNDEFINED):
             self._advance()
             name = tok.value
         else:
@@ -1718,10 +1878,74 @@ class Parser:
             self._advance()
             return ast.Output(expr=None)
 
+        # 前瞻：检测是否为列表字面量（含集合运算符链）
+        # 如 [1,2,3] ∪ [3,4,5] → 列表字面量；[s ∪ [3,4]] → 表达式
+        # 注意：此时 [ 已被 _expect 消费，当前 token 是 [ 后的第一个 token
+        saved_pos = self.pos
+        _peek1 = self._peek(1)
+        _peek2 = self._peek(2)
+        is_list_lookahead = (
+            self._is_primary_start()
+            and (
+                _peek1.type == TokenType.PUNCT_COMMA
+                or (_peek1.type in (
+                        TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
+                        TokenType.OP_SET_DIFF, TokenType.OP_SET_PROD,
+                        TokenType.OP_SET_SUBSET,
+                    )
+                    and _peek2.type in (TokenType.PUNCT_COMMA, TokenType.PUNCT_RBRACKET))
+            )
+        )
+        self.pos = saved_pos
+
+        if is_list_lookahead:
+            # 列表字面量路径：[expr, expr, ...] (∪/∩/⊖/×/⊆ [expr,...])*
+            # 注意：[ 已被 _expect 消费，直接从元素开始解析
+            elements: list[Any] = []
+            if not self._check(TokenType.PUNCT_RBRACKET):
+                elements.append(self._parse_expr())
+                while self._check(TokenType.PUNCT_COMMA):
+                    self._advance()
+                    elements.append(self._parse_expr())
+            self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
+            result: Any = ast.ListLiteral(elements=elements)
+            # 支持 [a,b] ∪ [c,d] 等形式：列表后跟集合运算符
+            while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
+                              TokenType.OP_SET_DIFF, TokenType.OP_SET_PROD,
+                              TokenType.OP_SET_SUBSET):
+                tok = self._advance()
+                op_map = {
+                    TokenType.OP_SET_UNION: "∪",
+                    TokenType.OP_SET_INTER: "∩",
+                    TokenType.OP_SET_DIFF: "⊖",
+                    TokenType.OP_SET_PROD: "×",
+                    TokenType.OP_SET_SUBSET: "⊆",
+                }
+                op = op_map.get(tok.type, tok.value)
+                right = self._parse_expr()
+                result = ast.BinaryOp(op=op, left=result, right=right)
+            return ast.Output(expr=result)
+
         # 尝试解析为 表达式 + ]；失败则回退为文本
         saved_pos = self.pos
         try:
             expr = self._parse_expr()
+            # 支持输出内的集合运算符：[a,b] ∪ [c,d] 等
+            while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
+                              TokenType.OP_SET_DIFF, TokenType.OP_SET_COMP,
+                              TokenType.OP_SET_PROD, TokenType.OP_SET_SUBSET):
+                tok = self._advance()
+                op_map = {
+                    TokenType.OP_SET_UNION: "∪",
+                    TokenType.OP_SET_INTER: "∩",
+                    TokenType.OP_SET_DIFF: "⊖",
+                    TokenType.OP_SET_COMP: "~",
+                    TokenType.OP_SET_PROD: "×",
+                    TokenType.OP_SET_SUBSET: "⊆",
+                }
+                op = op_map.get(tok.type, tok.value)
+                right = self._parse_expr()
+                expr = ast.BinaryOp(op=op, left=expr, right=right)
             self._expect(TokenType.PUNCT_RBRACKET, "输出右括号 ]")
             return ast.Output(expr=expr)
         except ParseError:
@@ -1731,18 +1955,41 @@ class Parser:
                 parts.append(self._advance().value)
             self._expect(TokenType.PUNCT_RBRACKET, "输出右括号 ]")
             return ast.Output(expr=ast.StringLit(value="".join(parts)))
+        finally:
+            self._in_output = False
 
-    def _parse_list_literal(self) -> ast.ListLiteral:
-        """<list_literal> = [ <expr> , { , <expr> } ]"""
+    def _parse_list_literal(self) -> Any:
+        """<list_literal> = [ <expr> , { , <expr> } ]
+        末尾支持集合运算符链：[1,2] ∪ [3,4] → BinaryOp"""
         self._expect(TokenType.PUNCT_LBRACKET, "列表左括号 [")
         elements: list[Any] = []
         if not self._check(TokenType.PUNCT_RBRACKET):
             elements.append(self._parse_expr())
             while self._check(TokenType.PUNCT_COMMA):
                 self._advance()
+                self._skip_newlines()
+                if self._check(TokenType.PUNCT_RBRACKET):
+                    break  # 允许尾随逗号
                 elements.append(self._parse_expr())
+        self._skip_newlines()
         self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
-        return ast.ListLiteral(elements=elements)
+        result: Any = ast.ListLiteral(elements=elements)
+        # 支持 [a,b] ∪ [c,d] 等形式：列表后跟集合运算符
+        while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
+                          TokenType.OP_SET_DIFF, TokenType.OP_SET_PROD,
+                          TokenType.OP_SET_SUBSET):
+            tok = self._advance()
+            op_map = {
+                TokenType.OP_SET_UNION: "∪",
+                TokenType.OP_SET_INTER: "∩",
+                TokenType.OP_SET_DIFF: "⊖",
+                TokenType.OP_SET_PROD: "×",
+                TokenType.OP_SET_SUBSET: "⊆",
+            }
+            op = op_map.get(tok.type, tok.value)
+            right = self._parse_expr()
+            result = ast.BinaryOp(op=op, left=result, right=right)
+        return result
 
     def _parse_variable(self) -> ast.Variable:
         """<variable> = <placeholder> | <identifier> | <symbol>"""
@@ -1886,6 +2133,9 @@ class Parser:
             return ast.GoStmt(expr=self._parse_expr())
         if tok.type == TokenType.KW_FUNC:
             return self._parse_func_def()
+        # and <id> (params) -> type = body — 互递归函数延续
+        if tok.type == TokenType.KW_AND:
+            return self._parse_and_func_def()
         # typeof <expr>
         if tok.type == TokenType.KW_TYPEOF:
             self._advance()
@@ -1910,6 +2160,7 @@ class Parser:
         # 通过 lookahead 区分：( 后跟 identifier: 为函数定义，identifier 后为 ,/) 为元组解构
         if self._check(TokenType.PUNCT_LPAREN):
             # lookahead: 检查 ( 后是否是 标识符: 形式（函数参数）
+            # 注意：self._current() 是函数名（或 let rec 后的 (），因此需要偏移 +2 检查 :
             _peek1 = self._peek(1)
             _is_typed_param = (
                 _peek1.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
@@ -1942,22 +2193,14 @@ class Parser:
                 if self._check(TokenType.OP_ARROW):
                     self._advance()  # consume ->
                     ret_type = self._parse_type_expr()
-                    # 检查 = (params) => body
+                    # 检查 = (params) => body 或 = expr（let rec 直接表达式体）
                     self._expect(TokenType.OP_ASSIGN, "=")
                     self._skip_newlines()
-                    self._expect(TokenType.PUNCT_LPAREN, "(")
-                    lam_params: list[Any] = []
-                    if not self._check(TokenType.PUNCT_RPAREN):
-                        tok = self._current()
-                        if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
-                                        TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
-                                        TokenType.KW_IN, TokenType.KW_WHILE):
-                            self._advance()
-                            lam_params.append(ast.Variable(name=tok.value))
-                        else:
-                            lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
-                        while self._is_comma():
-                            self._advance()
+                    if self._check(TokenType.PUNCT_LPAREN):
+                        # 显式 lambda: = (params) => body
+                        lam_params: list[Any] = []
+                        self._advance()  # consume (
+                        if not self._check(TokenType.PUNCT_RPAREN):
                             tok = self._current()
                             if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
                                             TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
@@ -1966,66 +2209,107 @@ class Parser:
                                 lam_params.append(ast.Variable(name=tok.value))
                             else:
                                 lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
-                    self._expect(TokenType.PUNCT_RPAREN, ")")
-                    self._expect(TokenType.OP_FATARROW, "=>")
-                    self._skip_newlines()
-                    # 在 lambda 体内比较语境中解析 body，使 = 作为比较而非赋值
-                    # 同时设置 _in_lambda_body = True，使 ( 不被消费为函数应用
-                    saved_rel = self._in_lambda_rel
-                    saved_lb = self._in_lambda_body
-                    self._in_lambda_rel = True
-                    self._in_lambda_body = True
-                    try:
-                        lam_body = self._parse_lambda_body()
-                    finally:
-                        self._in_lambda_rel = saved_rel
-                        self._in_lambda_body = saved_lb
-                    body = ast.Lambda(params=lam_params, body=lam_body)
-                    if len(params) == 0:
-                        param_type: Any = ast.BasicType(name="Unit")
-                    elif len(params) == 1:
-                        param_type = params[0][1] or ast.BasicType(name="Int")
-                    else:
-                        param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
-                    func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
-                    func_def = ast.FuncDef(name=name, annotation=None, func_type=func_type, body=body)
-                    # 检查后面是否有对同一变量的调用：let rec f = lambda; f(args) → LetBinding with body
-                    if is_rec and self._check(TokenType.IDENTIFIER) and self._current().value == name:
-                        next_saved = self.pos
-                        try:
-                            self._advance()  # consume name
-                            if self._check(TokenType.PUNCT_LPAREN):
-                                # 是一个函数调用，解析为 body
-                                self._advance()  # consume (
-                                call_args = [self._parse_expr()]
-                                while self._check(TokenType.PUNCT_COMMA):
+                            while self._is_comma():
+                                self._advance()
+                                tok = self._current()
+                                if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                                                TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
+                                                TokenType.KW_IN, TokenType.KW_WHILE):
                                     self._advance()
-                                    call_args.append(self._parse_expr())
-                                self._expect(TokenType.PUNCT_RPAREN, ")")
-                                # 构建嵌套 FuncApp（多参数 → 柯里化）
-                                call_expr = ast.FuncApp(func=ast.Variable(name=name), arg=call_args[0])
-                                for arg in call_args[1:]:
-                                    call_expr = ast.FuncApp(func=call_expr, arg=arg)
-                                # 继续解析调用后的表达式（如 sum(0, 0) / len(...)）
-                                # 但仅当在同一行时：若跨行则认为是下一个语句，回退位置
-                                saved_expr_pos = self.pos
-                                saved_expr_line = self._current().line
-                                saved_expr = self._in_lambda_body
-                                self._in_lambda_body = False
-                                try:
-                                    body_expr = self._parse_expr()
-                                    # 若跨过了换行（新行），回退到调用位置
-                                    if self._current().line != saved_expr_line:
-                                        self.pos = saved_expr_pos
-                                        body_expr = call_expr
-                                finally:
-                                    self._in_lambda_body = saved_expr
-                                # 返回 LetBinding，让解释器先注册再执行 body
-                                return ast.LetBinding(name=name, value=func_def.body, is_recursive=True, params=params, body=body_expr)
-                        except ParseError:
-                            self.pos = next_saved  # 回退到函数调用前的位置
-                            pass  # 不是函数调用，回退
-                    return func_def
+                                    lam_params.append(ast.Variable(name=tok.value))
+                                else:
+                                    lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+                        self._expect(TokenType.PUNCT_RPAREN, ")")
+                        self._expect(TokenType.OP_FATARROW, "=>")
+                        self._skip_newlines()
+                        # 在 lambda 体内比较语境中解析 body；
+                        # 同时设置 _in_let_value，使 `in` 作为 let 边界而非成员运算符
+                        saved_rel = self._in_lambda_rel
+                        saved_lb = self._in_lambda_body
+                        saved_lv = self._in_let_value
+                        self._in_lambda_rel = True
+                        self._in_lambda_body = True
+                        self._in_let_value = True
+                        try:
+                            lam_body = self._parse_lambda_body()
+                        finally:
+                            self._in_lambda_rel = saved_rel
+                            self._in_lambda_body = saved_lb
+                            self._in_let_value = saved_lv
+                        body = ast.Lambda(params=lam_params, body=lam_body)
+                        if len(params) == 0:
+                            param_type: Any = ast.BasicType(name="Unit")
+                        elif len(params) == 1:
+                            param_type = params[0][1] or ast.BasicType(name="Int")
+                        else:
+                            param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
+                        func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
+                        func_def = ast.FuncDef(name=name, annotation=None, func_type=func_type, body=body)
+                        # 检查后面是否有对同一变量的调用：let rec f = lambda; f(args) → LetBinding with body
+                        if is_rec and self._check(TokenType.IDENTIFIER) and self._current().value == name:
+                            next_saved = self.pos
+                            try:
+                                self._advance()  # consume name
+                                if self._check(TokenType.PUNCT_LPAREN):
+                                    self._advance()  # consume (
+                                    call_args = [self._parse_expr()]
+                                    while self._check(TokenType.PUNCT_COMMA):
+                                        self._advance()
+                                        call_args.append(self._parse_expr())
+                                    self._expect(TokenType.PUNCT_RPAREN, ")")
+                                    call_expr = ast.FuncApp(func=ast.Variable(name=name), arg=call_args[0])
+                                    for arg in call_args[1:]:
+                                        call_expr = ast.FuncApp(func=call_expr, arg=arg)
+                                    saved_expr_pos = self.pos
+                                    saved_expr_line = self._current().line
+                                    saved_expr = self._in_lambda_body
+                                    self._in_lambda_body = False
+                                    try:
+                                        body_expr = self._parse_expr()
+                                        if self._current().line != saved_expr_line:
+                                            self.pos = saved_expr_pos
+                                            body_expr = call_expr
+                                    finally:
+                                        self._in_lambda_body = saved_expr
+                                    return ast.LetBinding(name=name, value=func_def.body, is_recursive=True, params=params, body=body_expr)
+                            except ParseError:
+                                self.pos = next_saved
+                                pass
+                        # let f(params) -> T = (ps) => body [in <body_expr>]
+                        # func_def.body 已是 Lambda，统一归约为 LetBinding
+                        # （params 置空，避免解释器/编译器把 Lambda 再包一层）
+                        body_expr = None
+                        if self._check(TokenType.KW_IN):
+                            self._advance()
+                            body_expr = self._parse_expr()
+                        return ast.LetBinding(name=name, value=func_def.body,
+                                              is_recursive=is_rec, params=[],
+                                              body=body_expr)
+                    else:
+                        # let rec 直接表达式体: = expr [in expr]
+                        self._in_let_value = True
+                        try:
+                            value = self._parse_expr()
+                        finally:
+                            self._in_let_value = False
+                        body_expr = None
+                        if self._check(TokenType.KW_IN):
+                            self._advance()
+                            body_expr = self._parse_expr()
+                        if len(params) == 0:
+                            param_type: Any = ast.BasicType(name="Unit")
+                        elif len(params) == 1:
+                            param_type = params[0][1] or ast.BasicType(name="Int")
+                        else:
+                            param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
+                        func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
+                        func_def = ast.FuncDef(name=name, annotation=None, func_type=func_type, body=value)
+                        if is_rec:
+                            return ast.LetBinding(name=name, value=func_def.body, is_recursive=True, params=params, body=body_expr)
+                        # 非递归直接表达式体同样归约为 LetBinding（value 为裸体，params 保留供包装 Lambda）
+                        return ast.LetBinding(name=name, value=func_def.body,
+                                              is_recursive=False, params=params,
+                                              body=body_expr)
             except ParseError:
                 # 回退到普通 let 绑定（恢复名字消费前的位置）
                 self.pos = saved
@@ -2569,6 +2853,9 @@ class Parser:
             return self._parse_match_stmt()
         if self._check(TokenType.KW_FUNC):
             return self._parse_func_def()
+        # and <id> (params) -> type = body — 互递归函数延续
+        if tok.type == TokenType.KW_AND:
+            return self._parse_and_func_def()
         # typeof <expr>
         if tok.type == TokenType.KW_TYPEOF:
             self._advance()
@@ -2647,6 +2934,76 @@ class Parser:
         self._skip_newlines()
         # 在 lambda 体内比较语境中解析 body，使 = 作为比较而非赋值
         # 同时设置 _in_lambda_body = True，使 ( 不被消费为函数应用
+        saved_rel = self._in_lambda_rel
+        saved_lb = self._in_lambda_body
+        self._in_lambda_rel = True
+        self._in_lambda_body = True
+        try:
+            lam_body = self._parse_lambda_body()
+        finally:
+            self._in_lambda_rel = saved_rel
+            self._in_lambda_body = saved_lb
+        body = ast.Lambda(params=lam_params, body=lam_body)
+        return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
+
+    def _parse_and_func_def(self) -> ast.FuncDef:
+        """<and_func_def> = and <id> [annotation] ( <params> ) -> <type> = <lambda>
+
+        互递归函数延续：等价于 func，省略 func 关键字。
+        """
+        self._expect(TokenType.KW_AND, "and")
+        name = self._expect(TokenType.IDENTIFIER, "函数名").value
+        annotation = None
+        if self._check(TokenType.MATHA_ANNOT_START):
+            annotation = self._parse_annotation()
+        self._expect(TokenType.PUNCT_LPAREN, "(")
+        params: list[tuple[str, Any]] = []
+        if not self._check(TokenType.PUNCT_RPAREN):
+            params.append(self._parse_typed_param())
+            while self._is_comma():
+                self._advance()
+                params.append(self._parse_typed_param())
+        self._expect(TokenType.PUNCT_RPAREN, ")")
+        self._expect(TokenType.OP_ARROW, "->")
+        ret_type = self._parse_type_expr()
+        if len(params) == 0:
+            param_type: Any = ast.BasicType(name="Unit")
+        elif len(params) == 1:
+            param_type = params[0][1] or ast.BasicType(name="Int")
+        else:
+            param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
+        func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
+        self._expect(TokenType.OP_ASSIGN, "=")
+        self._skip_newlines()
+        if not self._check(TokenType.PUNCT_LPAREN):
+            lam_body = self._parse_expr()
+            body = ast.Lambda(params=[], body=lam_body)
+            return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
+        self._expect(TokenType.PUNCT_LPAREN, "(")
+        lam_params: list[Any] = []
+        if not self._check(TokenType.PUNCT_RPAREN):
+            tok = self._current()
+            if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                            TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
+                            TokenType.KW_IN, TokenType.KW_WHILE):
+                self._advance()
+                lam_params.append(ast.Variable(name=tok.value))
+            else:
+                lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+            while self._is_comma():
+                self._advance()
+                self._skip_newlines()
+                tok = self._current()
+                if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                                TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
+                                TokenType.KW_IN, TokenType.KW_WHILE):
+                    self._advance()
+                    lam_params.append(ast.Variable(name=tok.value))
+                else:
+                    lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+        self._expect(TokenType.PUNCT_RPAREN, ")")
+        self._expect(TokenType.OP_FATARROW, "=>")
+        self._skip_newlines()
         saved_rel = self._in_lambda_rel
         saved_lb = self._in_lambda_body
         self._in_lambda_rel = True

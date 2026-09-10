@@ -525,6 +525,37 @@ class FormulaGrowthEngine:
         return results
 
     # ------------------------------------------------------------------
+    # 能力 4：语言吞噬（语言桥）
+    # ------------------------------------------------------------------
+
+    def devour(self, lang: str, source: str, module_name: str):
+        """吞噬外部语言源码 → 转化为 Matha 模块 → 融合。
+
+        通过语言桥实现：直译表达式体 + 无中生有骨架补全 API 面。
+        """
+        from src.matha.language_bridge import LanguageBridge
+        if getattr(self, '_bridge', None) is None:
+            self._bridge = LanguageBridge()
+        record = self._bridge.devour(lang, source, module_name)
+        if record.success:
+            self._bridge.fuse(record)
+        self._growth_log.append(record)
+        logger.info(f'  [成长-吞噬] {record.summary()}')
+        return record
+
+    def devour_file(self, path, module_name: Optional[str] = None):
+        """吞噬外部语言源文件。"""
+        from src.matha.language_bridge import LanguageBridge
+        if getattr(self, '_bridge', None) is None:
+            self._bridge = LanguageBridge()
+        record = self._bridge.devour_file(path, module_name)
+        if record.success:
+            self._bridge.fuse(record)
+        self._growth_log.append(record)
+        logger.info(f'  [成长-吞噬] {record.summary()}')
+        return record
+
+    # ------------------------------------------------------------------
     # 注册成长结果
     # ------------------------------------------------------------------
 

@@ -402,6 +402,8 @@ class SymbolicParser:
     VAR_PATTERN = re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')
     NUM_PATTERN = re.compile(r'[\d.]+')
     FUNC_PATTERN = re.compile(r'(sin|cos|tan|sqrt|abs|exp|log|ln|floor|ceil|factorial|asin|acos|atan)\(')
+    # 通用函数调用：math.sqrt(...)、safe_div(...) 等（函数名允许点号限定）
+    GEN_FUNC_PATTERN = re.compile(r'^([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\((.*)\)$')
 
     def parse(self, text: str) -> Expr:
         """解析表达式字符串。"""
@@ -490,6 +492,15 @@ class SymbolicParser:
             parsed_args = [self._parse_expr(a.strip()) for a in args]
             return FuncCall(func_name, parsed_args)
 
+        # 通用函数调用（含 math.sqrt / safe_div 等点号限定名或自定义函数）
+        gen_func = self.GEN_FUNC_PATTERN.match(text)
+        if gen_func:
+            func_name = gen_func.group(1).split('.')[-1]
+            rest = gen_func.group(2)
+            args = self._split_top_level(rest, [','])
+            parsed_args = [self._parse_expr(a.strip()) for a in args]
+            return FuncCall(func_name, parsed_args)
+
         # 阶乘
         if text.endswith('!'):
             inner = self._parse_primary(text[:-1])
@@ -536,15 +547,17 @@ class SymbolicParser:
             else:
                 return Mul(Num(float(coeff)), Var(var_name))
 
-        # 兜底：含加减号的表达式（如 v-v0），回退到表达式解析
+        # 兜底：含加减号的表达式（如 v-v0），回退到表达式解析。
+        # 仅当顶层确实存在可拆分运算符时才回退，否则 _parse_expr 会以
+        # 同一文本重新进入本方法造成无限递归（运算符在括号/函数内时）。
         has_add = '+' in text
         has_sub = '-' in text[1:] if text.startswith('-') else '-' in text
-        if has_add or has_sub:
+        if (has_add or has_sub) and len(self._split_with_ops(text, ['+', '-'])) > 1:
             return self._parse_expr(text)
-        # 含乘除号的表达式（如 r*r），回退到 term 解析
+        # 含乘除号的表达式（如 r*r），回退到 term 解析（同样要求顶层可拆）
         has_mul = '*' in text
         has_div = '/' in text
-        if has_mul or has_div:
+        if (has_mul or has_div) and len(self._split_with_ops(text, ['*', '/'])) > 1:
             return self._parse_term(text)
 
         raise ValueError(f"无法解析表达式: '{text}'")

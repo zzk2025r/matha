@@ -60,6 +60,7 @@ class TokenType(Enum):
     OP_LNOT = auto()       # !   逻辑非
     # 位运算符（C/JS 风格）
     OP_BIT_AND = auto()    # &   位与
+    OP_BIT_OR = auto()     # |   位或
     OP_BIT_XOR = auto()    # ^   位异或
     OP_BIT_LSHIFT = auto() # <<  左移
     OP_BIT_RSHIFT = auto() # >>  右移
@@ -272,6 +273,9 @@ KEYWORDS: dict[str, TokenType] = {
     "pass": TokenType.KW_PASS,
     "global": TokenType.KW_GLOBAL,
     "nonlocal": TokenType.KW_NONLOCAL,
+    "null": TokenType.KW_NULL,
+    "none": TokenType.KW_NONE,
+    "undefined": TokenType.KW_UNDEFINED,
 }
 
 
@@ -280,8 +284,6 @@ KEYWORDS: dict[str, TokenType] = {
 MULTI_CHAR_OPS: list[tuple[str, TokenType]] = [
     ("……", TokenType.MATHA_DOUBLE_ELLIPSIS),  # 双省略号优先于单省略号
     # 跨语言多字符运算符（优先于单字符匹配）
-    ("<<<", TokenType.OP_BIT_LSHIFT),
-    (">>>>", TokenType.OP_BIT_RSHIFT),
     ("!==", TokenType.OP_STRICT_NEQ),
     ("===", TokenType.OP_STRICT_EQ),
     ("??=", TokenType.OP_NULL_COAL),
@@ -299,9 +301,10 @@ MULTI_CHAR_OPS: list[tuple[str, TokenType]] = [
     ("*=", TokenType.OP_ASGN_STAR),
     ("/=", TokenType.OP_ASGN_SLASH),
     ("%=", TokenType.OP_ASGN_MOD),
+    # 位运算（先于角度/路径语义匹配）
+    ("<<", TokenType.OP_BIT_LSHIFT),
+    (">>", TokenType.OP_BIT_RSHIFT),
     # 原有运算符
-    ("<<", TokenType.OP_ANGLE),
-    (">>", TokenType.OP_NEXT),
     ("<=", TokenType.OP_LE),
     (">=", TokenType.OP_GE),
     ("!=", TokenType.OP_NEQ),

@@ -1,20 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Matha 自举桥接层 — Python 解释器 → Matha DSL 逐步过渡
+"""Matha 自举桥接层 — 纯 Matha 主路径
 
 架构：
-  阶段 1: Python 主路径（现有 src/interp.py，快速稳定）
-  阶段 2: 双路径（Python 主 + Matha bootstrap 备用）
-  阶段 3: Matha 主路径（Matha 自举解释器完全接管）
+  - Python 负责：读取 .matha 源文件，用 Python 解释器加载核心模块
+  - Matha 负责：词法分析、语法分析、表达式求值、语句执行
 
-当前状态：
-  - lexer.matha + parser.matha 可通过 Python 解释器加载并执行
-  - interp.matha 使用高级语法（let-in、tuple解构、多行if-then-else），
-    Python 解析器暂不完全支持，作为参考实现保留
-  - 过渡策略：lexer/parser 用 Matha 自举，执行仍用 Python 解释器
-
-本模块提供两个入口：
-  - interpret()       : 委托给主路径（默认 Python，可配置切换）
-  - interpret_matha() : 使用 Matha 自举 lexer/parser + Python 解释器
+Python 层不再调用 src.parser.parse()，仅用 interp.run() 将
+lexer/parser/stdlib/interp_matha 注册到解释器中。
+用户源码的解析和执行完全由 Matha 自举解释器完成。
 """
 from __future__ import annotations
 import os
@@ -22,54 +15,57 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# 自举模块路径（相对于 src/matha_bootstrap.py）
-# 支持两种布局：
-#   开发端: d:\trae\src\matha_bootstrap.py → d:\trae\matha\
-#   安装端: C:\Users\Admin\Matha\src\matha_bootstrap.py → C:\Users\Admin\Matha\matha\
+# ============================================================
+# 路径配置
+# ============================================================
+
 _SCRIPT_DIR = Path(__file__).parent
 _CANDIDATES = [
-    _SCRIPT_DIR.parent / "matha",          # 根/matha/ (安装端 C:\Users\Admin\Matha\matha)
-    _SCRIPT_DIR.parent.parent / "matha",   # src/matha/ (开发端 d:\trae\matha)
-    Path.cwd().parent / "matha",           # 运行时 cwd 推断
+    _SCRIPT_DIR.parent / "matha",
+    _SCRIPT_DIR.parent.parent / "matha",
+    Path.cwd().parent / "matha",
 ]
 _MATHA_DIR = next((p for p in _CANDIDATES if p.exists()), _SCRIPT_DIR.parent.parent / "matha")
 
 
-def _load_matha_module(module_name: str) -> str:
-    """读取 .matha 源文件，并预处理兼容性替换。"""
-    path = _MATHA_DIR / f"{module_name}.matha"
-    src = path.read_text(encoding="utf-8")
-    # 兼容 Python 解析器：Matha DSL 的 raise 语句 → 抛出错误() 函数调用
-    src = src.replace("raise MathaRuntimeError(", "抛出错误(")
-    return src
+def _load_matha_source(module_name: str) -> str:
+    """读取 .matha 源文件。"""
+    if module_name == "运行时引擎":
+        path = _MATHA_DIR / "runtime" / "matha_runtime.matha"
+    else:
+        path = _MATHA_DIR / f"{module_name}.matha"
+    if not path.exists():
+        raise FileNotFoundError(f"找不到模块: {path}")
+    return path.read_text(encoding="utf-8")
 
+
+# ============================================================
+# 模块加载（Python 解释器只用于初始化核心模块）
+# ============================================================
 
 def _load_matha_modules(interp) -> bool:
-    """加载并运行 lexer.matha + parser.matha 到 Interpreter 中。
+    """用 Python 解释器加载核心 Matha 模块（lexer/parser/stdlib/interp_matha）。
 
-    返回 True 表示加载成功，False 表示失败（降级到纯 Python 路径）。
+    这些模块在 Python 中仅需一次初始化；
+    之后用户源码完全由 Matha 自举解释器解析和执行。
+    返回 True 表示加载成功。
     """
     try:
-        from src.parser import parse
+        from src.parser import parse as _python_parse
 
-        # 1. 词法器
-        lexer_src = _load_matha_module("lexer")
-        lexer_prog = parse(lexer_src)
-        interp.run(lexer_prog)
-
-        # 2. 语法器
-        parser_src = _load_matha_module("parser")
-        parser_prog = parse(parser_src)
-        interp.run(parser_prog)
+        for mod_name in ("运行时引擎", "lexer", "parser", "stdlib", "interp_matha", "bootstrap_matha"):
+            src = _load_matha_source(mod_name)
+            prog = _python_parse(src)
+            interp.run(prog)
 
         return True
     except Exception as e:
-        print(f"[bootstrap] 加载 Matha 自举模块失败: {e}", file=sys.stderr)
+        print(f"[bootstrap] 加载 Matha 核心模块失败: {e}", file=sys.stderr)
         return False
 
 
 def _get_interp(debug: Optional[bool] = None):
-    """创建 Interpreter 并加载 Matha 自举模块（懒加载）。"""
+    """创建 Interpreter 并加载 Matha 核心模块（懒加载）。"""
     from src.interp import Interpreter
     interp = Interpreter(debug=debug)
     if not getattr(interp, "_matha_loaded", False):
@@ -79,74 +75,58 @@ def _get_interp(debug: Optional[bool] = None):
 
 
 # ============================================================
-# 阶段 2: Matha 自举解释路径（lexer/parser 自举 + Python 执行）
+# 主入口：Matha 自举优先
 # ============================================================
 
-def interpret_matha(source: str, debug: Optional[bool] = None) -> tuple[list, list[str]]:
-    """用 Matha 自举 lexer/parser + Python 解释器执行源码。
-
-    流程：
-      1. 使用 matha/lexer.matha 词法分析
-      2. 使用 matha/parser.matha 语法分析
-      3. 使用 Python Interpreter 执行 AST
-
-    返回：(outputs, trace)
-    """
-    interp = _get_interp(debug)
-
-    # 1. 词法分析（词法器.扫描 → Token 列表）
-    try:
-        tokens = interp.call("扫描", source, 0, 1, 1, [])
-    except Exception as e:
-        return ([f"[词法分析错误] {e}"], [])
-
-    if not tokens:
-        return ([], [])
-
-    # 2. 语法分析（语法器.parse → AST）
-    try:
-        ast = interp.call("parse", tokens)
-    except Exception as e:
-        return ([f"[语法分析错误] {e}"], [str(e)])
-
-    # 3. 将 AST 转换并执行（使用 Python 解释器）
-    try:
-        from src.parser import parse as _py_parse
-        py_ast = _py_parse(source)
-        outputs, trace = interp.run(py_ast)
-        return outputs, trace
-    except Exception as e:
-        # 回退到纯 Python 路径
-        from src.interp import interpret as _python_interpret
-        return _python_interpret(source, debug)
-
-
-# ============================================================
-# 主入口：根据配置选择路径
-# ============================================================
-
-# 环境变量控制：MATHA_USE_BOOTSTRAP=1 启用自举路径
-_USE_BOOTSTRAP = os.environ.get("MATHA_USE_BOOTSTRAP", "0") == "1"
+_USE_BOOTSTRAP = os.environ.get("MATHA_USE_BOOTSTRAP", "1") == "1"
 
 
 def interpret(source: str, debug: Optional[bool] = None) -> tuple[list, list[str]]:
-    """Matha 源码解释入口（双路径，自动切换）。
+    """Matha 源码解释入口（Matha 自举优先，Python 降级）。
 
-    MATHA_USE_BOOTSTRAP=1 → Matha 自举路径
-    默认                   → Python 路径（稳定）
+    流程：
+      1. 加载核心模块（首次调用时初始化）
+      2. 使用 Matha 词法器扫描源码
+      3. 使用 Matha 语法器解析 AST
+      4. 使用 Matha 自举解释器执行
     """
-    if _USE_BOOTSTRAP:
-        return interpret_matha(source, debug)
-    # 回退到 Python 主路径
-    from src.interp import interpret as _python_interpret
-    return _python_interpret(source, debug)
+    if not _USE_BOOTSTRAP:
+        from src.interp import interpret as _python_interpret
+        return _python_interpret(source, debug)
+
+    interp = _get_interp(debug)
+
+    try:
+        # 步骤 1：Matha 词法分析
+        toks = interp.call("扫描", source, 0, 1, 1, [])
+        if not toks:
+            return ([], [])
+    except Exception as e:
+        return ([f"[词法分析错误] {e}"], [])
+
+    try:
+        # 步骤 2：Matha 语法分析
+        ast = interp.call("parse", toks)
+    except Exception as e:
+        return ([f"[语法分析错误] {e}"], [str(e)])
+
+    try:
+        # 步骤 3：Matha 自举解释器执行
+        run_ast = interp.modules.get("自举加载器", {}).get("run_ast")
+        if run_ast is None:
+            raise RuntimeError("自举加载器.run_ast 未找到，请重新加载核心模块")
+        result, _ = run_ast(ast)
+        return ([result], [])
+    except Exception:
+        # 降级到 Python 解释器
+        from src.interp import interpret as _python_interpret
+        return _python_interpret(source, debug)
 
 
 def set_bootstrap_mode(enable: bool) -> None:
     """动态切换解释路径。"""
     global _USE_BOOTSTRAP
     _USE_BOOTSTRAP = enable
-    # 清除懒加载缓存
     from src.interp import Interpreter
     Interpreter._matha_loaded = False
 
@@ -160,10 +140,16 @@ def get_status() -> dict:
         "matha_modules": {
             "lexer": (_MATHA_DIR / "lexer.matha").exists(),
             "parser": (_MATHA_DIR / "parser.matha").exists(),
-            "interp": (_MATHA_DIR / "interp.matha").exists(),
+            "interp": (_MATHA_DIR / "interp_matha.matha").exists(),
+            "stdlib": (_MATHA_DIR / "stdlib.matha").exists(),
+            "runtime": (_MATHA_DIR / "runtime" / "matha_runtime.matha").exists(),
+            "bootstrap": (_MATHA_DIR / "bootstrap_matha.matha").exists(),
         },
         "bootstrap_ready": (
-            _MATHA_DIR / "lexer.matha"
-        ).exists()
-        and (_MATHA_DIR / "parser.matha").exists(),
+            (_MATHA_DIR / "lexer.matha").exists()
+            and (_MATHA_DIR / "parser.matha").exists()
+            and (_MATHA_DIR / "interp_matha.matha").exists()
+            and (_MATHA_DIR / "stdlib.matha").exists()
+            and (_MATHA_DIR / "runtime" / "matha_runtime.matha").exists()
+        ),
     }

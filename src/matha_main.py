@@ -68,7 +68,7 @@ def _cmd_run(args) -> int:
     try:
         with open(args.file, "r", encoding="utf-8") as f:
             source = f.read()
-        from src.interp import interpret
+        from src.matha_bootstrap import interpret
         out, trace = interpret(source)
         for item in out:
             print(item)

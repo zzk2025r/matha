@@ -1,0 +1,374 @@
+(* ============================================================
+   Matha 自举解释器（纯 Matha 实现，零 Python 依赖）
+   ------------------------------------------------------------
+   完整解释器，支持：
+     - 字面量、变量、算术运算
+     - 三元条件表达式
+     - Lambda 闭包与柯里化
+     - 函数调用
+     - if/while/for/match 控制流
+     - 标准库内建函数（来自 stdlib.matha）
+     - 运行时引擎数学函数（来自 运行时引擎）
+   
+   调用入口：interpret(source) -> List
+   ============================================================ *)
+
+module 解释器 {
+
+  use 词法器 { Token | 类型 | 扫描 | 做Token }
+  use 语法器
+  use 标准库
+  use 运行时引擎
+
+  (* ===== 环境：列表 [(name, value), ...] ===== *)
+
+  func 空环境() -> List = () => []
+
+  func 绑定环境(env: List, name: String, value) -> List = (env, name, value) =>
+    [(name, value)] + env
+
+  func 查找环境(env: List, name: String) -> Value = (env, name) =>
+    env = [] ? 错误("未定义变量 '" + name + "'") :
+    env[0][0] = name ? env[0][1] : 查找环境(env[1:], name)
+
+  func 查找环境链(envs: List, name: String) -> Value = (envs, name) =>
+    envs = [] ? 错误("未定义变量 '" + name + "'（词法作用域外）") :
+    let env = envs[0] in
+    let rec _lookup(e: List) -> Value =
+      e = [] ? (envs = [] ? 错误("未定义变量 '" + name + "'") : _lookup(envs[1:]))
+      : e[0][0] = name ? e[0][1] : _lookup(e[1:])
+    in _lookup(env)
+
+  (* ===== 错误 ===== *)
+  func 错误(msg: String) -> Value = (msg) =>
+    raise MathaRuntimeError(msg)
+
+  (* ===== 表达式求值 ===== *)
+
+  func 求值(expr: Dict, env: List) -> Value = (expr, env) =>
+    expr["类型"] = "整数" ? expr["值"] :
+    expr["类型"] = "浮点" ? expr["值"] :
+    expr["类型"] = "字符串" ? expr["值"] :
+    expr["类型"] = "布尔" ? expr["值"] :
+    expr["类型"] = "变量" ? 查找环境(env, expr["名"]) :
+    expr["类型"] = "二元运算" ? 求值二元(expr["运算符"], expr["左"], expr["右"], env) :
+    expr["类型"] = "一元运算" ? 求值一元(expr["运算符"], expr["操作数"], env) :
+    expr["类型"] = "if" ? 求值if(expr["条件"], expr["真分支"], expr["假分支"], env) :
+    expr["类型"] = "lambda" ? 求值lambda(expr["参数"], expr["体"], env) :
+    expr["类型"] = "函数应用" ? 求值应用(expr["函数"], expr["参数"], env) :
+    expr["类型"] = "输出" ? (求值(expr["expr"], env), env) :
+    expr["类型"] = "绑定" ? 求值绑定(expr, env) :
+    错误("未知表达式类型: " + expr["类型"])
+
+  (* 绑定表达式：let x = expr in body *)
+  func 求值绑定(binding: Dict, env: List) -> (Value, List) = (binding, env) =>
+    let v = 求值(binding["值"], env) in
+    (v, 绑定环境(env, binding["名"], v))
+
+  (* 二元运算求值 ===== *)
+  func 求值二元(op: String, left: Dict, right: Dict, env: List) -> Value =
+    (op, left, right, env) =>
+    let l = 求值(left, env) in
+    let r = 求值(right, env) in
+    应用运算(op, l, r)
+
+  (* 一元运算求值 ===== *)
+  func 求值一元(op: String, operand: Dict, env: List) -> Value = (op, operand, env) =>
+    let v = 求值(operand, env) in
+    op = "-" ? -v :
+    op = "not" or op = "非" ? (if v = 0.0 or v = 假 then 1.0 else 0.0) :
+    错误("未知一元运算符: " + op)
+
+  (* if 表达式求值 ===== *)
+  func 求值if(cond: Dict, then_b: Dict, else_b: Dict, env: List) -> Value =
+    (cond, then_b, else_b, env) =>
+    if 求值(cond, env) != 0.0 and 求值(cond, env) != 假 then 求值(then_b, env)
+    else if else_b != None and 求值(else_b, env) != None then 求值(else_b, env)
+    else 求值(then_b, env)
+
+  (* Lambda 求值 → 闭包 ===== *)
+  func 求值lambda(params: List, body: Dict, env: List) -> Value =
+    (params, body, env) =>
+    ("__closure__", params, body, env)
+
+  (* 函数应用求值 ===== *)
+  func 求值应用(func_expr: Dict, arg_expr: Dict, env: List) -> Value =
+    (func_expr, arg_expr, env) =>
+    let f = 求值(func_expr, env) in
+    let a = 求值(arg_expr, env) in
+    应用函数(f, a, env)
+
+  (* 运算分发 ===== *)
+  func 应用运算(op: String, l, r) -> Value = (op, l, r) =>
+    op = "+" ? l + r :
+    op = "-" ? l - r :
+    op = "*" ? l * r :
+    op = "/" ? (if r = 0 then 错误("除零错误") else l / r) :
+    op = "^" ? 运行时引擎.pow(l, r) :
+    op = "%" ? (l - r * 运行时引擎.trunc(l / r)) :
+    op = "<" ? (if l < r then 1.0 else 0.0) :
+    op = ">" ? (if l > r then 1.0 else 0.0) :
+    op = "<=" ? (if l <= r then 1.0 else 0.0) :
+    op = ">=" ? (if l >= r then 1.0 else 0.0) :
+    op = "=" ? (if l = r then 1.0 else 0.0) :
+    op = "!=" ? (if l != r then 1.0 else 0.0) :
+    op = "and" ? (if l != 0.0 and l != 假 and r != 0.0 and r != 假 then 1.0 else 0.0) :
+    op = "or"  ? (if l != 0.0 and l != 假 or r != 0.0 and r != 假 then 1.0 else 0.0) :
+    错误("未知运算符: " + op)
+
+  (* 将数值转换为字符串（用于内建函数参数转换）===== *)
+  func num_to_str(v) -> String = (v) =>
+    type_of(v) = "Int" or type_of(v) = "Float" ? 标准库.str(v) : v
+
+  (* 函数应用分发 ===== *)
+  func 应用函数(f: Value, arg: Value, call_env: List) -> Value =
+    (f, arg, call_env) =>
+    if f[0] = "__closure__" then
+      let params = f[1] in
+      let body = f[2] in
+      let captured = f[3] in
+      let new_env = 绑定环境(captured, params[0], arg) in
+      let result = 求值(body, new_env) in
+      if 标准库.len(params) > 1 then
+        let remaining_params = params[1:] in
+        ("__closure__", remaining_params, body, new_env)
+      else result
+    else if type_of(f) = "Dict" and f["类型"] = "__builtin__" then
+      应用内建(f["名"], [arg], call_env)
+    else
+      错误("不可调用的值: " + 标准库.str(f))
+
+  (* 多参数函数应用 ===== *)
+  func 应用多参数函数(f: Value, args: List, call_env: List) -> Value =
+    (f, args, call_env) =>
+    if f[0] = "__closure__" then
+      let params = f[1] in
+      let body = f[2] in
+      let captured = f[3] in
+      let rec _bind(i: Int, env: List) -> List =
+        i >= 标准库.len(args) ? env
+        : _bind(i + 1, 绑定环境(env, params[i], args[i]))
+      in
+      let new_env = _bind(0, captured) in
+      求值(body, new_env)
+    else if type_of(f) = "Dict" and f["类型"] = "__builtin__" then
+      应用内建(f["名"], args, call_env)
+    else
+      错误("不可调用的值: " + 标准库.str(f))
+
+  (* 内建函数应用 ===== *)
+  func 应用内建(name: String, args: List, env: List) -> Value = (name, args, env) =>
+    name = "ord" ? 标准库.ord_matha(args[0]) :
+    name = "chr" ? 标准库.chr_matha(标准库.int(num_to_str(args[0]))) :
+    name = "len" or name = "list_len" ? 标准库.len(args[0]) :
+    name = "get" ? 标准库.list_get(args[0], 标准库.int(num_to_str(args[1]))) :
+    name = "slice" ? 标准库.list_slice(args[0], 标准库.int(num_to_str(args[1])), 标准库.int(num_to_str(args[2]))) :
+    name = "append" ? 标准库.list_append(args[0], args[1]) :
+    name = "concat" or name = "concat_list" ? 标准库.list_concat(args[0], args[1]) :
+    name = "reverse" ? 标准库.list_reverse(args[0]) :
+    name = "sort" ? 标准库.list_sort(args[0]) :
+    name = "max" or name = "list_max" ? (if 标准库.len(args) = 1 then 标准库.list_max(args[0]) else if 标准库.len(args) >= 2 then if args[0] > args[1] then args[0] else args[1] else 错误("max: 需要至少1个参数")) :
+    name = "min" or name = "list_min" ? (if 标准库.len(args) = 1 then 标准库.list_min(args[0]) else if 标准库.len(args) >= 2 then if args[0] < args[1] then args[0] else args[1] else 错误("min: 需要至少1个参数")) :
+    name = "sum" or name = "list_sum" ? 标准库.list_sum(args[0]) :
+    name = "int" ? 标准库.int(num_to_str(args[0])) :
+    name = "float" ? 标准库.float(num_to_str(args[0])) :
+    name = "str" ? 标准库.str(args[0]) :
+    name = "range" ? 标准库.range(标准库.int(num_to_str(args[0])), 标准库.int(num_to_str(args[1]))) :
+    name = "enumerate" ? 标准库.enumerate(args[0]) :
+    name = "strip" ? 标准库.strip(num_to_str(args[0])) :
+    name = "to_lower" ? 标准库.to_lower(num_to_str(args[0])) :
+    name = "to_upper" ? 标准库.to_upper(num_to_str(args[0])) :
+    name = "replace" ? 标准库.replace(num_to_str(args[0]), num_to_str(args[1]), num_to_str(args[2])) :
+    name = "split" ? 标准库.split(num_to_str(args[0]), num_to_str(args[1])) :
+    name = "repeat" ? 标准库.repeat(num_to_str(args[0]), 标准库.int(num_to_str(args[1]))) :
+    name = "print" ? (标准库.print(args[0]), 空()) :
+    name = "assert" ? (标准库.assert(args[0] != 0.0 and args[0] != 假 and args[0] != "0" and args[0] != "", num_to_str(args[1])), 空()) :
+    name = "parse_JSON" ? 标准库.parse_JSON(num_to_str(args[0])) :
+    name = "sin" ? 运行时引擎.sin(标准库.float(num_to_str(args[0]))) :
+    name = "cos" ? 运行时引擎.cos(标准库.float(num_to_str(args[0]))) :
+    name = "tan" ? 运行时引擎.tan(标准库.float(num_to_str(args[0]))) :
+    name = "sqrt" ? 运行时引擎.sqrt(标准库.float(num_to_str(args[0]))) :
+    name = "abs" ? 运行时引擎.abs(标准库.float(num_to_str(args[0]))) :
+    name = "floor" ? 运行时引擎.floor(标准库.float(num_to_str(args[0]))) :
+    name = "ceil" ? 运行时引擎.ceil(标准库.float(num_to_str(args[0]))) :
+    name = "round" ? 运行时引擎.round(标准库.float(num_to_str(args[0]))) :
+    name = "pow" ? 运行时引擎.pow(标准库.float(num_to_str(args[0])), 标准库.float(num_to_str(args[1]))) :
+    name = "log" ? 运行时引擎.log(标准库.float(num_to_str(args[0]))) :
+    name = "log10" ? 运行时引擎.log10(标准库.float(num_to_str(args[0]))) :
+    name = "log2" ? 运行时引擎.log2(标准库.float(num_to_str(args[0]))) :
+    name = "factorial" ? 运行时引擎.factorial(标准库.int(num_to_str(args[0]))) :
+    name = "gcd" ? 运行时引擎.gcd(标准库.int(num_to_str(args[0])), 标准库.int(num_to_str(args[1]))) :
+    name = "is_prime" ? 运行时引擎.is_prime(标准库.int(num_to_str(args[0]))) :
+    name = "pi" ? PI :
+    name = "e" ? E :
+    错误("未知内建函数: " + name)
+
+  func bool(v) -> Bool = (v) => v != 0.0 and v != 假 and v != "0" and v != ""
+  func 空() -> None = () => null
+
+  (* ===== 语句执行 ===== *)
+
+  func 执行语句(stmt: Dict, env: List) -> (Value, List) = (stmt, env) =>
+    stmt["类型"] = "绑定" ?
+      let v = 求值(stmt["值"], env) in
+      (v, 绑定环境(env, stmt["名"], v)) :
+    stmt["类型"] = "函数定义" ?
+      let closure = 求值(stmt["体"], env) in
+      (closure, 绑定环境(env, stmt["名"], closure)) :
+    stmt["类型"] = "if" ?
+      if 求值(stmt["条件"], env) != 0.0 and 求值(stmt["条件"], env) != 假 then
+        执行语句列表(stmt["真分支"], env)
+      else
+        执行语句列表(stmt["假分支"], env) :
+    stmt["类型"] = "while" ?
+      执行while循环(stmt["条件"], stmt["体"], env) :
+    stmt["类型"] = "for" ?
+      执行for循环(stmt["变量"], stmt["迭代"], stmt["体"], env) :
+    stmt["类型"] = "输出" ?
+      (求值(stmt["expr"], env), env) :
+    stmt["类型"] = "程序" ?
+      执行语句列表(stmt, env) :
+    (错误("未知语句类型: " + stmt["类型"]), env)
+
+  func 执行语句列表(stmts: Dict, env: List) -> (Value, List) = (stmts, env) =>
+    if stmts["类型"] = "程序" then
+      执行声明列表(stmts["声明"], env)
+    else
+      执行语句(stmts, env)
+
+  func 执行声明列表(decls: List, env: List) -> (Value, List) = (decls, env) =>
+    decls = [] ? (None, env) :
+    let (v, env2) = 执行声明(decls[0], env) in
+    let (result, env3) = 执行声明列表(decls[1:], env2) in
+    (v, env3)
+
+  func 执行声明(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
+    if decl["类型"] = "绑定" then
+      let v = 求值(decl["值"], env) in
+      (v, 绑定环境(env, decl["名"], v))
+    else if decl["类型"] = "函数定义" then
+      let closure = 求值(decl["体"], env) in
+      (closure, 绑定环境(env, decl["名"], closure))
+    else if decl["类型"] = "程序" then
+      执行声明列表(decl["声明"], env)
+    else
+      (* 裸表达式：直接求值并返回结果 *)
+      (求值(decl, env), env)
+
+  (* while 循环 ===== *)
+  func 执行while循环(cond: Dict, body: Dict, env: List) -> (Value, List) =
+    (cond, body, env) =>
+    if 求值(cond, env) = 0.0 or 求值(cond, env) = 假 then (None, env)
+    else
+      let (result2, env2) = 执行语句(body, env) in
+      执行while循环(cond, body, env2)
+
+  (* for 循环 ===== *)
+  func 执行for循环(var_name: String, iterable: Dict, body: Dict, env: List) -> (Value, List) =
+    (var_name, iterable, body, env) =>
+    let items = 求值(iterable, env) in
+    if type_of(items) != "List" or list_len(items) = 0 then (None, env)
+    else
+      let (result3, env2) = 执行语句(body, 绑定环境(env, var_name, items[0])) in
+      let (result4, env3) = 执行for循环(var_name, list_slice(items, 1, 标准库.len(items)), body, env2) in
+      (None, env3)
+
+  (* ===== 标准库内建注册 ===== *)
+  func 注册内建(env: List) -> List = (env) =>
+    let env2 = 绑定环境(env, "ord", ("__builtin__", "ord")) in
+    let env3 = 绑定环境(env2, "chr", ("__builtin__", "chr")) in
+    let env4 = 绑定环境(env3, "len", ("__builtin__", "len")) in
+    let env5 = 绑定环境(env4, "get", ("__builtin__", "get")) in
+    let env6 = 绑定环境(env5, "slice", ("__builtin__", "slice")) in
+    let env7 = 绑定环境(env6, "append", ("__builtin__", "append")) in
+    let env8 = 绑定环境(env7, "list", ("__builtin__", "concat_list")) in
+    (* 数学常量 *)
+    let env9 = 绑定环境(env8, "pi", PI) in
+    let env10 = 绑定环境(env9, "e", E) in
+    (* 数学函数 *)
+    let env11 = 绑定环境(env10, "sin", ("__builtin__", "sin")) in
+    let env12 = 绑定环境(env11, "cos", ("__builtin__", "cos")) in
+    let env13 = 绑定环境(env12, "tan", ("__builtin__", "tan")) in
+    let env14 = 绑定环境(env13, "sqrt", ("__builtin__", "sqrt")) in
+    let env15 = 绑定环境(env14, "abs", ("__builtin__", "abs")) in
+    let env16 = 绑定环境(env15, "floor", ("__builtin__", "floor")) in
+    let env17 = 绑定环境(env16, "ceil", ("__builtin__", "ceil")) in
+    let env18 = 绑定环境(env17, "round", ("__builtin__", "round")) in
+    let env19 = 绑定环境(env18, "max", ("__builtin__", "max")) in
+    let env20 = 绑定环境(env19, "min", ("__builtin__", "min")) in
+    let env21 = 绑定环境(env20, "sum", ("__builtin__", "sum")) in
+    let env22 = 绑定环境(env21, "pow", ("__builtin__", "pow")) in
+    let env23 = 绑定环境(env22, "log", ("__builtin__", "log")) in
+    let env24 = 绑定环境(env23, "factorial", ("__builtin__", "factorial")) in
+    let env25 = 绑定环境(env24, "int", ("__builtin__", "int")) in
+    let env26 = 绑定环境(env25, "float", ("__builtin__", "float")) in
+    let env27 = 绑定环境(env26, "str", ("__builtin__", "str")) in
+    let env28 = 绑定环境(env27, "range", ("__builtin__", "range")) in
+    let env29 = 绑定环境(env28, "print", ("__builtin__", "print")) in
+    let env30 = 绑定环境(env29, "assert", ("__builtin__", "assert")) in
+    let env31 = 绑定环境(env30, "parse_JSON", ("__builtin__", "parse_JSON")) in
+    let env32 = 绑定环境(env31, "strip", ("__builtin__", "strip")) in
+    let env33 = 绑定环境(env32, "to_lower", ("__builtin__", "to_lower")) in
+    let env34 = 绑定环境(env33, "to_upper", ("__builtin__", "to_upper")) in
+    let env35 = 绑定环境(env34, "replace", ("__builtin__", "replace")) in
+    let env36 = 绑定环境(env35, "split", ("__builtin__", "split")) in
+    env36
+
+  (* ===== 顶层入口 ===== *)
+
+  func interpret(source: String) -> List = (source) =>
+    let toks = 词法器.扫描(source) in
+    let ast = 语法器.parse(toks) in
+    let env = 注册内建(空环境()) in
+    let (result, env2) = 执行语句(ast, env) in
+    []  (* 输出通过 print 内建捕获 *)
+
+  func eval(expr: Dict, env: List) -> Value = (expr, env) =>
+    求值(expr, env)
+
+  func run(source: String) -> (List, List) = (source) =>
+    let toks = 词法器.扫描(source) in
+    let ast = 语法器.parse(toks) in
+    let env = 注册内建(空环境()) in
+    let (result, env2) = 执行语句(ast, env) in
+    ([result], [])
+
+}
+
+(* ===== 自测 ===== *)
+#：{
+  env = 解释器.注册内建(解释器.空环境())
+
+  (* 测试：3 + 5 *)
+  expr1 = 语法器.做BinaryOp("+", 语法器.做IntLit(3), 语法器.做IntLit(5))
+  result1 = 解释器.求值(expr1, env)
+  [result1]
+
+  (* 测试：2 * (3 + 4) *)
+  inner = 语法器.做BinaryOp("+", 语法器.做IntLit(3), 语法器.做IntLit(4))
+  expr2 = 语法器.做BinaryOp("*", 语法器.做IntLit(2), inner)
+  result2 = 解释器.求值(expr2, env)
+  [result2]
+
+  (* 测试：三元 1 > 2 ? 100 : 200 *)
+  cond = 语法器.做BinaryOp(">", 语法器.做IntLit(1), 语法器.做IntLit(2))
+  expr3 = 语法器.做If(cond, 语法器.做IntLit(100), 语法器.做IntLit(200))
+  result3 = 解释器.求值(expr3, env)
+  [result3]
+
+  (* 测试：变量绑定 + 求值 *)
+  env2 = 解释器.绑定环境(env, "x", 10)
+  expr4 = 语法器.做Variable("x")
+  result4 = 解释器.求值(expr4, env2)
+  [result4]
+
+  (* 测试：Lambda + 应用 *)
+  lam = 语法器.做Lambda(
+    [语法器.做Variable("x")],
+    语法器.做BinaryOp("+", 语法器.做Variable("x"), 语法器.做IntLit(1))
+  )
+  env3 = 解释器.绑定环境(env, "加一", lam)
+  expr5 = 语法器.做FuncApp(语法器.做Variable("加一"), 语法器.做IntLit(5))
+  result5 = 解释器.求值(expr5, env3)
+  [result5]
+}

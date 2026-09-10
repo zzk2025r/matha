@@ -112,8 +112,12 @@ def test_run_parser_matha():
     """在 parser.matha 上执行：函数可调用 + 节点构建 + 链追踪。"""
     print("\n--- 执行 parser.matha ---")
     interp = Interpreter()
-    program = parse(_load(PARSER_PATH))
-    outputs, trace = interp.run(program)
+    # 先加载词法器模块，使 parser.matha 的 use 词法器 可用
+    lexer_prog = parse(_load(LEXER_PATH))
+    interp.run(lexer_prog)
+    # 词法器模块注册后，parser.matha 可以独立执行
+    parser_prog = parse(_load(PARSER_PATH))
+    outputs, trace = interp.run(parser_prog)
 
     # 纯函数（整数值为递归函数，使用简单输出验证）
     print("  ✓ parser.matha 函数可调用")
@@ -126,19 +130,17 @@ def test_run_parser_matha():
     print(f"  ✓ 追踪 {len(trace)} 步产生式链")
 
 
-def test_cross_module_not_yet_linked():
-    """解释器当前不跨模块链接 use 导入（后端绑定待实现），
-    但能独立执行各模块的具体部分。记录这一边界。"""
-    print("\n--- 跨模块边界 ---")
+def test_cross_module_linked():
+    """词法器模块加载后，parser.matha 可通过 use 导入词法器函数并跨模块调用。"""
+    print("\n--- 跨模块链接 ---")
     interp = Interpreter()
+    interp.run(parse(_load(LEXER_PATH)))  # 先加载词法器
     interp.run(parse(_load(PARSER_PATH)))
-    # 跨模块引用（扫描）不可用：解释器未实现模块链接
-    try:
-        interp.call("扫描", "test")
-        assert False, "不应能调用跨模块函数"
-    except MathaRuntimeError:
-        print("  ✓ 跨模块调用被正确拒绝（模块链接待实现）")
-    print("  ✓ parser.matha 独立可执行")
+    # 词法器.tokenize 是公共入口，返回 Token 列表
+    result = interp.call("词法器.tokenize", "test")
+    assert isinstance(result, list), f"expected list, got {type(result)}"
+    print(f"  ✓ 词法器.tokenize('test') 返回 {len(result)} 个 tokens")
+    print("  ✓ 跨模块链接已工作")
 
 
 # ===== 综合演示 =====
@@ -173,6 +175,7 @@ def _run_all():
         test_command_chain_trace,
         test_run_lexer_matha,
         test_run_parser_matha,
+        test_cross_module_linked,
         test_end_to_end_demo,
     ]
     passed = 0

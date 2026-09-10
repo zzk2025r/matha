@@ -45,8 +45,10 @@
 
 from __future__ import annotations
 import logging
+import math
 import os
 import sys
+from pathlib import Path
 from typing import Any
 from src import ast_nodes as ast
 
@@ -139,6 +141,7 @@ def _build_domain_builtins() -> dict:
     b["与"] = _curry_module(2, lambda a, b: a and b)
     b["或"] = _curry_module(2, lambda a, b: a or b)
     b["非"] = lambda x: not x
+    b["not"] = lambda x: not x
     return b
 
 
@@ -191,12 +194,13 @@ class _EnumNamespace:
     def __init__(self, name: str, ctors: list):
         self.name = name
         self.ctors = ctors
+        self.line = None
+        self.col = None
         for ctor in ctors:
             setattr(self, ctor, ctor)
 
     def __repr__(self):
-        return f"<Enum {self.name}>"
-        base = super().__str__()
+        base = f"<{_EnumNamespace.__name__} '{self.name}'>"
         loc = ""
         if self.line is not None:
             loc = f" (L{self.line}"
@@ -204,6 +208,36 @@ class _EnumNamespace:
                 loc += f":C{self.col}"
             loc += ")"
         return base + loc
+
+
+class _StructInstance:
+    """Matha struct 实例，支持 obj.field 和 obj["field"] 访问。"""
+
+    def __init__(self, name: str, fields: list, values: list):
+        self._name = name
+        self._fields = fields
+        self._values = dict(zip(fields, values))
+        for f, v in zip(fields, values):
+            self.__dict__[f] = v
+
+    def __getitem__(self, key):
+        return self._values[key]
+
+    def __setitem__(self, key, value):
+        self._values[key] = value
+        setattr(self, key, value)
+
+    def __repr__(self):
+        pairs = ", ".join(f"{k}={v!r}" for k, v in self._values.items())
+        return f"{self._name}({pairs})"
+
+    def __eq__(self, other):
+        if isinstance(other, _StructInstance):
+            return self._name == other._name and self._values == other._values
+        return False
+
+    def __hash__(self):
+        return hash((self._name, tuple(self._values.items())))
 
 
 def _raise(msg: str, line: int = None, col: int = None) -> None:
@@ -248,10 +282,15 @@ class _RecPlaceholder:
         actual = self._ref[0]
         if actual is None:
             raise MathaRuntimeError(f"递归函数 '{self.name}' 尚未完成初始化")
-        # actual 是 ("__closure__", lambda, captured) 元组
         if isinstance(actual, tuple) and actual and actual[0] == "__closure__":
-            _, lam, captured = actual
-            return self._interp._call_lambda(lam, captured, [arg])
+            # 4 元组 ("__closure__", params, body, env)
+            if len(actual) == 4:
+                _, lam, body, captured = actual
+                lambda_node = ast.Lambda(params=lam, body=body)
+            else:
+                # 3 元组 ("__closure__", lambda, captured)
+                _, lambda_node, captured = actual
+            return self._interp._call_lambda(lambda_node, captured, [arg])
         return actual(arg)
 
 
@@ -272,9 +311,9 @@ def builtin_chr(n: int) -> str:
 
 
 def builtin_len(seq) -> int:
-    if isinstance(seq, (str, list)):
+    if isinstance(seq, (str, list, tuple)):
         return len(seq)
-    raise MathaRuntimeError(f"len() 需要字符串或列表，实际 {type(seq).__name__}")
+    raise MathaRuntimeError(f"len() 需要字符串或列表或元组，实际 {type(seq).__name__}")
 
 
 def builtin_get(seq):
@@ -306,6 +345,9 @@ def builtin_slice(seq):
 
 def builtin_append(lst):
     """append(lst)(elem) → 新列表 lst + [elem]"""
+    # 兼容：Matha 词法器部分调用返回 tuple（partial application），转为 list
+    if isinstance(lst, tuple):
+        lst = list(lst)
     def with_elem(elem):
         if not isinstance(lst, list):
             raise MathaRuntimeError(f"append() 需要列表，实际 {type(lst).__name__}")
@@ -506,6 +548,47 @@ def builtin_列表去重(lst) -> list:
     return seen
 
 
+# ============================================================
+# Matha 模块加载（自举路径）
+# ============================================================
+
+def _matha_dir() -> Path:
+    """定位 matha/ 目录。"""
+    _candidates = [
+        Path(__file__).parent.parent / "matha",
+        Path.cwd().parent / "matha",
+        Path.cwd() / "matha",
+    ]
+    for p in _candidates:
+        if p.exists():
+            return p
+    return Path(__file__).parent.parent / "matha"
+
+
+def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
+    """读取 .matha 源文件。"""
+    d = matha_dir or _matha_dir()
+    # 中文模块名 → 英文文件名映射（模块声明用中文，源文件用英文）
+    _CN2FILE = {
+        "词法器": "lexer.matha",
+        "语法器": "parser.matha",
+        "标准库": "stdlib.matha",
+        "解释器": "interp.matha",
+        "虚拟机": "vm/matha_vm.matha",
+        "自举加载器": "bootstrap_matha.matha",
+        "编译器": "compiler_matha.matha",
+    }
+    if module_name == "运行时引擎":
+        path = d / "runtime" / "matha_runtime.matha"
+    elif module_name in _CN2FILE:
+        path = d / _CN2FILE[module_name]
+    else:
+        path = d / f"{module_name}.matha"
+    if not path.exists():
+        raise FileNotFoundError(f"找不到 Matha 模块: {path}")
+    return path.read_text(encoding="utf-8")
+
+
 BUILTINS: dict[str, object] = {
     "ord": builtin_ord,
     "chr": builtin_chr,
@@ -560,6 +643,25 @@ def _curry_callable(fn, arity=None):
     return fn
 
 
+class _MathaExecWrapper:
+    """包装 Matha 执行函数，使其能处理 Python AST 节点。
+
+    当解释器通过 _call_func 调用时，参数以 [arg] 形式传入。
+    对于 执行语句/执行声明，第一个参数是 stmt/decl，第二个是 env。
+    本包装器直接将调用转发到对应的 Python 方法。
+    """
+    def __init__(self, interp: "Interpreter", method_name: str):
+        self._interp = interp
+        self._method = getattr(interp, method_name)
+
+    def __call__(self, arg):
+        """单参数调用：arg 是 (stmt, env) 或仅 stmt。"""
+        if isinstance(arg, tuple) and len(arg) == 2:
+            return self._method(arg[0], arg[1])
+        # 单参数调用：arg 是 stmt，env 从 self.env 取
+        return self._method(arg, self._interp.env)
+
+
 class Interpreter:
     """Matha 树走式解释器。"""
 
@@ -572,6 +674,7 @@ class Interpreter:
         self.builtins: dict[str, object] = dict(BUILTINS)  # 可继承覆写
         # 模块系统：module_name → {name → bound_value}
         self.modules: dict[str, dict] = {}
+        self._matha_loaded: bool = False
         # debug=None → 服从 MATHA_DEBUG 环境变量；显式 True/False 优先
         self.debug = _env_debug_flag() if debug is None else bool(debug)
         # 递归深度缩进，让 _eval / _exec_stmt / _call_lambda 嵌套可读
@@ -610,26 +713,56 @@ class Interpreter:
             self._log(logging.DEBUG, f"← {tag}{r}")
 
     @staticmethod
-    def _fmt(v: object) -> str:
-        """值的安全格式化（避免巨型对象刷屏）。"""
+    def _fmt(v: object, _depth: int = 0) -> str:
+        """值的安全格式化（避免巨型/自引用对象刷屏或死循环）。
+
+        注意：调用点常在 f-string 中无条件求值（即使 debug=False），
+        因此这里必须对任意结构保证快速终止。
+        """
+        if _depth > 3:
+            return "…"
         if isinstance(v, str):
             return repr(v[:60] + ("…" if len(v) > 60 else ""))
-        if isinstance(v, list):
-            n = len(v)
-            return f"[list len={n}]" if n > 8 else repr(v)
+        if v is None or isinstance(v, (bool, int, float)):
+            return repr(v)
+        if isinstance(v, tuple) and v and v[0] == "__closure__":
+            # 闭包元组：captured env 内含模块命名空间 → 自引用，绝不可 repr
+            params = v[1] if len(v) > 1 else []
+            try:
+                n = len(params)
+            except TypeError:
+                n = "?"
+            return f"<closure {n}参数>"
+        if isinstance(v, (list, tuple)):
+            if len(v) > 4:
+                return f"[{type(v).__name__} len={len(v)}]"
+            return ("[" + ", ".join(Interpreter._fmt(x, _depth + 1) for x in v) + "]")
         if isinstance(v, dict):
-            return f"{{dict keys={list(v.keys())}}}" if len(v) > 6 else repr(v)
-        return repr(v)
+            if len(v) > 6:
+                return f"{{dict keys={list(v.keys())[:8]}}}"
+            return ("{" + ", ".join(
+                f"{k}: {Interpreter._fmt(x, _depth + 1)}"
+                for k, x in list(v.items())[:6]) + "}")
+        if callable(v):
+            return f"<builtin {getattr(v, '__name__', '?')}>"
+        name = getattr(v, "name", None)
+        if name is not None and not isinstance(v, type):
+            return f"<{type(v).__name__} {name}>"
+        return repr(v)[:120]
 
     # ---------- 入口 ----------
 
     def run(self, program: ast.Program) -> tuple[list, list[str]]:
         self._log(logging.INFO, f"run: {len(program.decls)} 个顶层声明")
         self._depth = 0
+        # 记录注册前的 funcs 集合，用于后续计算模块命名空间
+        self._pre_register_funcs = set(self.funcs.keys())
         self._log_enter("register-pass")
         for decl in program.decls:
             self._register(decl)
         self._log_exit("register-pass")
+        # 覆盖执行语句/执行声明：使它们能处理 Python AST 节点（测试块路径）
+        self._override_matha_exec_funcs()
         self._log_enter("exec-pass")
         # 预处理：收集需要提前执行以注册递归函数的 FuncApp
         self._deferred_calls: set[tuple] = set()
@@ -695,7 +828,8 @@ class Interpreter:
         # funcs 优先于 builtins：用户定义函数可覆写同名内建
         # （如 func c(x) 覆写光速常量 c）
         if name in self.funcs:
-            return self._call_func(self.funcs[name], list(args))
+            result = self._call_func(self.funcs[name], list(args))
+            return result
         if name in self.builtins:
             result = self.builtins[name]
             self._log(logging.DEBUG, f"call builtin '{name}'({args}) → {type(result).__name__}")
@@ -711,7 +845,48 @@ class Interpreter:
                 else:
                     raise MathaRuntimeError(f"内建 '{name}'({type(result).__name__}) 需要参数，不可无参调用")
             return result
+        # 模块属性调用：如 语法器.parse、词法器.扫描
+        if '.' in name:
+            mod_name, fn_name = name.split('.', 1)
+            if mod_name in self.modules:
+                fn = self.modules[mod_name].get(fn_name)
+                if fn is not None:
+                    return self._call_func_or_closure(fn, list(args))
+            if mod_name in self.env:
+                obj = self.env[mod_name]
+                if isinstance(obj, dict) and fn_name in obj:
+                    fn = obj[fn_name]
+                    return self._call_func_or_closure(fn, list(args))
         raise MathaRuntimeError(f"未定义函数 '{name}'")
+
+    def load_matha_module(self, module_name: str, matha_dir: Path | None = None) -> bool:
+        """从文件系统加载 .matha 模块并注册到解释器。
+
+        支持在运行时通过 use 声明自动加载模块。
+        返回 True 表示加载成功，False 表示模块已存在或加载失败。
+        """
+        # 先从已加载模块中查找（支持中英文名）
+        if module_name in self.modules:
+            self._log(logging.DEBUG, f"模块 '{module_name}' 已加载，跳过")
+            return True
+        try:
+            from src.parser import parse as _python_parse
+            source = _load_matha_source(module_name, matha_dir)
+            self._log(logging.INFO, f"load_matha_module: '{module_name}'")
+            prog = _python_parse(source)
+            # 提取实际的模块名（module 声明中的名称）
+            actual_name = module_name
+            for decl in prog.decls:
+                if isinstance(decl, ast.ModuleDecl):
+                    actual_name = decl.name
+                    break
+            self.run(prog)
+            loaded = actual_name in self.modules
+            self._log(logging.INFO, f"load_matha_module: '{module_name}' -> '{actual_name}' = {loaded}")
+            return loaded
+        except Exception as e:
+            self._log(logging.ERROR, f"load_matha_module '{module_name}' 失败: {e}")
+            return False
 
     # ---------- 注册 ----------
 
@@ -728,8 +903,9 @@ class Interpreter:
         elif isinstance(decl, ast.ModuleDecl):
             self._log(logging.INFO,
                       f"register module '{decl.name}' ({len(decl.decls)} decls)")
-            for inner in decl.decls:
-                self._register(inner)
+            if decl.name not in self.modules:
+                for inner in decl.decls:
+                    self._register(inner)
 
     # ---------- 声明执行 ----------
 
@@ -750,19 +926,47 @@ class Interpreter:
                 self._exec_stmt(body)
         elif isinstance(decl, ast.ModuleDecl):
             self._log(logging.INFO, f"exec Module '{decl.name}'")
-            saved_env = set(self.env.keys())
-            saved_funcs = set(self.funcs.keys())
-            for inner in decl.decls:
-                self._exec_decl(inner)
-            # 收集模块新增的绑定到 modules 字典
-            new_env = set(self.env.keys()) - saved_env
-            new_funcs = set(self.funcs.keys()) - saved_funcs
-            self.modules[decl.name] = {
-                k: self.env[k] for k in new_env if k not in self.builtins
-            }
-            self.modules[decl.name].update({
-                k: self.funcs[k] for k in new_funcs
-            })
+            if decl.name in self.modules:
+                self._log(logging.DEBUG, f"  模块 '{decl.name}' 已加载，跳过重复注册")
+            else:
+                # 模块命名空间严格隔离：只收集本模块 decls 显式定义的名字，
+                # 不扫描全局 self.env（避免把其它模块的符号污染进本模块）。
+                local_names: list[str] = []
+                local_set: set[str] = set()
+
+                def _register_local(nm: str) -> None:
+                    if nm and nm not in local_set:
+                        local_set.add(nm)
+                        local_names.append(nm)
+
+                for inner in decl.decls:
+                    self._exec_decl(inner)
+                    # FuncDef 执行后创建 closure 并存入 env
+                    if isinstance(inner, ast.FuncDef):
+                        closure = ("__closure__", inner.body.params, inner.body.body,
+                                   list(self.env.items()))
+                        self.env[inner.name] = closure
+                        _register_local(inner.name)
+                    elif isinstance(inner, ast.LetBinding):
+                        _register_local(inner.name)
+                    elif isinstance(inner, ast.EnumDef):
+                        _register_local(inner.name)
+                    elif isinstance(inner, ast.StructDef):
+                        _register_local(inner.name)
+                    elif isinstance(inner, ast.Binding):
+                        # 顶层绑定 target 一般是 Variable
+                        tgt = inner.target
+                        nm = getattr(tgt, 'name', None)
+                        if nm is not None:
+                            _register_local(nm)
+                # 仅收录本模块定义、且当前在 env 中有值的名字
+                module_ns = {}
+                for nm in local_names:
+                    if nm in self.env:
+                        module_ns[nm] = self.env[nm]
+                self.modules[decl.name] = module_ns
+                # 将模块命名空间作为变量绑定到 env，支持 模块.函数 语法
+                self.env[decl.name] = module_ns
         elif isinstance(decl, ast.Binding):
             # 顶层绑定（如 inc = (x) => x + 1）写入全局 env，
             # 使 lambda 变量在各段内可见，与 func 定义行为一致。
@@ -771,6 +975,19 @@ class Interpreter:
         elif isinstance(decl, ast.Output):
             self._log(logging.INFO, f"exec top-level Output")
             self._exec_stmt(decl)
+        elif isinstance(decl, ast.LetBinding):
+            self._log(logging.INFO, f"exec top-level LetBinding '{decl.name}'")
+            self._exec_stmt(decl)
+        elif isinstance(decl, ast.BinaryOp):
+            # 顶层裸表达式（如 1 === 1）：计算并输出
+            self._log(logging.INFO, f"exec top-level BinaryOp")
+            val = self._eval(decl)
+            self.outputs.append(val)
+        elif isinstance(decl, ast.UnaryOp):
+            # 顶层裸一元表达式（如 ~5、-3、null）
+            self._log(logging.INFO, f"exec top-level UnaryOp '{decl.op}'")
+            val = self._eval(decl)
+            self.outputs.append(val)
         elif isinstance(decl, ast.FuncApp):
             # 顶层函数调用：执行并丢弃返回值
             self._log(logging.DEBUG, f"exec top-level FuncApp")
@@ -805,12 +1022,34 @@ class Interpreter:
             self._log(logging.INFO,
                       f"register enum '{decl.name}' ns={ns}")
         elif isinstance(decl, ast.StructDef):
-            # struct 注册为工厂函数，支持 Token(类型.整数, "x", 1, 1) 调用
+            # struct 注册为工厂函数，返回支持字段访问的对象
+            # fields 是 [(name, type), ...] 格式
+            field_names = [f[0] for f in decl.fields] if decl.fields else []
             def _struct_factory(*args):
-                return {decl.name: args}
+                if len(args) < len(field_names):
+                    # 柯里化：参数不足时返回等待剩余参数的部分函数
+                    # 支持嵌套 FuncApp 的逐个参数应用
+                    remaining = field_names[len(args):]
+                    def _partial(*more_args):
+                        all_args = list(args) + list(more_args)
+                        if len(all_args) != len(field_names):
+                            raise MathaRuntimeError(
+                                f"struct {decl.name} 期望 {len(field_names)} 个参数，实际 {len(all_args)} 个"
+                            )
+                        return _StructInstance(decl.name, field_names, all_args)
+                    return _partial
+                if len(args) != len(field_names):
+                    # 允许零参数 struct 的无参调用：Empty()
+                    if len(field_names) == 0 and len(args) == 1 and isinstance(args[0], int) and args[0] == 0:
+                        args = []
+                    else:
+                        raise MathaRuntimeError(
+                            f"struct {decl.name} 期望 {len(field_names)} 个参数，实际 {len(args)} 个"
+                        )
+                return _StructInstance(decl.name, field_names, list(args))
             self.env[decl.name] = _struct_factory
             self._log(logging.INFO,
-                      f"register struct '{decl.name}'")
+                      f"register struct '{decl.name}' fields={field_names}")
         else:
             self._log(logging.DEBUG, f"skip decl {type(decl).__name__}（无运行时副作用）")
 
@@ -984,7 +1223,10 @@ class Interpreter:
         alias = decl.alias
 
         if module_name not in self.modules:
-            raise MathaRuntimeError(f"未找到模块 '{module_name}'")
+            # 自动从文件加载模块（自举路径）
+            self._log(logging.INFO, f"use '{module_name}' 未找到，尝试从文件加载...")
+            if not self.load_matha_module(module_name):
+                raise MathaRuntimeError(f"未找到模块 '{module_name}'")
 
         module_ns = self.modules[module_name]
         for name in import_list:
@@ -1201,6 +1443,9 @@ class Interpreter:
         elif isinstance(stmt, ast.FuncDef):
             # 代码块内的函数定义：注册到当前解释器（保持向后兼容）
             self.funcs[stmt.name] = stmt
+            # 同时创建 closure tuple 存入 env，使递归函数能在闭包中查找自身
+            closure = ("__closure__", stmt.body.params, stmt.body.body, list(self.env.items()))
+            self.env[stmt.name] = closure
             self._log(logging.INFO, f"exec func '{stmt.name}' in block")
         elif isinstance(stmt, ast.GlobalIdStmt):
             # 全局编号语句：跨文件绑定标记
@@ -1220,6 +1465,8 @@ class Interpreter:
             self._exec_switch_stmt(stmt)
         elif isinstance(stmt, ast.IfElseStmt):
             self._exec_if_else_stmt(stmt)
+        elif isinstance(stmt, dict):
+            self._exec_dict_stmt(stmt)
         else:
             self._log(logging.DEBUG, f"expr-stmt fallback eval {kind}")
             self._eval(stmt)
@@ -1232,7 +1479,7 @@ class Interpreter:
                              ast.MatchStmt, ast.GoStmt, ast.LetBinding,
                              ast.LetTupleBinding, ast.GlobalIdStmt,
                              ast.BreakStmt, ast.ContinueStmt, ast.ReturnStmt,
-                             ast.ThrowStmt, ast.TryStmt, ast.SwitchStmt,
+                             ast.ThrowStmt, ast.RaiseExpr, ast.TryStmt, ast.SwitchStmt,
                              ast.ListLiteral)):
             self._exec_stmt(node)
         else:
@@ -1296,6 +1543,10 @@ class Interpreter:
             return self._eval_binary(expr)
         if isinstance(expr, ast.UnaryOp):
             self._log_enter("eval Unary", f"'{expr.op}'")
+            if expr.op == "null":
+                # null / none / undefined 关键字：无操作数，直接返回 None
+                self._log_exit("eval Unary", None)
+                return None
             v = self._eval(expr.operand)
             if expr.op == "-":
                 r = -v
@@ -1321,6 +1572,11 @@ class Interpreter:
                 return r
             if expr.op == "!":
                 # 逻辑非
+                r = not v
+                self._log_exit("eval Unary", r)
+                return r
+            if expr.op == "not":
+                # 逻辑非（英文关键字形式）
                 r = not v
                 self._log_exit("eval Unary", r)
                 return r
@@ -1367,18 +1623,42 @@ class Interpreter:
         if isinstance(expr, ast.Lambda):
             self._log(logging.DEBUG, "eval Lambda → closure")
             self._log(logging.DEBUG, f"lambda closure captured keys: {list(self.env.keys())}")
-            return ("__closure__", expr, dict(self.env))
+            matha_env = getattr(self, '_matha_env', list(self.env.items()))
+            return ("__closure__", expr, matha_env)
         if isinstance(expr, ast.LetBinding):
             # let x = val in body — 局部绑定
             # 递归绑定：使用占位符使 lambda 闭包能引用自身
             is_rec = expr.is_recursive
+            ph = None
             if expr.is_recursive:
                 ph = _RecPlaceholder(expr.name)
+                ph._interp = self
                 self.env[expr.name] = ph
-            val = self._eval(expr.value)
+                # 让 Lambda 捕获的 list 环境也包含占位符，
+                # 这样递归调用 _iter(...) 时能在闭包环境中解析到自身
+                me = getattr(self, '_matha_env', None)
+                if isinstance(me, list):
+                    me.append((expr.name, ph))
+            # 函数式绑定 let f(args) = body / let rec f(args) = body：
+            # parser 把形参放在 expr.params，value 是裸函数体，需包装为 Lambda
+            lb_params = getattr(expr, 'params', None)
+            if lb_params:
+                param_vars = []
+                for p in lb_params:
+                    pv = p[0] if isinstance(p, tuple) else p
+                    if not isinstance(pv, ast.Variable):
+                        pv = ast.Variable(name=str(pv))
+                    param_vars.append(pv)
+                val = self._eval(ast.Lambda(params=param_vars, body=expr.value))
+            else:
+                val = self._eval(expr.value)
             if expr.is_recursive:
-                ph._interp = self  # 保存解释器引用供 __call__ 使用
                 ph._ref[0] = val  # 通过占位符的引用更新实际值
+            else:
+                # 普通 let 绑定同步到 list 环境，供内层闭包捕获外层变量
+                me2 = getattr(self, '_matha_env', None)
+                if isinstance(me2, list):
+                    me2.append((expr.name, val))
             self.env[expr.name] = val
             self._log(logging.DEBUG, f"eval LetBinding '{expr.name}' = {self._fmt(val)}")
             if expr.body is not None:
@@ -1417,9 +1697,15 @@ class Interpreter:
             # let (a, b) = tuple_val in body
             val = self._eval(expr.value)
             if isinstance(val, tuple):
+                # 跳过 4 元组 closure 的 "__closure__" 标记：
+                # ("__closure__", params, body, env) 应解构为 (params, body, env)
+                start = 0
+                if len(val) == 4 and val[0] == "__closure__":
+                    start = 1
                 for i, name in enumerate(expr.names):
-                    if i < len(val):
-                        self.env[name] = val[i]
+                    idx = start + i
+                    if idx < len(val):
+                        self.env[name] = val[idx]
                     else:
                         self.env[name] = None
                 self._log(logging.DEBUG,
@@ -1435,6 +1721,14 @@ class Interpreter:
             for name in expr.names:
                 self.env.pop(name, None)
             return r
+        if isinstance(expr, ast.RaiseExpr):
+            # 特殊处理：raise MathaRuntimeError(msg) 直接实例化异常，避免查找 Python 内置类
+            val = expr.value
+            if (isinstance(val, ast.FuncApp) and isinstance(val.func, ast.Variable)
+                    and val.func.name == "MathaRuntimeError"):
+                msg = self._eval(val.arg) if val.arg is not None else ""
+                raise MathaRuntimeError(str(msg))
+            self._exec_throw(self._eval(expr.value))
         if isinstance(expr, ast.Output):
             # [X] 形式解析为 Output 出现在参数位置
             if expr.expr is None:
@@ -1468,6 +1762,8 @@ class Interpreter:
             index = self._eval(expr.index)
             if isinstance(container, (list, tuple, str)) and isinstance(index, int):
                 return container[index]
+            if isinstance(container, _StructInstance) and isinstance(index, str):
+                return container[index]
             raise MathaRuntimeError(f"索引操作不支持: {type(container).__name__}[{index}]")
         if isinstance(expr, ast.SliceExpr):
             container = self._eval(expr.container)
@@ -1491,8 +1787,237 @@ class Interpreter:
             try:
                 return getattr(left_val, field_name)
             except AttributeError:
+                # 缺失属性返回 None（支持空 struct 如 Empty().missing）
+                if isinstance(left_val, _StructInstance):
+                    return None
                 raise MathaRuntimeError(f"属性访问失败: {type(left_val).__name__}.{field_name}")
+        if isinstance(expr, ast.SafePathExpr):
+            # ?. 可选链：null 时返回 None
+            left_val = self._eval(expr.left)
+            if left_val is None:
+                return None
+            if expr.is_index:
+                idx = self._eval(expr.right)
+                if isinstance(left_val, (list, tuple, str)) and isinstance(idx, int):
+                    return left_val[idx]
+                raise MathaRuntimeError(f"?. 下标访问失败: {type(left_val).__name__}[{idx}]")
+            else:
+                field_name = expr.right
+                try:
+                    return getattr(left_val, field_name)
+                except AttributeError:
+                    return None
+        # Matha parser 生成的 dict AST 节点
+        if isinstance(expr, dict):
+            return self._eval_dict_ast(expr)
         raise MathaRuntimeError(f"暂不支持求值: {type(expr).__name__}")
+
+    def _eval_dict_ast(self, node: dict) -> object:
+        """将 Matha parser 生成的 dict AST 节点转为 Python 值。"""
+        t = node.get("类型")
+        if t == "变量":
+            return self._eval_variable(ast.Variable(name=node["名"]))
+        if t == "整数":
+            return node["值"]
+        if t == "浮点":
+            return node["值"]
+        if t == "字符串":
+            return node["值"]
+        if t == "布尔":
+            return node["值"]
+        if t == "二元运算":
+            return self._eval_binary(
+                ast.BinaryOp(op=node["运算符"],
+                             left=node["左"],
+                             right=node["右"]))
+        if t == "一元运算":
+            return self._eval(ast.UnaryOp(op=node["运算符"],
+                                          operand=node["操作数"]))
+        if t == "if":
+            cond = self._eval_dict_ast(node["条件"])
+            then_b = self._eval_dict_ast(node["真分支"])
+            else_b = self._eval_dict_ast(node["假分支"])
+            return then_b if cond else else_b
+        if t == "lambda":
+            # 返回 closure tuple: ("__closure__", params, body, env)
+            # 使用 _matha_env 保证 env 始终是 list-of-tuples
+            matha_env = getattr(self, '_matha_env', list(self.env.items()))
+            params = [self._eval_dict_ast(p) if isinstance(p, dict) else p
+                      for p in node.get("参数", [])]
+            body = node.get("体")
+            return ("__closure__", params, body, matha_env)
+        if t == "函数应用":
+            func_val = self._eval_dict_ast(node["函数"])
+            arg_val = self._eval_dict_ast(node["参数"])
+            return self._apply(func_val, arg_val)
+        if t == "列表":
+            return [self._eval_dict_ast(e) for e in node.get("元素", [])]
+        raise MathaRuntimeError(f"不支持的 dict AST 类型: {t}")
+
+    def _exec_dict_stmt(self, node: dict) -> None:
+        """执行 dict AST 语句节点。"""
+        t = node.get("类型")
+        if t == "绑定":
+            name = node.get("名")
+            val = self._eval_dict_ast(node.get("值"))
+            self.env[name] = val
+            self._log(logging.DEBUG, f"dict-bind {name} = {self._fmt(val)}")
+        elif t == "if":
+            cond = self._eval_dict_ast(node["条件"])
+            if cond:
+                self._exec_dict_stmt(node["真分支"])
+            else:
+                self._exec_dict_stmt(node["假分支"])
+        elif t == "while":
+            self._exec_dict_while(node["条件"], node["体"])
+        elif t == "for":
+            self._exec_dict_for(node["变量"], node["迭代"], node["体"])
+        elif t == "函数定义":
+            name = node.get("名")
+            body = node.get("体")
+            params = [p if not isinstance(p, dict) else self._eval_dict_ast(p)
+                      for p in node.get("参数", [])]
+            # 创建 lambda：params 可能是 Variable dict 或字符串
+            lam_params = []
+            for p in params:
+                if isinstance(p, dict) and p.get("类型") == "变量":
+                    lam_params.append(ast.Variable(name=p["名"]))
+                elif isinstance(p, ast.Variable):
+                    lam_params.append(p)
+                else:
+                    lam_params.append(ast.Variable(name=str(p)))
+            lam = ast.Lambda(params=lam_params, body=body)
+            fdef = ast.FuncDef(name=name, annotation=None,
+                               func_type=None, body=lam, else_body=None)
+            self.funcs[name] = fdef
+            self.env[name] = ("__closure__", lam_params, body, list(self.env.items()))
+            self._log(logging.INFO, f"dict-func '{name}'")
+        elif t == "程序":
+            for stmt in node.get("声明", []):
+                self._exec_dict_stmt(stmt)
+        else:
+            self._log(logging.DEBUG, f"dict-stmt fallback eval {t}")
+            self._eval_dict_ast(node)
+
+    def _exec_dict_while(self, cond: dict, body: dict) -> None:
+        while self._eval_dict_ast(cond):
+            self._exec_dict_stmt(body)
+
+    def _exec_dict_for(self, var_name: str, iterable: dict, body: dict) -> None:
+        items = self._eval_dict_ast(iterable)
+        if isinstance(items, (list, tuple)):
+            for item in items:
+                self.env[var_name] = item
+                self._exec_dict_stmt(body)
+
+    def _override_matha_exec_funcs(self) -> None:
+        """将 Matha 的 执行语句/执行声明 替换为兼容 Python AST 的包装器。"""
+        pass
+
+    def _exec_matha_stmt(self, stmt, env) -> tuple:
+        """Matha 执行语句：兼容 Python AST 和 dict AST 节点。"""
+        if isinstance(stmt, dict):
+            # dict AST 节点：使用 dict 路径
+            t = stmt.get("类型")
+            if t == "绑定":
+                v = self._eval_dict_ast(stmt.get("值"))
+                new_env = self._exec_matha_bind(env, stmt.get("名"), v)
+                return (v, new_env)
+            if t == "程序":
+                return self._exec_matha_stmt_list(stmt.get("声明", []), env)
+            return (None, env)
+        # Python AST 节点：使用 Python 路径
+        if isinstance(stmt, ast.Binding):
+            target = self._target_name(stmt.target)
+            v = self._eval(stmt.value)
+            new_env = self._exec_matha_bind(env, target, v)
+            return (v, new_env)
+        if isinstance(stmt, ast.Output):
+            val = self._eval(stmt.expr) if stmt.expr is not None else None
+            self.outputs.append(val)
+            return (val, env)
+        if isinstance(stmt, ast.CodeBlock):
+            return self._exec_matha_stmt_list(stmt.stmts, env)
+        if isinstance(stmt, ast.IfStmt):
+            cond = self._eval(stmt.cond)
+            if cond:
+                return self._exec_matha_stmt(stmt.then, env)
+            else:
+                return self._exec_matha_stmt(stmt.else_, env)
+        if isinstance(stmt, ast.WhileStmt):
+            return self._exec_matha_while(stmt.cond, stmt.body, env)
+        if isinstance(stmt, ast.ForStmt):
+            return self._exec_matha_for(stmt.var_name, stmt.iterable, stmt.body, env)
+        if isinstance(stmt, ast.FuncDef):
+            self.funcs[stmt.name] = stmt
+            closure = ("__closure__", stmt.body.params, stmt.body.body, list(env.items()) if isinstance(env, list) else list(self.env.items()))
+            new_env = self._exec_matha_bind(env, stmt.name, closure)
+            return (closure, new_env)
+        return (None, env)
+
+    def _exec_matha_decl(self, decl, env) -> tuple:
+        """Matha 执行声明：兼容 Python AST 和 dict AST 节点。"""
+        if isinstance(decl, dict):
+            t = decl.get("类型")
+            if t == "绑定":
+                v = self._eval_dict_ast(decl.get("值"))
+                new_env = self._exec_matha_bind(env, decl.get("名"), v)
+                return (v, new_env)
+            if t == "函数定义":
+                v = self._eval_dict_ast(decl.get("体"))
+                new_env = self._exec_matha_bind(env, decl.get("名"), v)
+                return (v, new_env)
+            if t == "程序":
+                return self._exec_matha_decl_list(decl.get("声明", []), env)
+            return (None, env)
+        # Python AST 节点
+        if isinstance(decl, ast.Binding):
+            target = self._target_name(decl.target)
+            v = self._eval(decl.value)
+            new_env = self._exec_matha_bind(env, target, v)
+            return (v, new_env)
+        if isinstance(decl, ast.FuncDef):
+            self.funcs[decl.name] = decl
+            matha_env = getattr(self, '_matha_env', list(env.items()) if isinstance(env, list) else list(self.env.items()))
+            closure = ("__closure__", decl.body.params, decl.body.body, matha_env)
+            new_env = self._exec_matha_bind(env, decl.name, closure)
+            return (closure, new_env)
+        if isinstance(decl, ast.CodeBlock):
+            return self._exec_matha_decl_list(decl.stmts, env)
+        return (None, env)
+
+    def _exec_matha_stmt_list(self, stmts, env) -> tuple:
+        """执行语句列表。"""
+        if not stmts:
+            return (None, env)
+        if isinstance(stmts, dict):
+            return self._exec_matha_stmt(stmts, env)
+        v, env2 = self._exec_matha_stmt(stmts[0], env)
+        _, env3 = self._exec_matha_stmt_list(stmts[1:], env2)
+        return (v, env3)
+
+    def _exec_matha_decl_list(self, decls, env) -> tuple:
+        """执行声明列表。"""
+        if not decls:
+            return (None, env)
+        v, env2 = self._exec_matha_decl(decls[0], env)
+        _, env3 = self._exec_matha_decl_list(decls[1:], env2)
+        return (v, env3)
+
+    def _exec_matha_bind(self, env, name, value):
+        """绑定环境变量：兼容 list-of-tuples 和 dict。"""
+        # 规范化 name：Variable 节点 → 字符串，保证 Matha 代码的 env[0][0] = name 比较正确
+        if isinstance(name, ast.Variable):
+            name = name.name
+        elif isinstance(name, tuple) and name and isinstance(name[0], ast.Variable):
+            name = name[0].name
+        if isinstance(env, list):
+            return [(name, value)] + env
+        elif isinstance(env, dict):
+            d = dict(env)
+            d[name] = value
+            return d
+        return env
 
     def _eval_variable(self, node: ast.Variable) -> object:
         name = node.name
@@ -1501,6 +2026,10 @@ class Interpreter:
             v = self.env[name]
             self._log(logging.DEBUG,
                       f"eval Var '{name}' → env {self._fmt(v)}")
+            # 兼容：lambda dict（Matha 自举路径）转为 closure tuple
+            if isinstance(v, dict) and v.get("类型") == "lambda":
+                matha_env = getattr(self, '_matha_env', list(self.env.items()))
+                v = ("__closure__", v["参数"], v["体"], matha_env)
             return v
         if name in self.funcs:
             self._log(logging.DEBUG, f"eval Var '{name}' → FuncDef")
@@ -1512,6 +2041,15 @@ class Interpreter:
             self._log(logging.DEBUG, f"eval Var '{name}' → ctor '{name}'")
             return name
         raise MathaRuntimeError(f"未定义变量 '{name}'")
+
+    @staticmethod
+    def _ensure_set(v: object) -> set:
+        """将值归一化为可迭代的集合。"""
+        if isinstance(v, set):
+            return v
+        if isinstance(v, (list, tuple, str)):
+            return set(v)
+        return {v}
 
     def _eval_binary(self, node: ast.BinaryOp) -> object:
         self._log_enter("eval Binary", f"'{node.op}'")
@@ -1541,6 +2079,16 @@ class Interpreter:
             if op == "+":
                 if l is None or r is None:
                     raise MathaRuntimeError(f"+ 操作数含 None: left={l!r}, right={r!r}")
+                # 兼容：dict env → list-of-tuples（Matha 自举路径）
+                if isinstance(r, dict):
+                    r = list(r.items())
+                if isinstance(l, dict):
+                    l = list(l.items())
+                # str 与数值自动转换
+                if isinstance(l, str) and isinstance(r, (int, float)):
+                    r = str(r)
+                elif isinstance(r, str) and isinstance(l, (int, float)):
+                    l = str(l)
                 result = l + r
                 self._log(logging.DEBUG, f"  + 结果: {result!r}")
             elif op == "-":
@@ -1562,9 +2110,9 @@ class Interpreter:
                     raise MathaRuntimeError(f"除零错误: {l!r} / 0")
                 result = l / r
                 self._log(logging.DEBUG, f"  / 结果: {result!r}")
-            elif op == "^":
+            elif op == "**":
                 if l is None or r is None:
-                    raise MathaRuntimeError(f"^ 操作数含 None")
+                    raise MathaRuntimeError(f"** 操作数含 None")
                 result = l ** r
             elif op == "%":
                 if r == 0:
@@ -1627,9 +2175,11 @@ class Interpreter:
             elif op == "===":
                 result = (l is r) and type(l) == type(r)
                 self._log(logging.DEBUG, f"  === 结果: {result!r}")
+                return result
             elif op == "!==":
                 result = not ((l is r) and type(l) == type(r))
                 self._log(logging.DEBUG, f"  !== 结果: {result!r}")
+                return result
             elif op == "//":
                 if r == 0:
                     raise MathaRuntimeError(f"整除除零错误: {l!r} // 0")
@@ -1649,7 +2199,11 @@ class Interpreter:
                 if callable(l):
                     result = l(r)
                 elif isinstance(l, tuple) and l and l[0] == "__closure__":
-                    _, lam, captured = l
+                    if len(l) == 4:
+                        params, body, captured = l[1], l[2], l[3]
+                        lam = ast.Lambda(params=params, body=body)
+                    else:
+                        _, lam, captured = l
                     result = self._call_lambda(lam, captured, [r])
                 elif isinstance(l, ast.FuncDef):
                     result = self._call_func(l, [r])
@@ -1662,6 +2216,62 @@ class Interpreter:
                     result = l in self._eval(r)
                 else:
                     raise MathaRuntimeError(f"in 右侧需为序列/集合/字典，实际 {type(r).__name__}")
+            # 位运算
+            elif op == "&":
+                if isinstance(l, int) and isinstance(r, int):
+                    result = l & r
+                else:
+                    raise MathaRuntimeError(f"& 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
+            elif op == "|":
+                if isinstance(l, int) and isinstance(r, int):
+                    result = l | r
+                else:
+                    raise MathaRuntimeError(f"| 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
+            elif op == "^":
+                if isinstance(l, int) and isinstance(r, int):
+                    result = l ^ r
+                else:
+                    raise MathaRuntimeError(f"^ 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
+            elif op == "⊕":
+                if isinstance(l, int) and isinstance(r, int):
+                    result = l ^ r
+                else:
+                    raise MathaRuntimeError(f"⊕ 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
+            elif op == "<<":
+                if isinstance(l, int) and isinstance(r, int):
+                    result = l << r
+                else:
+                    raise MathaRuntimeError(f"<< 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
+            elif op == ">>":
+                if isinstance(l, int) and isinstance(r, int):
+                    result = l >> r
+                else:
+                    raise MathaRuntimeError(f">> 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
+            # 集合运算
+            elif op == "∪":
+                result = set(self._ensure_set(l)) | set(self._ensure_set(r))
+            elif op == "∩":
+                result = set(self._ensure_set(l)) & set(self._ensure_set(r))
+            elif op == "⊖":
+                result = set(self._ensure_set(l)) - set(self._ensure_set(r))
+            elif op == "~":
+                s = set(self._ensure_set(l))
+                u = self.env.get("U")
+                if u is not None:
+                    result = set(self._ensure_set(u)) - s
+                else:
+                    result = frozenset() - s
+            elif op == "×":
+                ls = self._ensure_set(l)
+                rs = self._ensure_set(r)
+                result = [(a, b) for a in ls for b in rs]
+            elif op == "⊆":
+                ls = set(self._ensure_set(l))
+                rs = set(self._ensure_set(r))
+                result = ls <= rs
+            # 空值合并
+            elif op == "??":
+                result = l if l is not None else r
             else:
                 raise MathaRuntimeError(f"未知运算符 '{op}'")
         except TypeError as e:
@@ -1679,7 +2289,8 @@ class Interpreter:
             func = self._eval(node.func)
         except MathaRuntimeError as e:
             if "未定义变量" in str(e):
-                raise MathaRuntimeError(f"未定义函数 '{node.func.name}'") from e
+                func_name = getattr(getattr(node, 'func', None), 'name', None) or str(node.func)
+                raise MathaRuntimeError(f"未定义函数 '{func_name}'") from e
             raise
         arg = self._eval(node.arg)
         self._log(logging.DEBUG,
@@ -1694,15 +2305,32 @@ class Interpreter:
             self._log(logging.DEBUG, f"apply callable({self._fmt(arg)})")
             return func(arg)
         if isinstance(func, _RecPlaceholder):
-            return func(None)  # 让占位符在需要时解析
+            # 递归占位符：转发实际参数，内部解析为已绑定的递归闭包
+            return func(arg)
         if isinstance(func, ast.FuncDef):
             self._log(logging.DEBUG, f"apply FuncDef '{func.name}'({self._fmt(arg)})")
             return self._call_func(func, [arg])
         if isinstance(func, tuple) and func and func[0] == "__closure__":
             self._log(logging.DEBUG, "apply closure")
-            _, lam, captured = func
+            # Matha 自举路径: 4 元组 ("__closure__", params, body, env)
+            # Python 原有路径: 3 元组 ("__closure__", lambda, captured)
+            if len(func) == 4:
+                params, body, captured = func[1], func[2], func[3]
+                lam = ast.Lambda(params=params, body=body)
+            else:
+                _, lam, captured = func
             return self._call_lambda(lam, captured, [arg])
         raise MathaRuntimeError(f"不可调用的值: {func!r}")
+
+    def _call_func_or_closure(self, fn, args: list) -> object:
+        """调用函数或闭包（统一入口）。"""
+        if isinstance(fn, tuple) and fn and fn[0] == "__closure__":
+            # 闭包：逐个参数应用（柯里化）
+            result = fn
+            for a in args:
+                result = self._apply(result, a)
+            return result
+        return self._call_func(fn, args)
 
     def _call_func(self, fdef: ast.FuncDef, args: list) -> object:
         self._log(logging.INFO,
@@ -1712,11 +2340,40 @@ class Interpreter:
     def _call_lambda(self, lam: ast.Lambda, captured: dict, args: list) -> object:
         params = lam.params
         # 完整应用时也需要拷贝：递归函数会写入局部变量，共享 captured 会导致错误
-        local = dict(captured)
+        # captured 可以是 dict 或 list of tuples（兼容 Matha 自举路径）
+        if isinstance(captured, list):
+            local = dict(captured)
+            self._matha_env = captured  # 保留原始 list-of-tuples 供闭包使用
+        else:
+            local = dict(captured)
+            # 如果是 dict，尝试从 env 中提取 list-of-tuples
+            matha_env = getattr(self, '_matha_env', None)
+            if matha_env is None:
+                matha_env = list(local.items())
+            self._matha_env = matha_env
+            # 确保 local 也使用 list-of-tuples 格式的 env
+            if 'env' in local and not isinstance(local['env'], list):
+                local['env'] = list(local['env'].items()) if isinstance(local['env'], dict) else local['env']
         if len(args) < len(params):
             for p, a in zip(params, args):
                 local[self._param_name(p)] = a
             remaining = params[len(args):]
+            # 将当前已绑定的参数纳入 captured，确保后续偏应用能访问
+            # 必须原地修改 captured（list 时）或保留引用（dict 时）
+            if isinstance(captured, list):
+                # 原地追加：后续从 captured 创建 dict 时能看到新绑定
+                captured.extend((self._param_name(p), a) for p, a in zip(params, args))
+                self._matha_env = captured
+            elif isinstance(self._matha_env, list):
+                self._matha_env = list(self._matha_env) + [
+                    (self._param_name(p), a)
+                    for p, a in zip(params, args)
+                ]
+            else:
+                self._matha_env = list(self._matha_env.items()) + [
+                    (self._param_name(p), a)
+                    for p, a in zip(params, args)
+                ]
             # Flatten nested lambdas when more than 1 param remains:
             # (a)=>(b)=>(c)=>expr applied with [1] → Lambda([b,c], expr)
             # without flattening it would be Lambda([b,c], Lambda([c], expr))
@@ -1731,9 +2388,14 @@ class Interpreter:
                 body = lam.body
             self._log(logging.DEBUG,
                       f"lambda partial apply: bound={len(args)}/{len(params)} → closure")
-            return ("__closure__", ast.Lambda(params=remaining, body=body), local)
+            return ("__closure__", remaining, body, self._matha_env)
         for p, a in zip(params, args):
             local[self._param_name(p)] = a
+        # 确保 self._matha_env 包含新绑定的参数，供函数体内创建的闭包使用
+        if isinstance(self._matha_env, list):
+            self._matha_env = list(self._matha_env) + [
+                (self._param_name(p), a) for p, a in zip(params, args)
+            ]
         extra = args[len(params):]
         param_names = [self._param_name(p) for p in params]
         self._log(logging.DEBUG,
@@ -1752,10 +2414,19 @@ class Interpreter:
                 self._depth = max(0, self._depth - 1)
         self._log(logging.DEBUG,
                   f"lambda exit → {self._fmt(result)}")
-        if params:
+        if params and extra:
+            # 只有结果仍是可调用的闭包时，才继续应用多余参数
+            # 避免将多余参数应用到已求值的字面量（如 dict、list）上
             for a in extra:
-                self._log(logging.DEBUG, "lambda apply extra arg")
-                result = self._apply(result, a)
+                is_closure = callable(result) or (isinstance(result, tuple) and result and result[0] == "__closure__")
+                self._log(logging.DEBUG,
+                          f"lambda extra arg: callable={callable(result)} is_tuple_closure={is_closure} result_type={type(result).__name__}")
+                if is_closure:
+                    self._log(logging.DEBUG, "lambda apply extra arg")
+                    result = self._apply(result, a)
+                else:
+                    self._log(logging.DEBUG, "lambda drop extra arg (result is literal)")
+                    break
         return result
 
     # ---------- 辅助 ----------
@@ -1962,8 +2633,14 @@ class Interpreter:
         b["创建测试场景"] = self._curry(3, self._b_net_create_scenario)
         b["隔离日志"] = self._curry(0, self._b_net_quarantine_log)
         b["清杀日志"] = self._curry(0, self._b_net_elimination_log)
+        # 自举模块加载
+        b["加载模块_文件"] = self._curry(1, self._b_load_matha_module)
 
     # ---- 状态化内建实现（返回普通容器，供 Matha 侧消费） ----
+
+    def _b_load_matha_module(self, module_name: str) -> bool:
+        """内建 加载模块(模块名) → 从文件系统加载 .matha 模块。"""
+        return self.load_matha_module(module_name)
 
     def _b_probe_state(self, _=None) -> dict:
         return self.probe().state()

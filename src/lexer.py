@@ -21,7 +21,7 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "*": TokenType.OP_STAR,
     "/": TokenType.OP_SLASH,
     "%": TokenType.OP_MOD,
-    "^": TokenType.OP_POWER,
+    "^": TokenType.OP_BIT_XOR,
     "=": TokenType.OP_ASSIGN,
     "<": TokenType.OP_LT,
     ">": TokenType.OP_GT,
@@ -94,7 +94,7 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "［": TokenType.PUNCT_LBRACKET,
     "＼": TokenType.OP_SET_DIFF,
     "］": TokenType.PUNCT_RBRACKET,
-    "＾": TokenType.OP_POWER,
+    "＾": TokenType.OP_BIT_XOR,
     "｀": TokenType.PUNCT_UNDERSCORE,
     "｛": TokenType.PUNCT_LBRACE,
     "｜": TokenType.OP_PIPE,
@@ -133,7 +133,7 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "∀": TokenType.SYMBOL,
     "∃": TokenType.SYMBOL,
     "¬": TokenType.OP_SET_COMP,
-    "⊕": TokenType.SYMBOL,
+    "⊕": TokenType.OP_BIT_XOR,
     "⊗": TokenType.SYMBOL,
     "⊥": TokenType.SYMBOL,
     "∥": TokenType.SYMBOL,
@@ -159,10 +159,6 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "″″": TokenType.SYMBOL,
     "℅": TokenType.SYMBOL,
     "№": TokenType.SYMBOL,
-    # ---------- 集合运算符 ----------
-    "×": TokenType.OP_SET_PROD,
-    "⊆": TokenType.OP_SET_SUBSET,
-    "~": TokenType.OP_SET_COMP,
 }
 # 集合运算符子集（与原 set_ops 保持一致）
 _SINGLE_SET_OPS: dict[str, TokenType] = {
@@ -171,6 +167,7 @@ _SINGLE_SET_OPS: dict[str, TokenType] = {
     "×": TokenType.OP_SET_PROD,
     "⊆": TokenType.OP_SET_SUBSET,
     "~": TokenType.OP_SET_COMP,
+    "⊖": TokenType.OP_SET_DIFF,
 }
 
 # 进制合法字符映射（模块级常量，避免每次创建 dict）
@@ -425,6 +422,16 @@ class Lexer:
                 self._advance()
                 self._advance()
                 yield Token(TokenType.OP_POWER, "**", self.line, self.col)
+                continue
+
+            # 下划线：若后跟标识符字符则作为标识符一部分，否则作为独立标点
+            if ch == "_":
+                next_ch = self._peek(1)
+                if next_ch and (is_unicode_id_continue(next_ch) or is_unicode_letter(next_ch)):
+                    yield self._identifier()
+                else:
+                    self._advance()
+                    yield Token(TokenType.PUNCT_UNDERSCORE, "_", self.line, self.col)
                 continue
 
             # 单字符符号

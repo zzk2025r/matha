@@ -145,6 +145,14 @@ class PathExpr:
 
 
 @dataclass
+class SafePathExpr:
+    """?. 可选链：安全属性/下标访问，null 时返回 None"""
+    left: Any
+    is_index: bool = False   # True = 下标访问，False = 属性访问
+    right: Any = None        # 属性名（str）或索引表达式
+
+
+@dataclass
 class SetConstruct:
     """<set_construct> = { <var_list> | <cond_list> } 或 { <literal_list> }"""
     form: str  # "comprehension"（理解形式）或 "enumeration"（枚举形式）
@@ -530,6 +538,12 @@ class ReturnStmt:
 @dataclass
 class ThrowStmt:
     """throw <expr> — 抛出异常"""
+    value: Any
+
+
+@dataclass
+class RaiseExpr:
+    """raise <expr> — 作为表达式抛出异常"""
     value: Any
 
 

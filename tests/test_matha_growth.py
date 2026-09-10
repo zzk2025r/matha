@@ -1299,6 +1299,7 @@ class TestGrowthRegressionSupplements:
                 bindings = {'m': 2.0, 'v': 3.0}
                 val = e.evaluate(bindings)
                 assert math.isfinite(val)
-            except RecursionError:
-                # 若组合结果含复杂括号，跳过求值检查（已验证结果非空且成功）
+            except (RecursionError, ValueError):
+                # 若组合结果含复杂括号/不平衡括号无法解析，跳过求值检查
+                # （已验证结果非空且成功；解析器现在对无进展递归显式抛出 ValueError）
                 pass

@@ -361,7 +361,7 @@ class RustFrontend:
             return nodes
 
         # 二元运算
-        for op in ['**', '//', '%', '+=', '-=', '*=', '/=', '==', '!=', '<=', '>=', '&&', '||', '<<', '>>']:
+        for op in ['**', '//', '%', '+=', '-=', '*=', '/=', '==', '!=', '<=', '>=', '&&', '||', '<<', '>>', '*', '/', '+', '-', '<', '>']:
             if op in expr_str:
                 parts = expr_str.split(op, 1)
                 if len(parts) == 2:
@@ -561,8 +561,19 @@ class GoFrontend:
             nodes.extend(arg_flat)
             return nodes
 
+        # 一元运算（必须在二元运算之前，否则 "-x" 会被 split('-') 误判为二元）
+        for op in ['-', '+', '!']:
+            if expr_str.startswith(op):
+                operand = self._parse_py_atom(expr_str[1:].strip(), param_types)
+                result_var = f"t{len(nodes)}"
+                nodes.extend(operand)
+                nodes.append(IRNode(IRKind.UNARY, op=op,
+                                  operands=[operand[-1].result if operand else "0"],
+                                  result=result_var))
+                return nodes
+
         # 二元运算
-        for op in ['**', '%', '==', '!=', '<=', '>=', '&&', '||']:
+        for op in ['**', '%', '==', '!=', '<=', '>=', '&&', '||', '*', '/', '+', '-', '<', '>']:
             if op in expr_str:
                 parts = expr_str.split(op, 1)
                 if len(parts) == 2:
@@ -575,17 +586,6 @@ class GoFrontend:
                                                right[-1].result if right else "0"],
                                       result=result_var))
                     return nodes
-
-        # 一元运算
-        for op in ['-', '+', '!']:
-            if expr_str.startswith(op):
-                operand = self._parse_py_atom(expr_str[1:].strip(), param_types)
-                result_var = f"t{len(nodes)}"
-                nodes.extend(operand)
-                nodes.append(IRNode(IRKind.UNARY, op=op,
-                                  operands=[operand[-1].result if operand else "0"],
-                                  result=result_var))
-                return nodes
 
         # 原子
         for atom in re.findall(r'[a-zA-Z_]\w*|[\d.]+', expr_str):
@@ -712,7 +712,7 @@ class GoFrontend:
             return nodes
 
         # 运算符
-        for op in ['**', '//', '%', '+=', '-=', '==', '!=', '<=', '>=', '&&', '||']:
+        for op in ['**', '//', '%', '+=', '-=', '==', '!=', '<=', '>=', '&&', '||', '*', '/', '+', '-', '<', '>']:
             if op in expr_str:
                 parts = expr_str.split(op, 1)
                 if len(parts) == 2:
@@ -921,8 +921,19 @@ class JSFrontend:
             nodes.extend(arg_flat)
             return nodes
 
+        # 一元运算（必须在二元运算之前，否则 "-x" 会被 split('-') 误判为二元）
+        for op in ['-', '+', '!']:
+            if expr_str.startswith(op):
+                operand = self._parse_atom(expr_str[1:].strip(), param_types)
+                result_var = f"t{len(nodes)}"
+                nodes.extend(operand)
+                nodes.append(IRNode(IRKind.UNARY, op=op,
+                                  operands=[operand[-1].result if operand else "0"],
+                                  result=result_var))
+                return nodes
+
         # 运算符
-        for op in ['**', '//', '%', '==', '!=', '<=', '>=', '&&', '||']:
+        for op in ['**', '//', '%', '==', '!=', '<=', '>=', '&&', '||', '*', '/', '+', '-', '<', '>']:
             if op in expr_str:
                 parts = expr_str.split(op, 1)
                 if len(parts) == 2:
@@ -935,17 +946,6 @@ class JSFrontend:
                                                right[-1].result if right else "0"],
                                       result=result_var))
                     return nodes
-
-        # 一元运算
-        for op in ['-', '+', '!']:
-            if expr_str.startswith(op):
-                operand = self._parse_atom(expr_str[1:].strip(), param_types)
-                result_var = f"t{len(nodes)}"
-                nodes.extend(operand)
-                nodes.append(IRNode(IRKind.UNARY, op=op,
-                                  operands=[operand[-1].result if operand else "0"],
-                                  result=result_var))
-                return nodes
 
         # 三元表达式
         if '?' in expr_str and ':' in expr_str:
@@ -1112,8 +1112,19 @@ class CFrontend:
             nodes.extend(arg_flat)
             return nodes
 
+        # 一元运算（必须在二元运算之前，否则 "-x" 会被 split('-') 误判为二元）
+        for op in ['-', '+', '!']:
+            if expr_str.startswith(op):
+                operand = self._parse_py_atom(expr_str[1:].strip(), param_types)
+                result_var = f"t{len(nodes)}"
+                nodes.extend(operand)
+                nodes.append(IRNode(IRKind.UNARY, op=op,
+                                  operands=[operand[-1].result if operand else "0"],
+                                  result=result_var))
+                return nodes
+
         # 二元运算
-        for op in ['**', '%', '==', '!=', '<=', '>=', '&&', '||']:
+        for op in ['**', '%', '==', '!=', '<=', '>=', '&&', '||', '*', '/', '+', '-', '<', '>']:
             if op in expr_str:
                 parts = expr_str.split(op, 1)
                 if len(parts) == 2:
@@ -1126,17 +1137,6 @@ class CFrontend:
                                                right[-1].result if right else "0"],
                                       result=result_var))
                     return nodes
-
-        # 一元运算
-        for op in ['-', '+', '!']:
-            if expr_str.startswith(op):
-                operand = self._parse_py_atom(expr_str[1:].strip(), param_types)
-                result_var = f"t{len(nodes)}"
-                nodes.extend(operand)
-                nodes.append(IRNode(IRKind.UNARY, op=op,
-                                  operands=[operand[-1].result if operand else "0"],
-                                  result=result_var))
-                return nodes
 
         # 原子
         for atom in re.findall(r'[a-zA-Z_]\w*|[\d.]+', expr_str):
@@ -1271,8 +1271,19 @@ class CFrontend:
             nodes.extend(arg_flat)
             return nodes
 
+        # 一元运算（必须在二元运算之前，否则 "-x" 会被 split('-') 误判为二元）
+        for op in ['-', '+', '!']:
+            if expr_str.startswith(op):
+                operand = self._parse_atom(expr_str[1:].strip(), param_types)
+                result_var = f"t{len(nodes)}"
+                nodes.extend(operand)
+                nodes.append(IRNode(IRKind.UNARY, op=op,
+                                  operands=[operand[-1].result if operand else "0"],
+                                  result=result_var))
+                return nodes
+
         # 运算符
-        for op in ['**', '%', '==', '!=', '<=', '>=', '&&', '||']:
+        for op in ['**', '%', '==', '!=', '<=', '>=', '&&', '||', '*', '/', '+', '-', '<', '>']:
             if op in expr_str:
                 parts = expr_str.split(op, 1)
                 if len(parts) == 2:
@@ -1285,17 +1296,6 @@ class CFrontend:
                                                right[-1].result if right else "0"],
                                       result=result_var))
                     return nodes
-
-        # 一元运算
-        for op in ['-', '+', '!']:
-            if expr_str.startswith(op):
-                operand = self._parse_atom(expr_str[1:].strip(), param_types)
-                result_var = f"t{len(nodes)}"
-                nodes.extend(operand)
-                nodes.append(IRNode(IRKind.UNARY, op=op,
-                                  operands=[operand[-1].result if operand else "0"],
-                                  result=result_var))
-                return nodes
 
         # 原子
         for atom in self._tokenize_expr(expr_str):
