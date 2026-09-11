@@ -13,7 +13,7 @@ module 词法器 {
   enum 类型 {
     整数 浮点 字符串 布尔 标识符 关键字
     符号 换行 结束
-    加 减 乘 除 取模 次方
+    加 减 乘 除 取模 次方 整除
     等于 不等于 大于 小于 大于等于 小于等于
     箭头 胖箭头 发送 问号 冒号 管道
     左括号 右括号 左括号方 右括号方 左括号花 右括号花
@@ -36,7 +36,7 @@ module 词法器 {
     (c >= 48 and c <= 57) ? 真 : 假
 
   func 是字母码(c: Int) -> Bool = (c) =>
-    ((c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95) ? 真 : 假
+    ((c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95 or (c >= 19968 and c <= 40869)) ? 真 : 假
 
   func 是换行码(c: Int) -> Bool = (c) => (c = 10) ? 真 : 假
 
@@ -66,14 +66,17 @@ module 词法器 {
         let s2 = get(src)(pos + 1) in
         let c1 = get(src)(pos) in
         let c2 = get(src)(pos + 1) in
-        (c1 = ">" and c2 = "=") ? (不等于, "!=") :
-        (c1 = ">" and c2 = ">") ? (大于等于, ">>") :
+        (c1 = ">" and c2 = "=") ? (大于等于, ">=") :
+      (c1 = ">" and c2 = ">") ? (大于, ">>") :
+      (c1 = "!" and c2 = "=") ? (不等于, "!=") :
         (c1 = "<" and c2 = "=") ? (小于等于, "<=") :
         (c1 = "=" and c2 = ">") ? (胖箭头, "=>") :
         (c1 = "-" and c2 = ">") ? (箭头, "->") :
         (c1 = "<" and c2 = "-") ? (发送, "<-") :
         (c1 = "<" and c2 = "<") ? (左括号, "<<") :
         (c1 = "=" and c2 = "=") ? (等于, "==") :
+        (c1 = "/" and c2 = "/") ? (整除, "//") :
+        (c1 = "*" and c2 = "*") ? (次方, "**") :
         (* 全角运算符 *)
         (c1 = "：" and c2 = ":") ? (全角冒号, "：:") :
         (* 中文标点归一化 *)
@@ -129,7 +132,10 @@ module 词法器 {
     (tok = "func") or (tok = "if") or (tok = "else") or (tok = "then") or
     (tok = "match") or (tok = "for") or (tok = "in") or (tok = "while") or
     (tok = "let") or (tok = "rec") or (tok = "struct") or (tok = "enum") or
+    (tok = "and") or (tok = "or") or (tok = "not") or
+    (tok = "try") or (tok = "catch") or (tok = "raise") or (tok = "finally") or
     (tok = "type") or (tok = "import") or (tok = "use") or (tok = "as") or
+    (tok = "module") or
     (tok = "go") or (tok = "else") or (tok = "else") or
     (tok = "真") or (tok = "假") or (tok = "true") or (tok = "false") or
     (tok = "Int") or (tok = "Float") or (tok = "String") or (tok = "Bool") or
@@ -137,7 +143,8 @@ module 词法器 {
     (tok = "否则") or (tok = "模块") or (tok = "结构体") or (tok = "枚举") or
     (tok = "常量") or (tok = "否则") or (tok = "返回") or (tok = "断言")
 
-  func 关键字类型(tok: String) -> 类型 = (tok) => 关键字
+  func 关键字类型(tok: String) -> 类型 = (tok) =>
+    (tok = "真" or tok = "假" or tok = "true" or tok = "false") ? 布尔 : 关键字
 
   (* ===== 扫描数字续 ===== *)
   func 扫描数字续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String, 有小数点: Bool) -> List =
@@ -152,28 +159,57 @@ module 词法器 {
           (pos + 1 < len(src) and 是数字码(ord(get(src)(pos + 1))) ?
             扫描数字续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + ".")(真) :
             扫描(src)(pos)(line)(col)(append(toks)(做Token(整数, 缓存, line, 起列)))) :
-        扫描(src)(pos)(line)(col)(append(toks)(做Token(浮点 if 有小数点 else 整数, 缓存, line, 起列))))
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(有小数点 ? 浮点 : 整数, 缓存, line, 起列))))
 
   (* ===== 扫描标识符续 ===== *)
   func 扫描标识符续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String, 忽略: Bool) -> List =
     (src, pos, line, col, toks, 起列, 缓存, 忽略) =>
       (pos >= len(src)) ?
-        扫描(src)(pos)(line)(col)(append(toks)(做Token(关键字 if 是关键字(缓存) else 标识符, 缓存, line, 起列))) :
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(是关键字(缓存) ? 关键字类型(缓存) : 标识符, 缓存, line, 起列))) :
       (是标识符续(ord(get(src)(pos))) ?
         扫描标识符续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))(假) :
-        扫描(src)(pos)(line)(col)(append(toks)(做Token(关键字 if 是关键字(缓存) else 标识符, 缓存, line, 起列))))
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(是关键字(缓存) ? 关键字类型(缓存) : 标识符, 缓存, line, 起列))))
 
-  (* ===== 扫描字符串续 ===== *)
+  (* ===== 扫描字符串续 =====
+     支持转义序列：\X → X（简化处理，与宿主一致）
+     闭合引号后必须继续 扫描 余下源码（否则字符串后内容全部丢失） *)
   func 扫描字符串续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
     (src, pos, line, col, toks, 起列, 缓存) =>
       (pos >= len(src)) ?
         append(toks)(做Token(字符串, 缓存, line, 起列)) :
+      (get(src)(pos) = "\\") ?
+        (pos + 1 < len(src) ?
+          扫描字符串续(src)(pos + 2)(line)(col + 2)(toks)(起列)(缓存 + get(src)(pos + 1)) :
+          扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))) :
       (get(src)(pos) != "\"") ?
         扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
-        append(toks)(做Token(字符串, 缓存, line, 起列))
+        扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(字符串, 缓存, line, 起列)))
 
-  (* ===== 主扫描函数（递归下降）===== *)
+  (* ===== 块注释跳过（(* ... *)，支持嵌套，与宿主 lexer 语义一致）===== *)
+  func 扫描注释(src: String, pos: Int, line: Int, col: Int, depth: Int, toks: List) -> List =
+    (src, pos, line, col, depth, toks) =>
+      (pos >= len(src)) ?
+        错误("注释未闭合 (* ... *)") :
+      ((get(src)(pos) = "(" and pos + 1 < len(src) and get(src)(pos + 1) = "*") ?
+        扫描注释(src)(pos + 2)(line)(col + 2)(depth + 1)(toks) :
+      ((get(src)(pos) = "*" and pos + 1 < len(src) and get(src)(pos + 1) = ")") ?
+        (depth <= 1 ? 扫描(src)(pos + 2)(line)(col + 2)(toks) :
+                      扫描注释(src)(pos + 2)(line)(col + 2)(depth - 1)(toks)) :
+      (是换行码(ord(get(src)(pos))) ?
+        扫描注释(src)(pos + 1)(line + 1)(1)(depth)(toks) :
+        扫描注释(src)(pos + 1)(line)(col + 1)(depth)(toks))))
+
+  (* ===== 主扫描函数（递归下降）=====
+     入口：先检测块注释起始标记，其余交给 扫描主体 分发 *)
   func 扫描(src: String, pos: Int, line: Int, col: Int, toks: List) -> List =
+    (src, pos, line, col, toks) =>
+      (pos >= len(src)) ?
+        扫描主体(src)(pos)(line)(col)(toks) :
+      ((get(src)(pos) = "(" and pos + 1 < len(src) and get(src)(pos + 1) = "*") ?
+        扫描注释(src)(pos + 2)(line)(col + 2)(1)(toks) :
+        扫描主体(src)(pos)(line)(col)(toks))
+
+  func 扫描主体(src: String, pos: Int, line: Int, col: Int, toks: List) -> List =
     (src, pos, line, col, toks) =>
       (pos >= len(src)) ?
         append(toks)(做Token(结束, "", line, col)) :
@@ -195,7 +231,7 @@ module 词法器 {
       (* 多字符操作符检测（先试2字符） *)
       (let (t, txt) = 检测多符(src, pos) in
         (t = 不等于 or t = 大于等于 or t = 小于等于 or t = 胖箭头 or
-         t = 箭头 or t = 发送 or t = 左括号) ?
+         t = 箭头 or t = 发送 or t = 左括号 or t = 整除 or t = 等于 or t = 次方) ?
           扫描(src)(pos + 2)(line)(col + 2)(append(toks)(做Token(t, txt, line, col))) :
       (* 单字符 *)
         扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(映射单符(get(src)(pos)), get(src)(pos), line, col))))))))

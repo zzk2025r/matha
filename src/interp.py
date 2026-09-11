@@ -355,9 +355,48 @@ def builtin_append(lst):
     return with_elem
 
 
+def builtin_mut_set_at(lst):
+    """mut_set_at(lst)(idx)(v) → 原地把 lst[idx] 置为 v，返回 lst。
+
+    唯一的列表可变原语：自举解释器用「占位符 + 原地更新」实现 let rec / and
+    互递归绑定（对齐宿主 _RecPlaceholder 的 [None] 可变引用语义）。
+    env 为 CONS 共享的 [[name, value], ...] 结构，对共享 pair 的原地修改
+    对所有捕获该 env 的闭包同步可见。"""
+    if not isinstance(lst, list):
+        raise MathaRuntimeError(f"mut_set_at() 需要列表，实际 {type(lst).__name__}")
+    def at(idx):
+        if not isinstance(idx, int):
+            raise MathaRuntimeError(f"mut_set_at() 索引需整数，实际 {idx!r}")
+        def with_val(v):
+            lst[idx] = v
+            return lst
+        return with_val
+    return at
+
+
 def builtin_list(*args):
     """list() → []；list(x) → [x]"""
     return list(args)
+
+
+def builtin_type_of(v) -> str:
+    """返回值类型名称（Matha 类型）。供 stdlib 与自举代码使用，
+    避免 stdlib 自实现的 type_of 与 str 互相调用造成死循环。"""
+    if v is True or v is False or isinstance(v, bool):
+        return "Bool"
+    if isinstance(v, int):
+        return "Int"
+    if isinstance(v, float):
+        return "Float"
+    if isinstance(v, str):
+        return "String"
+    if isinstance(v, list):
+        return "List"
+    if isinstance(v, dict):
+        return "Dict"
+    if isinstance(v, tuple) and len(v) > 0 and v[0] == "__closure__":
+        return "Closure"
+    return "Unknown"
 
 
 def builtin_token(ttype):
@@ -596,8 +635,10 @@ BUILTINS: dict[str, object] = {
     "get": builtin_get,
     "slice": builtin_slice,
     "append": builtin_append,
+    "mut_set_at": builtin_mut_set_at,
     "list": builtin_list,
     "token": builtin_token,
+    "type_of": builtin_type_of,
     "解析_JSON": builtin_parse_json,
     # 类型转换
     "float": float,
@@ -629,6 +670,7 @@ BUILTINS: dict[str, object] = {
     "去重": builtin_列表去重,
     # 异常控制
     "抛出错误": builtin_throw,
+    "错误": builtin_throw,
 }
 
 
@@ -841,7 +883,7 @@ class Interpreter:
                 _ZERO_ARG_BUILTINS = {list, dict, set, tuple, str, int, float, bool}
                 if result in _ZERO_ARG_BUILTINS or hasattr(result, '__self__'):
                     result = result()
-                    self._log(logging.DEBUG, f"  builtin '{name}'() → {result!r}")
+                    self._log(logging.DEBUG, f"  builtin '{name}'() → {self._fmt(result)}")
                 else:
                     raise MathaRuntimeError(f"内建 '{name}'({type(result).__name__}) 需要参数，不可无参调用")
             return result
@@ -1169,8 +1211,9 @@ class Interpreter:
                 _propagating = sys.exc_info()[1]
                 raise
             except MathaRuntimeError as e:
+                # catch 变量绑定消息字符串（与自举层 try 语义对齐）
                 if stmt.catch_var:
-                    self.env[stmt.catch_var] = e
+                    self.env[stmt.catch_var] = str(e)
                     self._exec_codeblock_or_stmt(stmt.catch_block)
                 else:
                     self._exec_codeblock_or_stmt(stmt.catch_block)
@@ -1242,6 +1285,10 @@ class Interpreter:
                 # 兼容：函数已在全局 funcs 中（模块执行时已注册）
                 self.env[name] = self.funcs[name]
                 self._log(logging.DEBUG, f"use import func '{name}' (from funcs)")
+            elif name in self.builtins:
+                # 兼容：宿主/VM 内建（如 len/ord/get）可被 use 导入
+                self.env[name] = self.builtins[name]
+                self._log(logging.DEBUG, f"use import builtin '{name}'")
             else:
                 raise MathaRuntimeError(f"模块 '{module_name}' 中未找到 '{name}'")
 
@@ -1722,13 +1769,9 @@ class Interpreter:
                 self.env.pop(name, None)
             return r
         if isinstance(expr, ast.RaiseExpr):
-            # 特殊处理：raise MathaRuntimeError(msg) 直接实例化异常，避免查找 Python 内置类
-            val = expr.value
-            if (isinstance(val, ast.FuncApp) and isinstance(val.func, ast.Variable)
-                    and val.func.name == "MathaRuntimeError"):
-                msg = self._eval(val.arg) if val.arg is not None else ""
-                raise MathaRuntimeError(str(msg))
-            self._exec_throw(self._eval(expr.value))
+            # raise <expr>：消息字符串异常（与自举层 调用捕获 语义对齐——
+            # 自举层异常只能以消息字符串穿越 VM 帧边界）
+            raise MathaRuntimeError(str(self._eval(expr.value)))
         if isinstance(expr, ast.Output):
             # [X] 形式解析为 Output 出现在参数位置
             if expr.expr is None:
@@ -1764,6 +1807,9 @@ class Interpreter:
                 return container[index]
             if isinstance(container, _StructInstance) and isinstance(index, str):
                 return container[index]
+            # dict 字符串索引：支持 Matha 自举代码中 dict["键"] 形式
+            if isinstance(container, dict) and isinstance(index, str):
+                return container.get(index)
             raise MathaRuntimeError(f"索引操作不支持: {type(container).__name__}[{index}]")
         if isinstance(expr, ast.SliceExpr):
             container = self._eval(expr.container)
@@ -1782,7 +1828,14 @@ class Interpreter:
                     return left_val[field_name]
                 raise MathaRuntimeError(f"元组索引越界: {field_name}")
             if isinstance(left_val, dict) and isinstance(field_name, str):
-                return left_val.get(field_name)
+                v = left_val.get(field_name)
+                if v is not None:
+                    return v
+                # 模块属性 fallback：若对象是模块命名空间且属性缺失，
+                # 退回内建函数表查询（让 运行时引擎.sin 等透传到宿主内建 sin）。
+                if field_name in self.builtins:
+                    return self.builtins[field_name]
+                return None
             # 一般属性访问：尝试 getattr
             try:
                 return getattr(left_val, field_name)
@@ -2054,8 +2107,8 @@ class Interpreter:
     def _eval_binary(self, node: ast.BinaryOp) -> object:
         self._log_enter("eval Binary", f"'{node.op}'")
         op = node.op
-        # 短路求值：&& 和 || 仅在有需要时求值右操作数
-        if op == "&&":
+        # 短路求值：&& || and or 仅在有需要时求值右操作数
+        if op == "&&" or op == "and":
             l = self._eval(node.left)
             if not l:
                 self._log_exit("eval Binary", l)
@@ -2064,7 +2117,7 @@ class Interpreter:
             result = l and r
             self._log_exit("eval Binary", result)
             return result
-        if op == "||":
+        if op == "||" or op == "or":
             l = self._eval(node.left)
             if l:
                 self._log_exit("eval Binary", l)
@@ -2090,7 +2143,8 @@ class Interpreter:
                 elif isinstance(r, str) and isinstance(l, (int, float)):
                     l = str(l)
                 result = l + r
-                self._log(logging.DEBUG, f"  + 结果: {result!r}")
+                # 注意：result 可能是含闭包的列表（循环结构），裸 repr 会死循环，必须用 _fmt
+                self._log(logging.DEBUG, f"  + 结果: {self._fmt(result)}")
             elif op == "-":
                 if isinstance(l, (str, list)) or isinstance(r, (str, list)):
                     raise MathaRuntimeError(f"- 不适用于字符串/列表")
@@ -2147,7 +2201,7 @@ class Interpreter:
                     self._log_exit("eval Binary", l)
                     return l
                 result = l and r
-                self._log(logging.DEBUG, f"  and 结果: {result!r}")
+                self._log(logging.DEBUG, f"  and 结果: {self._fmt(result)}")
                 return result
             elif op == "or":
                 if l:
@@ -2162,7 +2216,7 @@ class Interpreter:
                     return l
                 r = self._eval(node.right)
                 result = l and r
-                self._log(logging.DEBUG, f"  && 结果: {result!r}")
+                self._log(logging.DEBUG, f"  && 结果: {self._fmt(result)}")
                 return result
             elif op == "||":
                 if l:
@@ -2170,7 +2224,7 @@ class Interpreter:
                     return l
                 r = self._eval(node.right)
                 result = l or r
-                self._log(logging.DEBUG, f"  || 结果: {result!r}")
+                self._log(logging.DEBUG, f"  || 结果: {self._fmt(result)}")
                 return result
             elif op == "===":
                 result = (l is r) and type(l) == type(r)

@@ -635,9 +635,9 @@ class Parser:
         if self._check(TokenType.LIT_INTEGER) and self._peek(1).type in (TokenType.NEWLINE, TokenType.EOF):
             return self._parse_global_id_stmt()
 
-        # go / if / while / for / match / func 等控制流语句（代码块内裸语句）
+        # go / if / while / for / match / func / try 等控制流语句（代码块内裸语句）
         if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR,
-                       TokenType.KW_MATCH, TokenType.KW_FUNC):
+                       TokenType.KW_MATCH, TokenType.KW_FUNC, TokenType.KW_TRY):
             return self._parse_statement()
 
         # 其他 → 表达式 / 绑定
@@ -1271,9 +1271,9 @@ class Parser:
         return left
 
     def _parse_mul_expr(self):
-        """<mul_expr> = <pow_expr> , { ("*" | "/" | "%") , <pow_expr> }"""
+        """<mul_expr> = <pow_expr> , { ("*" | "/" | "//" | "%") , <pow_expr> }"""
         left = self._parse_pow_expr()
-        while self._check(TokenType.OP_STAR, TokenType.OP_SLASH, TokenType.OP_MOD):
+        while self._check(TokenType.OP_STAR, TokenType.OP_SLASH, TokenType.OP_FDIV, TokenType.OP_MOD):
             op = self._advance().value
             right = self._parse_pow_expr()
             left = ast.BinaryOp(op=op, left=left, right=right)
@@ -2144,6 +2144,9 @@ class Parser:
         # switch <expr> { case <val>: <expr> ... default: <expr> }
         if tok.type == TokenType.KW_SWITCH:
             return self._parse_switch()
+        # try { block } catch [(var)] { block } [finally { block }]
+        if tok.type == TokenType.KW_TRY:
+            return self._parse_try_stmt()
         return self._parse_expr_or_binding()
 
     def _parse_let(self) -> ast.AST:
@@ -2287,15 +2290,17 @@ class Parser:
                                               body=body_expr)
                     else:
                         # let rec 直接表达式体: = expr [in expr]
+                        saved_lv = self._in_let_value
                         self._in_let_value = True
                         try:
                             value = self._parse_expr()
-                        finally:
                             self._in_let_value = False
-                        body_expr = None
-                        if self._check(TokenType.KW_IN):
-                            self._advance()
-                            body_expr = self._parse_expr()
+                            body_expr = None
+                            if self._check(TokenType.KW_IN):
+                                self._advance()
+                                body_expr = self._parse_expr()
+                        finally:
+                            self._in_let_value = saved_lv
                         if len(params) == 0:
                             param_type: Any = ast.BasicType(name="Unit")
                         elif len(params) == 1:
@@ -2318,16 +2323,18 @@ class Parser:
             self._advance()
             self._parse_type_expr()
         self._expect(TokenType.OP_ASSIGN, "=")
+        saved_lv = self._in_let_value
         self._in_let_value = True
         try:
             value = self._parse_expr()
+            self._in_let_value = False  # body 内的 in 应作为二元运算符
+            # 可选 in
+            body = None
+            if self._check(TokenType.KW_IN):
+                self._advance()
+                body = self._parse_expr()
         finally:
-            self._in_let_value = False
-        # 可选 in
-        body = None
-        if self._check(TokenType.KW_IN):
-            self._advance()
-            body = self._parse_expr()
+            self._in_let_value = saved_lv
         return ast.LetBinding(name=name, value=value, is_recursive=is_rec, params=[], body=body)
 
     def _parse_let_tuple(self, is_rec: bool) -> ast.AST:
@@ -2339,15 +2346,17 @@ class Parser:
             names.append(self._expect(TokenType.IDENTIFIER, "绑定名").value)
         self._expect(TokenType.PUNCT_RPAREN, ")")
         self._expect(TokenType.OP_ASSIGN, "=")
+        saved_lv = self._in_let_value
         self._in_let_value = True
         try:
             value = self._parse_expr()
-        finally:
             self._in_let_value = False
-        body = None
-        if self._check(TokenType.KW_IN):
-            self._advance()
-            body = self._parse_expr()
+            body = None
+            if self._check(TokenType.KW_IN):
+                self._advance()
+                body = self._parse_expr()
+        finally:
+            self._in_let_value = saved_lv
         return ast.LetTupleBinding(names=names, value=value, body=body)
 
     def _parse_while(self) -> ast.WhileStmt:
@@ -2363,6 +2372,36 @@ class Parser:
         block = self._parse_block_body()
         self._expect(TokenType.PUNCT_RBRACE, "}")
         return ast.WhileStmt(cond=cond, block=block)
+
+    def _parse_try_stmt(self) -> ast.TryStmt:
+        """try { block } catch [(var)] { block } [finally { block }]
+
+        catch 变量可选：catch (e) {} 绑定异常对象；catch {} 不绑定。
+        catch/finally 均可选，但至少应有一个（语义校验交解释器）。"""
+        self._expect(TokenType.KW_TRY, "try")
+        self._expect(TokenType.PUNCT_LBRACE, "{")
+        try_block = self._parse_block_body()
+        self._expect(TokenType.PUNCT_RBRACE, "}")
+        catch_var: str | None = None
+        catch_block: ast.CodeBlock | None = None
+        if self._check(TokenType.KW_CATCH):
+            self._advance()
+            if self._check(TokenType.PUNCT_LPAREN):
+                self._advance()
+                if self._check(TokenType.IDENTIFIER):
+                    catch_var = self._advance().value
+                self._expect(TokenType.PUNCT_RPAREN, ")")
+            self._expect(TokenType.PUNCT_LBRACE, "{")
+            catch_block = self._parse_block_body()
+            self._expect(TokenType.PUNCT_RBRACE, "}")
+        finally_block: ast.CodeBlock | None = None
+        if self._check(TokenType.KW_FINALLY):
+            self._advance()
+            self._expect(TokenType.PUNCT_LBRACE, "{")
+            finally_block = self._parse_block_body()
+            self._expect(TokenType.PUNCT_RBRACE, "}")
+        return ast.TryStmt(try_block=try_block, catch_var=catch_var,
+                           catch_block=catch_block, finally_block=finally_block)
 
     def _parse_if(self) -> ast.AST:
         """if <expr> { <block> } [ 否则 { <block> }]
@@ -2389,6 +2428,12 @@ class Parser:
             self._expect(TokenType.PUNCT_RBRACE, "}")
             else_block = None
             if self._check(TokenType.KW_OTHERWISE):
+                self._advance()
+                self._expect(TokenType.PUNCT_LBRACE, "{")
+                else_block = self._parse_block_body()
+                self._expect(TokenType.PUNCT_RBRACE, "}")
+            elif self._check(TokenType.IDENTIFIER) and self._current().value == "else":
+                # 英文 else 块形式（与 try/catch 英文关键字风格一致）
                 self._advance()
                 self._expect(TokenType.PUNCT_LBRACE, "{")
                 else_block = self._parse_block_body()
@@ -2864,6 +2909,9 @@ class Parser:
         # switch <expr> { case <val>: <expr> ... default: <expr> }
         if tok.type == TokenType.KW_SWITCH:
             return self._parse_switch()
+        # try { block } catch [(var)] { block } [finally { block }]
+        if tok.type == TokenType.KW_TRY:
+            return self._parse_try_stmt()
         return self._parse_expr_or_binding()
 
     def _parse_func_def(self) -> ast.FuncDef:
@@ -2886,7 +2934,8 @@ class Parser:
                 self._advance()
                 params.append(self._parse_typed_param())
         self._expect(TokenType.PUNCT_RPAREN, ")")
-        # 返回类型
+        # 返回类型（允许右括号与 -> 之间换行）
+        self._skip_newlines()
         self._expect(TokenType.OP_ARROW, "->")
         ret_type = self._parse_type_expr()
         # 构造函数类型

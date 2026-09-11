@@ -165,6 +165,47 @@ func 平方(n: Int) -> Int = (n) => n * n
     print("  ✓ 双倍(5)=10 → 平方(10)=100")
 
 
+# ===== try / catch / finally / raise =====
+
+def test_try_catch_raise_message():
+    """raise 抛出的消息被 catch 变量捕获。"""
+    print("\n--- try/catch/raise ---")
+    src = '#：{\n  try { raise "boom" } catch (e) { 结果 = e }\n  [结果]\n}'
+    out, _ = interpret(src)
+    assert out == ["boom"], out
+    print('  ✓ try { raise "boom" } catch (e) → "boom"')
+
+
+def test_try_normal_path_skips_catch():
+    """try 体正常完成时不进入 catch。"""
+    print("\n--- try 正常路径 ---")
+    src = '#：{\n  x = 0\n  try { x = 5 } catch (e) { x = 9 }\n  [x]\n}'
+    out, _ = interpret(src)
+    assert out == [5], out
+    print("  ✓ 正常完成 x=5，catch 未执行")
+
+
+def test_try_finally_runs_both_paths():
+    """finally 在正常与异常路径都执行。"""
+    print("\n--- try/finally ---")
+    src = '#：{\n  x = 0\n  try { x = 5 } finally { x = x + 1 }\n  [x]\n}'
+    out, _ = interpret(src)
+    assert out == [6], out
+    src2 = '#：{\n  x = 0\n  try { raise "e" } catch (e) { x = 1 } finally { x = x + 10 }\n  [x]\n}'
+    out2, _ = interpret(src2)
+    assert out2 == [11], out2
+    print("  ✓ finally 两种路径都执行：6 / 11")
+
+
+def test_try_catches_runtime_error():
+    """内建运行时错误（get 越界）同样被捕获。"""
+    print("\n--- 捕获运行时错误 ---")
+    src = '#：{\n  try { 列表 = [1, 2]\n  get(列表)(9) } catch (e) { 结果 = "越界" }\n  [结果]\n}'
+    out, _ = interpret(src)
+    assert out == ["越界"], out
+    print("  ✓ get 越界异常被 catch 捕获")
+
+
 def _run_all():
     tests = [
         test_arithmetic_and_relation,

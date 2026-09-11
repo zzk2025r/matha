@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.set_int_max_str_digits(0)
 
-from src.mbc import compile_source, run_module, write_mbc, read_mbc
+from src.mbc import compile_source, run_module, write_mbc, read_mbc, VM
 
 
 def _out(source: str):
@@ -159,5 +159,183 @@ func factorial(n: Int) -> Int = (n) =>
 
 def test_bom_tolerated():
     """带 UTF-8 BOM 的源码可正常编译。"""
-    mod = compile_source("\ufeff#1：[1 + 1]")
+    mod = compile_source("﻿#1：[1 + 1]")
     assert run_module(mod)[-1] == 2
+
+
+# ---------- M4：控制流语句 / try 编译到字节码 ----------
+
+def _call_func(src, fn, *args):
+    mod = compile_source(src)
+    vm = VM(mod)
+    vm.run()
+    return vm.call(fn, *args)
+
+
+def test_compiled_while_loop():
+    """while 循环 + 块内槽位绑定。"""
+    src = """
+func 求和到(n: Int) -> Int = (n) => {
+  i = 0
+  s = 0
+  while i < n {
+    s = s + i
+    i = i + 1
+  }
+  s
+}
+"""
+    assert _call_func(src, "求和到", 10) == 45
+    assert _call_func(src, "求和到", 100) == 4950
+
+
+def test_compiled_for_loop():
+    """for 单变量与元组解构迭代。"""
+    src = """
+func 求和(xs: List) -> Int = (xs) => {
+  s = 0
+  for x in xs {
+    s = s + x
+  }
+  s
+}
+"""
+    assert _call_func(src, "求和", [1, 2, 3, 4, 5]) == 15
+
+
+def test_compiled_if_else_value():
+    """if/else 作为块尾表达式产出分支值。"""
+    src = """
+func 判号(n: Int) -> String = (n) => {
+  if n > 0 {
+    "正"
+  } else {
+    "非正"
+  }
+}
+"""
+    assert _call_func(src, "判号", 5) == "正"
+    assert _call_func(src, "判号", -2) == "非正"
+
+
+def test_compiled_try_catch_raise():
+    """try 尾表达式：正常路径与 raise 捕获路径。"""
+    src = """
+func 安全除(a: Int, b: Int) -> Int = (a, b) => {
+  if b = 0 {
+    raise "除零"
+  } else {
+    a / b
+  }
+}
+func 试(a: Int, b: Int) -> String = (a, b) => {
+  try {
+    str(安全除(a)(b))
+  } catch (e) {
+    "出错:" + e
+  }
+}
+"""
+    assert _call_func(src, "试", 10, 2) == "5.0"
+    assert _call_func(src, "试", 1, 0) == "出错:除零"
+
+
+def test_compiled_try_catches_runtime_error():
+    """VM 内建运行时错误同样被编译后的 try 捕获。"""
+    src = """
+func 试() -> Int = () => {
+  try {
+    get(5)(0)
+  } catch (e) {
+    7
+  }
+}
+"""
+    assert _call_func(src, "试") == 7
+
+
+def test_compiled_for_tuple_unpack():
+    """for (a, b) in pairs 元组解构迭代。"""
+    src = """
+func 点和(pairs: List) -> Int = (pairs) => {
+  s = 0
+  for (a, b) in pairs {
+    s = s + a + b
+  }
+  s
+}
+"""
+    assert _call_func(src, "点和", [[1, 2], [3, 4], [5, 6]]) == 21
+
+
+# ---------- M5：dict 原语 / 文件 I/O VM 内建 ----------
+
+def test_vm_dict_keys():
+    """_dict_keys(d) → 键列表。"""
+    result = _eval('_dict_keys({"a": 1, "b": 2})')
+    assert sorted(result) == ["a", "b"]
+
+
+def test_vm_dict_values():
+    """_dict_values(d) → 值列表。"""
+    result = _eval('_dict_values({"a": 1, "b": 2})')
+    assert sorted(result) == [1, 2]
+
+
+def test_vm_dict_has():
+    """_dict_has(d)(k) → 是否含键。"""
+    assert _eval('_dict_has({"a": 1}, "a")') is True
+    assert _eval('_dict_has({"a": 1}, "b")') is False
+
+
+def test_vm_dict_put():
+    """_dict_put(d)(k)(v) → 不可变设置，返回新字典。"""
+    d = _eval('_dict_put({"a": 1}, "b", 2)')
+    assert d == {"a": 1, "b": 2}
+    # 原字典不受影响（不可变语义）
+    orig = _eval('{"a": 1}')
+    assert orig == {"a": 1}
+
+
+def test_vm_dict_remove():
+    """_dict_remove(d)(k) → 不可变删除，返回新字典。"""
+    d = _eval('_dict_remove({"a": 1, "b": 2}, "a")')
+    assert "a" not in d
+    assert d.get("b") == 2
+
+
+def test_vm_dict_keys_non_dict_error():
+    """_dict_keys 对非字典输入抛出异常。"""
+    with pytest.raises(RuntimeError, match="dict_keys"):
+        _eval('_dict_keys(42)')
+
+
+def test_vm_read_write_file(tmp_path):
+    """_write_file / _read_file 端到端。"""
+    p = str(tmp_path / "test_io.txt")
+    src = """
+func w(path: String, content: String) -> None = (path, content) => _write_file(path, content)
+func r(path: String) -> String = (path) => _read_file(path)
+"""
+    mod = compile_source(src)
+    vm = VM(mod)
+    vm.run()
+    vm.call("w", p, "hello world")
+    assert vm.call("r", p) == "hello world"
+
+
+def test_vm_append_file(tmp_path):
+    """_append_file 追加写入。"""
+    p = str(tmp_path / "test_append.txt")
+    src = """
+func w(path: String, content: String) -> None = (path, content) => _write_file(path, content)
+func a(path: String, content: String) -> None = (path, content) => _append_file(path, content)
+func r(path: String) -> String = (path) => _read_file(path)
+"""
+    mod = compile_source(src)
+    vm = VM(mod)
+    vm.run()
+    vm.call("w", p, "line1")
+    vm.call("a", p, "line2")
+    assert vm.call("r", p) == "line1line2"
+
