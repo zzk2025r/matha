@@ -170,6 +170,7 @@ matha/
 
 | 文档 | 说明 |
 |------|------|
+| [Trae 自定义模型配置指南](docs/TRAE_CUSTOM_MODEL_GUIDE.md) | 将 Matha 配置为 Trae 自定义模型 |
 | [离线使用完整指南](docs/OFFLINE_GUIDE.md) | 离线包部署 + 可执行文件使用 |
 | [构建指南](docs/BUILD_GUIDE.md) | PyInstaller 独立可执行文件构建 |
 | [Matha vs 语言对比](docs/matha_vs_languages_analysis.md) | 多语言对比分析 |
