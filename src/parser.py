@@ -3306,7 +3306,9 @@ def parse_file(path: str) -> ast.Program:
 
 _parse_pool_lock = threading.Lock()
 _parse_pool: Optional[ThreadPoolExecutor] = None
-_MAX_WORKERS = 16  # 固定线程数，避免 10000 线程创建开销
+# 自适应：根据设备 CPU 核心数决定线程数（可通过 MATHA_THREAD_WORKERS 环境变量覆盖）
+from src.device_config import get_config as _get_device_config
+_MAX_WORKERS = _get_device_config().thread_workers
 
 
 def _parse_worker(source: str) -> ast.Program:

@@ -26,6 +26,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 import threading
 
+from src.device_config import get_config
+
 # 延迟导入，避免主进程导入时触发子进程初始化
 from src.intent_parser import IntentParser as IntentParserBase, Intent, IntentType
 from src.errors import (
@@ -163,8 +165,9 @@ class ProcessPoolIntentParser:
         result = parser.execute("对数组 [3,1,2] 排序")
     """
 
-    def __init__(self, max_workers: int = 8, init_timeout: float = 30.0):
-        self.max_workers = max_workers
+    def __init__(self, max_workers: Optional[int] = None, init_timeout: float = 30.0):
+        # 自适应：根据设备 CPU 核心数决定进程数（None 时自动检测）
+        self.max_workers = max_workers if max_workers is not None else get_config().process_workers
         self._executor: Optional[ProcessPoolExecutor] = None
         self._init_timeout = init_timeout
         self._lock = threading.Lock()
@@ -262,11 +265,15 @@ class HybridIntentParser:
       - 代码执行（exec）→ 进程池（CPU 密集，绕过 GIL）
     """
 
-    def __init__(self, thread_workers: int = 16, process_workers: int = 4):
+    def __init__(self, thread_workers: Optional[int] = None, process_workers: Optional[int] = None):
         from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-        self._thread_pool = ThreadPoolExecutor(max_workers=thread_workers)
+        cfg = get_config()
+        # 自适应：None 时根据设备性能自动决定
+        self._thread_pool = ThreadPoolExecutor(
+            max_workers=thread_workers if thread_workers is not None else cfg.thread_workers
+        )
         self._process_pool = ProcessPoolExecutor(
-            max_workers=process_workers,
+            max_workers=process_workers if process_workers is not None else cfg.process_workers,
             initializer=_worker_init,
         )
 

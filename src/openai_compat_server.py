@@ -26,12 +26,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant
 from src.interp import Interpreter
+from src.device_config import get_config
 
 
 # 全局单例
 _ASSISTANT = MathaAIAssistant()
 _INTERP = Interpreter()
 _INTERP_LOCK = threading.Lock()  # 解释器非线程安全，需加锁
+_DEVICE_CFG = get_config()  # 设备性能配置
 
 
 class OpenAICompatHandler(BaseHTTPRequestHandler):
@@ -218,9 +220,14 @@ def main():
     parser.add_argument("--port", type=int, default=8787, help="监听端口")
     args = parser.parse_args()
 
+    # 使用 daemon 线程，进程退出时自动清理
+    ThreadingHTTPServer.daemon_threads = True
     server = ThreadingHTTPServer((args.host, args.port), OpenAICompatHandler)
+
     print(f"Matha OpenAI 兼容服务启动: http://{args.host}:{args.port}/v1")
     print(f"  模型名: matha")
+    print(f"  {_DEVICE_CFG.summary()}")
+    print(f"  说明: AI 助手调用经锁串行化（解释器非线程安全），HTTP 请求并发处理")
     print(f"  Trae 自定义模型配置:")
     print(f"    接口地址: http://localhost:{args.port}/v1")
     print(f"    模型名:   matha")
