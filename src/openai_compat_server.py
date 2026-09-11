@@ -18,8 +18,9 @@ import sys
 import os
 import time
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,6 +31,7 @@ from src.interp import Interpreter
 # 全局单例
 _ASSISTANT = MathaAIAssistant()
 _INTERP = Interpreter()
+_INTERP_LOCK = threading.Lock()  # 解释器非线程安全，需加锁
 
 
 class OpenAICompatHandler(BaseHTTPRequestHandler):
@@ -76,14 +78,23 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
             self._send_json({"error": {"message": "Not found"}}, 404)
 
     def do_POST(self):
-        parsed = urlparse(self.path)
+        # 处理 Expect: 100-continue（requests 库默认发送）
+        if self.headers.get("Expect") == "100-continue":
+            self.send_response(100)
+            self.end_headers()
 
-        if parsed.path == "/v1/chat/completions":
-            self._handle_chat_completions()
-        elif parsed.path == "/v1/completions":
-            self._handle_completions()
-        else:
-            self._send_json({"error": {"message": "Not found"}}, 404)
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path == "/v1/chat/completions":
+                self._handle_chat_completions()
+            elif parsed.path == "/v1/completions":
+                self._handle_completions()
+            else:
+                self._send_json({"error": {"message": "Not found"}}, 404)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json({"error": {"message": f"服务器错误: {e}"}}, 500)
 
     # ---------- /v1/chat/completions ----------
     def _handle_chat_completions(self):
@@ -103,9 +114,10 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
                 user_text = m.get("content", "")
                 break
 
-        # 调用 Matha AI 助手
+        # 调用 Matha AI 助手（加锁保护解释器）
         try:
-            result = self.assistant.chat(user_text, self.interp)
+            with _INTERP_LOCK:
+                result = self.assistant.chat(user_text, self.interp)
         except Exception as e:
             result = {"reply": f"Matha 错误: {e}", "type": "error"}
 
@@ -140,7 +152,8 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
             prompt = prompt[-1] if prompt else ""
 
         try:
-            result = self.assistant.chat(prompt, self.interp)
+            with _INTERP_LOCK:
+                result = self.assistant.chat(prompt, self.interp)
         except Exception as e:
             result = {"reply": f"Matha 错误: {e}", "type": "error"}
 
@@ -205,7 +218,7 @@ def main():
     parser.add_argument("--port", type=int, default=8787, help="监听端口")
     args = parser.parse_args()
 
-    server = HTTPServer((args.host, args.port), OpenAICompatHandler)
+    server = ThreadingHTTPServer((args.host, args.port), OpenAICompatHandler)
     print(f"Matha OpenAI 兼容服务启动: http://{args.host}:{args.port}/v1")
     print(f"  模型名: matha")
     print(f"  Trae 自定义模型配置:")
