@@ -166,7 +166,7 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
+        self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
@@ -184,8 +184,8 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
             }
             return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
-        # 按字符发送（模拟流式）
-        chunk_size = max(1, len(content) // 20) if content else 1
+        # 按片段发送（模拟流式）
+        chunk_size = max(1, len(content) // 10) if content else 1
         for i in range(0, len(content), chunk_size):
             chunk = content[i:i + chunk_size]
             self.wfile.write(_chunk(chunk).encode("utf-8"))
@@ -194,6 +194,8 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         self.wfile.write(_chunk("", finish_reason="stop").encode("utf-8"))
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
+        # 标记连接关闭
+        self.close_connection = True
 
 
 def main():
