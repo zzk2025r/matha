@@ -51,6 +51,7 @@ import sys
 from pathlib import Path
 from typing import Any
 from src import ast_nodes as ast
+from src import text_encoding as _te
 
 logger = logging.getLogger("matha.interp")
 # 模块默认挂 NullHandler，避免「No handlers could be found」警告；
@@ -660,6 +661,13 @@ BUILTINS: dict[str, object] = {
     "去空白": builtin_字符串去空白,
     "小写": builtin_字符串小写,
     "大写": builtin_字符串大写,
+    # 文本编码（二进制/三进制/十进制）
+    "encode_binary": lambda s: _te.encode_binary(str(s)),
+    "decode_binary": lambda s: _te.decode_binary(str(s)),
+    "encode_ternary": lambda s: _te.encode_ternary(str(s)),
+    "decode_ternary": lambda s: _te.decode_ternary(str(s)),
+    "encode_decimal": lambda s: _te.encode_decimal(str(s)),
+    "decode_decimal": lambda s: _te.decode_decimal(str(s)),
     # 列表操作
     "映射": _curry_module(2, lambda lst, fn: builtin_列表映射(lst, fn)),
     "过滤": _curry_module(2, lambda lst, fn: builtin_列表过滤(lst, fn)),

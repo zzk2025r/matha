@@ -140,6 +140,44 @@ def _builtin_dict_values(d):
     return list(d.values())
 
 
+# ---------- 文本编码原语（二进制/三进制/十进制） ----------
+
+def _builtin_encode_binary(text):
+    """encode_binary(text) → 二进制编码字符串（base-2，空格分隔）。"""
+    from src.text_encoding import encode_binary
+    return encode_binary(str(text))
+
+
+def _builtin_decode_binary(encoded):
+    """decode_binary(encoded) → 从二进制编码还原文本。"""
+    from src.text_encoding import decode_binary
+    return decode_binary(str(encoded))
+
+
+def _builtin_encode_ternary(text):
+    """encode_ternary(text) → 三进制编码字符串（base-3，空格分隔）。"""
+    from src.text_encoding import encode_ternary
+    return encode_ternary(str(text))
+
+
+def _builtin_decode_ternary(encoded):
+    """decode_ternary(encoded) → 从三进制编码还原文本。"""
+    from src.text_encoding import decode_ternary
+    return decode_ternary(str(encoded))
+
+
+def _builtin_encode_decimal(text):
+    """encode_decimal(text) → 十进制编码字符串（Unicode 码点序列）。"""
+    from src.text_encoding import encode_decimal
+    return encode_decimal(str(text))
+
+
+def _builtin_decode_decimal(encoded):
+    """decode_decimal(encoded) → 从十进制编码还原文本。"""
+    from src.text_encoding import decode_decimal
+    return decode_decimal(str(encoded))
+
+
 # ---------- 文件 I/O 原语（需 OS 访问，纯 Matha 无法实现） ----------
 
 def _builtin_read_file(path):
@@ -207,6 +245,13 @@ def _default_builtins() -> dict:
     b.setdefault("_read_file", _builtin_read_file)
     b.setdefault("_write_file", _curry2(_builtin_write_file))
     b.setdefault("_append_file", _curry2(_builtin_append_file))
+    # 文本编码原语（二进制/三进制/十进制）
+    b.setdefault("encode_binary", _builtin_encode_binary)
+    b.setdefault("decode_binary", _builtin_decode_binary)
+    b.setdefault("encode_ternary", _builtin_encode_ternary)
+    b.setdefault("decode_ternary", _builtin_decode_ternary)
+    b.setdefault("encode_decimal", _builtin_encode_decimal)
+    b.setdefault("decode_decimal", _builtin_decode_decimal)
     b.setdefault("错误", _raise_builtin)
     b.setdefault("MathaIOError", lambda m: ("MathaIOError", str(m)))
     b.setdefault("真", True)
