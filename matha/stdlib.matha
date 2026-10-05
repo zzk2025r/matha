@@ -4,7 +4,7 @@
    包含：
      - 字符串操作（ord / chr / len / 截取 / 拼接 / 替换 / 查找）
      - 列表操作（len / get / slice / append / concat / reverse / sort）
-     - 字典操作（keys / values / has / size / get / put / remove / to_list / update / from_pairs）
+     - 字典操作（keys / values / has / size / get / put / set / remove / to_list / update / from_pairs）
      - 类型转换（int / float / str / bool）
      - 文件 I/O（read_file / write_file / append_file）
      - JSON 解析与序列化（简单实现）
@@ -26,7 +26,7 @@ module 标准库 {
      注意：VM/宿主已提供真实 ord 内建（ASCII/Unicode 码点），
      本占位实现仅用于无宿主原语的自举场景，故命名 ord_matha 以免遮蔽内建。
      互递归辅助提升为模块顶层 func（自举 parser 不支持 let rec ... and ...）。 *)
-  func ord_char_matha(c: String) -> Int = (c) =>
+  func ord_char_matha(c: String) -> Int =
     let base = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" in
     let rec _find(i: Int) -> Int =
       if i >= len(base) then -1
@@ -34,7 +34,7 @@ module 标准库 {
       else _find(i + 1)
     in _find(0)
 
-  func ord_matha(c: String) -> Int = (c) =>
+  func ord_matha(c: String) -> Int =
     if len(c) != 1 then 错误("ord() 需要单字符，实际: " + c)
     else
       let rec _encode(i: Int, code: Int) -> Int =
@@ -43,7 +43,7 @@ module 标准库 {
       in _encode(0, 0)
 
   (* 由码点生成字符（仅支持 ASCII 0-127）——纯 Matha 占位，同上命名 chr_matha *)
-  func chr_matha(n: Int) -> String = (n) =>
+  func chr_matha(n: Int) -> String =
     let chars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~" in
     if n < 0 or n >= len(chars) then
       错误("chr() 超出范围: " + str(n))
@@ -54,25 +54,24 @@ module 标准库 {
       in _build(0, chars[n])
 
   (* 字符串截取：截取(s, start, end) → 子串 *)
-  func 截取(s: String, start: Int, end: Int) -> String = (s, start, end) =>
+  func 截取(s: String, start: Int, end: Int) -> String =
     let rec _copy(i: Int, acc: String) -> String =
       if i >= end then acc
       else _copy(i + 1, acc + s[i])
     in _copy(start, "")
 
   (* 字符串拼接 *)
-  func 拼接(a: String, b: String) -> String = (a, b) => a + b
+  func 拼接(a: String, b: String) -> String = a + b
 
   (* 字符串从 s[j] 起是否与 sub[k..] 匹配（k 为 sub 内偏移）*)
   func _str_eq_at(sub: String, s: String, j: Int, k: Int, sl: Int) -> Bool =
-    (sub, s, j, k, sl) =>
     if k >= sl then 真
     else if j >= len(s) then 假
     else if sub[k] != s[j] then 假
     else _str_eq_at(sub, s, j + 1, k + 1, sl)
 
   (* 字符串查找：find(sub, in_str) → 起始索引，未找到返回 -1 *)
-  func find(sub: String, s: String) -> Int = (sub, s) =>
+  func find(sub: String, s: String) -> Int =
     let sl = len(sub) in
     let ll = len(s) in
     if sl = 0 or sl > ll then -1
@@ -84,7 +83,7 @@ module 标准库 {
       in _search(0)
 
   (* 字符串替换：replace(s, old, new) → 替换后的字符串 *)
-  func replace(s: String, old: String, new_str: String) -> String = (s, old, new_str) =>
+  func replace(s: String, old: String, new_str: String) -> String =
     let ol = len(old) in
     let pos = find(old, s) in
     if pos = -1 then s
@@ -92,7 +91,7 @@ module 标准库 {
       拼接(截取(s, 0, pos), 拼接(new_str, replace(截取(s, pos + ol, len(s)), old, new_str)))
 
   (* 字符串分割：split(s, sep) → 字符串列表 *)
-  func split(s: String, sep: String) -> List = (s, sep) =>
+  func split(s: String, sep: String) -> List =
     let sl = len(sep) in
     let rec _split(i: Int, parts: List) -> List =
       if i >= len(s) then parts + [截取(s, i, len(s))]
@@ -103,7 +102,7 @@ module 标准库 {
     in _split(0, [])
 
   (* 字符串转小写 *)
-  func to_lower(s: String) -> String = (s) =>
+  func to_lower(s: String) -> String =
     let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" in
     let lower = "abcdefghijklmnopqrstuvwxyz" in
     let rec _map(i: Int, acc: String) -> String =
@@ -116,7 +115,7 @@ module 标准库 {
     in _map(0, "")
 
   (* 字符串转大写 *)
-  func to_upper(s: String) -> String = (s) =>
+  func to_upper(s: String) -> String =
     let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" in
     let lower = "abcdefghijklmnopqrstuvwxyz" in
     let rec _map(i: Int, acc: String) -> String =
@@ -129,7 +128,7 @@ module 标准库 {
     in _map(0, acc)
 
   (* 去除空白 *)
-  func strip(s: String) -> String = (s) =>
+  func strip(s: String) -> String =
     let ws = " \t\n\r" in
     let rec _lstrip(i: Int) -> Int =
       if i >= len(s) then i
@@ -147,46 +146,46 @@ module 标准库 {
     else 截取(s, start, end_pos + 1)
 
   (* 字符串重复 *)
-  func repeat(s: String, n: Int) -> String = (s, n) =>
+  func repeat(s: String, n: Int) -> String =
     if n <= 0 then ""
     else 拼接(s, repeat(s, n - 1))
 
   (* ===== 列表操作 ===== *)
 
   (* 列表长度（通用）*)
-  func list_len(lst: List) -> Int = (lst) =>
+  func list_len(lst: List) -> Int =
     let rec _count(i: Int, n: Int) -> Int =
       if i >= len(lst) then n
       else _count(i + 1, n + 1)
     in _count(0, 0)
 
   (* 列表取元素 *)
-  func list_get(lst: List, idx: Int) -> Value = (lst, idx) =>
+  func list_get(lst: List, idx: Int) -> Value =
     if idx < 0 or idx >= len(lst) then 错误("列表索引越界: " + 标准库.str(idx))
     else lst[idx]
 
   (* 列表切片 *)
-  func list_slice(lst: List, start: Int, end: Int) -> List = (lst, start, end) =>
+  func list_slice(lst: List, start: Int, end: Int) -> List =
     let rec _copy(i: Int, acc: List) -> List =
       if i >= end or i >= len(lst) then acc
       else _copy(i + 1, acc + [lst[i]])
     in _copy(start, [])
 
   (* 追加元素 *)
-  func list_append(lst: List, elem) -> List = (lst, elem) => lst + [elem]
+  func list_append(lst: List, elem) -> List = lst + [elem]
 
   (* 列表拼接 *)
-  func list_concat(a: List, b: List) -> List = (a, b) => a + b
+  func list_concat(a: List, b: List) -> List = a + b
 
   (* 列表反转 *)
-  func list_reverse(lst: List) -> List = (lst) =>
+  func list_reverse(lst: List) -> List =
     let rec _rev(i: Int, acc: List) -> List =
       if i < 0 then acc
       else _rev(i - 1, acc + [lst[i]])
     in _rev(len(lst) - 1, [])
 
   (* 列表原位设置：返回把 idx 位置替换为 v 的新列表 *)
-  func list_set_at(lst: List, idx: Int, v) -> List = (lst, idx, v) =>
+  func list_set_at(lst: List, idx: Int, v) -> List =
     let rec _set(i: Int, acc: List) -> List =
       if i >= len(lst) then acc
       else if i = idx then _set(i + 1, acc + [v])
@@ -200,15 +199,15 @@ module 标准库 {
      「占位符 + 原地更新」策略依赖此原语：env 为 CONS 共享的
      [[name, value], ...] 结构，对共享 pair 的原地修改对所有捕获该
      env 的闭包同步可见（语义等价宿主 _RecPlaceholder 的可变引用）。 *)
-  func 原地设置(lst: List, idx: Int, v) -> List = (lst, idx, v) =>
+  func 原地设置(lst: List, idx: Int, v) -> List =
     mut_set_at(lst, idx, v)
 
   (* 列表相邻交换：交换 i 与 i+1 两个位置 *)
-  func list_swap(arr: List, i: Int) -> List = (arr, i) =>
+  func list_swap(arr: List, i: Int) -> List =
     list_set_at(list_set_at(arr, i, arr[i + 1]), i + 1, arr[i])
 
   (* 列表排序（冒泡）*)
-  func list_sort(lst: List) -> List = (lst) =>
+  func list_sort(lst: List) -> List =
     let n = len(lst) in
     if n <= 1 then lst
     else
@@ -222,7 +221,7 @@ module 标准库 {
       in _pass(0, 假, lst)
 
   (* 列表包含 *)
-  func list_contains(lst: List, elem) -> Bool = (lst, elem) =>
+  func list_contains(lst: List, elem) -> Bool =
     let rec _search(i: Int) -> Bool =
       if i >= len(lst) then 假
       else if lst[i] = elem then 真
@@ -230,7 +229,7 @@ module 标准库 {
     in _search(0)
 
   (* 列表最大值 *)
-  func list_max(lst: List) -> Value = (lst) =>
+  func list_max(lst: List) -> Value =
     if len(lst) = 0 then 错误("list_max: 空列表")
     else
       let rec _max(i: Int, best) -> Value =
@@ -240,7 +239,7 @@ module 标准库 {
       in _max(1, lst[0])
 
   (* 列表最小值 *)
-  func list_min(lst: List) -> Value = (lst) =>
+  func list_min(lst: List) -> Value =
     if len(lst) = 0 then 错误("list_min: 空列表")
     else
       let rec _min(i: Int, best) -> Value =
@@ -250,7 +249,7 @@ module 标准库 {
       in _min(1, lst[0])
 
   (* 列表求和 *)
-  func list_sum(lst: List) -> Float = (lst) =>
+  func list_sum(lst: List) -> Float =
     let rec _sum(i: Int, acc: Float) -> Float =
       if i >= len(lst) then acc
       else _sum(i + 1, acc + lst[i])
@@ -263,37 +262,52 @@ module 标准库 {
      直接委托原语的薄包装 + 用 Matha 实现的高层组合函数。 *)
 
   (* 字典键列表——委托 VM 原语 *)
-  func dict_keys(d: Dict) -> List = (d) =>
+  func dict_keys(d: Dict) -> List =
+    _dict_keys(d)
+
+  (* keys(d)：M5 计划命名的键列表入口，等价 dict_keys。
+     两套名字并存：dict_* 与本模块既有命名（dict_get/dict_put）成组，
+     计划书另点名 keys/values，故提供短名别名以对齐对外 API。 *)
+  func keys(d: Dict) -> List =
     _dict_keys(d)
 
   (* 字典值列表——委托 VM 原语 *)
-  func dict_values(d: Dict) -> List = (d) =>
+  func dict_values(d: Dict) -> List =
+    _dict_values(d)
+
+  func values(d: Dict) -> List =
     _dict_values(d)
 
   (* 字典是否含键——委托 VM 原语 *)
-  func dict_has(d: Dict, k: Value) -> Bool = (d, k) =>
+  func dict_has(d: Dict, k: Value) -> Bool =
     _dict_has(d, k)
 
   (* 字典大小——纯 Matha：键列表长度 *)
-  func dict_size(d: Dict) -> Int = (d) =>
+  func dict_size(d: Dict) -> Int =
     len(_dict_keys(d))
 
-  (* 安全取值：有键返回 d[k]，无键返回 fallback——纯 Matha *)
-  func dict_get(d: Dict, k: Value, fallback: Value) -> Value = (d, k, fallback) =>
+  (* 安全取值：有键返回 d[k]，无键返回 fallback——纯 Matha。
+     先 _dict_has 再 d[k]：VM 无「带默认值取键」原语，且直接 d[k] 缺键会抛错。 *)
+  func dict_get(d: Dict, k: Value, fallback: Value) -> Value =
     if _dict_has(d, k) then d[k] else fallback
 
   (* 不可变设置：返回含 k→v 的新字典——委托 VM 原语 *)
-  func dict_put(d: Dict, k: Value, v: Value) -> Dict = (d, k, v) =>
+  func dict_put(d: Dict, k: Value, v: Value) -> Dict =
+    _dict_put(d, k, v)
+
+  (* dict_set(d, k, v)：M5 计划命名的不可变设置入口，等价 dict_put。
+     语义是「返回新字典」而非原地改——Matha 值不可变，原字典不受影响。 *)
+  func dict_set(d: Dict, k: Value, v: Value) -> Dict =
     _dict_put(d, k, v)
 
   (* 不可变删除：返回不含 k 的新字典——委托 VM 原语 *)
-  func dict_remove(d: Dict, k: Value) -> Dict = (d, k) =>
+  func dict_remove(d: Dict, k: Value) -> Dict =
     _dict_remove(d, k)
 
   (* 字典 → [[键, 值], ...] 列表——纯 Matha：拉链合并键值列表。
      注意：用嵌套列表 [[k, v]] 而非元组 [(k, v)]——函数应用语境中
      (a, b) 会被解析器当作多参调用只取首参。 *)
-  func dict_to_list(d: Dict) -> List = (d) =>
+  func dict_to_list(d: Dict) -> List =
     let keys = _dict_keys(d) in
     let vals = _dict_values(d) in
     let rec _zip(i: Int, acc: List) -> List =
@@ -302,7 +316,7 @@ module 标准库 {
     in _zip(0, [])
 
   (* 合并字典：overrides 覆盖 base 同键——纯 Matha：折叠 _dict_put *)
-  func dict_update(base: Dict, overrides: Dict) -> Dict = (base, overrides) =>
+  func dict_update(base: Dict, overrides: Dict) -> Dict =
     let keys = _dict_keys(overrides) in
     let rec _merge(i: Int, acc: Dict) -> Dict =
       if i >= len(keys) then acc
@@ -312,7 +326,7 @@ module 标准库 {
   (* 由 [(键, 值), ...] 列表构建字典——纯 Matha：折叠 _dict_put。
      注意：{} 在 Matha 语法中为空集合构造（SetConstruct），非空字典，
      故用 VM 提供的 _empty_dict 常量作为初始值。 *)
-  func dict_from_pairs(pairs: List) -> Dict = (pairs) =>
+  func dict_from_pairs(pairs: List) -> Dict =
     let rec _build(i: Int, acc: Dict) -> Dict =
       if i >= len(pairs) then acc
       else
@@ -323,7 +337,7 @@ module 标准库 {
   (* ===== 类型转换 ===== *)
 
   (* 字符串 → 整数 *)
-  func int(s: String) -> Int = (s) =>
+  func int(s: String) -> Int =
     if matha_type_of(s) = "Int" then s
     else if matha_type_of(s) = "Float" then _to_int(s)
     else
@@ -344,7 +358,7 @@ module 标准库 {
       if neg then -result else result
 
   (* 字符串 → 浮点数（数值入参直接做类型转换）*)
-  func float(s: String) -> Float = (s) =>
+  func float(s: String) -> Float =
     if matha_type_of(s) = "Float" then s
     else if matha_type_of(s) = "Int" then _to_float(s)
     else
@@ -367,7 +381,7 @@ module 标准库 {
         if neg then -result else result
 
   (* 数值 → 字符串 *)
-  func str(n) -> String = (n) =>
+  func str(n) -> String =
     if matha_type_of(n) = "Int" then
       let rec _digits(x: Int, acc: String) -> String =
         if x = 0 then acc
@@ -400,35 +414,35 @@ module 标准库 {
       "<?>?"
 
   (* 判断是否为数字：通过尝试字符串转换来检测，不调用 str() 避免循环 *)
-  func _is_number(v) -> Bool = (v) =>
+  func _is_number(v) -> Bool =
     if v = 真 or v = 假 or v = null then 假
     else
       let s = str_safe(v) in
       find("<?>?", s) < 0
 
   (* 安全字符串转换：非数字返回 "<?>?" *)
-  func str_safe(n) -> String = (n) =>
+  func str_safe(n) -> String =
     if n = 真 or n = 假 or n = null then "<?>?"
     else
       let s = str(n) in
       if find("<?>?", s) >= 0 then "<?>?" else s
 
   (* 判断是否为字符串：通过比较 str() 结果来判断，但不直接用 str() 做值比较 *)
-  func _is_string(v) -> Bool = (v) =>
+  func _is_string(v) -> Bool =
     if v = 真 or v = 假 or v = null or _is_number(v) then 假
     else
       let s = str(v) in
       if find("<?>?", s) >= 0 then 假 else s = v
 
   (* 判断是否为列表：通过检查是否能安全索引，不依赖 str() *)
-  func _is_list(v) -> Bool = (v) =>
+  func _is_list(v) -> Bool =
     if _is_number(v) or _is_string(v) or v = 真 or v = 假 or v = null then 假
     else
       let s = str(v) in
       if find("<?>?", s) >= 0 then 假 else 真
 
   (* 判断是否为字典：剩下就是字典 *)
-  func _is_dict(v) -> Bool = (v) =>
+  func _is_dict(v) -> Bool =
     if v = 真 or v = 假 or v = null then 假
     else if _is_number(v) then 假
     else if _is_string(v) then 假
@@ -437,11 +451,11 @@ module 标准库 {
 
   (* 获取值类型名称——委托 VM 内建 type_of（Python 层直接类型判定），
      避免 stdlib 纯 Matha 字符串启发式实现与 str 互相调用死循环。*)
-  func matha_type_of(v) -> String = (v) => type_of(v)
+  func matha_type_of(v) -> String = type_of(v)
 
   (* 由数值取其整数部分（向零取整）。用于 matha_type_of 区分 Int/Float。
      不依赖 str/int 内建，避免引入循环。*)
-  func int_of_num(v) -> Int = (v) =>
+  func int_of_num(v) -> Int =
     if v >= 0 then _floor_pos(v, 0) else -_floor_pos(-v, 0)
 
   func _floor_pos(v: Float, acc: Int) -> Int = (v, acc) =>
@@ -449,7 +463,7 @@ module 标准库 {
     (v < 10.0) ? (acc * 10 + _digit(v / 1.0)) :
     _floor_pos(v / 10.0, acc * 10 + _digit(v / 10.0))
 
-  func _digit(v: Float) -> Int = (v) => int(v % 10)
+  func _digit(v: Float) -> Int = int(v % 10)
 
   (* ===== 文件 I/O =====
 
@@ -457,13 +471,13 @@ module 标准库 {
      是 OS 级能力，纯 Matha 无法实现。命名加 _ 前缀避免与 stdlib 公共
      API 同名遮蔽（同 mut_set_at / 原地设置 模式）。 *)
 
-  func read_file(path: String) -> String = (path) =>
+  func read_file(path: String) -> String =
     _read_file(path)
 
-  func write_file(path: String, content: String) -> None = (path, content) =>
+  func write_file(path: String, content: String) -> None =
     _write_file(path, content)
 
-  func append_file(path: String, content: String) -> None = (path, content) =>
+  func append_file(path: String, content: String) -> None =
     _append_file(path, content)
 
   (* ===== JSON 简单解析 ===== *)
@@ -471,17 +485,17 @@ module 标准库 {
   (* 解析 JSON 字符串（支持数字、字符串、布尔、null、数组、对象）。
      互递归辅助函数全部提升为模块顶层 func——自举 parser 不支持 let rec ... and ...，
      且 s 通过参数显式传递。 *)
-  func _json_skip_ws(s: String, pos: Int) -> Int = (s, pos) =>
+  func _json_skip_ws(s: String, pos: Int) -> Int =
     if pos < len(s) and (s[pos] = " " or s[pos] = "\t" or s[pos] = "\n" or s[pos] = "\r") then
       _json_skip_ws(s, pos + 1)
     else pos
 
-  func _json_literal(s: String, start: Int, lit: String, val) -> (Value, Int) = (s, start, lit, val) =>
+  func _json_literal(s: String, start: Int, lit: String, val) -> (Value, Int) =
     if 截取(s, start, start + len(lit)) = lit then
       (val, start + len(lit))
     else 错误("JSON 解析错误: 期望 '" + lit + "'")
 
-  func _json_string(s: String, start: Int) -> (Value, Int) = (s, start) =>
+  func _json_string(s: String, start: Int) -> (Value, Int) =
     if s[start] != "\"" then 错误("JSON 解析错误: 期望字符串")
     else
       let rec _collect(i: Int, acc: String) -> (String, Int) =
@@ -492,7 +506,7 @@ module 标准库 {
       let (str_val, end_pos) = _collect(start + 1, "") in
       (str_val, end_pos)
 
-  func _json_number(s: String, start: Int) -> (Value, Int) = (s, start) =>
+  func _json_number(s: String, start: Int) -> (Value, Int) =
     let rec _scan(i: Int) -> Int =
       if i >= len(s) then i
       else if (s[i] >= "0" and s[i] <= "9") or s[i] = "." or s[i] = "e" or s[i] = "E" or s[i] = "+" or s[i] = "-" then _scan(i + 1)
@@ -505,7 +519,7 @@ module 标准库 {
     else
       (int(num_str), end_pos)
 
-  func _json_array(s: String, start: Int) -> (Value, Int) = (s, start) =>
+  func _json_array(s: String, start: Int) -> (Value, Int) =
     if s[start] != "[" then 错误("JSON 解析错误: 期望 [")
     else
       let rec _parse_items(pos: Int, items: List) -> (List, Int) =
@@ -521,7 +535,7 @@ module 标准库 {
       let (items, end_pos) = _parse_items(start + 1, []) in
       (items, end_pos)
 
-  func _json_object(s: String, start: Int) -> (Value, Int) = (s, start) =>
+  func _json_object(s: String, start: Int) -> (Value, Int) =
     if s[start] != "{" then 错误("JSON 解析错误: 期望 {")
     else
       let rec _parse_entries(pos: Int, entries: List) -> (List, Int) =
@@ -541,7 +555,7 @@ module 标准库 {
       let (entries, end_pos) = _parse_entries(start + 1, []) in
       (entries, end_pos)
 
-  func _json_value(s: String, start: Int) -> (Value, Int) = (s, start) =>
+  func _json_value(s: String, start: Int) -> (Value, Int) =
     if start >= len(s) then (错误("JSON 解析错误: 意外结束"), start)
     else
       let c = s[start] in
@@ -555,7 +569,7 @@ module 标准库 {
       else 错误("JSON 解析错误: 意外字符 '" + c + "'")
 
   (* 解析 JSON 字符串入口 *)
-  func parse_JSON(s: String) -> Value = (s) =>
+  func parse_JSON(s: String) -> Value =
     let s = strip(s) in
     if len(s) = 0 then 错误("parse_JSON: 空字符串")
     else
@@ -565,22 +579,22 @@ module 标准库 {
   (* ===== 工具函数 ===== *)
 
   (* 打印到输出 *)
-  func print(val: Value) -> None = (val) =>
+  func print(val: Value) -> None =
     错误("[Matha Print] " + 标准库.str(val))
 
   (* 范围生成：range(start, end) → 列表 *)
-  func range(start: Int, end_pos: Int) -> List = (start, end_pos) =>
+  func range(start: Int, end_pos: Int) -> List =
     let rec _gen(i: Int, acc: List) -> List =
       if i >= end_pos then acc
       else _gen(i + 1, acc + [i])
     in _gen(start, [])
 
   (* 断言 *)
-  func assert(cond: Bool, msg: String) -> None = (cond, msg) =>
+  func assert(cond: Bool, msg: String) -> None =
     if not cond then 错误("assertion failed: " + msg)
 
   (* 枚举列表：enumerate(lst) → [[index, value], ...] *)
-  func enumerate(lst: List) -> List = (lst) =>
+  func enumerate(lst: List) -> List =
     let rec _enum(i: Int, acc: List) -> List =
       if i >= len(lst) then acc
       else _enum(i + 1, acc + [[i, lst[i]]])
@@ -610,10 +624,13 @@ module 标准库 {
     "append_file": append_file,
     "dict_keys": dict_keys,
     "dict_values": dict_values,
+    "keys": keys,
+    "values": values,
     "dict_has": dict_has,
     "dict_size": dict_size,
     "dict_get": dict_get,
     "dict_put": dict_put,
+    "dict_set": dict_set,
     "dict_remove": dict_remove,
     "dict_to_list": dict_to_list,
     "dict_update": dict_update,

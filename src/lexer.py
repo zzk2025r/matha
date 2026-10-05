@@ -151,6 +151,11 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "┴": TokenType.SYMBOL,
     "┼": TokenType.SYMBOL,
     # ---------- 其他常用符号 ----------
+    # 角度括号 ⟨ … ⟩：AngleExpr 单值包装（ast.AngleExpr / _visit_AngleExpr）。
+    # 开闭共用 OP_ANGLE（同 < 的开闭同号惯例）。此前未映射，⟨ 降级为 SYMBOL
+    # 后被 _parse_variable 当变量名 → 运行期 KeyError；OP_ANGLE 分支是死代码。
+    "⟨": TokenType.OP_ANGLE,
+    "⟩": TokenType.OP_ANGLE,
     "°": TokenType.SYMBOL,
     "℃": TokenType.SYMBOL,
     "℉": TokenType.SYMBOL,
@@ -178,12 +183,28 @@ _RADIX_VALID: dict[str, str] = {
 }
 
 # 转义字符映射（模块级常量，避免每次字符串解析时创建 dict）
+# 覆盖 CPython 的单字符转义全集；\x \u \U 八进制转义由 _decode_escape 处理。
 _ESCAPE_MAP: dict[str, str] = {
     "n": "\n",
     "t": "\t",
+    "r": "\r",           # 回车：此前缺失，"a\rb" 被静默变成 "arb"
+    "b": "\b",           # 退格
+    "f": "\f",           # 换页
+    "v": "\v",           # 垂直制表
+    "a": "\a",           # 响铃
     '"': '"',
+    "'": "'",
     "\\": "\\",
 }
+
+# 十六进制数字（\x \u \U 转义与 0x 前缀共用）
+_HEX_DIGITS = "0123456789abcdefABCDEF"
+
+# 需要多位数字的转义前缀：字符 → 十六进制位数
+_HEX_ESCAPE_LEN = {"x": 2, "u": 4, "U": 8}
+
+# 八进制转义最多 3 位（\777），最大 \377
+_OCTAL_DIGITS = "01234567"
 
 
 # CJK 表意文字 Unicode 区间（简化版，覆盖常见汉字）
@@ -600,18 +621,64 @@ class Lexer:
         value = f"0{prefix}{digits}"
         return Token(TokenType.LIT_INTEGER, value, start_line, start_col)
 
+    def _decode_escape(self, esc_line: int, esc_col: int) -> str:
+        """解码头已消费的转义序列，返回解码后的文本。
+
+        调用前须已消费反斜杠本身（``self.pos`` 指向转义字符）。
+        语义对齐 CPython 字符串字面量：
+
+        - ``\\xNN`` / ``\\uNNNN`` / ``\\UNNNNNNNN``：定长十六进制
+        - ``\\0``~``\\777``：八进制（``\\0`` 即 NUL，``\\012`` 是 0o012）
+        - 未知转义：**保留反斜杠**（CPython 如此）。此前实现走
+          ``_ESCAPE_MAP.get(esc, esc)``，直接丢弃反斜杠，使 ``"a\\qb"``
+          静默变成 ``"aqb"``——无声改写源码字面量。
+        """
+        if self.pos >= self.n:
+            # 源文件末尾的悬空反斜杠：保留为字面反斜杠
+            return "\\"
+
+        esc = self.src[self.pos]
+
+        # \xNN / \uNNNN / \UNNNNNNNN
+        ndigits = _HEX_ESCAPE_LEN.get(esc)
+        if ndigits is not None:
+            self._advance()                            # 消费 x/u/U
+            hexpart = self.src[self.pos:self.pos + ndigits]
+            if len(hexpart) != ndigits or any(c not in _HEX_DIGITS for c in hexpart):
+                raise LexerError(
+                    f"\\{esc} 转义需要 {ndigits} 位十六进制数字，实际 {hexpart!r}",
+                    esc_line, esc_col,
+                )
+            for _ in range(ndigits):
+                self._advance()
+            code = int(hexpart, 16)
+            if code > 0x10FFFF or 0xD800 <= code <= 0xDFFF:
+                raise LexerError(f"\\{esc}{hexpart} 不是合法码位", esc_line, esc_col)
+            return chr(code)
+
+        # 八进制：\0..\777（\0 单独即 NUL）
+        if esc in _OCTAL_DIGITS:
+            octpart = ""
+            while len(octpart) < 3 and self.pos < self.n and self.src[self.pos] in _OCTAL_DIGITS:
+                octpart += self._advance()
+            return chr(int(octpart, 8))
+
+        self._advance()                                # 消费转义字符
+        if esc in _ESCAPE_MAP:
+            return _ESCAPE_MAP[esc]
+        return "\\" + esc
+
     def _string(self) -> Token:
-        """解析字符串字面量 "..."（转义规则草案）。"""
+        """解析字符串字面量 "..."（转义规则对齐 CPython，见 _decode_escape）。"""
         start_line, start_col = self.line, self.col
         self._advance()  # 消费开引号
         result = ""
         while self.pos < self.n and self.src[self.pos] != '"':
             ch = self.src[self.pos]
             if ch == "\\":
-                self._advance()
-                if self.pos < self.n:
-                    esc = self._advance()
-                    result += _ESCAPE_MAP.get(esc, esc)
+                esc_line, esc_col = self.line, self.col
+                self._advance()                        # 消费反斜杠
+                result += self._decode_escape(esc_line, esc_col)
             else:
                 result += self._advance()
         if self.pos >= self.n:
@@ -630,13 +697,13 @@ class Lexer:
         遇到多字符运算符时停止，不崩溃，降级为 SYMBOL。
         """
         start_line, start_col = self.line, self.col
+        ch_first = self.src[self.pos]
         parts = []
         while self.pos < self.n:
             ch = self.src[self.pos]
             if is_unicode_id_continue(ch):
                 parts.append(self._advance())
-            elif is_unicode_letter(ch):
-                parts.append(self._advance())
+            elif is_unicode_letter(ch):                parts.append(self._advance())
             elif ch in ("、", "—"):
                 # 顿号/长破折号：仅作为首字符，不纳入标识符
                 break
@@ -653,6 +720,13 @@ class Lexer:
                 # 未映射字符（emoji 等）停止标识符
                 break
         result = "".join(parts)
+        if not result:
+            # 首字符即不可并入标识符（非字母/数字，如 ⟨ U+27E8 数学尖括号，
+            # Unicode 类别 Sm）。此前返回空 IDENTIFIER 且不消费任何输入，
+            # 主循环 yield 后 pos 不变 → 无限循环（tokenize 永不返回）。
+            # 降级为单字符 SYMBOL，与 _single_char 未命中时的既有策略一致。
+            self._advance()
+            return Token(TokenType.SYMBOL, ch_first, start_line, start_col)
         # 查关键字表
         ttype = KEYWORDS.get(result, TokenType.IDENTIFIER)
         return Token(ttype, result, start_line, start_col)

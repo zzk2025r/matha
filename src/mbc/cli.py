@@ -41,9 +41,12 @@ def cmd_run(args) -> int:
         mod = read_mbc(str(path))
     else:
         mod = compile_source(_read(str(path)))
-    outputs = run_module(mod, verbose=True)
+    outputs = run_module(mod, verbose=False)
     if not outputs:
         print("（无输出）")
+    else:
+        for item in outputs:
+            print(item)
     return 0
 
 

@@ -18,6 +18,7 @@ module 词法器 {
     箭头 胖箭头 发送 问号 冒号 管道
     左括号 右括号 左括号方 右括号方 左括号花 右括号花
     逗号 点 下划线
+    左移 右移 可选链 尖括号
     占位符 读取开 读取闭 读取开2 读取闭2
     命令开 命令闭 段号 全角冒号 设置符
     省略号 双省略号 中文逗号 标注开 标注闭
@@ -43,21 +44,20 @@ module 词法器 {
   func 是空白码(c: Int) -> Bool = (c) =>
     ((c = 32) or (c = 9)) ? 真 : 假
 
-  func 是标识符续(c: Int) -> Bool = (c) =>
+  func 是标识符续(c: Int) -> Bool =
     是字母码(c) or 是数字码(c) or c = 95 ? 真 : 假
 
   (* ===== 辅助判定函数（供测试与解释器调用）===== *)
-  func 是数字起(c: Int) -> Bool = (c) => 是数字码(c)
-  func 是数字止(c: Int) -> Bool = (c) => 是数字码(c) = 假
-  func 是字母起(c: Int) -> Bool = (c) => 是字母码(c)
-  func 是字母止(c: Int) -> Bool = (c) => 是字母码(c) = 假
-  func 是下划线(c: Int) -> Bool = (c) => c = 95
-  func 推进位置(pos: Int) -> Int = (pos) => pos + 1
-  func 换行递进(line: Int) -> Int = (line) => line + 1
+  func 是数字起(c: Int) -> Bool = 是数字码(c)
+  func 是数字止(c: Int) -> Bool = 是数字码(c) = 假
+  func 是字母起(c: Int) -> Bool = 是字母码(c)
+  func 是字母止(c: Int) -> Bool = 是字母码(c) = 假
+  func 是下划线(c: Int) -> Bool = c = 95
+  func 推进位置(pos: Int) -> Int = pos + 1
+  func 换行递进(line: Int) -> Int = line + 1
 
   (* ===== Token 构造子 ===== *)
-  func 做Token(t: 类型, text: String, line: Int, col: Int) -> Token =
-    (t, text, line, col) => { 类型: t, 文本: text, 行: line, 列: col }
+  func 做Token(t: 类型, text: String, line: Int, col: Int) -> Token = { 类型: t, 文本: text, 行: line, 列: col }
 
   (* ===== 多字符操作符检测 ===== *)
   func 检测多符(src: String, pos: Int) -> (类型, String) =
@@ -67,13 +67,18 @@ module 词法器 {
         let c1 = get(src)(pos) in
         let c2 = get(src)(pos + 1) in
         (c1 = ">" and c2 = "=") ? (大于等于, ">=") :
-      (c1 = ">" and c2 = ">") ? (大于, ">>") :
+      (* 位移：此前 ">>" 误映射为 大于、"<<" 误映射为 左括号，
+         使 1 << 3 / 16 >> 2 解析为错位记号。宿主 lexer 产出
+         OP_BIT_LSHIFT / OP_BIT_RSHIFT，这里对齐。 *)
+      (c1 = ">" and c2 = ">") ? (右移, ">>") :
+      (c1 = "<" and c2 = "<") ? (左移, "<<") :
+      (* 可选链 ?.（宿主 MULTI_CHAR_OPS 中的 "?." → OP_OPT_CHAIN）*)
+      (c1 = "?" and c2 = ".") ? (可选链, "?.") :
       (c1 = "!" and c2 = "=") ? (不等于, "!=") :
         (c1 = "<" and c2 = "=") ? (小于等于, "<=") :
         (c1 = "=" and c2 = ">") ? (胖箭头, "=>") :
         (c1 = "-" and c2 = ">") ? (箭头, "->") :
         (c1 = "<" and c2 = "-") ? (发送, "<-") :
-        (c1 = "<" and c2 = "<") ? (左括号, "<<") :
         (c1 = "=" and c2 = "=") ? (等于, "==") :
         (c1 = "/" and c2 = "/") ? (整除, "//") :
         (c1 = "*" and c2 = "*") ? (次方, "**") :
@@ -88,7 +93,7 @@ module 词法器 {
       : (符号, get(src)(pos))
 
   (* ===== 单字符 Token 映射 ===== *)
-  func 映射单符(c: String) -> 类型 = (c) =>
+  func 映射单符(c: String) -> 类型 =
     c = "+" ? 加 :
     c = "-" ? 减 :
     c = "*" ? 乘 :
@@ -125,6 +130,9 @@ module 词法器 {
     c = "、" ? 中文逗号 :
     c = "*/" ? 标注开 :
     c = "/*" ? 标注闭 :
+    (* 角度括号 ⟨ … ⟩：AngleExpr 单值包装（宿主 lexer 已映射 OP_ANGLE）*)
+    c = "⟨" ? 尖括号 :
+    c = "⟩" ? 尖括号 :
     符号
 
   (* ===== 关键字表 ===== *)
@@ -134,6 +142,12 @@ module 词法器 {
     (tok = "let") or (tok = "rec") or (tok = "struct") or (tok = "enum") or
     (tok = "and") or (tok = "or") or (tok = "not") or
     (tok = "try") or (tok = "catch") or (tok = "raise") or (tok = "finally") or
+    (* throw 与 raise 同义（宿主 KEYWORDS 含 throw，_parse_unary 合并处理）。
+       此前缺此条 → throw 被当标识符 → FuncApp(Variable "throw", 1)，
+       常量池注入 'throw' 字符串，与宿主产物不一致。 *)
+    (tok = "throw") or
+    (* chan 通道类型构造（宿主 KEYWORDS 含 chan，parser 有 KW_CHAN 分支）*)
+    (tok = "chan") or
     (tok = "type") or (tok = "import") or (tok = "use") or (tok = "as") or
     (tok = "module") or
     (tok = "go") or (tok = "else") or (tok = "else") or
@@ -145,6 +159,34 @@ module 词法器 {
 
   func 关键字类型(tok: String) -> 类型 = (tok) =>
     (tok = "真" or tok = "假" or tok = "true" or tok = "false") ? 布尔 : 关键字
+
+  (* ===== 进制字面量 0b/0t/0x =====
+     与宿主 src/lexer.py 的 _radix_literal 同构：消费前缀与全部有效数字，
+     产出「整数」token 且文本保留 0x/0b/0t 原始进制前缀（统一小写前缀），
+     由 parser 的 整数值 按前缀换算成十进制。 *)
+  func 是进制前缀码(c: Int) -> Bool =
+    c = 98 or c = 66 or c = 116 or c = 84 or c = 120 or c = 88
+
+  func 进制底数(c: Int) -> Int = (c) =>
+    (c = 98 or c = 66) ? 2 : (c = 116 or c = 84) ? 3 : 16
+
+  func 进制前缀文本(c: Int) -> String = (c) =>
+    (c = 66 or c = 98) ? "b" : (c = 84 or c = 116) ? "t" : "x"
+
+  func 是进制数字码(c: Int, 底: Int) -> Bool =
+    底 = 2 ? (c = 48 or c = 49) :
+    底 = 3 ? (c >= 48 and c <= 50) :
+    (c >= 48 and c <= 57) or (c >= 97 and c <= 102) or (c >= 65 and c <= 70)
+
+  func 扫描进制续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 底: Int, 缓存: String) -> List =
+    (src, pos, line, col, toks, 起列, 底, 缓存) =>
+      (pos < len(src) and 是进制数字码(ord(get(src)(pos)), 底)) ?
+        扫描进制续(src)(pos + 1)(line)(col + 1)(toks)(起列)(底)(缓存 + get(src)(pos)) :
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(整数, 缓存, line, 起列)))
+
+  func 扫描进制起始(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int) -> List =
+      let c = ord(get(src)(pos + 1)) in
+      扫描进制续(src)(pos + 2)(line)(col + 2)(toks)(起列)(进制底数(c))("0" + 进制前缀文本(c))
 
   (* ===== 扫描数字续 ===== *)
   func 扫描数字续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String, 有小数点: Bool) -> List =
@@ -171,15 +213,74 @@ module 词法器 {
         扫描(src)(pos)(line)(col)(append(toks)(做Token(是关键字(缓存) ? 关键字类型(缓存) : 标识符, 缓存, line, 起列))))
 
   (* ===== 扫描字符串续 =====
-     支持转义序列：\X → X（简化处理，与宿主一致）
+     转义规则与宿主 src/lexer.py 的 _decode_escape 严格同构：
+       \n\r\t\b\f\v\a → chr(10/13/9/8/12/11/7)、\" → "、\' → '、\\ → \
+       \xNN（2 位）、\uNNNN（4 位）、\UNNNNNNNN（8 位）→ chr(码位)
+       \0~\777 八进制 → chr(码位)
+       未知转义 \X → **保留反斜杠**（CPython 语义；此前静默丢弃会无声改写字面量）
      闭合引号后必须继续 扫描 余下源码（否则字符串后内容全部丢失） *)
+  func 是八进制位码(c: Int) -> Bool = (c) =>
+    (c >= 48 and c <= 55) ? 真 : 假
+
+  func 是十六进制位码(c: Int) -> Bool = (c) =>
+    ((c >= 48 and c <= 57) or (c >= 97 and c <= 102) or (c >= 65 and c <= 70)) ? 真 : 假
+
+  func 十六进制位值(c: Int) -> Int = (c) =>
+    (c >= 48 and c <= 57) ? c - 48 : (c >= 97 and c <= 102) ? c - 87 : c - 55
+
+  func 是十六进制转义码(c: Int) -> Bool =
+    c = 120 or c = 117 or c = 85
+
+  func 十六进制位数(c: Int) -> Int = (c) => (c = 120) ? 2 : (c = 117) ? 4 : 8
+
+  func 是合法码位(码: Int) -> Bool =
+    (码) => (码 > 1114111 or (码 >= 55296 and 码 <= 57343)) ? 假 : 真
+
+  (* 定长十六进制转义续：pos 指向首位数字 *)
+  func 扫描十六进制转义续(src: String, pos: Int, 剩余: Int, 累: Int) -> (String, Int) =
+    (src, pos, 剩余, 累) =>
+      (剩余 = 0) ?
+        (是合法码位(累) ? (chr(累), pos) : 错误("转义不是合法码位")) :
+      (pos < len(src) and 是十六进制位码(ord(get(src)(pos))) ?
+        扫描十六进制转义续(src)(pos + 1)(剩余 - 1)(累 * 16 + 十六进制位值(ord(get(src)(pos)))) :
+        错误("十六进制转义数字位数不足"))
+
+  (* 八进制转义续：pos 指向首位数字，最长 3 位 *)
+  func 扫描八进制转义续(src: String, pos: Int, 已读: Int, 累: Int) -> (String, Int) =
+    (src, pos, 已读, 累) =>
+      (已读 >= 3 or pos >= len(src) or not 是八进制位码(ord(get(src)(pos)))) ?
+        (chr(累), pos) :
+        扫描八进制转义续(src)(pos + 1)(已读 + 1)(累 * 8 + (ord(get(src)(pos)) - 48))
+
+  (* 解码单个转义序列：pos 指向反斜杠**之后**的转义字符，
+     返回（解码文本, 新位置） *)
+  func 解转义(src: String, pos: Int) -> (String, Int) = (src, pos) =>
+      (pos >= len(src) ? ("\\", pos) :
+      是十六进制转义码(ord(get(src)(pos))) ?
+        扫描十六进制转义续(src)(pos + 1)(十六进制位数(ord(get(src)(pos))))(0) :
+      是八进制位码(ord(get(src)(pos))) ?
+        扫描八进制转义续(src)(pos)(0)(0) :
+      let c = get(src)(pos) in
+        ((c = "n") ? (chr(10), pos + 1) :
+         (c = "t") ? (chr(9), pos + 1) :
+         (c = "r") ? (chr(13), pos + 1) :
+         (c = "b") ? (chr(8), pos + 1) :
+         (c = "f") ? (chr(12), pos + 1) :
+         (c = "v") ? (chr(11), pos + 1) :
+         (c = "a") ? (chr(7), pos + 1) :
+         (c = "\"") ? ("\"", pos + 1) :
+         (c = "'") ? ("'", pos + 1) :
+         (c = "\\") ? ("\\", pos + 1) :
+         ("\\" + c, pos + 1)))
+
   func 扫描字符串续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
     (src, pos, line, col, toks, 起列, 缓存) =>
       (pos >= len(src)) ?
         append(toks)(做Token(字符串, 缓存, line, 起列)) :
       (get(src)(pos) = "\\") ?
         (pos + 1 < len(src) ?
-          扫描字符串续(src)(pos + 2)(line)(col + 2)(toks)(起列)(缓存 + get(src)(pos + 1)) :
+          (let (文本, 新pos) = 解转义(src)(pos + 1) in
+            扫描字符串续(src)(新pos)(line)(col + 新pos - pos)(toks)(起列)(缓存 + 文本)) :
           扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))) :
       (get(src)(pos) != "\"") ?
         扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
@@ -222,23 +323,25 @@ module 词法器 {
       (* 字符串 *)
       (get(src)(pos) = "\"") ?
         扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(col)("") :
-      (* 数字 *)
+      (* 数字：先判进制前缀 0b/0t/0x，再走十进制/小数扫描 *)
       (是数字码(ord(get(src)(pos))) ?
-        扫描数字续(src)(pos)(line)(col)(toks)(col)("") 假 :
+        (get(src)(pos) = "0" and pos + 1 < len(src) and 是进制前缀码(ord(get(src)(pos + 1)))) ?
+          扫描进制起始(src)(pos)(line)(col)(toks)(col) :
+          扫描数字续(src)(pos)(line)(col)(toks)(col)("") 假 :
       (* 标识符/关键字 *)
       (是字母码(ord(get(src)(pos))) ?
         扫描标识符续(src)(pos)(line)(col)(toks)(col)("") 假 :
-      (* 多字符操作符检测（先试2字符） *)
+      (* 多字符操作符检测（先试2字符）*)
       (let (t, txt) = 检测多符(src, pos) in
         (t = 不等于 or t = 大于等于 or t = 小于等于 or t = 胖箭头 or
-         t = 箭头 or t = 发送 or t = 左括号 or t = 整除 or t = 等于 or t = 次方) ?
+         t = 箭头 or t = 发送 or t = 整除 or t = 等于 or t = 次方 or
+         t = 左移 or t = 右移 or t = 可选链) ?
           扫描(src)(pos + 2)(line)(col + 2)(append(toks)(做Token(t, txt, line, col))) :
       (* 单字符 *)
         扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(映射单符(get(src)(pos)), get(src)(pos), line, col))))))))
 
   (* ===== 公共入口 ===== *)
-  func tokenize(src: String) -> List =
-    (src) => 扫描(src)(0)(1)(1)([])
+  func tokenize(src: String) -> List = 扫描(src)(0)(1)(1)([])
 
   (* ===== 自测 ===== *)
   #：{

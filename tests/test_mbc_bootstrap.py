@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """M3V 自举闭环测试：Matha 词法器 + 语法器 + 解释器（编译为字节码）在 VM 上运行，
 完成「Matha 源码 → token → AST → 求值」全流程——编译基础设施自举的关键里程碑。
 
@@ -63,11 +63,48 @@ def _compile_files(rels):
     decls = []
     for rel in rels:
         src = (_ROOT / rel).read_text(encoding="utf-8")
-        if src and src[0] == "\ufeff":
-            src = src.lstrip("\ufeff")
+        if src and src[0] == "﻿":
+            src = src.lstrip("﻿")
         decls.extend(py_parse(src).decls)
     comp.compile_program(ast.Program(decls=decls))
     return comp
+
+
+def _host_compile(source: str) -> MModule:
+    """stage2：宿主 Python 编译器（src/mbc/compiler.py）的产物。"""
+    return Compiler().compile_program(py_parse(source))
+
+
+def _canon(mod):
+    """把 MModule 或自举 dict 归一为可逐字段比较的纯 python 结构。
+
+    自举产物用「函数」列表（按编译顺序），宿主用 dict（按名字）；
+    归一后统一为 按名字排序的字典，从而 stage2 ≡ stage3 可直接断言。
+    """
+    if isinstance(mod, MModule):
+        functions = {name: fn for name, fn in mod.functions.items()}
+        module = mod.module_name
+    else:
+        functions = {}
+        for entry in mod["函数"]:
+            functions[entry[0]] = entry[1]
+        module = mod.get("模块名", "主程序")
+    return {
+        "module": module,
+        "constants": list(mod.constants if isinstance(mod, MModule)
+                          else mod["常量"]),
+        "main": [tuple(i) for i in (mod.main_code if isinstance(mod, MModule)
+                                    else mod["主码"])],
+        "functions": {
+            name: (info.arity if isinstance(info, MFunction) else info["元数"],
+                   info.nlocals if isinstance(info, MFunction) else info["局部数"],
+                   list(info.params if isinstance(info, MFunction)
+                        else info["参数"]),
+                   [tuple(i) for i in (info.code if isinstance(info, MFunction)
+                                       else info["码"])])
+            for name, info in functions.items()
+        },
+    }
 
 
 @pytest.fixture(scope="module")
@@ -277,6 +314,143 @@ def test_interp_try_finally(full_boot_vm):
     assert v2 == 8
 
 
+# ---------- M4：集合构造 { }（自举 parser + compiler） ----------
+
+def _set_case(compiler_boot_vm, src):
+    """宿主 stage2 与自举 stage3 编译同一集合源码，比对规范化产物。"""
+    host = _host_compile(src)
+    self_ = dict_to_module(compiler_boot_vm.call("编译", src))
+    return _canon(host) == _canon(self_)
+
+
+def _set_outputs(compiler_boot_vm, src):
+    """自举层编译并执行，返回 #1 输出。"""
+    vm = VM(dict_to_module(compiler_boot_vm.call("编译", src)))
+    vm.run()
+    return vm.outputs
+
+
+def test_set_empty(compiler_boot_vm):
+    """{} 是空集合构造（不是空字典），与宿主 _parse_brace_dispatch 对齐。"""
+    assert _set_case(compiler_boot_vm, "#1：[{}]")
+
+
+def test_set_enumeration(compiler_boot_vm):
+    """{1, 2, 3} 编译为 构造集合("enumeration", [], [1, 2, 3])。"""
+    assert _set_case(compiler_boot_vm, "#1：[{1, 2, 3}]")
+
+
+def test_set_dedup_and_order(compiler_boot_vm):
+    """构造集合去重且保序，与宿主 VM 内建语义一致。"""
+    assert _set_outputs(compiler_boot_vm, "#1：[{1, 2, 2, 3, 1}]") == [[1, 2, 3]]
+
+
+def test_set_mixed_element_types(compiler_boot_vm):
+    """数值 / 浮点 / 布尔 / 字符串元素与宿主逐字节一致。"""
+    for src in ("#1：[{1, 2.5}]", "#1：[{真, 假}]", '#1：[{"a", 1}]'):
+        assert _set_case(compiler_boot_vm, src), src
+
+
+def test_set_expr_elements(compiler_boot_vm):
+    """元素可以是任意表达式（首位须为字面量，标识符开头会走代码块消解）。"""
+    assert _set_case(compiler_boot_vm, "a = 2\nb = 3\n#1：[{1, a + b}]")
+
+
+def test_set_index_and_mutate(compiler_boot_vm):
+    """集合构造结果可下标；下标赋值行为与宿主逐字节一致。
+
+    注：`s[0] = 9` 在宿主与自举层当前都不改变已绑定值（两侧同为 no-op），
+    此处锁定的是「两侧一致」这一契约，而非赋值语义本身。
+    """
+    src = "s = {3, 4}\ns[0] = 9\n#1：[[s, s[0]]]"
+    assert _set_case(compiler_boot_vm, src)
+    assert _set_outputs(compiler_boot_vm, src) == [[[3, 4], 3]]
+
+
+def test_brace_still_dispatches_code_block_and_dict(compiler_boot_vm):
+    """集合构造接入后，{ stmts } 代码块与 {k: v} 字典字面量消解不受影响。"""
+    for src in (
+        "#1：{ 1 + 1 }",
+        "x = 9\n#1：{ x }",
+        "#1：{ if 1 > 0 then 1 else 2 }",
+        "#1：{ try { 1 } catch (e) { 2 } }",
+        "#1：{ let y = 5 in y + 1 }",
+        'd = {"a": 1}\n#1：[d["a"]]',
+    ):
+        assert _set_case(compiler_boot_vm, src), src
+
+
+def test_set_rejects_identifier_leading_comma(compiler_boot_vm):
+    """{a, b} 在宿主即非法（标识符开头需 `|`），自举层同样拒绝而非误判为集合。"""
+    from src.parser import parse as py_parse
+
+    with pytest.raises(Exception):
+        py_parse("{a, b}")
+    with pytest.raises(Exception):
+        compiler_boot_vm.call("编译", "x = 1\n#1：[{x, 2}]")
+
+
+def test_typed_lambda_in_let(compiler_boot_vm):
+    """let g = (x: Int) => x + 1：带类型标注的 lambda 形参（括号消解）。"""
+    assert _set_case(compiler_boot_vm, "let g = (x: Int) => x + 1\n#1：[g(41)]")
+
+
+# ---------- M4：多值输出 / 属于判断 ∈ ----------
+
+def test_output_multi_value_list(compiler_boot_vm):
+    """#1：[a, b] 输出多个值——曾经遗留游离逗号，报「期望表达式，实际 ,」。"""
+    assert _set_case(compiler_boot_vm, "a = 1\nb = 2\n#1：[a, b]")
+    assert _set_outputs(compiler_boot_vm, "a = 1\nb = 2\n#1：[a, b]") == [[1, 2]]
+
+
+def test_output_multi_value_literals(compiler_boot_vm):
+    """输出内容为字面量列表。"""
+    assert _set_case(compiler_boot_vm, "#1：[1, 2]")
+    assert _set_outputs(compiler_boot_vm, "#1：[1, 2]") == [[1, 2]]
+
+
+def test_output_single_value_unaffected(compiler_boot_vm):
+    """单值输出与嵌套列表输出不被多值支持改坏。"""
+    # `#1：[x]` 输出 x 本身；只有多值形态才整体是一个列表
+    for src, want in (("#1：[1]", [1]),
+                      ("#1：[[1, 2]]", [[1, 2]]),
+                      ("#1：[]", [])):
+        assert _set_case(compiler_boot_vm, src), src
+        assert _set_outputs(compiler_boot_vm, src) == want, src
+
+
+def test_belongs_operator(compiler_boot_vm):
+    """a ∈ b 成员判定：编译为 BINOP "in"，与宿主逐字节一致。"""
+    cases = [
+        ("a = [1, 2]\ny = 1 ∈ a\n#1：[y]", [True]),
+        ("a = [1, 2]\ny = 3 ∈ a\n#1：[y]", [False]),
+        ('d = {"a": 1}\ny = "a" ∈ d\n#1：[y]', [True]),
+    ]
+    for src, want in cases:
+        assert _set_case(compiler_boot_vm, src), src
+        assert _set_outputs(compiler_boot_vm, src) == want, src
+
+
+def test_belongs_precedence(compiler_boot_vm):
+    """∈ 比比较松、比 and 紧；且不破坏 and/or/比较既有语义。"""
+    for src in (
+        "a = [1, 2]\ny = 1 ∈ a and true\n#1：[y]",
+        "a = 1\ny = a == 1\n#1：[y]",
+        "a = true\nb = false\ny = a or b\n#1：[y]",
+    ):
+        assert _set_case(compiler_boot_vm, src), src
+
+
+def test_brace_dispatch_refactor_no_regression(compiler_boot_vm):
+    """花括号三义消解重构后：集合 / 字典 / 代码块判定与重构前逐字节一致。"""
+    for src in (
+        "{}", "{1, 2}", '{"a": 1}', "x = 9\n#1：{ x }", "#1：{ 1 + 1 }",
+        "#1：{ if 1 > 0 then 1 else 2 }", "#1：{ try { 1 } catch (e) { 2 } }",
+        "#1：{ let y = 5 in y + 1 }",
+    ):
+        assert _set_case(compiler_boot_vm, src), src
+
+
 # ---------- parser 嵌套 let 修复回归 ----------
 
 def test_nested_let_in_ternary():
@@ -306,18 +480,147 @@ def test_selfhost_type_of(compiler_boot_vm):
     assert compiler_boot_vm.call("matha_type_of", None) == "Null"
 
 
+# ---------- M5：自举 stdlib 的 dict 操作与文件 I/O ----------
+
+
+def test_m5_dict_get_hit_and_fallback(compiler_boot_vm):
+    """dict_get：有键返回值、无键返回 fallback（先 _dict_has 再 d[k]）。"""
+    d = {"a": 1, "b": 2}
+    assert compiler_boot_vm.call("dict_get", d, "a", -1) == 1
+    assert compiler_boot_vm.call("dict_get", d, "zzz", -1) == -1
+    # fallback 可以是 None / 列表 / 字典等任意值
+    assert compiler_boot_vm.call("dict_get", d, "zzz", None) is None
+    assert compiler_boot_vm.call("dict_get", d, "zzz", [0]) == [0]
+
+
+def test_m5_dict_set_returns_new_dict(compiler_boot_vm):
+    """dict_set：不可变设置——返回新字典，原字典不受影响。"""
+    d = {"a": 1}
+    d2 = compiler_boot_vm.call("dict_set", d, "b", 2)
+    assert d2 == {"a": 1, "b": 2}
+    assert d == {"a": 1}
+    # 覆盖已有键
+    assert compiler_boot_vm.call("dict_set", d, "a", 9) == {"a": 9}
+    # 与 dict_put 同义（M5 计划的 dict_set 是对外别名）
+    assert compiler_boot_vm.call("dict_put", d, "b", 2) == d2
+
+
+def test_m5_keys_and_values(compiler_boot_vm):
+    """keys / values：计划书短名入口，与 dict_keys / dict_values 等价。"""
+    d = {"a": 1, "b": 2}
+    assert compiler_boot_vm.call("keys", d) == compiler_boot_vm.call("dict_keys", d) == ["a", "b"]
+    assert compiler_boot_vm.call("values", d) == compiler_boot_vm.call("dict_values", d) == [1, 2]
+    assert compiler_boot_vm.call("keys", {}) == []
+    assert compiler_boot_vm.call("values", {}) == []
+
+
+def test_m5_dict_ops_exported_in_module_table(compiler_boot_vm):
+    """M5 目标函数均注册进 stdlib 模块导出表，可被 Matha 代码按名取用。"""
+    tbl = compiler_boot_vm.globals["内建"]
+    for name in ("dict_get", "dict_set", "dict_put", "keys", "values",
+                 "dict_keys", "dict_values", "read_file", "write_file"):
+        assert name in tbl, f"stdlib 导出表缺 {name}"
+
+
+def test_m5_file_io_roundtrip(compiler_boot_vm, tmp_path):
+    """read_file / write_file：写后读回一致（append_file 追加）。"""
+    p = str(tmp_path / "m5.txt")
+    compiler_boot_vm.call("write_file", p, "你好 Matha\n")
+    assert compiler_boot_vm.call("read_file", p) == "你好 Matha\n"
+    compiler_boot_vm.call("append_file", p, "第二行\n")
+    assert compiler_boot_vm.call("read_file", p) == "你好 Matha\n第二行\n"
+    # write_file 覆盖而非追加
+    compiler_boot_vm.call("write_file", p, "只剩这行")
+    assert compiler_boot_vm.call("read_file", p) == "只剩这行"
+
+
+def test_m5_dict_ops_usable_from_matha_source(compiler_boot_vm, tmp_path):
+    """M5 函数在自举链路里可被 Matha 源码按名调用（含中文标识符链式调用）。"""
+    p = str(tmp_path / "m5b.json")
+    payload = '{"k": 1, "j": 2}'
+    compiler_boot_vm.call("write_file", p, payload)
+    back = compiler_boot_vm.call("read_file", p)
+    assert back == payload
+    # dict_get / keys / values 走 VM 装载的 stdlib 闭包
+    assert compiler_boot_vm.call("dict_get", {"x": 7}, "x", 0) == 7
+    assert sorted(compiler_boot_vm.call("keys", {"x": 7, "y": 8})) == ["x", "y"]
+
+
+def _merge_with_stdlib(program: str) -> str:
+    """把一段 Matha 程序拼到自举 stdlib.matha 之后，构成单一 Program 源码。
+
+    stdlib 的 func/let 声明会被扁平化为全局（宿主 _compile_top_decl 与自举
+    _编译声明 的「模块」分支一致），故测试程序里的 keys/dict_set/read_file 等
+    调用在运行时按全局名解析到 stdlib 函数——这是 stdlib 能被 Matha 源码
+    使用的唯一途径（自编译产物 VM 只有 VM 内建，不含 stdlib 包装层）。
+    """
+    std = (_ROOT / "matha/stdlib.matha").read_text(encoding="utf-8")
+    if std and std[0] == "\ufeff":
+        std = std.lstrip("\ufeff")
+    return std + "\n\n" + program
+
+
+def _m5_source(path: str) -> str:
+    return """
+d = { "a": 1, "b": 2 }
+k2 = keys(d)
+v2 = values(d)
+g_hit = dict_get(d, "a", 0)
+g_miss = dict_get(d, "zzz", -1)
+d2 = dict_set(d, "c", 3)
+p = "%s"
+write_file(p, "你好 Matha")
+r = read_file(p)
+#：[g_hit]
+#：[g_miss]
+#：[r]
+#：[dict_get(d2, "c", 0)]
+""" % (path.replace("\\", "/"))
+
+
+def test_m5_named_surface_selfhost_source(compiler_boot_vm, tmp_path):
+    """M5 六函数在**单一 Program**（stdlib 合并测试程序）里自举编译并运行。
+
+    验证 keys/values/dict_get/dict_set/read_file/write_file 经自举编译器
+    （stage3）编译后、真实 VM 执行链路下全部可用。
+    """
+    path = str(tmp_path / "m5e2e.txt")
+    src = _merge_with_stdlib(_m5_source(path))
+    mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(mod).run() == [1, -1, "你好 Matha", 3]
+
+
+def test_m5_named_surface_stage2_equals_stage3(compiler_boot_vm, tmp_path):
+    """M5：合并源码的自举产物与宿主产物逐字段等价（stage2 ≡ stage3）。"""
+    path = str(tmp_path / "m5parity.txt")
+    src = _merge_with_stdlib(_m5_source(path))
+    assert _canon(dict_to_module(compiler_boot_vm.call("编译", src))) == _canon(_host_compile(src))
+
+
+def test_m5_named_surface_host_runs(compiler_boot_vm, tmp_path):
+    """M5：宿主编译同一合并源码，运行结果一致（对照）。"""
+    path = str(tmp_path / "m5host.txt")
+    src = _merge_with_stdlib(_m5_source(path))
+    assert VM(_host_compile(src)).run() == [1, -1, "你好 Matha", 3]
+
+
 def test_selfhost_compile_emits_module_dict(compiler_boot_vm):
-    """自举编译器把 '3 + 5' 编译为模块 dict：常量池 + 主码（末条 HALT）。"""
+    """自举编译器把 '3 + 5' 编译为模块 dict：常量池 + 主码（末条 HALT）。
+
+    M2 起自举编译器与宿主编译器同为常量折叠：3+5 在编译期求值为 8。
+    """
     d = compiler_boot_vm.call("编译", "3 + 5")
     assert isinstance(d, dict)
     assert set(["常量", "函数", "主码", "模块名"]).issubset(d.keys())
     assert d["模块名"] == "主程序"
-    assert d["常量"] == [3, 5, "+"]
+    assert d["常量"] == [8]
     assert d["函数"] == []
     assert d["主码"][-1] == [0xFF]
-    # PUSH_CONST 0; PUSH_CONST 1; BINOP(+ 常量索引 2); POP; HALT
+    # 折叠后：PUSH_CONST 0(=8); POP; HALT
     assert d["主码"][0] == [0x01, 0]
-    assert d["主码"][2] == [0x40, 2]
+    assert d["主码"][1] == [0x59]
+    # 与宿主编译器逐字节一致（stage2 ≡ stage3）
+    assert _canon(d) == _canon(_host_compile("3 + 5"))
 
 
 def test_selfhost_compile_func_def(compiler_boot_vm):
@@ -428,7 +731,7 @@ def test_bootstrap_full_test_pipeline():
     vm = VM(comp.mod)
     vm.run()
     # 合并编译时 lexer/stdlib/parser/interp 的自测块也会输出，取本文件自测段的尾部
-    outs = vm.outputs[-21:]
+    outs = vm.outputs[-22:]
     # 词法：6 tokens（5 + 结束），首 token 整数"1"，次为加，第4为乘，末为结束
     assert outs[0] == 6
     assert outs[1] == "整数" and outs[2] == "1"
@@ -440,13 +743,14 @@ def test_bootstrap_full_test_pipeline():
     # 解释：求值结果 7
     assert outs[12] == 7
     # 编译：模块 dict（常量池 / 主码 / 函数表）
+    # M2 起自举编译器与宿主同为常量折叠：2*3 → 6，故池为 1, 6, '+'
     assert outs[13] == "主程序"
-    assert outs[14] == 5                      # 常量：1, 2, 3, *, +
-    assert outs[15] == 1 and outs[16] == "+"
-    assert outs[17] == 7                      # 6 条指令 + HALT
-    assert outs[18] == 255                    # 末指令 HALT
-    assert outs[19] == 64                     # 乘法先发射为 BINOP
-    assert outs[20] == 0                      # 无函数定义
+    assert outs[14] == 3                      # 常量：1, 6, '+'
+    assert outs[15] == 1 and outs[16] == 6 and outs[17] == "+"
+    assert outs[18] == 5                      # 4 条指令 + HALT
+    assert outs[19] == 255                    # 末指令 HALT
+    assert outs[20] == 64                     # BINOP
+    assert outs[21] == 0                      # 无函数定义
 
 
 # ---------- M5：stdlib dict 操作 / 文件 I/O ----------
@@ -574,15 +878,55 @@ _LIST_ELEM_EXPR_SRC = "func f(a: Int, b: Int) -> List = (a, b) => [a, b, a + b]"
     (_TRAILING_COMMA_SRC, "f", (), [1, 2]),
     (_BINOP_SUB_SRC, "f", ([10, 20],), 30),
     (_LIST_ELEM_EXPR_SRC, "f", (3, 4), [3, 4, 7]),
+    ("func f(a: List, i: Int) -> Int = (a, i) => a[i]", "f", ([10, 20, 30], 1), 20),
+    ("func f(a: List) -> Int = (a) => a[len(a) - 1]", "f", ([9, 8, 7],), 7),
+    ("func f() -> List = () => [1, 2, 3, 4][1:3]", "f", (), [2, 3]),
+    ("func f() -> List = () => [1, 2, 3, 4][:2]", "f", (), [1, 2]),
+    ("func f() -> List = () => [1, 2, 3, 4][1:]", "f", (), [2, 3, 4]),
+    ("func f() -> Int = () => [1, 2, 3][1]", "f", (), 2),
+    ("func g() -> List = () => [10, 20]\nfunc f() -> Int = () => g()[0]", "f", (), 10),
+    ("func f(a: Int, b: Int) -> List = (a, b) => [a + b, len([1, 2])]", "f", (3, 4), [7, 2]),
+    ("func f() -> List = () => [ [1, 2], [3, 4] ]", "f", (), [[1, 2], [3, 4]]),
 ])
 def test_selfhost_list_literal_and_subscript(compiler_boot_vm, src, call, args, expected):
     """自举编译器编译含列表字面量/下标访问的源码 → VM 执行。
 
-    M6 新增：parser.matha 解析 [a,b,c] 和 a[i]，
+    M6 新增：parser.matha 解析 [a,b,c] 和 a[i]（含变量下标、表达式下标、
+    切片、调用结果下标、嵌套/计算元素），
     compiler_matha.matha 已有 BUILD_LIST/INDEX_GET 生成路径。
     """
     results, _ = compile_and_run(compiler_boot_vm, src, [(call, args)])
     assert results[0] == expected
+
+
+# M6 构造族 stage2 ≡ stage3 字节级 parity：不仅运行值一致，产物须逐字段等价。
+_M6_PARITY_CASES = [
+    ("list_lit_fn",      "func f() -> List = () => [1, 2, 3]"),
+    ("empty_list_fn",    "func f() -> List = () => []"),
+    ("trailing_comma",   "func f() -> List = () => [1, 2,]"),
+    ("var_index",        "func f(a: List, i: Int) -> Int = (a, i) => a[i]"),
+    ("expr_index",       "func f(a: List) -> Int = (a) => a[len(a) - 1]"),
+    ("nested_sub",       "func f(a: List) -> Int = (a) => a[0][1]"),
+    ("binop_elem",       "func f(a: List) -> Int = (a) => a[0] + a[1]"),
+    ("slice_std",        "func f() -> List = () => [1, 2, 3, 4][1:3]"),
+    ("slice_open_head",  "func f() -> List = () => [1, 2, 3, 4][:2]"),
+    ("slice_open_tail",  "func f() -> List = () => [1, 2, 3, 4][1:]"),
+    ("slice_all",        "func f() -> List = () => [1, 2, 3, 4][:]"),
+    ("lit_subscript",    "func f() -> Int = () => [1, 2, 3][1]"),
+    ("call_subscript",   "func g() -> List = () => [10, 20]\nfunc f() -> Int = () => g()[0]"),
+    ("elem_expr",        "func f(a: Int, b: Int) -> List = (a, b) => [a, b, a + b]"),
+    ("len_expr_elem",    "func f(a: Int, b: Int) -> List = (a, b) => [a + b, len([1, 2])]"),
+    ("nested_list_lit",  "func f() -> List = () => [ [1, 2], [3, 4] ]"),
+    ("empty_concat",     "func f() -> List = () => [] + [1, 2]"),
+]
+
+
+@pytest.mark.parametrize("name,src", _M6_PARITY_CASES, ids=[c[0] for c in _M6_PARITY_CASES])
+def test_selfhost_list_subscript_parity(compiler_boot_vm, name, src):
+    """M6 构造族（列表字面量/下标/切片/嵌套/调用链）stage2 ≡ stage3。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, "stage2 ≡ stage3 不成立: M6.%s" % name
 
 
 # ---------- M7：自举闭环验证 ----------
@@ -616,8 +960,26 @@ def test_m7_compiled_lexer_matches_host(compiler_boot_vm):
         'let s = "hello" in s',
         "a >= b",
         "x != y",
-        "a // b",
+"a // b",
         "x ** 2",
+        # ---- 字符串转义：自举 lexer 的 解转义 必须与宿主 _decode_escape 同构 ----
+        # 此前自举版只认 \n/\t 且丢弃其余反斜杠，宿主支持 \r 等而自举仍产出
+        # " \t\nr"，自举定点（stage2 ≡ stage3）因此失败。
+        r'x = "a\nb"',
+        r'x = "a\rb"',
+        r'x = "a\tb"',
+        r'x = "a\bb"',
+        r'x = "a\fb"',
+        r'x = "a\vb"',
+        r'x = "a\ab"',
+        r'x = "a\"b"',
+        "x = \"a\\'b\"",
+        r'x = "a\\b"',
+        r'x = "\x41\x7e"',
+        r'x = "\u4f60\U0001F600"',
+        r'x = "\101\102\0"',
+        r'x = "\1011"',
+        r'x = "a\qb"',
     ]
     for src in cases:
         host_vals = [t.value for t in HostLexer(src).tokenize()]
@@ -639,6 +1001,86 @@ def test_m7_compiled_parser_runs(compiler_boot_vm):
         tree = compiler_boot_vm.call("parse", toks)
         assert tree["类型"] == "程序", f"{src!r}: AST 根节点非程序"
         assert len(tree["声明"]) == expected_decls, f"{src!r}: 声明数={len(tree['声明'])}, 期望={expected_decls}"
+
+
+# M7 双重自举闭环：再用**自举编译器**（compiler_boot_vm，即跑在 VM 里的
+# compiler_matha.matha 本身）编译自举源文件，产出的模块放进全新 VM 仍要能
+# 工作。
+# 
+# 分级投入：
+#   - lexer.matha 独占自举：约 10s（tokenize 闭环）
+#   - lexer + parser 自举：约 2.5 分钟（tokenize→parse 闭环）
+#   - 全链（含 compiler_matha）自举 + 二级编译：约 9 分钟，不进常规套件
+#     （已在一次性探针中验证：自举链产物仍能 tokenize/parse，且二级「编译」
+#      产出的模块在全新 VM 里可运行）。
+def _boot_src(rels):
+    parts = []
+    for rel in rels:
+        src = (_ROOT / rel).read_text(encoding="utf-8")
+        if src and src[0] == "\ufeff":
+            src = src.lstrip("\ufeff")
+        parts.append(src)
+    return "\n\n".join(parts)
+
+
+def test_m7_double_bootstrap_lexer_chain(compiler_boot_vm):
+    """双重自举：自举编译器编译 lexer.matha → 新 VM 中的自产 lexer.tokenize 与宿主一致。"""
+    from src.lexer import Lexer as HostLexer
+    src = _boot_src(["matha/lexer.matha"])
+    mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    vm = VM(mod)
+    vm.run()
+    cases = [
+        "x = 1 + 2",
+        "func f(a: Int) -> Int = (a) => a * b",
+        "if x >= 3 then y else z",
+        'let s = "hello" in s',
+        "a >= b",
+        "x != y",
+        "a // b",
+        "x ** 2",
+        # ---- 字符串转义：matha/lexer.matha 的 解转义 必须与宿主 _decode_escape 同构 ----
+        # 此前自举版只认 \n/\t 且丢弃其余反斜杠，导致宿主已支持 \r 等而
+        # 自举编译器仍产出 " \t\nr"，自举定点（stage2 ≡ stage3）失败。
+        r'x = "a\nb"',
+        r'x = "a\rb"',
+        r'x = "a\tb"',
+        r'x = "a\bb"',
+        r'x = "a\fb"',
+        r'x = "a\vb"',
+        r'x = "a\ab"',
+        r'x = "a\"b"',
+        "x = \"a\\'b\"",
+        r'x = "a\\b"',
+        r'x = "\x41\x7e"',
+        r'x = "\u4f60\U0001F600"',
+        r'x = "\101\102\0"',
+        r'x = "\1011"',
+        r'x = "a\qb"',
+    ]
+    for sample in cases:
+        host_vals = [t.value for t in HostLexer(sample).tokenize()]
+        sh_vals = [t["文本"] for t in vm.call("tokenize", sample)]
+        assert host_vals == sh_vals, f"双重自举 lexer token 不匹配: {sample!r}\n  host={host_vals}\n  self={sh_vals}"
+
+
+def test_m7_double_bootstrap_parser_chain(compiler_boot_vm):
+    """双重自举：自举编译器编译 lexer+parser → 新 VM 中的自产解析器照常工作。"""
+    src = _boot_src(["matha/lexer.matha", "matha/parser.matha"])
+    mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    vm = VM(mod)
+    vm.run()
+    cases = [
+        ("1 + 2 * 3", 1),
+        ("x = 1", 1),
+        ("(a) => a + 1", 1),
+        ("if x then 1 else 2", 1),
+    ]
+    for sample, expected_decls in cases:
+        toks = vm.call("tokenize", sample)
+        tree = vm.call("parse", toks)
+        assert tree["类型"] == "程序", f"{sample!r}: AST 根节点非程序"
+        assert len(tree["声明"]) == expected_decls, f"{sample!r}: 声明数={len(tree['声明'])}, 期望={expected_decls}"
 
 
 def test_m7_code_block_in_function(compiler_boot_vm):
@@ -665,3 +1107,249 @@ def test_m7_if_then_else_stmt(compiler_boot_vm):
     assert results[0] == 1
     assert results[1] == -1
 
+
+# ==================== M2 定点：stage2 ≡ stage3 ====================
+# 宿主 Python 编译器（stage2）与纯 Matha 编译器（stage3）对同一源码必须
+# 产出完全一致的模块：常量池、主码、函数表（按名归一）。
+#
+# 已知例外（宿主侧限制，非 M2 缺陷），故不纳入断言：
+#   - struct 字段赋值 `p.x = 7`：宿主无 SET_ATTR 指令，会退化为
+#     存到名为 PathExpr(...) 的全局键；M3V 同样没有 SET_ATTR。
+#   - match 语句：宿主编译器直接报「暂不支持的节点 MatchStmt」。
+
+_M2_CASES = [
+    ("arith", "x = 1 + 2 * 3\n输出(x)\n"),
+    ("str_escape", 's = "a\\nb"\n输出(s)\n'),
+    ("null_name", "x = null\n输出(x)\n"),
+    ("list_index", "y = [1, 2, 3]\n输出(y[0])\n"),
+    ("slice", "y = [1, 2, 3, 4]\n输出(y[1:3])\n"),
+    ("dict_ident_keys", "x = { a: 1, b: 2 }\n输出(x)\n"),
+    ("struct_ctor", "struct P { x: Int }\np = P(7)\n输出(p)\n"),
+    ("let_local", "func f() -> Int = () => let y = 2 in y + 1\n输出(f())\n"),
+    ("for_loop", "t = 0\nfor i in [1, 2, 3] {\n  t = t + i\n}\n输出(t)\n"),
+    ("while_loop", "i = 0\nwhile i < 3 {\n  i = i + 1\n}\n输出(i)\n"),
+    ("try_catch", "try {\n  x = 1\n} catch (e) {\n  x = 2\n}\n输出(x)\n"),
+    ("import", "use stdlib\nx = len([1, 2])\n输出(x)\n"),
+    ("module_name", "module M {\n  输出(1)\n}\n"),
+    ("tuple_return", "func two() -> (Int, Int) = () => (1, 2)\nlet (a, b) = two()\n输出(a + b)\n"),
+    ("closure", "func mk() -> Int = () => () => 7\n输出(mk()())\n"),
+    ("mech_output", "#1：[42]\n"),
+    ("mech_output_expr", "#：[1 + 1]\n"),
+    ("output_stmt_list", "[1, 2]\n"),
+    ("output_stmt_empty", "[]\n"),
+    ("const_fold", "x = 3 + 5\n输出(x)\n"),
+    ("lambda_multi_call", "func add3(a: Int, b: Int, c: Int) -> Int = (a, b, c) => a + b + c\n输出(add3(1, 2, 3))\n"),
+]
+
+
+@pytest.mark.parametrize("name,src", _M2_CASES, ids=[c[0] for c in _M2_CASES])
+def test_m2_stage2_equals_stage3(compiler_boot_vm, name, src):
+    """M2 定点：代表性源码上 stage2 与 stage3 产物逐字段一致。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, "stage2 ≡ stage3 不成立: %s" % name
+
+
+# M2 定点：五个自举源全部 stage2 ≡ stage3，此表已清空（保持结构以便回归定位）。
+_M2_BOOT_PENDING: dict[str, str] = {}
+
+
+@pytest.mark.parametrize("path", _COMPILER_BOOT_FILES, ids=_COMPILER_BOOT_FILES)
+def test_m2_boot_source_stage2_equals_stage3(compiler_boot_vm, path):
+    """M2 定点：五个自举源文件自身 stage2 ≡ stage3。"""
+    src = Path(path).read_text(encoding="utf-8")
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    if path in _M2_BOOT_PENDING:
+        pytest.xfail("已知差异（待修）: %s —— %s" % (path, _M2_BOOT_PENDING[path]))
+    assert stage3 == stage2, "自举源定点失败: %s" % path
+
+
+# M4 宿主可达性修复回归：以下每类曾因 lexer/parser/compiler 缺口而不可用。
+# 三元组 = (用例名, 源码, 宿主 VM 期望输出)。
+_M4_HOST_FIX_CASES = [
+    # 1. typeof 缺表达式 primary（parser 不认 typeof）
+    ("typeof_int", 'x = typeof(1)\n#：[x]\n', ["整数"]),
+    ("typeof_str", 'x = typeof("a")\n#：[x]\n', ["文本"]),
+    # 2. 安全属性访问：parser 已能产 SafePathExpr，compiler 曾对裸 str 属性名漏发 PUSH_CONST
+    ("safe_attr_hit", 'd = {"a": 1}\n#：[d?.a]\n', [1]),
+    ("safe_attr_miss", 'd = {}\n#：[d?.a]\n', [None]),
+    ("safe_chain", 'd = {"a": {"b": 2}}\n#：[d?.a?.b]\n', [2]),
+    # 3. 安全下标访问（回归护栏，修复前已可用；注意语法是 a?.[i] 而非 a.?[i]）
+    ("safe_index_hit", 'd = [1, 2]\n#：[d?.[0]]\n', [1]),
+    ("safe_index_miss", 'd = [1, 2]\n#：[d?.[9]]\n', [None]),
+    # 4. AngleExpr：⟨ 此前未映射成 OP_ANGLE，且 _identifier() 不前进导致无限循环
+    ("angle", '#：[⟨1 + 2⟩]\n', [3]),
+    # 5. IsExpr：parser 曾把 is 构造成 BinaryOp("is")，MBC 查表 KeyError
+    ("is_expr", 'a = 1\nb = 1\n#：[a is b]\n', [True]),
+    # 6. ChanExpr / SendExpr：KW_CHAN 无解析入口、`<-` 无 postfix 分支
+    ("chan_send", 'c = chan Int\nc <- 7\nc <- 8\n#：[c?.缓冲]\n', [[7, 8]]),
+    # 7. 位移：1 >> a 走的是位运算（∈ 才是 Belongs），此前 compiler/VM 均缺 << >>
+    ("shift_left", '#：[1 << 3]\n', [8]),
+    ("shift_right", '#：[16 >> 2]\n', [4]),
+    # 8. 属于判断 ∈（BINOP "in"，注意不是 " in "）
+    ("belongs", '#：[1 ∈ [1, 2]]\n', [True]),
+    # 9. throw 与 raise 同义：KW_THROW 曾无解析入口；且 raise 在 try 体末句需补 PUSH_NULL
+    ("throw_in_try", '#1：{ try { throw 1 } catch (e) { 2 } }\n', []),
+]
+
+_M4_HOST_FIX_IDS = [c[0] for c in _M4_HOST_FIX_CASES]
+
+# stage3 补齐 ChanExpr / SendExpr 后，M4 全部节点已有 stage2≡stage3 覆盖，
+# 无待办 xfail。保留本字典作为「新增节点须在此登记」的清单（空 = 全覆盖）。
+_M4_STAGE3_PENDING: dict[str, str] = {}
+
+# M4-2：@define_op。宿主 _parse_define_op 注册 GLOBAL_CUSTOM_OPS 后返回
+# ast.DefineOp（编译期 NOOP）；宿主自身尚不支持**使用**自定义运算符
+# （写 `1 ∝ 2` 报未知运算符），故 stage3 只需按同一次序消费、不产码。
+_M4_DEFINE_OP_CASES = [
+    ("dop_symbol", "@define_op : ∝ = 5 | left\n#：[1]\n", [1]),
+    ("dop_halfcolon", "@define_op: ≈ = 5 | left\n#：[1 + 1]\n", [2]),
+    ("dop_right_assoc", "@define_op : ≡ = 3 | right\n#：[2]\n", [2]),
+    ("dop_two_decls", "@define_op : ∝ = 5 | left\n@define_op : ≡ = 3 | right\n#：[3]\n", [3]),
+]
+
+_M4_DEFINE_OP_IDS = [c[0] for c in _M4_DEFINE_OP_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_DEFINE_OP_CASES, ids=_M4_DEFINE_OP_IDS)
+def test_m4_define_op_host_runs(name, src, expect):
+    """M4 @define_op：声明为编译期 NOOP，不影响程序输出。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_DEFINE_OP_CASES, ids=_M4_DEFINE_OP_IDS)
+def test_m4_define_op_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M4 @define_op：stage2 ≡ stage3（消费序列一致、均不产码）。"""
+    assert _canon(dict_to_module(compiler_boot_vm.call("编译", src))) == _canon(_host_compile(src))
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_DEFINE_OP_CASES, ids=_M4_DEFINE_OP_IDS)
+def test_m4_define_op_stage3_runs(compiler_boot_vm, name, src, expect):
+    assert VM(dict_to_module(compiler_boot_vm.call("编译", src))).run() == expect
+
+
+def test_m4_define_op_symbol_not_usable_either_side():
+    """自定义运算符**使用**在宿主与自举侧同样不支持。
+
+    解析与编译都通过（`1 ∝ 2` 落到未知 BINOP），VM 求值时才因未知运算符
+    报错——故这里断言运行期失败，而非解析期失败。
+    """
+    src = "@define_op : ∝ = 5 | left\nx = 1 ∝ 2\n#：[x]\n"
+    with pytest.raises(Exception):
+        VM(_host_compile(src)).run()
+
+# M4-3：通道 ChanExpr / SendExpr。宿主降级为 {"缓冲": [], "容量": 0, "关闭": False}；
+# `ch <- v` 追加到 缓冲 并求值为 true。注意 append 返回**新列表**，故须经
+# _dict_put 写回通道变量（stage3 对应 _存储名 原语）。
+_M4_CHAN_CASES = [
+    ("chan_make", 'ch = chan Int\n#：[ch?.缓冲]\n', [[]]),
+    ("chan_send", 'ch = chan Int\nch <- 1\nch <- 2\n#：[ch?.缓冲]\n', [[1, 2]]),
+    # 发送本身求值为 true
+    ("chan_send_value", 'ch = chan Int\nch <- 1\nr = ch <- 2\n#：[r]\n', [True]),
+    ("chan_fields", 'ch = chan Int\n#：[ch?.容量]\n#：[ch?.关闭]\n', [0, False]),
+    # chan T 的类型名支持泛型文本（Dict[String, Int] 等）
+    ("chan_generic", 'ch = chan Int[3]\n#：[ch?.容量]\n', [0]),
+    # 非变量通道：SendExpr 无法按名回写，宿主退化为求值后丢弃（POP）
+    ("chan_noname", 'f = () => (chan Int) <- 1\n#：[1]\n', [1]),
+]
+
+_M4_CHAN_IDS = [c[0] for c in _M4_CHAN_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_CHAN_CASES, ids=_M4_CHAN_IDS)
+def test_m4_chan_host_runs(name, src, expect):
+    """M4 通道：宿主构造/发送/字段。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_CHAN_CASES, ids=_M4_CHAN_IDS)
+def test_m4_chan_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M4 通道：stage2 ≡ stage3。
+
+    顶层两条 `ch <- v` 必须复用同一组临时槽名（__send_ch_0_1 /
+    __send_buf_0_2）：宿主对每个顶层声明新建 main 作用域，临时槽计数
+    从 0 起算——stage3 以 _重置主作用域计数 对齐。
+    """
+    assert _canon(dict_to_module(compiler_boot_vm.call("编译", src))) == _canon(_host_compile(src))
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_CHAN_CASES, ids=_M4_CHAN_IDS)
+def test_m4_chan_stage3_runs(compiler_boot_vm, name, src, expect):
+    assert VM(dict_to_module(compiler_boot_vm.call("编译", src))).run() == expect
+
+
+def test_m4_top_level_temp_slots_restart_per_decl(compiler_boot_vm):
+    """护栏：每条顶层语句的临时槽从 1 重新起算（与宿主 new main 作用域一致）。"""
+    src = 'ch = chan Int\nch <- 1\nch <- 2\n#：[ch?.缓冲]\n'
+    consts = dict_to_module(compiler_boot_vm.call("编译", src)).constants
+    assert "__send_ch_0_1" in consts and "__send_buf_0_2" in consts
+    assert "__send_ch_0_3" not in consts and "__send_buf_0_4" not in consts
+
+# M4 自然语言块 / 标注块：宿主 NLBlock、ReadBlock 均为编译期 NOOP；
+# stage3 需自建「自然语言块」节点并按同一语义（不产码、块末补 PUSH_NULL）。
+_M4_NL_CASES = [
+    ("nl_plain", "【求 1 加 1】\n#：[1]\n", [1]),
+    ("nl_annot_1", "【*/多参数函数边界测试/*】\n#1：[1 + 1]\n", [2]),
+    # 标注是自由文本：多词 + 全角冒号（宿主 _parse_annotation 曾只取单 token）
+    ("nl_annot_multi", "【*/自主成长：从源码学习新能力、沙箱验证、注册/*】\n#：[1 + 1]\n", [2]),
+    # 标注内允许 *（不应被误当公式起点）
+    ("nl_annot_star", "【*/计算 2*3 的和/*】\n#：[1]\n", [1]),
+    ("nl_then_block", "【*/模板 读取资源库构建计算流程/*】\n#：{ x = 1 + 2\n[x] }\n", [3]),
+    ("nl_two_units", "【*/甲/*】\n#1：[1]\n【*/乙/*】\n#1：[2]\n", [1, 2]),
+    # 函数体整体是文档块 → 宿主发 PUSH_NULL，函数值为 None
+    ("nl_in_func", "func f() -> Int = () =>\n  【*/说明/*】\n  7\n#：[f()]\n", [None]),
+    # 块末是文档块 → 走 _emit_block leave_last 收尾补 PUSH_NULL
+    ("nl_end_of_func", "func g() -> Int = () =>\n  7\n  【*/尾部说明/*】\n#：[g()]\n", [7]),
+]
+
+_M4_NL_IDS = [c[0] for c in _M4_NL_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_NL_CASES, ids=_M4_NL_IDS)
+def test_m4_nl_block_host_runs(name, src, expect):
+    """M4 自然语言块：宿主可解析、编译、运行（NLBlock/ReadBlock 皆 NOOP）。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_NL_CASES, ids=_M4_NL_IDS)
+def test_m4_nl_block_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M4 自然语言块：stage2 ≡ stage3。"""
+    assert _canon(dict_to_module(compiler_boot_vm.call("编译", src))) == _canon(_host_compile(src))
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_NL_CASES, ids=_M4_NL_IDS)
+def test_m4_nl_block_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M4 自然语言块：自举链路运行结果与宿主一致。"""
+    assert VM(dict_to_module(compiler_boot_vm.call("编译", src))).run() == expect
+
+
+def test_m4_annotation_is_free_text():
+    """标注体是自由文本：多词/含冒号/含 * 都能解析（宿主 _parse_annotation 回归）。"""
+    for text in ("自主成长：从源码学习新能力", "多参数函数边界测试", "计算 2*3 的和"):
+        py_parse("【*/%s/*】\n#：[1]\n" % text)
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_HOST_FIX_CASES, ids=_M4_HOST_FIX_IDS)
+def test_m4_host_fix_runs(name, src, expect):
+    """M4 修复项：宿主可解析、编译并运行，且语义正确。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_HOST_FIX_CASES, ids=_M4_HOST_FIX_IDS)
+def test_m4_host_fix_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M4 修复项：stage2 与 stage3 产物逐字段一致（防回归）。"""
+    if name in _M4_STAGE3_PENDING:
+        pytest.xfail("stage3 已知差异（待补）: %s —— %s" % (name, _M4_STAGE3_PENDING[name]))
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, "M4 修复项 stage2 ≡ stage3 不成立: %s" % name
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_HOST_FIX_CASES, ids=_M4_HOST_FIX_IDS)
+def test_m4_host_fix_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M4 修复项：自举链路能编译并运行出与宿主相同的结果。"""
+    if name in _M4_STAGE3_PENDING:
+        pytest.xfail("stage3 已知差异（待补）: %s —— %s" % (name, _M4_STAGE3_PENDING[name]))
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect

@@ -62,11 +62,23 @@ _BINOPS = {
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
     "in": lambda a, b: a in b,
+    "is": lambda a, b: a is b,
+    # 位移：与解释器后端一致（1 << 3 == 8、16 >> 2 == 4）。
+    # 右移对负数用算术右移，与 Python // 语义一致。
+    "<<": lambda a, b: a << b,
+    ">>": lambda a, b: a >> b,
 }
+
+def _builtin_sqrt(a):
+    """前缀 ^ 开方：^9 → 3，^16 → 4（完全平方回退为整数）。"""
+    r = a ** 0.5
+    return int(r) if isinstance(a, int) and r == int(r) else r
+
 
 _UNARYOPS = {
     "neg": lambda a: -a,
     "not": lambda a: not a,
+    "sqrt": _builtin_sqrt,
 }
 
 
@@ -145,37 +157,37 @@ def _builtin_dict_values(d):
 def _builtin_encode_binary(text):
     """encode_binary(text) → 二进制编码字符串（base-2，空格分隔）。"""
     from src.text_encoding import encode_binary
-    return encode_binary(str(text))
+    return encode_binary(text)
 
 
 def _builtin_decode_binary(encoded):
     """decode_binary(encoded) → 从二进制编码还原文本。"""
     from src.text_encoding import decode_binary
-    return decode_binary(str(encoded))
+    return decode_binary(encoded)
 
 
 def _builtin_encode_ternary(text):
     """encode_ternary(text) → 三进制编码字符串（base-3，空格分隔）。"""
     from src.text_encoding import encode_ternary
-    return encode_ternary(str(text))
+    return encode_ternary(text)
 
 
 def _builtin_decode_ternary(encoded):
     """decode_ternary(encoded) → 从三进制编码还原文本。"""
     from src.text_encoding import decode_ternary
-    return decode_ternary(str(encoded))
+    return decode_ternary(encoded)
 
 
 def _builtin_encode_decimal(text):
     """encode_decimal(text) → 十进制编码字符串（Unicode 码点序列）。"""
     from src.text_encoding import encode_decimal
-    return encode_decimal(str(text))
+    return encode_decimal(text)
 
 
 def _builtin_decode_decimal(encoded):
     """decode_decimal(encoded) → 从十进制编码还原文本。"""
     from src.text_encoding import decode_decimal
-    return decode_decimal(str(encoded))
+    return decode_decimal(encoded)
 
 
 # ---------- 文件 I/O 原语（需 OS 访问，纯 Matha 无法实现） ----------
@@ -241,6 +253,9 @@ def _default_builtins() -> dict:
     b.setdefault("_dict_remove", _curry2(lambda d, k: {kk: vv for kk, vv in d.items() if kk != k}))
     # 空字典常量（{} 在 Matha 语法中为空集合构造，故用 VM 值提供空字典）
     b.setdefault("_empty_dict", {})
+    # 列表去重：与宿主解释器 builtin_列表去重 同语义（按 == 去重、保序），
+    # 也是 _builtin_make_set 的基础操作，此前只有解释器后端提供。
+    b.setdefault("去重", _builtin_dedup)
     # 文件 I/O 原语（需 OS 访问）
     b.setdefault("_read_file", _builtin_read_file)
     b.setdefault("_write_file", _curry2(_builtin_write_file))
@@ -261,6 +276,14 @@ def _default_builtins() -> dict:
     return b
 
 
+def _make_output(vm):
+    """输出(value) → 记录到 VM 输出流，返回原值（可链式）。"""
+    def emit(value):
+        vm.outputs.append(value)
+        return value
+    return emit
+
+
 def _make_guarded_call(vm):
     """调用捕获(fn)(args) → 运行 fn(*args)，返回 tagged 结果：
     正常 ["__正常__", 值]；异常 ["__异常__", 消息字符串]。
@@ -277,11 +300,71 @@ def _make_guarded_call(vm):
     return guarded
 
 
+def _builtin_typeof(value):
+    """typeof(v) → Matha 类型名。"""
+    if value is None:
+        return "空"
+    if isinstance(value, bool):
+        return "布尔"
+    if isinstance(value, int):
+        return "整数"
+    if isinstance(value, float):
+        return "浮点"
+    if isinstance(value, str):
+        return "文本"
+    if isinstance(value, list):
+        return "列表"
+    if isinstance(value, dict):
+        return "字典"
+    return "函数"
+
+
+def _builtin_safe_index(container, key):
+    """a.?b：容器为 None/缺失键时返回 None，不抛错。"""
+    if container is None:
+        return None
+    try:
+        return container[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _builtin_safe_attr(obj, name):
+    """a.?b：obj 为 None 时返回 None。"""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, str(name), None)
+
+
+def _builtin_dedup(values):
+    """去重(列表) → 按 == 去重并保序的 list。"""
+    if not isinstance(values, (list, tuple)):
+        raise RuntimeError(f"去重() 需要列表，实际 {type(values).__name__}")
+    seen = []
+    for v in values:
+        if v not in seen:
+            seen.append(v)
+    return seen
+
+
+def _builtin_make_set(form, variables, elements):
+    """构造集合(form, variables, elements) → list（去重、保序）。"""
+    return _builtin_dedup(elements or [])
+
+
 class VM:
     def __init__(self, mod: MModule, builtins: dict | None = None, verbose: bool = False):
         self.mod = mod
         self.globals: dict = dict(builtins if builtins is not None else _default_builtins())
         self.globals.setdefault("调用捕获", _make_guarded_call(self))
+        self.globals.setdefault("输出", _make_output(self))
+        self.globals.setdefault("print", _make_output(self))
+        self.globals.setdefault("typeof", _builtin_typeof)
+        self.globals.setdefault("安全索引", _curry2(_builtin_safe_index))
+        self.globals.setdefault("安全取属性", _curry2(_builtin_safe_attr))
+        self.globals.setdefault("构造集合", _curry3(_builtin_make_set))
         self.outputs: list = []
         self.verbose = verbose
         # 主帧（模块全局帧）

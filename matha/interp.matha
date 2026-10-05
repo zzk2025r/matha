@@ -20,13 +20,13 @@ module 解释器 {
 
   (* ===== 环境：列表 [[name, value], ...] ===== *)
 
-  func 空环境() -> List = () => []
+  func 空环境() -> List = []
 
-  func 绑定环境(env: List, name: String, value) -> List = (env, name, value) =>
+  func 绑定环境(env: List, name: String, value) -> List =
     let pair = [name, value] in
     [pair] + env
 
-  func 查找环境(env: List, name: String) -> Value = (env, name) =>
+  func 查找环境(env: List, name: String) -> Value =
     env = [] ? 错误("未定义变量 '" + name + "'") :
     env[0][0] = name ? env[0][1] : 查找环境(env[1:], name)
 
@@ -41,7 +41,7 @@ module 解释器 {
      语义等价宿主解释器 _RecPlaceholder 的 [None] 可变引用。 *)
 
   (* env 中是否已含名为 name 的绑定 *)
-  func 环境包含(env: List, name: String) -> Bool = (env, name) =>
+  func 环境包含(env: List, name: String) -> Bool =
     env = [] ? 假 :
     env[0][0] = name ? 真 : 环境包含(env[1:], name)
 
@@ -49,7 +49,7 @@ module 解释器 {
      pair 为 CONS 共享对象，原地修改对所有持有该 pair 的 env 派生可见，
      故必须返回原 env——不可返回尾切片（会丢弃链上更靠前的绑定，
      破坏互递归：闭包捕获的原 env 仍持占位 pair）。 *)
-  func 更新绑定值(env: List, name: String, value) -> List = (env, name, value) =>
+  func 更新绑定值(env: List, name: String, value) -> List =
     env = [] ? env :
     env[0][0] = name ?
       let 更新结果 = 原地设置(env[0], 1, value) in
@@ -60,19 +60,19 @@ module 解释器 {
   (* 预绑定：扫描声明列表，把所有函数定义名先绑定为占位符。
      之后逐条执行声明时，每个函数闭包捕获的 env 已含全部函数名
      （含互递归伙伴），求值后经 更新绑定值 原地补上真实闭包。 *)
-  func 预绑定函数(decls: List, env: List) -> List = (decls, env) =>
+  func 预绑定函数(decls: List, env: List) -> List =
     decls = [] ? env :
     decls[0].类型 = "函数定义" ?
       预绑定函数(decls[1:], 绑定环境(env, decls[0].名, "__函数占位__")) :
       预绑定函数(decls[1:], env)
 
   (* ===== 错误 ===== *)
-  func 错误(msg: String) -> Value = (msg) =>
+  func 错误(msg: String) -> Value =
     raise msg
 
   (* ===== 表达式求值 ===== *)
 
-  func 求值(expr: Dict, env: List) -> Value = (expr, env) =>
+  func 求值(expr: Dict, env: List) -> Value =
     expr.类型 = "整数" ? expr.值 :
     expr.类型 = "浮点" ? expr.值 :
     expr.类型 = "字符串" ? expr.值 :
@@ -94,7 +94,7 @@ module 解释器 {
   (* let [rec] 名 = 值 [in 体] —— 返回 (结果值, 新环境)
      递归：占位符绑定 → 求值 → 原地更新（闭包捕获的 env 同步看到真实值）
      非递归：先求值后绑定（标准词法作用域，值中不可引用绑定名） *)
-  func 绑定求值let(expr: Dict, env: List) -> (Value, List) = (expr, env) =>
+  func 绑定求值let(expr: Dict, env: List) -> (Value, List) =
     if expr.递归 then
       let env1 = 绑定环境(env, expr.名, "__递归占位__") in
       let v = 求值(expr.值, env1) in
@@ -111,7 +111,6 @@ module 解释器 {
         标准库.str 等价 查找环境(env, "str")）；
      3. 其余对象表达式（如 包(4).值）先求值对象再取字段。 *)
   func 求值属性(obj_expr: Dict, name: String, env: List) -> Value =
-    (obj_expr, name, env) =>
     obj_expr.类型 = "变量" ?
       (环境包含(env, obj_expr.名) ?
         对象取字段(查找环境(env, obj_expr.名), name) :
@@ -119,18 +118,18 @@ module 解释器 {
     对象取字段(求值(obj_expr, env), name)
 
   (* struct 实例 / enum 命名空间的字段访问；其它值返回 null（对齐宿主缺属性返回 None） *)
-  func 对象取字段(obj: Value, name: String) -> Value = (obj, name) =>
+  func 对象取字段(obj: Value, name: String) -> Value =
     obj[0] = "__struct实例__" ?
       结构体字段值(obj[2:], name) :
     obj[0] = "__enum命名__" ?
       枚举构造子值(obj[2:], name) :
     null
 
-  func 结构体字段值(pairs: List, name: String) -> Value = (pairs, name) =>
+  func 结构体字段值(pairs: List, name: String) -> Value =
     pairs = [] ? null :
     pairs[0][0] = name ? pairs[0][1] : 结构体字段值(pairs[1:], name)
 
-  func 枚举构造子值(ctors: List, name: String) -> Value = (ctors, name) =>
+  func 枚举构造子值(ctors: List, name: String) -> Value =
     ctors = [] ? null :
     ctors[0] = name ? name : 枚举构造子值(ctors[1:], name)
 
@@ -138,7 +137,6 @@ module 解释器 {
      and/or 短路：左值已可定结果时不求值右操作数；
      返回值语义与宿主一致（and 取假左值或右值，or 取真左值或右值）。 *)
   func 求值二元(op: String, left: Dict, right: Dict, env: List) -> Value =
-    (op, left, right, env) =>
     if op = "and" then
       let l = 求值(left, env) in
       if l then 求值(right, env) else l
@@ -151,7 +149,7 @@ module 解释器 {
       应用运算(op, l, r)
 
   (* 一元运算求值 ===== *)
-  func 求值一元(op: String, operand: Dict, env: List) -> Value = (op, operand, env) =>
+  func 求值一元(op: String, operand: Dict, env: List) -> Value =
     let v = 求值(operand, env) in
     op = "-" ? -v :
     op = "^" ? v ** 0.5 :
@@ -159,23 +157,20 @@ module 解释器 {
 
   (* if 表达式求值 ===== *)
   func 求值if(cond: Dict, then_b: Dict, else_b: Dict, env: List) -> Value =
-    (cond, then_b, else_b, env) =>
     if 求值(cond, env) then 求值(then_b, env) else 求值(else_b, env)
 
   (* Lambda 求值 → 闭包 ===== *)
   func 求值lambda(params: List, body: Dict, env: List) -> Value =
-    (params, body, env) =>
     ["__closure__", params, body, env]
 
   (* 函数应用求值 ===== *)
   func 求值应用(func_expr: Dict, arg_expr: Dict, env: List) -> Value =
-    (func_expr, arg_expr, env) =>
     let f = 求值(func_expr, env) in
     let a = 求值(arg_expr, env) in
     应用函数(f, a, env)
 
   (* 运算分发 ===== *)
-  func 应用运算(op: String, l, r) -> Value = (op, l, r) =>
+  func 应用运算(op: String, l, r) -> Value =
     op = "+" ? l + r :
     op = "-" ? l - r :
     op = "*" ? l * r :
@@ -192,7 +187,6 @@ module 解释器 {
 
   (* 函数应用分发 ===== *)
   func 应用函数(f: Value, arg: Value, call_env: List) -> Value =
-    (f, arg, call_env) =>
     if f[0] = "__closure__" then
       let params = f[1] in
       let body = f[2] in
@@ -217,7 +211,7 @@ module 解释器 {
 
   (* struct 工厂应用：按字段数收集参数，齐了即构造实例（柯里化，
      对齐宿主 _struct_factory 的逐参数应用）。零字段 struct 无参即构造。 *)
-  func 应用结构体工厂(工厂: List, 已收集: List) -> Value = (工厂, 已收集) =>
+  func 应用结构体工厂(工厂: List, 已收集: List) -> Value =
     let 字段名 = 工厂[2] in
     len(字段名) = 0 ?
       ["__struct实例__", 工厂[1]] :
@@ -232,7 +226,7 @@ module 解释器 {
 
   (* ===== 语句执行 ===== *)
 
-  func 执行语句(stmt: Dict, env: List) -> (Value, List) = (stmt, env) =>
+  func 执行语句(stmt: Dict, env: List) -> (Value, List) =
     stmt.类型 = "绑定" ?
       let v = 求值(stmt.值, env) in
       (v, 绑定环境(env, stmt.名, v)) :
@@ -260,7 +254,7 @@ module 解释器 {
   (* 函数定义执行：求值 lambda 闭包并绑定（支持自递归与互递归）。
      参数存于 decl.参数（Variable 节点列表），decl.体 为裸函数体，
      需包装为 lambda 节点再求值。 *)
-  func 执行函数定义(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
+  func 执行函数定义(decl: Dict, env: List) -> (Value, List) =
     let lam = 做Lambda(decl.参数, decl.体) in
     if 环境包含(env, decl.名) then
       (* 预绑定路径：env 已含占位符，求值后原地更新为真实闭包 *)
@@ -274,26 +268,26 @@ module 解释器 {
       let env2 = 更新绑定值(env1, decl.名, closure) in
       (closure, env2)
 
-  func 执行语句列表(stmts: Dict, env: List) -> (Value, List) = (stmts, env) =>
+  func 执行语句列表(stmts: Dict, env: List) -> (Value, List) =
     if stmts.类型 = "程序" then
       执行声明列表(stmts.声明, env)
     else
       执行语句(stmts, env)
 
   (* 声明列表执行：先预绑定全部函数占位符（互递归可见），再逐条执行 *)
-  func 执行声明列表(decls: List, env: List) -> (Value, List) = (decls, env) =>
+  func 执行声明列表(decls: List, env: List) -> (Value, List) =
     let env0 = 预绑定函数(decls, env) in
     执行声明列表已预绑(decls, env0)
 
   (* 返回最后一条声明的结果（程序值 = 尾表达式值） *)
-  func 执行声明列表已预绑(decls: List, env: List) -> (Value, List) = (decls, env) =>
+  func 执行声明列表已预绑(decls: List, env: List) -> (Value, List) =
     decls = [] ? (None, env) :
     let (v, env2) = 执行声明(decls[0], env) in
     decls[1:] = [] ? (v, env2) :
     执行声明列表已预绑(decls[1:], env2)
 
   (* 声明执行：结构体/枚举注册；其余全部委托 执行语句 *)
-  func 执行声明(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
+  func 执行声明(decl: Dict, env: List) -> (Value, List) =
     decl.类型 = "结构体" ? 执行结构体(decl, env) :
     decl.类型 = "枚举" ? 执行枚举(decl, env) :
     执行语句(decl, env)
@@ -301,7 +295,7 @@ module 解释器 {
   (* struct 注册：名 → 工厂值（应用时按字段数柯里化收集参数构造实例）。
      实例表示：["__struct实例__", 名, [字段1, 值1], [字段2, 值2], ...]
      —— 纯 List 表示，列表相等即结构相等（对齐宿主 _StructInstance）。 *)
-  func 执行结构体(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
+  func 执行结构体(decl: Dict, env: List) -> (Value, List) =
     let 工厂 = ["__struct工厂__", decl.名, 结构体字段名(decl.字段)] in
     (工厂, 绑定环境(env, decl.名, 工厂))
 
@@ -310,13 +304,12 @@ module 解释器 {
     if fields = [] then [] else [fields[0].名] + 结构体字段名(fields[1:])
 
   (* enum 注册：名 → 命名空间值；名.构造子 返回构造子名字符串（对齐宿主 _EnumNamespace） *)
-  func 执行枚举(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
+  func 执行枚举(decl: Dict, env: List) -> (Value, List) =
     let ns = ["__enum命名__", decl.名] + decl.构造子 in
     (ns, 绑定环境(env, decl.名, ns))
 
   (* while 循环 ===== *)
   func 执行while循环(cond: Dict, body: Dict, env: List) -> (Value, List) =
-    (cond, body, env) =>
     if not 求值(cond, env) then (None, env)
     else
       let (result2, env2) = 执行语句(body, env) in
@@ -324,7 +317,6 @@ module 解释器 {
 
   (* for 循环 ===== *)
   func 执行for循环(var_name: String, iterable: Dict, body: Dict, env: List) -> (Value, List) =
-    (var_name, iterable, body, env) =>
     let items = 求值(iterable, env) in
     if items = [] then (None, env)
     else
@@ -336,13 +328,13 @@ module 解释器 {
 
   (* raise 求值：调用 VM「错误」内建，抛出宿主异常穿越解释器帧，
      由 调用捕获 在 try 边界拦截 *)
-  func 抛出求值(值expr: Dict, env: List) -> Value = (值expr, env) =>
+  func 抛出求值(值expr: Dict, env: List) -> Value =
     let v = 求值(值expr, env) in
     错误(v)
 
   (* try 体包装：由 调用捕获 在受保护上下文中经 VM 调用，
      返回 [值, env2] 使块内绑定可传播（异常时整块放弃） *)
-  func try执行包装(体: Dict, env: List) -> List = (体, env) =>
+  func try执行包装(体: Dict, env: List) -> List =
     let (v, env2) = 执行语句列表(体, env) in
     [v, env2]
 
@@ -350,7 +342,7 @@ module 解释器 {
      try 体经 调用捕获 受保护运行 → 正常 ["__正常__", [值, env2]] /
      异常 ["__异常__", 消息]；异常时捕获变量绑定消息后执行 catch 体；
      finally 无论结果如何都执行（只取副作用，保留原值） *)
-  func 执行try(stmt: Dict, env: List) -> (Value, List) = (stmt, env) =>
+  func 执行try(stmt: Dict, env: List) -> (Value, List) =
     let 结果 = 调用捕获(try执行包装)([stmt.try体, env]) in
     if 结果[0] = "__正常__" then
       执行finally后(stmt, 结果[1][0], 结果[1][1])
@@ -359,14 +351,14 @@ module 解释器 {
       let (v2, env4) = 执行语句列表(stmt.捕获体, env3) in
       执行finally后(stmt, v2, env4)
 
-  func 执行finally后(stmt: Dict, v: Value, env: List) -> (Value, List) = (stmt, v, env) =>
+  func 执行finally后(stmt: Dict, v: Value, env: List) -> (Value, List) =
     stmt.finally体.声明 = [] ?
       (v, env) :
       let (忽略, env2) = 执行语句列表(stmt.finally体, env) in
       (v, env2)
 
   (* ===== 标准库内建 ===== *)
-  func 注册内建(env: List) -> List = (env) =>
+  func 注册内建(env: List) -> List =
     let env2 = 绑定环境(env, "ord", ["builtin", func_ord]) in
     let env3 = 绑定环境(env2, "chr", ["builtin", func_chr]) in
     let env4 = 绑定环境(env3, "len", ["builtin", func_len]) in
@@ -391,9 +383,9 @@ module 解释器 {
     env22
 
   (* 内建函数实现 ===== *)
-  func func_ord(c) -> Int = (c) => ord_matha(c)
-  func func_chr(n) -> String = (n) => chr_matha(n)
-  func func_len(seq) -> Int = (seq) => len(seq)
+  func func_ord(c) -> Int = ord_matha(c)
+  func func_chr(n) -> String = chr_matha(n)
+  func func_len(seq) -> Int = len(seq)
   (* 原地设置三参柯里化：原地设置(lst)(idx)(v) —— 递归绑定的占位更新依赖 *)
   func func_原地设置(lst) -> Value = (lst) =>
     (idx) => (v) => 原地设置(lst, idx, v)
@@ -403,29 +395,29 @@ module 解释器 {
     (start) => (end) => list_slice(seq, int(start), int(end))
   func func_append(lst) -> Value = (lst) =>
     (elem) => list_append(lst, elem)
-  func func_list(args) -> List = (args) => args
-  func func_sin(x) -> Float = (x) => 运行时引擎.sin(x)
-  func func_cos(x) -> Float = (x) => 运行时引擎.cos(x)
-  func func_tan(x) -> Float = (x) => 运行时引擎.tan(x)
-  func func_sqrt(x) -> Float = (x) => 运行时引擎.sqrt(x)
-  func func_abs(x) -> Float = (x) => 运行时引擎.abs(x)
-  func func_floor(x) -> Int = (x) => 运行时引擎.floor(x)
-  func func_ceil(x) -> Int = (x) => 运行时引擎.ceil(x)
-  func func_round(x) -> Int = (x) => 运行时引擎.round(x)
-  func func_max(lst) -> Value = (lst) => list_max(lst)
-  func func_min(lst) -> Value = (lst) => list_min(lst)
-  func func_sum(lst) -> Float = (lst) => list_sum(lst)
+  func func_list(args) -> List = args
+  func func_sin(x) -> Float = 运行时引擎.sin(x)
+  func func_cos(x) -> Float = 运行时引擎.cos(x)
+  func func_tan(x) -> Float = 运行时引擎.tan(x)
+  func func_sqrt(x) -> Float = 运行时引擎.sqrt(x)
+  func func_abs(x) -> Float = 运行时引擎.abs(x)
+  func func_floor(x) -> Int = 运行时引擎.floor(x)
+  func func_ceil(x) -> Int = 运行时引擎.ceil(x)
+  func func_round(x) -> Int = 运行时引擎.round(x)
+  func func_max(lst) -> Value = list_max(lst)
+  func func_min(lst) -> Value = list_min(lst)
+  func func_sum(lst) -> Float = list_sum(lst)
 
   (* ===== 顶层入口 ===== *)
 
-  func interpret(source: String) -> List = (source) =>
+  func interpret(source: String) -> List =
     let toks = 扫描(source) in
     let ast = parse(toks) in
     let env = 注册内建(空环境()) in
     let (result5, env2) = 执行语句(ast, env) in
     []  (* 输出暂存 env 中 *)
 
-  func eval(expr: Dict, env: List) -> Value = (expr, env) =>
+  func eval(expr: Dict, env: List) -> Value =
     求值(expr, env)
 
 }

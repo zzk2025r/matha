@@ -57,89 +57,123 @@ module 编译器 {
   let 二元运算表 = {
     "+": "+", "-": "-", "*": "*", "/": "/", "%": "%", "^": "**", "**": "**",
     "//": "//", "=": "==", "==": "==", "!=": "!=", "<>": "!=",
-    "<": "<", ">": ">", "<=": "<=", ">=": ">=", "and": "and", "or": "or"
+    "<": "<", ">": ">", "<=": "<=", ">=": ">=", "and": "and", "or": "or",
+    "in": "in", "is": "is", "<<": "<<", ">>": ">>"
   }
   let 一元运算表 = {"-": "neg", "not": "not", "非": "not"}
 
-  (* ===== 字节码容器 ===== *)
-  func _新bc() -> Dict = () => {"常量": [], "函数": [], "计数": 0}
+  (* ===== 字节码容器 =====
+     「元数表」为顶层函数 name -> 元数 的预扫描结果，在编译任何函数体之前
+     建好，因此与声明顺序无关（与宿主 _scan_fn_arities 同构）。 *)
+  (* "元数表" 用 dict_from_pairs([]) 而非字面 {}：宿主 parser 把 {} 解析为
+     SetConstruct("enumeration")（空集合），而非空字典；字面 {} 会让元数表在
+     运行时变成列表，并使自举产物比宿主多/少常量。 *)
+  func _新bc() -> Dict = {"常量": [], "函数": [], "计数": 0, "元数表": dict_from_pairs([])}
 
-  func _bc常量(bc: Dict, 常量: List) -> Dict = (bc, 常量) =>
-    {"常量": 常量, "函数": bc["函数"], "计数": bc["计数"]}
-  func _bc函数(bc: Dict, 函数: List) -> Dict = (bc, 函数) =>
-    {"常量": bc["常量"], "函数": 函数, "计数": bc["计数"]}
-  func _bc计数(bc: Dict, n: Int) -> Dict = (bc, n) =>
-    {"常量": bc["常量"], "函数": bc["函数"], "计数": n}
+  func _bc常量(bc: Dict, 常量: List) -> Dict =
+    {"常量": 常量, "函数": bc["函数"], "计数": bc["计数"], "元数表": bc["元数表"]}
+  func _bc函数(bc: Dict, 函数: List) -> Dict =
+    {"常量": bc["常量"], "函数": 函数, "计数": bc["计数"], "元数表": bc["元数表"]}
+  func _bc计数(bc: Dict, n: Int) -> Dict =
+    {"常量": bc["常量"], "函数": bc["函数"], "计数": n, "元数表": bc["元数表"]}
+  func _bc元数表(bc: Dict, 表: Dict) -> Dict =
+    {"常量": bc["常量"], "函数": bc["函数"], "计数": bc["计数"], "元数表": 表}
 
-  func _加常量(bc: Dict, v) -> (Int, Dict) = (bc, v) =>
+  (* 预扫描顶层函数元数：仅 顶层函数定义 入表（模块内嵌的也算），
+     lambda 不在表内，故无需再按 __lam_ 前缀排除。 *)
+  func _预扫元数(decls: List) -> Dict = _预扫元数走(decls, dict_from_pairs([]))
+
+  func _预扫元数走(decls: List, out: Dict) -> Dict =
+    decls = [] ? out :
+    let d = decls[0] in
+    let out2 = d["类型"] = "函数定义" ? dict_put(out, d["名"], len(d["参数"])) :
+                d["类型"] = "模块" ? _预扫元数走(d["声明"], out) : out in
+    _预扫元数走(decls[1:], out2)
+
+  func _加常量(bc: Dict, v) -> (Int, Dict) =
     let idx = len(bc["常量"]) in
     (idx, _bc常量(bc, append(bc["常量"])(v)))
 
-  func _bc加函数(bc: Dict, name: String, info: Dict) -> Dict = (bc, name, info) =>
+  func _bc加函数(bc: Dict, name: String, info: Dict) -> Dict =
     _bc函数(bc, append(bc["函数"])([name, info]))
 
-  func _新lambda名(bc: Dict) -> (String, Dict) = (bc) =>
+  func _新lambda名(bc: Dict) -> (String, Dict) =
     let n = bc["计数"] + 1 in
     ("__lam_" + str(n), _bc计数(bc, n))
 
   (* ===== 指令发射（纯函数式：追加返回新码列表）===== *)
-  func _发(code: List, ins: List) -> List = (code, ins) => append(code)(ins)
-  func _补丁(code: List, pos: Int, ins: List) -> List = (code, pos, ins) =>
+  func _发(code: List, ins: List) -> List = append(code)(ins)
+  func _补丁(code: List, pos: Int, ins: List) -> List =
     list_set_at(code, pos, ins)
 
   (* ===== 作用域 =====
      [nslots, names, parent, is_main]
      names 条目 [名, 槽位, 盒]；is_main=真 时一切绑定落全局（main 帧无局部槽） *)
-  func _新作用域(parent) -> List = (parent) => [0, [], parent, 假]
-  func _新主作用域() -> List = () => [0, [], null, 真]
+  func _新作用域(parent) -> List = [0, [], parent, 假]
+  func _新主作用域() -> List = [0, [], null, 真]
 
-  func _声明(sc: List, name: String, boxed: Bool) -> (List, Int) = (sc, name, boxed) =>
+  func _声明(sc: List, name: String, boxed: Bool) -> (List, Int) =
     let slot = sc[0] in
     ([slot + 1, append(sc[1])([name, slot, boxed]), sc[2], sc[3]], slot)
 
-  func _查names(names: List, name: String) -> List = (names, name) =>
+  (* 同名多次绑定取「最后一次」声明：宿主 scope.names 是 dict，重复 declare
+     会覆盖旧槽位；此处 names 是列表，故先看后面有没有命中，没有才用当前项。 *)
+  func _查names(names: List, name: String) -> List =
     names = [] ? [] :
-    names[0][0] = name ? ["命中", names[0][1], names[0][2]] :
-    _查names(names[1:], name)
+    let hit = _查names(names[1:], name) in
+    (hit = [] and names[0][0] = name) ? ["命中", names[0][1], names[0][2]] : hit
 
   (* 返回 [kind, depth, slot, boxed]；main 作用域一律 global *)
-  func _查找(sc, name: String, depth: Int) -> List = (sc, name, depth) =>
+  func _查找(sc, name: String, depth: Int) -> List =
     sc = null ? ["global", depth, 0, 假] :
     sc[3] = 真 ? ["global", depth, 0, 假] :
     let hit = _查names(sc[1], name) in
     hit = [] ? _查找(sc[2], name, depth + 1) :
     ["local", depth, hit[1], hit[2]]
 
-  (* main 作用域的全局临时名（循环/try 用），同时消耗 lambda 计数保证唯一 *)
-  func _全局临时(sc: List, bc: Dict, hint: String) -> (String, List, Dict) = (sc, bc, hint) =>
-    let (名, bc2) = _新lambda名(bc) in
-    ("__m_" + hint + "_" + 名, sc, bc2)
+  (* main 作用域的循环/try 临时全局名，与宿主 _declare_temp 同构：
+       __<hint>_<当前 lambda 计数>_<主作用域已用槽数>
+     注意只「读」lambda 计数而不消耗它（消耗会打乱后续 __lam_N 编号），
+     并按宿主语义把主作用域 nslots 递增。 *)
+  func _全局临时(sc: List, bc: Dict, hint: String) -> (String, List, Dict) =
+    let n = sc[0] + 1 in
+    let sc2 = [n, sc[1], sc[2], sc[3]] in
+    ("__" + hint + "_" + str(bc["计数"]) + "_" + str(n), sc2, bc)
 
   (* ===== 参数提取：Variable 节点列表 → 名列表 ===== *)
-  func _参数名(params: List) -> List = (params) =>
+  func _参数名(params: List) -> List =
     params = [] ? [] :
     ([_参数一名(params[0])] + _参数名(params[1:]))
-  func _参数一名(p) -> String = (p) =>
+  func _参数一名(p) -> String =
     matha_type_of(p) = "String" ? p : p["名"]
 
   (* ===== 入口 ===== *)
-  func 编译(source: String) -> Dict = (source) =>
+  func 编译(source: String) -> Dict =
     let toks = tokenize(source) in
     let tree = parse(toks) in
     _编译程序(tree)
 
-  func compile(source: String) -> Dict = (source) => 编译(source)
+  func compile(source: String) -> Dict = 编译(source)
 
-  func _编译程序(tree: Dict) -> Dict = (tree) =>
+  func _编译程序(tree: Dict) -> Dict =
     let decls = tree["声明"] in
-    let bc1 = _编译全部函数(decls, _新bc()) in
-    let (主码, sc, bc2) = _编译声明列表(decls, [], _新主作用域(), bc1) in
+    let bc1 = _bc元数表(_新bc(), _预扫元数(decls)) in
+    let bc2f = _编译全部函数(decls, bc1) in
+    let (主码, sc, bc2) = _编译声明列表(decls, [], _新主作用域(), bc2f) in
     {"常量": bc2["常量"], "函数": bc2["函数"],
-     "主码": append(主码)([OP_HALT]), "模块名": "主程序"}
+     "主码": append(主码)([OP_HALT]), "模块名": _取模块名(decls)}
+
+  (* 模块名：与宿主 _compile_top_decl 一致——顶层 module 声明的名字（多个取最后一个），
+     无 module 声明则为默认的 主程序。 *)
+  func _取模块名(decls: List) -> String = _取模块名走(decls, "主程序")
+
+  func _取模块名走(decls: List, acc: String) -> String =
+    decls = [] ? acc :
+    _取模块名走(decls[1:], (decls[0]["类型"] = "模块" ? decls[0]["名"] : acc))
 
   (* 第一遍：所有顶层函数定义编译入函数表（VM 启动时统一注册为全局闭包，
      故函数间互引经 LOAD_GLOBAL 即可，编译顺序无关） *)
-  func _编译全部函数(decls: List, bc: Dict) -> Dict = (decls, bc) =>
+  func _编译全部函数(decls: List, bc: Dict) -> Dict =
     decls = [] ? bc :
     let bc2 = decls[0]["类型"] = "函数定义" ? _编译函数(decls[0], bc) :
               decls[0]["类型"] = "模块" ? _编译全部函数(decls[0]["声明"], bc) : bc in
@@ -154,50 +188,106 @@ module 编译器 {
 
   (* 编译具名函数体（顶层函数）→ (名, info, bc) *)
   func _编译命名函数体(name: String, params: List, body, parent, bc: Dict)
-      -> (String, Dict, Dict) = (name, params, body, parent, bc) =>
+      -> (String, Dict, Dict) =
     let names = _参数名(params) in
     let sc0 = _声明参数(_新作用域(parent), names) in
     let (code, sc1, bc2) = _发射体(body, [], sc0, bc, 真) in
     (name, {"参数": names, "元数": len(names), "局部数": sc1[0],
             "码": append(code)([OP_RET])}, bc2)
 
-  func _声明参数(sc: List, names: List) -> List = (sc, names) =>
+  func _声明参数(sc: List, names: List) -> List =
     names = [] ? sc :
     let (sc2, slot) = _声明(sc, names[0], 假) in
     _声明参数(sc2, names[1:])
 
   (* ===== 主码：声明列表（语句栈平衡）===== *)
+  (* 宿主对**每个**顶层声明都新建一个 main 作用域（_compile_stmt 中
+     `if scope is None: scope = _Scope(None, is_main=True)`；_compile_top_decl
+     的 Binding/LetBinding/LetTupleBinding 同样各自 new）。故临时槽计数
+     nslots 每个顶层声明都从 0 起算：两条 `ch <- v` 顶层语句因此复用
+     __send_ch_0_1 / __send_buf_0_2，而非 _3/_4。
+     main 作用域的名字表从不被查（_查找 对 sc[3]=真 直接返回 global），
+     故只需重置计数槽 sc[0]，不必复制整个作用域。 *)
+  func _重置主作用域计数(sc: List) -> List =
+    sc[3] = 真 ? [0, sc[1], sc[2], sc[3]] : sc
+
   func _编译声明列表(decls: List, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (decls, code, sc, bc) =>
+      -> (List, List, Dict) =
     decls = [] ? (code, sc, bc) :
     let (c2, sc2, bc2) = _编译声明(decls[0], code, sc, bc) in
     _编译声明列表(decls[1:], c2, sc2, bc2)
 
   func _编译声明(decl: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (decl, code, sc, bc) =>
+      -> (List, List, Dict) =
     decl["类型"] = "函数定义" ? (code, sc, bc) :
     decl["类型"] = "模块" ? _编译声明列表(decl["声明"], code, sc, bc) :
-    decl["类型"] = "导入" ? (code, sc, bc) :
+    decl["类型"] = "导入" ? _编译导入(decl, code, sc, bc) :
+    (* 以下各分支宿主均以「全新 main 作用域」编译：临时槽计数从 0 起算 *)
+    decl["类型"] = "机械单元" ? _编译机械单元(decl, code, _重置主作用域计数(sc), bc) :
+    (* 语句位置的输出单元：求值后 OP_OUTPUT，不 DUP、不 POP *)
+    decl["类型"] = "输出" ? _编译生成语句链(decl, code, _重置主作用域计数(sc), bc) :
     decl["类型"] = "结构体" ? (code, sc, bc) :
+    (* 自然语言块：宿主 ast.NLBlock 属 _NOOP_STMTS，编译期不产任何字节码 *)
+    decl["类型"] = "自然语言块" ? (code, sc, bc) :
+    (* @define_op：宿主 ast.DefineOp 属 _NOOP_STMTS *)
+    decl["类型"] = "定义运算符" ? (code, sc, bc) :
     decl["类型"] = "枚举" ? _编译枚举(decl, code, sc, bc) :
-    decl["类型"] = "绑定" ? _编译绑定(decl, code, sc, bc) :
-    decl["类型"] = "let绑定" ? _编译顶层let(decl, code, sc, bc) :
-    decl["类型"] = "let元组绑定" ? _编译顶层let元组(decl, code, sc, bc) :
-    decl["类型"] = "if" ? _编译平衡(decl, code, sc, bc) :
-    decl["类型"] = "while" ? _编译while(decl, code, sc, bc, 假) :
-    decl["类型"] = "for" ? _编译for(decl, code, sc, bc, 假) :
-    decl["类型"] = "try" ? _编译try平衡(decl, code, sc, bc) :
+    decl["类型"] = "绑定" ? _编译绑定(decl, code, _重置主作用域计数(sc), bc) :
+    decl["类型"] = "let绑定" ? _编译顶层let(decl, code, _重置主作用域计数(sc), bc) :
+    decl["类型"] = "let元组绑定" ? _编译顶层let元组(decl, code, _重置主作用域计数(sc), bc) :
+    decl["类型"] = "if" ? _编译平衡(decl, code, _重置主作用域计数(sc), bc) :
+    decl["类型"] = "while" ? _编译while(decl, code, _重置主作用域计数(sc), bc, 假) :
+    decl["类型"] = "for" ? _编译for(decl, code, _重置主作用域计数(sc), bc, 假) :
+    decl["类型"] = "try" ? _编译try平衡(decl, code, _重置主作用域计数(sc), bc) :
+    (* throw/raise：宿主把 RaiseExpr 列入 _STMT_NODES，语句位置走 _compile_stmt
+       的 RaiseExpr 分支（求值 + RAISE），**不补 POP**——RAISE 不返回，栈上
+       也不会残留值。裸表达式兜底会多发一条 POP，与宿主产物不一致。 *)
+    decl["类型"] = "抛出" ? _发射表达式(decl, code, _重置主作用域计数(sc), bc) :
     (* 其余视为裸表达式语句：求值后丢弃 *)
-    let (c2, sc2, bc2) = _发射表达式(decl, code, sc, bc) in
+    let (c2, sc2, bc2) = _发射表达式(decl, code, _重置主作用域计数(sc), bc) in
     (_发(c2, [OP_POP]), sc2, bc2)
 
-  func _加常量名(bc: Dict, name: String) -> (Int, Dict) = (bc, name) =>
+  (* use/import：M3V 单模块运行时无跨模块加载，记为全局标记供宿主检查。
+     与宿主 _emit_import 对齐：常量 "<import M>" 压栈后存入全局 "__import_M"。 *)
+  func _编译导入(decl: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let m = decl["模块名"] in
+    m = "" ? (code, sc, bc) :
+    let (idx, bc2) = _加常量(bc, "<import " + m + ">") in
+    let (gidx, bc3) = _加常量名(bc2, "__import_" + m) in
+    let c2 = _发(_发(code, [OP_PUSH_CONST, idx]), [OP_STORE_GLOBAL, gidx]) in
+    (c2, sc, bc3)
+
+  (* ===== 机械单元（#N：…）=====
+     与宿主 _compile_stmt 的 MechUnit→GenStmt→OutputTrail→Output 透传链同构。
+     代码块形态走 _发射块（留值=假，块内绑定沿用外层作用域）；
+     输出单元在语句位置只发 OP_OUTPUT，不 DUP（表达式位置的 输出(...) 才 DUP）。 *)
+  func _编译机械单元(decl: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let b = decl["body"] in
+    b["类型"] = "程序" ?
+      let (c2, sc2, bc2) = _发射块(b["声明"], code, sc, bc, 假) in
+      (c2, sc2, bc2) :
+      _编译生成语句链(b, code, sc, bc)
+
+  func _编译生成语句链(n: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    n["类型"] = "生成语句" ? _编译生成语句链(n["content"], code, sc, bc) :
+    n["类型"] = "输出追踪" ? _编译生成语句链(n["输出"], code, sc, bc) :
+    n["类型"] = "输出" ?
+      (* []：空输出，不发射任何指令（宿主 Output(expr=None) 同构）*)
+      (n["expr"]["类型"] = "空输出" ? (code, sc, bc) :
+       let (c2, sc2, bc2) = _发射表达式(n["expr"], code, sc, bc) in
+       (_发(c2, [OP_OUTPUT]), sc2, bc2)) :
+      _编译声明(n, code, sc, bc)
+
+  func _加常量名(bc: Dict, name: String) -> (Int, Dict) =
     _加常量(bc, name)
 
   (* 枚举：每个构造子注册为全局字符串常量；枚举名注册为 {ctor: ctor} dict
      （支持 类型.整数 形式访问），与宿主 compiler._compile_top_decl EnumDef 对齐 *)
   func _编译枚举(decl: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (decl, code, sc, bc) =>
+      -> (List, List, Dict) =
     let ctors = decl["构造子"] in
     let (c2, bc2) = _注册枚举成员(ctors, code, bc) in
     let (c3, bc3) = _注册枚举字典对(ctors, c2, bc2) in
@@ -206,7 +296,6 @@ module 编译器 {
     (_发(c4, [OP_STORE_GLOBAL, gidx]), sc, bc4)
 
   func _注册枚举成员(ctors: List, code: List, bc: Dict) -> (List, Dict) =
-    (ctors, code, bc) =>
     ctors = [] ? (code, bc) :
     let (idx, bc2) = _加常量(bc, ctors[0]) in
     let (gidx, bc3) = _加常量名(bc2, ctors[0]) in
@@ -214,21 +303,22 @@ module 编译器 {
     _注册枚举成员(ctors[1:], c2, bc3)
 
   func _注册枚举字典对(ctors: List, code: List, bc: Dict) -> (List, Dict) =
-    (ctors, code, bc) =>
     ctors = [] ? (code, bc) :
-    let (idx, bc2) = _加常量(bc, ctors[0]) in
-    let c2 = _发(_发(code, [OP_PUSH_CONST, idx]), [OP_PUSH_CONST, idx]) in
-    _注册枚举字典对(ctors[1:], c2, bc2)
+    (* 键与值各自入池（不复用索引），与宿主 _compile_top_decl 逐次 const() 对齐 *)
+    let (kidx, bc2) = _加常量(bc, ctors[0]) in
+    let (vidx, bc3) = _加常量(bc2, ctors[0]) in
+    let c2 = _发(_发(code, [OP_PUSH_CONST, kidx]), [OP_PUSH_CONST, vidx]) in
+    _注册枚举字典对(ctors[1:], c2, bc3)
 
   (* 块/函数内绑定：当前帧已有同名则复用槽位，否则新声明（与宿主 _declare_slot 一致）*)
-  func _绑定槽(sc: List, name: String) -> (List, Int) = (sc, name) =>
+  func _绑定槽(sc: List, name: String) -> (List, Int) =
     let hit = _查names(sc[1], name) in
     hit = [] ? _声明(sc, name, 假) :
     (sc, hit[1])
 
   (* 绑定语句：main 作用域写全局；函数帧内先编值再 STORE_LOCAL（栈平衡）*)
   func _编译绑定(decl: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (decl, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
     sc2[3] = 真 ?
       let (idx, bc3) = _加常量名(bc2, decl["名"]) in
@@ -237,7 +327,7 @@ module 编译器 {
       (_发(c2, [OP_STORE_LOCAL, slot]), sc3, bc2)
 
   func _编译顶层let(decl: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (decl, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
     let (idx, bc3) = _加常量(bc2, decl["名"]) in
     let c3 = _发(c2, [OP_STORE_GLOBAL, idx]) in
@@ -248,7 +338,7 @@ module 编译器 {
 
   (* 顶层 let 元组绑定：求值 → UNPACK_SEQ → 逐个 STORE_GLOBAL（逆序）*)
   func _编译顶层let元组(decl: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (decl, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
     let names = decl["名字"] in
     let c3 = _发(c2, [OP_UNPACK_SEQ, len(names)]) in
@@ -261,36 +351,44 @@ module 编译器 {
   (* 逆序 STORE_GLOBAL：先存 names[n-1]，...，最后 names[0]
      （VM UNPACK_SEQ 正序压栈 [seq0..seqN]，STORE_GLOBAL 逆序弹出）*)
   func _存储元组全局逆序(names: List, code: List, bc: Dict) -> (List, Dict) =
-    (names, code, bc) =>
     names = [] ? (code, bc) :
     let (c2, bc2) = _存储元组全局逆序(names[1:], code, bc) in
     let (idx, bc3) = _加常量名(bc2, names[0]) in
     (_发(c2, [OP_STORE_GLOBAL, idx]), bc3)
 
   (* 把留值发射（if/try）的结果 POP 掉，用于语句位置 *)
-  func _编译平衡(decl, code, sc, bc) -> (List, List, Dict) = (decl, code, sc, bc) =>
+  func _编译平衡(decl, code, sc, bc) -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射if(decl, code, sc, bc) in
     (_发(c2, [OP_POP]), sc2, bc2)
-  func _编译try平衡(decl, code, sc, bc) -> (List, List, Dict) = (decl, code, sc, bc) =>
+  func _编译try平衡(decl, code, sc, bc) -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射try(decl, code, sc, bc) in
     (_发(c2, [OP_POP]), sc2, bc2)
 
   (* ===== 体发射：Program 走块（留尾值），其余按表达式 ===== *)
   func _发射体(body, code: List, sc: List, bc: Dict, 留值: Bool)
       -> (List, List, Dict) = (body, code, sc, bc, 留值) =>
+    (* 宿主 _emit_expr 首行即 `if node is None: PUSH_NULL`；if 无 else 时
+       假分支就是 None。自举编译器若把 null 当普通节点下发，会向常量池注入
+       一个占位常量，与宿主产物不一致。 *)
+    body = null ?
+      (_发(code, [OP_PUSH_NULL]), sc, bc) :
     body["类型"] = "程序" ?
       _发射块(body["声明"], code, sc, bc, 留值) :
+    (* 文档类节点作函数体（【...】 读取块/自然语言块）时不是块，宿主 _emit_body
+       走 `isinstance(body, _NOOP_STMTS) → PUSH_NULL`；自举侧对应 PUSH_NULL。 *)
+    body["类型"] = "自然语言块" ?
+      (_发(code, [OP_PUSH_NULL]), sc, bc) :
       _发射表达式(body, code, sc, bc)
 
   (* 块：声明序列。留值=真 且末条为值节点/if/try 时留值，否则补 NULL *)
   func _发射块(decls: List, code: List, sc: List, bc: Dict, 留值: Bool)
-      -> (List, List, Dict) = (decls, code, sc, bc, 留值) =>
+      -> (List, List, Dict) =
     decls = [] ?
       (留值 ? (_发(code, [OP_PUSH_NULL]), sc, bc) : (code, sc, bc)) :
     _发射块_rest(decls, 0, code, sc, bc, 留值)
 
   func _发射块_rest(decls: List, i: Int, code: List, sc: List, bc: Dict, 留值: Bool)
-      -> (List, List, Dict) = (decls, i, code, sc, bc, 留值) =>
+      -> (List, List, Dict) =
     i + 1 >= len(decls) ? _发射块末条(decls[i], code, sc, bc, 留值) :
     let (c2, sc2, bc2) = _编译声明(decls[i], code, sc, bc) in
     _发射块_rest(decls, i + 1, c2, sc2, bc2, 留值)
@@ -299,7 +397,7 @@ module 编译器 {
     (decl["类型"] = "if") or (decl["类型"] = "try")
 
   func _发射块末条(decl: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
-      -> (List, List, Dict) = (decl, code, sc, bc, 留值) =>
+      -> (List, List, Dict) =
     留值 ?
       (decl["类型"] = "if" ? _发射if(decl, code, sc, bc) :
        decl["类型"] = "try" ? _发射try(decl, code, sc, bc) :
@@ -307,7 +405,7 @@ module 编译器 {
       _编译声明(decl, code, sc, bc)
 
   (* 末条为语句但块需留值 → 编译语句后补 NULL *)
-  func _编译声明是语句(decl, code, sc, bc) -> (List, List, Dict) = (decl, code, sc, bc) =>
+  func _编译声明是语句(decl, code, sc, bc) -> (List, List, Dict) =
     _是语句类型(decl["类型"]) ?
       let (c2, sc2, bc2) = _编译声明(decl, code, sc, bc) in
       (_发(c2, [OP_PUSH_NULL]), sc2, bc2) :
@@ -315,12 +413,49 @@ module 编译器 {
 
   func _是语句类型(t: String) -> Bool = (t) =>
     (t = "绑定") or (t = "let绑定") or (t = "while") or (t = "for") or
-    (t = "函数定义")
+    (t = "函数定义") or
+    (* 宿主 _STMT_NODES 含 NLBlock（经 _NOOP_STMTS 引入）：块末留值时走
+       _compile_stmt 空操作，再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。 *)
+    (t = "自然语言块") or
+    (* 宿主 _STMT_NODES 含 RaiseExpr：块末留值时走 _compile_stmt 收尾路径，
+       再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。缺此项则 try 体
+       （末句 throw/raise）少发 PUSH_NULL，__lam_1 字节码与宿主不一致。 *)
+    (t = "抛出")
 
   (* ===== 表达式发射 =====
      返回 (新码, 新作用域, 新bc) *)
+  (* 把左嵌套 函数应用 链 f(a1)(a2)…(aN) 摊平为 (f, [a1, …, aN])；
+     实参自身若也是链则同样摊平（f(g(1,2),3) 中 g 也成单条 2 参调用）。 *)
+  func _摊平调用(e: Dict) -> (Dict, List) =
+    e["类型"] = "函数应用" ?
+      let (callee, args) = _摊平调用(e["函数"]) in
+      (callee, args + [e["参数"]]) :
+      (e, [])
+
+  (* 顶层函数的元数。第一遍已把全部顶层函数编译入函数表，故此处查表即可。
+     内部 lambda 统一命名为 __lam_N，宿主不融合，故排除。 *)
+  (* 查元数：只认预扫描表里的顶层函数。表内不含 lambda，故不再按
+     __lam_ 前缀排除（与宿主 _fn_arities 语义一致）。 *)
+  func _查元数(表: Dict, name: String) -> Int =
+    dict_has(表, name) ? dict_get(表, name, -1) : -1
+
+  (* 完全应用到已知元数的顶层函数：融成单条 CALL N（含 N=0 的无参函数）；
+     其余情形（内建、lambda、偏应用）保持逐次 CALL 1，由 VM 柯里化。 *)
+  func _发射应用(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let (callee, args) = _摊平调用(e) in
+    let is_var = callee["类型"] = "变量" in
+    let arity = is_var ? _查元数(bc["元数表"], callee["名"]) : -1 in
+    (is_var and arity = len(args)) ?
+      let (c1, sc1, bc1) = _发射变量(callee["名"], code, sc, bc) in
+      let (c2, sc2, bc2) = _发射表达式列表(args, c1, sc1, bc1) in
+      (_发(c2, [OP_CALL, len(args)]), sc2, bc2) :
+      let (c1, sc1, bc1) = _发射表达式(e["函数"], code, sc, bc) in
+      let (c2, sc2, bc2) = _发射表达式(e["参数"], c1, sc1, bc1) in
+      (_发(c2, [OP_CALL, 1]), sc2, bc2)
+
   func _发射表达式(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
+      -> (List, List, Dict) =
     e["类型"] = "整数" ? _发射常量(code, sc, bc, e["值"]) :
     e["类型"] = "浮点" ? _发射常量(code, sc, bc, e["值"]) :
     e["类型"] = "字符串" ? _发射常量(code, sc, bc, e["值"]) :
@@ -328,10 +463,7 @@ module 编译器 {
       (_发(code, e["值"] ? [OP_PUSH_TRUE] : [OP_PUSH_FALSE]), sc, bc) :
     e["类型"] = "变量" ? _发射变量(e["名"], code, sc, bc) :
     e["类型"] = "lambda" ? _发射lambda(e, code, sc, bc) :
-    e["类型"] = "函数应用" ?
-      let (c1, sc1, bc1) = _发射表达式(e["函数"], code, sc, bc) in
-      let (c2, sc2, bc2) = _发射表达式(e["参数"], c1, sc1, bc1) in
-      (_发(c2, [OP_CALL, 1]), sc2, bc2) :
+    e["类型"] = "函数应用" ? _发射应用(e, code, sc, bc) :
     e["类型"] = "二元运算" ? _发射二元(e, code, sc, bc) :
     e["类型"] = "一元运算" ? _发射一元(e, code, sc, bc) :
     e["类型"] = "if" ? _发射if(e, code, sc, bc) :
@@ -349,6 +481,32 @@ module 编译器 {
       let (idx, bc2) = _加常量(bc1, e["名"]) in
       (_发(c1, [OP_GET_ATTR, idx]), sc1, bc2) :
     e["类型"] = "列表" ? _发射列表(e["元素"], code, sc, bc) :
+      e["类型"] = "集合构造" ? _发射集合构造(e, code, sc, bc) :
+      (* chan T → {"缓冲": [], "容量": n, "关闭": False}；BUILD_DICT 栈布局为
+         k1 v1 k2 v2 …，故每个键紧跟其值（宿主 ChanExpr 分支同构）。 *)
+      e["类型"] = "通道" ? _发射通道(e, code, sc, bc) :
+      e["类型"] = "发送" ? _发射发送(e, code, sc, bc) :
+    e["类型"] = "属于" ?
+      let (c1, sc1, bc1) = _发射表达式(e["左"], code, sc, bc) in
+      let (c2, sc2, bc2) = _发射表达式(e["右"], c1, sc1, bc1) in
+      let (idx, bc3) = _加常量(bc2, "in") in
+      (_发(c2, [OP_BINOP, idx]), sc2, bc3) :
+    e["类型"] = "同一性" ?
+      let (c1, sc1, bc1) = _发射表达式(e["左"], code, sc, bc) in
+      let (c2, sc2, bc2) = _发射表达式(e["右"], c1, sc1, bc1) in
+      let (idx, bc3) = _加常量(bc2, "is") in
+      (_发(c2, [OP_BINOP, idx]), sc2, bc3) :
+    e["类型"] = "抛出" ?
+      (* throw <expr>：与宿主 RaiseExpr 分支同构（求值后 RAISE）*)
+      let (c1, sc1, bc1) = _发射表达式(e["值"], code, sc, bc) in
+      (_发(c1, [OP_RAISE]), sc1, bc1) :
+    e["类型"] = "typeof" ?
+      (* LOAD_GLOBAL "typeof"; <operand>; CALL 1，与宿主 TypeOfExpr 分支一致 *)
+      let (n0, bc0) = _加常量(bc, "typeof") in
+      let (c1, sc1, bc1) = _发射表达式(e["操作数"], _发(code, [OP_LOAD_GLOBAL, n0]), sc, bc0) in
+      (_发(c1, [OP_CALL, 1]), sc1, bc1) :
+    e["类型"] = "尖括号" ? _发射表达式(e["内"], code, sc, bc) :
+    e["类型"] = "安全路径" ? _发射安全路径(e, code, sc, bc) :
     e["类型"] = "元组" ? _发射列表(e["元素"], code, sc, bc) :
     e["类型"] = "下标" ?
       let (c1, sc1, bc1) = _发射表达式(e["容器"], code, sc, bc) in
@@ -362,26 +520,59 @@ module 编译器 {
     e["类型"] = "字典" ? _发射字典(e["键"], e["值"], code, sc, bc) :
     错误("自举编译器：未支持的表达式类型 " + e["类型"])
 
+  (* 可选链 a?.b / a?.[i]：LOAD_GLOBAL 安全取属性/安全索引; <左>; <右>; CALL 2。
+     属性形式（右为属性名文本）以常量压栈，下标形式（右为表达式节点）走表达式发射。
+     与宿主 mbc/compiler.py SafePathExpr 分支逐条对应。 *)
+  func _发射安全路径(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    if e["是下标"] then
+      let (n0, bc0) = _加常量(bc, "安全索引") in
+      let (c1, sc1, bc1) = _发射表达式(e["左"], _发(code, [OP_LOAD_GLOBAL, n0]), sc, bc0) in
+      let (c2, sc2, bc2) = _发射表达式(e["右"], c1, sc1, bc1) in
+      (_发(c2, [OP_CALL, 2]), sc2, bc2)
+    else
+      let (n0, bc0) = _加常量(bc, "安全取属性") in
+      let (c1, sc1, bc1) = _发射表达式(e["左"], _发(code, [OP_LOAD_GLOBAL, n0]), sc, bc0) in
+      let (ni, bc2) = _加常量(bc1, e["右"]) in
+      let c2 = _发(c1, [OP_PUSH_CONST, ni]) in
+      (_发(c2, [OP_CALL, 2]), sc1, bc2)
+
   (* 字典字面量 {k: v, k: v}：逐对发射 key、value，最后 BUILD_DICT n *)
   func _发射字典(键: List, 值: List, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (键, 值, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射键值对(键, 值, code, sc, bc) in
     (_发(c2, [OP_BUILD_DICT, len(键)]), sc2, bc2)
 
   func _发射键值对(键: List, 值: List, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (键, 值, code, sc, bc) =>
+      -> (List, List, Dict) =
     键 = [] ? (code, sc, bc) :
-    let (c1, sc1, bc1) = _发射表达式(键[0], code, sc, bc) in
+    let (c1, sc1, bc1) = _发射键(键[0], code, sc, bc) in
     let (c2, sc2, bc2) = _发射表达式(值[0], c1, sc1, bc1) in
     _发射键值对(键[1:], 值[1:], c2, sc2, bc2)
 
+  (* 字典键永远是「名字常量」而非表达式：标识符键取其名，
+     与宿主 _compile_DictLiteral 的 k.name / _literal_key 对齐。 *)
+  func _发射键(k: Dict, code: List, sc: List, bc: Dict) -> (List, List, Dict) =
+    k["类型"] = "变量" ?
+      let (idx, bc2) = _加常量(bc, k["名"]) in
+      (_发(code, [OP_PUSH_CONST, idx]), sc, bc2) :
+      _发射表达式(k, code, sc, bc)
+
   func _发射常量(code: List, sc: List, bc: Dict, v) -> (List, List, Dict) =
-    (code, sc, bc, v) =>
     let (idx, bc2) = _加常量(bc, v) in
     (_发(code, [OP_PUSH_CONST, idx]), sc, bc2)
 
+  func 是空值名(name: String) -> Bool = (name) =>
+    (name = "null") or (name = "none") or (name = "undefined")
+
   func _发射变量(name: String, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) = (name, code, sc, bc) =>
+    (* null/none/undefined：宿主把它们定为关键字字面量并编译为 PUSH_NULL。
+       自举编译器此前按普通全局名发射（LOAD_GLOBAL 'null'），运行结果同样是
+       None，但会向常量池注入 'null' 字符串，导致与宿主产物不一致。
+       作用域内若确有同名绑定，仍优先按局部/外层解析。 *)
+    (是空值名(name) and _查找(sc, name, 0)[0] = "global") ?
+      (_发(code, [OP_PUSH_NULL]), sc, bc) :
     let r = _查找(sc, name, 0) in
     r[0] = "global" ?
       let (idx, bc2) = _加常量(bc, name) in
@@ -396,8 +587,42 @@ module 编译器 {
 
   (* and/or 短路：a and b → a; DUP; JZ end; POP; b; end
                   a or  b → a; DUP; JNZ end; POP; b; end *)
+  (* ===== 常量折叠（与宿主 src/mbc/compiler.py 的 _fold_bin/_fold_unary 对齐）=====
+     不折叠哨兵取唯一字符串：折叠结果恒为数值/布尔，故不会与之混淆。 *)
+  let 不折叠 = " nofold"
+
+  func _字面量数值(n: Dict) -> Value =
+    n["类型"] = "整数" ? n["值"] :
+    n["类型"] = "浮点" ? n["值"] :
+    不折叠
+
+  func _是整数字面量(n: Dict) -> Bool = n["类型"] = "整数"
+
+  (* op 为二元运算表的值（+ - * **），非字面量或不支持的运算返回 不折叠 *)
+  func _折叠二元(op: String, l: Dict, r: Dict) -> Value =
+    let a = _字面量数值(l) in
+    let b = _字面量数值(r) in
+    ((a = 不折叠) or (b = 不折叠)) ? 不折叠 :
+    op = "+" ? a + b :
+    op = "-" ? a - b :
+    op = "*" ? a * b :
+    op = "**" ? ((b < 0 and _是整数字面量(l)) ? 不折叠 : a ^ b) :
+    不折叠
+
+  (* op 为一元运算表的值（neg not sqrt）
+     sqrt 仅对浮点字面量折叠：宿主对整数字面量会保留整型（完全平方时），
+     需编译期整数开方，此处保守不折叠以免类型与宿主不一致。 *)
+  func _折叠一元(op: String, operand: Dict) -> Value =
+    let v = _字面量数值(operand) in
+    (v = 不折叠) ? 不折叠 :
+    op = "neg" ? -v :
+    op = "not" ? (not v) :
+    op = "sqrt" ?
+      ((v < 0) or _是整数字面量(operand) ? 不折叠 : (v ^ 0.5)) :
+    不折叠
+
   func _发射二元(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
+      -> (List, List, Dict) =
     e["运算符"] = "and" ?
       let (c1, sc1, bc1) = _发射表达式(e["左"], code, sc, bc) in
       let c2 = _发(c1, [OP_DUP]) in
@@ -414,34 +639,74 @@ module 编译器 {
       let c4 = _发(c3, [OP_POP]) in
       let (c5, sc2, bc2) = _发射表达式(e["右"], c4, sc1, bc1) in
       (_补丁(c5, jnz, [OP_JNZ, len(c5)]), sc2, bc2) :
-    let (c1, sc1, bc1) = _发射表达式(e["左"], code, sc, bc) in
-    let (c2, sc2, bc2) = _发射表达式(e["右"], c1, sc1, bc1) in
     let op = 二元运算表[e["运算符"]] in
-    let (idx, bc3) = _加常量(bc2, op) in
-    (_发(c2, [OP_BINOP, idx]), sc2, bc3)
+    let folded = _折叠二元(op, e["左"], e["右"]) in
+    if folded != 不折叠 then
+      let (idx, bc2) = _加常量(bc, folded) in
+      (_发(code, [OP_PUSH_CONST, idx]), sc, bc2)
+    else
+      let (c1, sc1, bc1) = _发射表达式(e["左"], code, sc, bc) in
+      let (c2, sc2, bc2) = _发射表达式(e["右"], c1, sc1, bc1) in
+      let (idx, bc3) = _加常量(bc2, op) in
+      (_发(c2, [OP_BINOP, idx]), sc2, bc3)
 
   func _发射一元(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
-    let (c1, sc1, bc1) = _发射表达式(e["操作数"], code, sc, bc) in
+      -> (List, List, Dict) =
     let op = 一元运算表[e["运算符"]] in
-    let (idx, bc2) = _加常量(bc1, op) in
-    (_发(c1, [OP_UNARYOP, idx]), sc1, bc2)
+    let folded = _折叠一元(op, e["操作数"]) in
+    if folded != 不折叠 then
+      let (idx, bc2) = _加常量(bc, folded) in
+      (_发(code, [OP_PUSH_CONST, idx]), sc, bc2)
+    else
+      let (c1, sc1, bc1) = _发射表达式(e["操作数"], code, sc, bc) in
+      let (idx, bc2) = _加常量(bc1, op) in
+      (_发(c1, [OP_UNARYOP, idx]), sc1, bc2)
 
   func _发射列表(elements: List, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (elements, code, sc, bc) =>
+      -> (List, List, Dict) =
     elements = [] ? (_发(code, [OP_BUILD_LIST, 0]), sc, bc) :
     let (c2, sc2, bc2) = _发射表达式列表(elements, code, sc, bc) in
     (_发(c2, [OP_BUILD_LIST, len(elements)]), sc2, bc2)
 
   func _发射表达式列表(elements: List, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (elements, code, sc, bc) =>
+      -> (List, List, Dict) =
     elements = [] ? (code, sc, bc) :
     let (c2, sc2, bc2) = _发射表达式(elements[0], code, sc, bc) in
     _发射表达式列表(elements[1:], c2, sc2, bc2)
 
+  (* 集合构造 {1,2} / {x | cond}：编译为构造集合(form, [names], [tail...])。
+     发射序列与宿主 _emit_set_construct_args 逐条对齐：
+     LOAD_GLOBAL 构造集合; PUSH_CONST form; PUSH_CONST name*; BUILD_LIST n;
+     <tail 表达式>; BUILD_LIST m; CALL 3 *)
+  func _集合变量名(e: Dict) -> String =
+    e["类型"] = "变量" ? e["名"] :
+    e["类型"] = "布尔" ? (e["值"] ? "真" : "假") :
+    e["类型"] = "整数" or e["类型"] = "浮点" or e["类型"] = "字符串" ?
+      str(e["值"]) : ""
+
+  func _发射集合名常量(names: List, code: List, bc: Dict) -> (List, Dict) =
+    names = [] ? (code, bc) :
+    let (idx, bc2) = _加常量(bc, _集合变量名(names[0])) in
+    _发射集合名常量(names[1:], _发(code, [OP_PUSH_CONST, idx]), bc2)
+
+  func _发射集合构造(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let (c1, sc1, bc1) = _发射变量("构造集合", code, sc, bc) in
+    let (fidx, bc2) = _加常量(bc1, e["form"] = null ? "set" : e["form"]) in
+    let c2 = _发(c1, [OP_PUSH_CONST, fidx]) in
+    let names = e["variables"] = null ? [] : e["variables"] in
+    let (c3, bc3) = _发射集合名常量(names, c2, bc2) in
+    let c4 = _发(c3, [OP_BUILD_LIST, len(names)]) in
+    let conds = e["conditions"] = null ? [] : e["conditions"] in
+    let lits = e["literals"] = null ? [] : e["literals"] in
+    let tail = conds + lits in
+    let (c5, sc5, bc5) = _发射表达式列表(tail, c4, sc1, bc3) in
+    let c6 = _发(c5, [OP_BUILD_LIST, len(tail)]) in
+    (_发(c6, [OP_CALL, 3]), sc5, bc5)
+
   (* if 表达式（始终留值）：条件; JZ else; 真体; JMP end; else: 假体; end *)
   func _发射if(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (c1, sc1, bc1) = _发射表达式(e["条件"], code, sc, bc) in
     let jz = len(c1) in
     let c2 = _发(c1, [OP_JZ, 0]) in
@@ -454,19 +719,30 @@ module 编译器 {
 
   (* ===== let（局部槽 / rec 盒）===== *)
   func _发射let(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
+      -> (List, List, Dict) =
     e["递归"] = 真 ? _发射let_rec(e, code, sc, bc) :
-    (* 非 rec：先在旧作用域求值 RHS（使 let x = x+1 读外层 x），再声明槽 *)
+    (* 非 rec：先在旧作用域求值 RHS（使 let x = x+1 读外层 x），再声明存储 *)
     let (c1, sc1, bc1) = _发射表达式(e["值"], code, sc, bc) in
-    let (sc2, slot) = _声明(sc1, e["名"], 假) in
-    let c2 = _发(c1, [OP_STORE_LOCAL, slot]) in
+    let (c2, sc2, bc2) = _发射let存储(e, c1, sc1, bc1) in
     e["有体"] ?
-      let (c3, sc3, bc3) = _发射表达式(e["体"], c2, sc2, bc1) in
+      let (c3, sc3, bc3) = _发射表达式(e["体"], c2, sc2, bc2) in
       (c3, sc3, bc3) :
-      (_发(c2, [OP_PUSH_NULL]), sc2, bc1)
+      (_发(c2, [OP_PUSH_NULL]), sc2, bc2)
+
+  (* let 存储：main 作用域无局部槽数组 → 落全局（仅声明以供后续按名解析）；
+     否则声明帧槽位并 STORE_LOCAL。与宿主 _emit_let 的 is_main 分支一致。 *)
+  func _发射let存储(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    if sc[3] = 真 then
+      let (sc2, slot) = _声明(sc, e["名"], 假) in
+      let (gidx, bc2) = _加常量名(bc, e["名"]) in
+      (_发(code, [OP_STORE_GLOBAL, gidx]), sc2, bc2)
+    else
+      let (sc2, slot) = _声明(sc, e["名"], 假) in
+      (_发(code, [OP_STORE_LOCAL, slot]), sc2, bc)
 
   func _发射let_rec(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (sc1, slot) = _声明(sc, e["名"], 真) in
     let c1 = _发(code, [OP_MAKE_BOX, slot]) in
     let (c2, sc2, bc2) = _发射表达式(e["值"], c1, sc1, bc) in
@@ -479,15 +755,17 @@ module 编译器 {
   (* ===== lambda：编译为函数表内部函数 + MAKE_CLOSURE ===== *)
   func _发射lambda(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) = (e, code, sc, bc) =>
-    let (name, info, bc2) = _编译命名函数体("", e["参数"], e["体"], sc, bc) in
-    let (lname, bc3) = _新lambda名(bc2) in
-    (* _编译命名函数体 用空名占位且不登记；这里以新内部名登记 *)
-    let bc4 = _bc加函数(bc3, lname, info) in
-    (_发(code, [OP_MAKE_CLOSURE, lname]), sc, bc4)
+    (* 内部名必须在编译体「之前」分配：宿主 _compile_lambda 先自增 _lam_seq
+       再 emit body，故嵌套 lambda 的编号是前序（外层先得号）。若先编译体
+       则内层抢先拿到 __lam_1，编号整体错位。 *)
+    let (lname, bc1) = _新lambda名(bc) in
+    let (name, info, bc2) = _编译命名函数体(lname, e["参数"], e["体"], sc, bc1) in
+    let bc3 = _bc加函数(bc2, lname, info) in
+    (_发(code, [OP_MAKE_CLOSURE, lname]), sc, bc3)
 
   (* let 元组绑定（表达式层）：求值 → UNPACK_SEQ → 逆序 STORE_LOCAL *)
   func _发射let元组(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (c1, sc1, bc1) = _发射表达式(e["值"], code, sc, bc) in
     let names = e["名字"] in
     let c2 = _发(c1, [OP_UNPACK_SEQ, len(names)]) in
@@ -497,18 +775,30 @@ module 编译器 {
       (c4, sc3, bc3) :
       (_发(c3, [OP_PUSH_NULL]), sc2, bc2)
 
-  (* 逆序 STORE_LOCAL：递归先处理 names[1:]，再发 names[0] 的 STORE_LOCAL
-     对齐 VM UNPACK_SEQ 正序压栈、STORE_LOCAL 逆序弹出 *)
+  (* let 元组绑定：先按源码顺序声明全部目标（槽位编号正序），
+     再逆序发射 STORE_LOCAL —— 与宿主
+     slots = [scope.declare(nm) for nm in names] + for slot in reversed(slots) 一致。
+     注意两步顺序不可交换：先声明决定了槽位号，先发射决定了压栈弹出顺序。 *)
   func _存储元组局部逆序(names: List, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (names, code, sc, bc) =>
-    names = [] ? (code, sc, bc) :
-    let (c2, sc2, bc2) = _存储元组局部逆序(names[1:], code, sc, bc) in
-    let (sc3, slot) = _声明(sc2, names[0], 假) in
-    (_发(c2, [OP_STORE_LOCAL, slot]), sc3, bc2)
+      -> (List, List, Dict) =
+    let (sc2, slots) = _声明元组局部(names, sc) in
+    let (c2, 余) = _发元组存储逆序(slots, code) in
+    (c2, sc2, bc)
+
+  func _声明元组局部(names: List, sc: List) -> (List, List) =
+    names = [] ? (sc, []) :
+    let (sc2, slot) = _声明(sc, names[0], 假) in
+    let (sc3, rest) = _声明元组局部(names[1:], sc2) in
+    (sc3, [slot] + rest)
+
+  func _发元组存储逆序(slots: List, code: List) -> (List, List) =
+    slots = [] ? (code, slots) :
+    let (c2, rest) = _发元组存储逆序(slots[1:], code) in
+    (_发(c2, [OP_STORE_LOCAL, slots[0]]), rest)
 
   (* ===== while ===== *)
   func _编译while(e: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
-      -> (List, List, Dict) = (e, code, sc, bc, 留值) =>
+      -> (List, List, Dict) =
     let top = len(code) in
     let (c1, sc1, bc1) = _发射表达式(e["条件"], code, sc, bc) in
     let jz = len(c1) in
@@ -521,83 +811,156 @@ module 编译器 {
   (* ===== for：迭代槽 + 索引槽（main 作用域用全局临时名）=====
      位置描述 ["l", 槽位] 或 ["g", 常量索引]（全局名已入常量池） *)
   func _编译for(e: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
-      -> (List, List, Dict) = (e, code, sc, bc, 留值) =>
+      -> (List, List, Dict) =
     let (c1, sc1, bc1) = _发射表达式(e["迭代"], code, sc, bc) in
     let (xs位置, sc2, bc2) = _分配临时(sc1, bc1, "for_xs") in
-    let c2 = _存临时(xs位置, c1) in
-    let (i位置, sc3, bc3) = _分配临时(sc2, bc2, "for_i") in
+    let (c2, bca) = _存临时(xs位置, c1, bc2) in
+    let (i位置, sc3, bc3) = _分配临时(sc2, bca, "for_i") in
     let (zero, bc4) = _加常量(bc3, 0) in
-    let c3 = _存临时(i位置, _发(c2, [OP_PUSH_CONST, zero])) in
-    let (v位置, sc4, bc5) = _分配循环变量(sc3, bc4, e["变量"]) in
-    let (c9, bc9) = _for循环码(c3, xs位置, i位置, v位置, e, sc4, bc5, len(c3), zero) in
+    let (c3, bc5) = _存临时(i位置, _发(c2, [OP_PUSH_CONST, zero]), bc4) in
+    let (v位置, sc4, bc6) = _分配循环变量(sc3, bc5, e["变量"]) in
+    let (c9, bc9) = _for循环码(c3, xs位置, i位置, v位置, e, sc4, bc6, len(c3), zero) in
     let c10 = 留值 ? _发(c9, [OP_PUSH_NULL]) : c9 in
     (c10, sc4, bc9)
 
   (* 分配临时存储：(位置描述, sc, bc) *)
+  (* 分配临时存储：(位置描述, sc, bc)。全局形态只带「名字」，
+     不预先入池——由 _压临时/_存临时 每次访问时各自入池，与宿主一致。 *)
   func _分配临时(sc: List, bc: Dict, hint: String)
-      -> (List, List, Dict) = (sc, bc, hint) =>
+      -> (List, List, Dict) =
     sc[3] = 真 ?
-      let (名, bc1) = _新lambda名(bc) in
-      let gname = "__m_" + hint + "_" + 名 in
-      let (idx, bc2) = _加常量(bc1, gname) in
-      (["g", idx], sc, bc2) :
+      let (gname, sc2, bc1) = _全局临时(sc, bc, hint) in
+      (["g", gname], sc2, bc1) :
       let (sc2, slot) = _声明(sc, "__" + hint, 假) in
       (["l", slot], sc2, bc)
 
   func _分配循环变量(sc: List, bc: Dict, name: String)
-      -> (List, List, Dict) = (sc, bc, name) =>
+      -> (List, List, Dict) =
     sc[3] = 真 ?
-      let (idx, bc2) = _加常量(bc, name) in
-      (["g", idx], sc, bc2) :
+      (["g", name], sc, bc) :
       let (sc2, slot) = _声明(sc, name, 假) in
       (["l", slot], sc2, bc)
 
-  func _存临时(位置: List, code: List) -> List = (位置, code) =>
-    位置[0] = "l" ? _发(code, [OP_STORE_LOCAL, 位置[1]]) :
-    _发(code, [OP_STORE_GLOBAL, 位置[1]])
+  func _存临时(位置: List, code: List, bc: Dict) -> (List, Dict) =
+    位置[0] = "l" ? (_发(code, [OP_STORE_LOCAL, 位置[1]]), bc) :
+    let (idx, bc2) = _加常量(bc, 位置[1]) in
+    (_发(code, [OP_STORE_GLOBAL, idx]), bc2)
+
+  (* 把栈顶值写回**具名变量**（对齐宿主 _store_name）。区别于 _存临时：
+     临时槽位置已知故直接 STORE_LOCAL/全局名；这里要按变量名重新解析作用域。
+     _查找 返回 [kind, depth, slot, boxed]：
+       global       → STORE_GLOBAL <name>
+       local 且非 boxed → STORE_LOCAL <slot>
+       其余（local+boxed，或外层帧）→ STORE_BOX <slot>（VM 无 STORE_OUTER，
+       外层槽仅在 boxed 时可写，与宿主一致）。 *)
+  func _存储名(code: List, sc: List, bc: Dict, name: String)
+      -> (List, Dict) =
+    let r = _查找(sc, name, 0) in
+    r[0] = "global" ?
+      let (idx, bc2) = _加常量(bc, name) in
+      (_发(code, [OP_STORE_GLOBAL, idx]), bc2) :
+    r[0] = "local" and not r[3] ?
+      (_发(code, [OP_STORE_LOCAL, r[2]]), bc) :
+      (_发(code, [OP_STORE_BOX, r[2]]), bc)
 
   (* for 主循环（统一发射，本地/全局位置都支持）。栈布局严格遵循
      fn 在下、arg 在上。返回 (完成码, bc) *)
   func _for循环码(code, xs位置, i位置, v位置, e, sc, bc, top, zero)
-      -> (List, Dict) = (code, xs位置, i位置, v位置, e, sc, bc, top, zero) =>
-    let c0 = _压临时(code, i位置) in
-    let (c1, bc1) = _压全局名(c0, bc, "len") in
-    let c2 = _压临时(c1, xs位置) in
+      -> (List, Dict) =
+    let (c0, bca) = _压临时(code, i位置, bc) in
+    let (c1, bcb) = _压全局名(c0, bca, "len") in
+    let (c2, bcc) = _压临时(c1, xs位置, bcb) in
     let c3 = _发(c2, [OP_CALL, 1]) in
-    let (idxlt, bc3) = _加常量(bc1, "<") in
+    let (idxlt, bcd) = _加常量(bcc, "<") in
     let c4 = _发(c3, [OP_BINOP, idxlt]) in
     let jz = len(c4) in
     let c5 = _发(c4, [OP_JZ, 0]) in
     (* get(xs)(i) *)
-    let (c6, bc6) = _压全局名(c5, bc3, "get") in
-    let c7 = _压临时(c6, xs位置) in
+    let (c6, bce) = _压全局名(c5, bcd, "get") in
+    let (c7, bcf) = _压临时(c6, xs位置, bce) in
     let c8 = _发(c7, [OP_CALL, 1]) in
-    let c9 = _压临时(c8, i位置) in
+    let (c9, bcg) = _压临时(c8, i位置, bcf) in
     let ca = _发(c9, [OP_CALL, 1]) in
-    let cb = _存临时(v位置, ca) in
+    let (cb, bch) = _存临时(v位置, ca, bcg) in
     (* 循环体（栈平衡）*)
-    let (cc, sc2, bca) = _发射体(e["体"], cb, sc, bc6, 假) in
+    let (cc, sc2, bci) = _发射体(e["体"], cb, sc, bch, 假) in
     (* i += 1 *)
-    let cd = _压临时(cc, i位置) in
-    let (oneidx, bcc) = _加常量(bca, 1) in
+    let (cd, bcj) = _压临时(cc, i位置, bci) in
+    let (oneidx, bck) = _加常量(bcj, 1) in
     let ce = _发(cd, [OP_PUSH_CONST, oneidx]) in
-    let (plusidx, bcd) = _加常量(bcc, "+") in
+    let (plusidx, bcl) = _加常量(bck, "+") in
     let cf = _发(ce, [OP_BINOP, plusidx]) in
-    let cg = _存临时(i位置, cf) in
+    let (cg, bcm) = _存临时(i位置, cf, bcl) in
     let ch = _发(cg, [OP_JMP, top]) in
-    (_补丁(ch, jz, [OP_JZ, len(ch)]), bcd)
+    (_补丁(ch, jz, [OP_JZ, len(ch)]), bcm)
 
-  func _压临时(code: List, 位置: List) -> List = (code, 位置) =>
-    位置[0] = "l" ? _发(code, [OP_LOAD_LOCAL, 位置[1]]) :
-    _发(code, [OP_LOAD_GLOBAL, 位置[1]])
+  (* 临时位置访问：全局形态每次访问都重新入池（与宿主 _load_temp/_store_temp
+     逐次 sconst 同构），故需回传新 bc。 *)
+  func _压临时(code: List, 位置: List, bc: Dict) -> (List, Dict) =
+    位置[0] = "l" ? (_发(code, [OP_LOAD_LOCAL, 位置[1]]), bc) :
+    let (idx, bc2) = _加常量(bc, 位置[1]) in
+    (_发(code, [OP_LOAD_GLOBAL, idx]), bc2)
 
-  func _压全局名(code: List, bc: Dict, name: String) -> (List, Dict) = (code, bc, name) =>
+  func _压全局名(code: List, bc: Dict, name: String) -> (List, Dict) =
     let (idx, bc2) = _加常量(bc, name) in
     (_发(code, [OP_LOAD_GLOBAL, idx]), bc2)
 
+  (* ch <- v：把 v 追加到 ch["缓冲"]，求值为 true。
+     append 内建返回**新列表**（list(xs) + [x]），不是原地修改，故须用
+     _dict_put 把新列表写回 ch，再压 true。栈上无 OP_SWAP 可用，故用两个
+     临时槽：ch 存通道、buf 存新缓冲。 *)
+  func _发射发送(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let (ch位置, sc1, bc1) = _分配临时(sc, bc, "send_ch") in
+    let (buf位置, sc2, bc2) = _分配临时(sc1, bc1, "send_buf") in
+    let (c1, sc3, bc3) = _发射表达式(e["通道"], code, sc2, bc2) in
+    let (c2, bc4) = _存临时(ch位置, c1, bc3) in
+    (* buf = append(ch["缓冲"], v) *)
+    let (c3, bc5) = _压全局名(c2, bc4, "append") in
+    let (c4, bc6) = _压临时(c3, ch位置, bc5) in
+    let (k, bc7) = _加常量(bc6, "缓冲") in
+    let c5 = _发(c4, [OP_PUSH_CONST, k]) in
+    let c6 = _发(c5, [OP_INDEX_GET]) in
+    let (c7, sc4, bc8) = _发射表达式(e["值"], c6, sc3, bc7) in
+    let c8 = _发(c7, [OP_CALL, 2]) in
+    let (c9, bc9) = _存临时(buf位置, c8, bc8) in
+    (* ch = _dict_put(ch, "缓冲", buf) *)
+    let (c10, bc10) = _压全局名(c9, bc9, "_dict_put") in
+    let (c11, bc11) = _压临时(c10, ch位置, bc10) in
+    let (k2, bc12) = _加常量(bc11, "缓冲") in
+    let c12 = _发(c11, [OP_PUSH_CONST, k2]) in
+    let (c13, bc13) = _压临时(c12, buf位置, bc12) in
+    let c14 = _发(c13, [OP_CALL, 3]) in
+    (* 写回通道变量（须是具名变量才能回写；否则退化为求值丢弃）。
+       宿主判 isinstance(chan, Variable) and not chan.is_placeholder；自举侧
+       无 is_placeholder 字段，占位符统一记作名 "？"（lexer 行 246），故以名判定。 *)
+    let ch = e["通道"] in
+    let 具名 = ch["类型"] = "变量" and ch["名"] != "？" in
+    let (c15, bc14) = 具名 ?
+      _存储名(c14, sc4, bc13, ch["名"]) :
+      (_发(c14, [OP_POP]), bc13) in
+    (_发(c15, [OP_PUSH_TRUE]), sc4, bc14)
+
+  (* chan T：降级为 {"缓冲": [], "容量": n, "关闭": False}
+     BUILD_DICT 栈布局为 k1 v1 k2 v2 …，故每个键紧跟其值。 *)
+  func _发射通道(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let (k1, bc1) = _加常量(bc, "缓冲") in
+    let c1 = _发(code, [OP_PUSH_CONST, k1]) in
+    let c2 = _发(c1, [OP_BUILD_LIST, 0]) in
+    let (k2, bc2) = _加常量(bc1, "容量") in
+    let (k3, bc3) = _加常量(bc2, 0) in
+    let c3 = _发(c2, [OP_PUSH_CONST, k2]) in
+    let c4 = _发(c3, [OP_PUSH_CONST, k3]) in
+    let (k4, bc4) = _加常量(bc3, "关闭") in
+    let (k5, bc5) = _加常量(bc4, 假) in
+    let c5 = _发(c4, [OP_PUSH_CONST, k4]) in
+    let c6 = _发(c5, [OP_PUSH_CONST, k5]) in
+    (_发(c6, [OP_BUILD_DICT, 3]), sc, bc5)
+
   (* ===== try/catch/finally：三块编译为 thunk + 调用捕获 tagged 分支 ===== *)
   func _发射try(e: Dict, code: List, sc: List, bc: Dict)
-      -> (List, List, Dict) = (e, code, sc, bc) =>
+      -> (List, List, Dict) =
     let (try名, bc1) = _编译块thunk(e["try体"], [], sc, bc) in
     let (c0, bca) = _压全局名(code, bc1, "调用捕获") in
     let c1 = _发(c0, [OP_MAKE_CLOSURE, try名]) in
@@ -605,58 +968,57 @@ module 编译器 {
     let c3 = _发(c2, [OP_BUILD_LIST, 0]) in
     let c4 = _发(c3, [OP_CALL, 1]) in
     let (r位置, sc2, bcb) = _分配临时(sc, bca, "try_result") in
-    let c5 = _存临时(r位置, c4) in
-    let c6 = _压临时(c5, r位置) in
-    let (i0, bcd) = _加常量(bcb, 0) in
+    let (c5, bcc) = _存临时(r位置, c4, bcb) in
+    let (c6, bcd) = _压临时(c5, r位置, bcc) in
+    let (i0, bce) = _加常量(bcd, 0) in
     let c7 = _发(c6, [OP_PUSH_CONST, i0]) in
     let c8 = _发(c7, [OP_INDEX_GET]) in
-    let (iok, bce) = _加常量(bcd, "__正常__") in
+    let (iok, bcf) = _加常量(bce, "__正常__") in
     let c9 = _发(c8, [OP_PUSH_CONST, iok]) in
-    let (ieq, bcf) = _加常量(bce, "==") in
+    let (ieq, bcg) = _加常量(bcf, "==") in
     let ca = _发(c9, [OP_BINOP, ieq]) in
     let jz = len(ca) in
     let cb = _发(ca, [OP_JZ, 0]) in
     (* 正常：result[1] *)
-    let cc = _压临时(cb, r位置) in
-    let (i1, bch) = _加常量(bcf, 1) in
+    let (cc, bch) = _压临时(cb, r位置, bcg) in
+    let (i1, bci) = _加常量(bch, 1) in
     let cd = _发(cc, [OP_PUSH_CONST, i1]) in
     let ce = _发(cd, [OP_INDEX_GET]) in
     let jmp = len(ce) in
     let cf = _发(ce, [OP_JMP, 0]) in
     let cg = _补丁(cf, jz, [OP_JZ, len(cf)]) in
     (* 异常 *)
-    let (ch, sc3, bci) = _发射catch(e, cg, sc2, bch, r位置) in
+    let (ch, sc3, bcj) = _发射catch(e, cg, sc2, bci, r位置) in
     let ci = _补丁(ch, jmp, [OP_JMP, len(ch)]) in
     (* finally：thunk 返回值丢弃 *)
-    e["finally体"]["声明"] = [] ? (ci, sc3, bci) :
-    let (fin名, bcj) = _编译块thunk(e["finally体"], [], sc3, bci) in
+    e["finally体"]["声明"] = [] ? (ci, sc3, bcj) :
+    let (fin名, bck) = _编译块thunk(e["finally体"], [], sc3, bcj) in
     let cj = _发(ci, [OP_MAKE_CLOSURE, fin名]) in
     let ck = _发(cj, [OP_BUILD_LIST, 0]) in
     let cl = _发(ck, [OP_CALL, 1]) in
-    (_发(cl, [OP_POP]), sc3, bcj)
+    (_发(cl, [OP_POP]), sc3, bck)
 
   func _发射catch(e, code, sc, bc, r位置) -> (List, List, Dict) =
-    (e, code, sc, bc, r位置) =>
     e["捕获体"]["声明"] = [] ?
       (* 无 catch：重新抛出消息 *)
-      let c1 = _压临时(code, r位置) in
-      let (i1, bc2) = _加常量(bc, 1) in
+      let (c1, bc2) = _压临时(code, r位置, bc) in
+      let (i1, bc3) = _加常量(bc2, 1) in
       let c2 = _发(c1, [OP_PUSH_CONST, i1]) in
       let c3 = _发(c2, [OP_INDEX_GET]) in
-      (_发(c3, [OP_RAISE]), sc, bc2) :
+      (_发(c3, [OP_RAISE]), sc, bc3) :
       let cv = e["捕获变量"] in
       let 参数 = cv = "" ? [] : append([])(cv) in
       let (catch名, bc1) = _编译块thunk(e["捕获体"], 参数, sc, bc) in
       let c1 = _发(code, [OP_MAKE_CLOSURE, catch名]) in
-      let c2 = _压临时(c1, r位置) in
-      let (i1, bc3) = _加常量(bc1, 1) in
+      let (c2, bc2) = _压临时(c1, r位置, bc1) in
+      let (i1, bc3) = _加常量(bc2, 1) in
       let c3 = _发(c2, [OP_PUSH_CONST, i1]) in
       let c4 = _发(c3, [OP_INDEX_GET]) in
       (_发(c4, [OP_CALL, len(参数)]), sc, bc3)
 
   (* 编译 Program 块为命名 thunk 函数（参数为参数名列表）→ (函数名, bc) *)
   func _编译块thunk(body: Dict, params: List, sc: List, bc: Dict)
-      -> (String, Dict) = (body, params, sc, bc) =>
+      -> (String, Dict) =
     let (lname, bc1) = _新lambda名(bc) in
     let names = params in
     let sc0 = _声明参数(_新作用域(sc), names) in

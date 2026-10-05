@@ -215,16 +215,25 @@ class Parser:
     # ============================================================
 
     def _parse_annotation(self) -> ast.Annotation:
-        """<annotation> = "*/" , <annot_text> , [ "*" , <expr> ] , "/*" """
+        """<annotation> = "*/" , <annot_text> , "/*"
+
+        annot_text 是**自由文本**（可多词、可含空格与冒号），例如仓库里的
+        【*/自主成长：从源码学习新能力、沙箱验证、注册/*】。此前实现只取
+        **单个** token 就期望 /*，于是凡标注超过一词就报
+        「期望 标注结束 /*」——仓库 152 个 .matha 里绝大多数标注块无法解析。
+        与 _parse_command_text 一致：循环到 /* 为止。
+
+        原文法里的 [ "*" , <expr> ] 公式形态在仓库中无任何用例，且与自由
+        文本冲突（文本里的 * 会被误当公式起点，如 【*/计算 2*3 的和/*】）。
+        Annotation 是编译期 NOOP（_NOOP_STMTS），text/formula 均不参与
+        字节码，故此处不再区分公式，纯按自由文本收集。
+        """
         self._expect(TokenType.MATHA_ANNOT_START, "标注起始 */")
-        text_tok = self._advance()
-        text = text_tok.value
-        formula = None
-        if self._check(TokenType.OP_STAR):
-            self._advance()
-            formula = self._parse_expr()
+        parts: list[str] = []
+        while not self._check(TokenType.MATHA_ANNOT_END, TokenType.EOF):
+            parts.append(self._advance().value)
         self._expect(TokenType.MATHA_ANNOT_END, "标注结束 /*")
-        return ast.Annotation(text=text, formula=formula)
+        return ast.Annotation(text="".join(parts), formula=None)
 
     def _parse_command_literal(self) -> ast.CommandLiteral:
         """<command_literal> = 《文字》 | 【文字】（两种写法等价，M3.1）"""
@@ -540,8 +549,10 @@ class Parser:
                 return self._parse_chain(stmt)
             return stmt
 
-        # #N：go / if / while / for / match 任务 → 并发 / 控制流语句
-        if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR, TokenType.KW_MATCH):
+        # #N：go / if / while / for / match / switch / typeof 任务 → 并发 / 控制流语句
+        if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE,
+                       TokenType.KW_FOR, TokenType.KW_MATCH,
+                       TokenType.KW_SWITCH, TokenType.KW_TYPEOF):
             node = self._parse_statement()
             stmt = ast.GenStmt(generate=generate, content=node)
             if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
@@ -635,9 +646,10 @@ class Parser:
         if self._check(TokenType.LIT_INTEGER) and self._peek(1).type in (TokenType.NEWLINE, TokenType.EOF):
             return self._parse_global_id_stmt()
 
-        # go / if / while / for / match / func / try 等控制流语句（代码块内裸语句）
+        # go / if / while / for / match / switch / typeof / func / try 等控制流语句（代码块内裸语句）
         if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR,
-                       TokenType.KW_MATCH, TokenType.KW_FUNC, TokenType.KW_TRY):
+                       TokenType.KW_MATCH, TokenType.KW_SWITCH, TokenType.KW_TYPEOF,
+                       TokenType.KW_FUNC, TokenType.KW_TRY):
             return self._parse_statement()
 
         # 其他 → 表达式 / 绑定
@@ -728,8 +740,10 @@ class Parser:
                 return self._parse_chain(stmt)
             return stmt
 
-        # #N：go / if / while / for / match 任务 → 并发 / 控制流语句
-        if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR, TokenType.KW_MATCH):
+        # #N：go / if / while / for / match / switch / typeof 任务 → 并发 / 控制流语句
+        if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE,
+                       TokenType.KW_FOR, TokenType.KW_MATCH,
+                       TokenType.KW_SWITCH, TokenType.KW_TYPEOF):
             node = self._parse_statement()
             stmt = ast.GenStmt(generate=generate, content=node)
             if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
@@ -1238,12 +1252,23 @@ class Parser:
             else:
                 # in 是二元运算符
                 right = self._parse_set_expr()
-                return ast.BinaryOp(op=" in ", left=left, right=right)
+                # 不带空格：与 _BIN_OPS["in"] / 二元运算表键一致。
+                # 此前写作 " in "，MBC 后端查表失败 → 「不支持的二元运算符 ' in '」。
+                return ast.BinaryOp(op="in", left=left, right=right)
         # 属于判断 ∈
         if self._check(TokenType.SYMBOL) and self._current().value == "∈":
             self._advance()
             right = self._parse_set_expr()
             return ast.Belongs(left=left, right=right)
+        # 同一性判断 is：a is b → IsExpr（编译为 BINOP "is"）
+        # 紧于比较、松于位运算，与解释器后端 Python `is` 语义一致。
+        # 词法把 is 当普通标识符（KEYWORDS 无此条），故须排除 let/变量续用：
+        # 仅当 is 后紧跟一个表达式起始 token 时才认定为运算符。
+        if self._check(TokenType.IDENTIFIER) and self._current().value == "is":
+            if self._is_primary_start_after(1):
+                self._advance()
+                right = self._parse_set_expr()
+                return ast.IsExpr(left=left, right=right)
         return left
 
     def _parse_bit_expr(self):
@@ -1289,7 +1314,16 @@ class Parser:
         return left
 
     def _parse_unary(self):
-        """<unary> = [ "-" | "~" | "++" | "--" | "not" ] , <postfix>"""
+        """<unary> = [ "-" | "~" | "++" | "--" | "not" | "^" ] , <postfix>
+
+        ^ 前缀语义为开方（EBNF §16 双语义消解：前有操作数→中缀次方，
+        前无操作数→前缀开方）。lexer 对 ^ 产出 OP_BIT_XOR（中缀经
+        _parse_bit_expr、编译器再归一为 **），故前缀位置同查该 token。
+        """
+        if self._check(TokenType.OP_BIT_XOR, TokenType.OP_POWER):
+            self._advance()
+            operand = self._parse_postfix()
+            return ast.UnaryOp(op="sqrt", operand=operand)
         if self._check(TokenType.OP_MINUS):
             self._advance()
             operand = self._parse_postfix()
@@ -1308,11 +1342,20 @@ class Parser:
             self._advance()
             operand = self._parse_postfix()
             return ast.UnaryOp(op="not", operand=operand)
-        # 前缀 raise：<expr> 抛出异常
-        if self._check(TokenType.KW_RAISE):
+        # 前缀 raise / throw：<expr> 抛出异常
+        # 二者同义：THROW 在 KEYWORDS 中（tokens.py）却无解析入口，
+        # 导致 try { throw 1 } 报「期望表达式 (KW_THROW)」。与 raise 合并处理。
+        if self._check(TokenType.KW_RAISE, TokenType.KW_THROW):
             self._advance()
             value = self._parse_expr()
             return ast.RaiseExpr(value=value)
+        # 前缀 typeof：typeof <expr> → TypeOfExpr（编译为 LOAD_GLOBAL typeof; CALL 1）
+        # 此前仅在 _parse_statement / _parse_decl 的语句/声明位置处理 typeof，
+        # 表达式位置（y = typeof 5、f(typeof a)）无入口 → 「期望表达式 (KW_TYPEOF)」
+        if self._check(TokenType.KW_TYPEOF):
+            self._advance()
+            operand = self._parse_postfix()
+            return ast.TypeOfExpr(operand=operand)
         return self._parse_postfix()
 
     def _parse_postfix(self):
@@ -1353,6 +1396,15 @@ class Parser:
                     expr = ast.SafePathExpr(left=expr, is_index=False, right=field)
                 else:
                     raise ParseError("?. 后需跟属性名或 [ 下标", self._current())
+                # 回到循环头：否则 d?.a?.b 这类链式可选链会在首次 ?.
+                # 之后落到下方「函数应用」检查并 break，第二个 ?. 无法再被消费
+                continue
+            # 通道发送：ch <- v → SendExpr（原地 append 到 ch["缓冲"]）
+            if self._check(TokenType.OP_SEND):
+                self._advance()
+                value = self._parse_expr()
+                expr = ast.SendExpr(channel=expr, value=value)
+                continue
             # 属于判断 / 路径：expr >> expr
             if self._check(TokenType.OP_BIT_RSHIFT):
                 saved = self.pos
@@ -1556,6 +1608,50 @@ class Parser:
             TokenType.SYMBOL,  # 符号 token（emoji、数学符号、BoxDrawing 等）可作为变量名
         )
 
+    def _parse_type_name(self) -> str:
+        """读取一个类型名（标识符，可带 [] 泛型实参），返回其文本。
+
+        用于 chan T 的元素类型。类型参数在 Matha 运行时无类型系统，
+        故按源码文本记录（ChanExpr.elem_type 仅被语义分析访问）。
+        """
+        if not (self._check(TokenType.IDENTIFIER)
+                or self._check(TokenType.MATHA_PLACEHOLDER)):
+            raise ParseError("期望类型名", self._current())
+        parts = [self._advance().value]
+        # 泛型：Int[3] / Dict[String, Int]
+        while self._check(TokenType.PUNCT_LBRACKET):
+            self._advance()
+            depth = 1
+            while depth > 0:
+                t = self._current()
+                if t.type in (TokenType.NEWLINE, TokenType.EOF):
+                    raise ParseError("类型实参未闭合", t)
+                if t.type == TokenType.PUNCT_LBRACKET:
+                    depth += 1
+                elif t.type == TokenType.PUNCT_RBRACKET:
+                    depth -= 1
+                parts.append(self._advance().value)
+        return "".join(parts)
+
+    def _is_primary_start_after(self, offset: int) -> bool:
+        """自当前 token 起偏移 offset 位的 token 是否可作为 primary 开头。
+
+        用于消解「既是关键字又可作标识符」的二元运算符（当前仅 is）：
+        只有 is 后确实跟着一个表达式起始，才认定 is 是运算符而非变量。
+        """
+        idx = self.pos + offset
+        if idx >= len(self.tokens):
+            return False
+        t = self.tokens[idx]
+        return t.type in (
+            TokenType.LIT_INTEGER, TokenType.LIT_FLOAT, TokenType.LIT_STRING,
+            TokenType.LIT_BOOL, TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER,
+            TokenType.OP_ANGLE, TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACKET,
+            TokenType.PUNCT_LBRACE, TokenType.MATHA_READ_OPEN, TokenType.MATHA_READ_OPEN2,
+            TokenType.KW_IF, TokenType.KW_NULL, TokenType.KW_NONE, TokenType.KW_UNDEFINED,
+            TokenType.SYMBOL,
+        )
+
     def _parse_primary(self):
         """<primary> = <integer> | <float> | <string> | <bool> | <variable>
                     | <angle_expr> | <path_expr> | <set_construct> | <read_block>
@@ -1576,6 +1672,13 @@ class Parser:
             self._advance()
             return ast.StringLit(value=tok.value)
 
+        # 通道构造 chan T：降级为 {"缓冲": [], "容量": n, "关闭": False}
+        # （编译见 mbc/compiler ChanExpr 分支，发送见 `<-`）
+        if tok.type == TokenType.KW_CHAN:
+            self._advance()
+            elem_type = self._parse_type_name()
+            return ast.ChanExpr(elem_type=elem_type, buffer_size=None)
+
         # 布尔
         if tok.type == TokenType.LIT_BOOL:
             self._advance()
@@ -1590,10 +1693,12 @@ class Parser:
         if tok.type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):
             return self._parse_variable()
 
-        # 角度 <<90
+        # 角度包装 ⟨expr⟩：单值包装，编译期直接取内层值
         if tok.type == TokenType.OP_ANGLE:
             self._advance()
-            return ast.AngleExpr(expr=self._parse_expr())
+            inner = self._parse_expr()
+            self._expect(TokenType.OP_ANGLE, "⟩")
+            return ast.AngleExpr(expr=inner)
 
         # ( ... ) 分组 / lambda / 元组
         if tok.type == TokenType.PUNCT_LPAREN:
@@ -1656,6 +1761,7 @@ class Parser:
                         )
                         and self._peek(2).type in (TokenType.PUNCT_COMMA, TokenType.PUNCT_RBRACKET))
                 )
+                or self._bracket_has_comma(saved2)
             )
             self.pos = saved2
             if is_list_lookahead:
@@ -1757,7 +1863,10 @@ class Parser:
             except ParseError:
                 self.pos = saved
             # 若在函数应用语境中，尝试解析为多参函数调用 f(a, b) 或 f a b
-            if self._in_func_app:
+            # 仅当当前 '(' 紧跟在「值结尾」之后才算实参表；若前一个有效 token 是
+            # [ / { / , / 运算符等（表达式起始位置），说明这个 '(' 开启的是一个新
+            # 表达式（如列表元素里的元组 f([(a, b)]），不能按实参表解析。
+            if self._in_func_app and self._lparen_starts_call_args():
                     args = [self._parse_expr()]
                     # 支持无逗号分隔的参数：f(a b c) → FuncApp(FuncApp(a, b), c)
                     while not self._check(TokenType.PUNCT_RPAREN):
@@ -1785,7 +1894,12 @@ class Parser:
                                     TokenType.LIT_INTEGER, TokenType.LIT_FLOAT,
                                     TokenType.LIT_STRING, TokenType.LIT_BOOL):
             try:
-                elements = [self._parse_expr()]
+                _saved_lv2 = self._in_let_value
+                self._in_let_value = False
+                try:
+                    elements = [self._parse_expr()]
+                finally:
+                    self._in_let_value = _saved_lv2
                 self._skip_newlines()
                 has_comma = False
                 while self._is_comma():
@@ -1823,7 +1937,16 @@ class Parser:
                 # 回退后恢复 _in_control_flow，让分组代码正确处理三元
                 pass
         # 分组: (expr) — 支持三元表达式 (cond) ? a : b
-        expr = self._parse_expr()
+        # 括号内的 `in` 不可能是外层 let 的边界（边界必然在 `)` 之后），
+        # 故仅在此处暂置 `_in_let_value`，让 `in` 仍按成员运算符解析。
+        # 例：`let b = (1 in [1]) in 输出(b)`。不能整体包住本函数，
+        # 否则会与上面的试探-回退叠加成指数级回溯。
+        _saved_lv = self._in_let_value
+        self._in_let_value = False
+        try:
+            expr = self._parse_expr()
+        finally:
+            self._in_let_value = _saved_lv
         self._skip_newlines()
         # 检查是否为三元表达式
         if self._check(TokenType.OP_QUESTION):
@@ -1846,6 +1969,26 @@ class Parser:
             return ast.TupleExpr(elements=elements)
         self._expect(TokenType.PUNCT_RPAREN, ")")
         return expr
+
+    def _lparen_starts_call_args(self) -> bool:
+        """当前 '(' 是否紧跟在值结尾之后（即真的是 f(...) 的实参表）。
+
+        _in_func_app 只表示「我们正在某个调用的参数里」，并不能说明眼前的 '('
+        就是那个调用的实参表。f([(a, b)]) 里内层 '(' 前一个是 '['，属于表达式
+        起始，必须走分组/元组解析，否则 (a, b) 会被当成实参表而丢掉 b。
+        """
+        j = self.pos - 1  # self.pos 指向当前 '('
+        while j >= 0 and self.tokens[j].type == TokenType.NEWLINE:
+            j -= 1
+        if j < 0:
+            return False
+        prev = self.tokens[j].type
+        return prev in (
+            TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER,
+            TokenType.LIT_INTEGER, TokenType.LIT_FLOAT, TokenType.LIT_STRING,
+            TokenType.LIT_BOOL, TokenType.KW_IF,
+            TokenType.PUNCT_RPAREN, TokenType.PUNCT_RBRACKET, TokenType.PUNCT_RBRACE,
+        )
 
     def _parse_lambda_param(self):
         """lambda 参数：name 或 name: Type（类型标注可选，仅消费不保留）。"""
@@ -1894,6 +2037,7 @@ class Parser:
                         TokenType.OP_SET_SUBSET,
                     )
                     and _peek2.type in (TokenType.PUNCT_COMMA, TokenType.PUNCT_RBRACKET))
+                or self._bracket_has_comma(self.pos - 1)  # self.pos 在 [ 后
             )
         )
         self.pos = saved_pos
@@ -1901,12 +2045,20 @@ class Parser:
         if is_list_lookahead:
             # 列表字面量路径：[expr, expr, ...] (∪/∩/⊖/×/⊆ [expr,...])*
             # 注意：[ 已被 _expect 消费，直接从元素开始解析
+            # 元素求值期间须清掉 _in_func_app：否则元素里的 (a, b) 会被
+            # _parse_primary 的多参调用分支当成实参表，b 被静默丢弃
+            # （f([(a, b)]) 曾退化成 f([a])）。
             elements: list[Any] = []
-            if not self._check(TokenType.PUNCT_RBRACKET):
-                elements.append(self._parse_expr())
-                while self._check(TokenType.PUNCT_COMMA):
-                    self._advance()
+            saved_app = self._in_func_app
+            self._in_func_app = False
+            try:
+                if not self._check(TokenType.PUNCT_RBRACKET):
                     elements.append(self._parse_expr())
+                    while self._check(TokenType.PUNCT_COMMA):
+                        self._advance()
+                        elements.append(self._parse_expr())
+            finally:
+                self._in_func_app = saved_app
             self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
             result: Any = ast.ListLiteral(elements=elements)
             # 支持 [a,b] ∪ [c,d] 等形式：列表后跟集合运算符
@@ -1929,7 +2081,7 @@ class Parser:
         # 尝试解析为 表达式 + ]；失败则回退为文本
         saved_pos = self.pos
         try:
-            expr = self._parse_expr()
+            expr = self._parse_expr(stop_at_comma=True)
             # 支持输出内的集合运算符：[a,b] ∪ [c,d] 等
             while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
                               TokenType.OP_SET_DIFF, TokenType.OP_SET_COMP,
@@ -1957,6 +2109,31 @@ class Parser:
             return ast.Output(expr=ast.StringLit(value="".join(parts)))
         finally:
             self._in_output = False
+
+    def _bracket_has_comma(self, lb: int) -> bool:
+        """从 lb（'[' 的下标）起括号配对扫描，判断配对 ']' 之前是否有顶层逗号。
+
+        用于区分列表字面量与输出语境：只认深度 1 的逗号，故 [[1], 2] 判为列表，
+        而 [f(x)]、[1] 仍判为输出。"""
+        depth = 0
+        i = lb
+        n = len(self.tokens)
+        while i < n:
+            t = self.tokens[i].type
+            if t in (TokenType.PUNCT_LBRACKET, TokenType.PUNCT_LPAREN,
+                     TokenType.PUNCT_LBRACE):
+                depth += 1
+            elif t in (TokenType.PUNCT_RBRACKET, TokenType.PUNCT_RPAREN,
+                       TokenType.PUNCT_RBRACE):
+                depth -= 1
+                if depth <= 0:
+                    return False
+            elif t == TokenType.PUNCT_COMMA and depth == 1:
+                return True
+            elif t == TokenType.EOF:
+                return False
+            i += 1
+        return False
 
     def _parse_list_literal(self) -> Any:
         """<list_literal> = [ <expr> , { , <expr> } ]
@@ -2022,14 +2199,28 @@ class Parser:
                 num_part = "".join(ch for ch in digits if ord(ch) < 128)
                 unit_part = "".join(ch for ch in digits if ord(ch) >= 128)
                 return ast.IntegerLit(value=int(num_part, radix), unit=unit_part)
-        # 普通十进制：分离数字部分与 CJK 单位部分
+        # 普通十进制：分离数字部分与 CJK 单位部分。
+        # 指数记法（1e20 / 1.5E-3）必须整段留在数字部分内——此前把 'e' 当成
+        # CJK 单位切走，num_part 变成 "120"，float("120") 得 120.0（静默错值）。
         num_part = ""
         unit_part = ""
-        for ch in value:
+        i, n = 0, len(value)
+        while i < n:
+            ch = value[i]
             if ch.isdigit() or ch == ".":
                 num_part += ch
+                i += 1
+            elif ch in "eE" and i + 1 < n and (
+                value[i + 1].isdigit()
+                or (value[i + 1] in "+-" and i + 2 < n and value[i + 2].isdigit())
+            ):
+                # 合法指数：e/E + 可选符号 + 至少一位数字
+                width = 3 if value[i + 1] in "+-" else 2
+                num_part += value[i:i + width]
+                i += width
             else:
                 unit_part += ch
+                i += 1
         if is_float:
             return ast.FloatLit(value=float(num_part), unit=unit_part)
         return ast.IntegerLit(value=int(num_part), unit=unit_part)
@@ -2294,7 +2485,8 @@ class Parser:
                         self._in_let_value = True
                         try:
                             value = self._parse_expr()
-                            self._in_let_value = False
+                            # 让位回外层语境（见 _parse_let 同处注释）
+                            self._in_let_value = saved_lv
                             body_expr = None
                             if self._check(TokenType.KW_IN):
                                 self._advance()
@@ -2327,7 +2519,11 @@ class Parser:
         self._in_let_value = True
         try:
             value = self._parse_expr()
-            self._in_let_value = False  # body 内的 in 应作为二元运算符
+            # 值已解析完：把「in 是边界」让位回外层语境，使本 let 的 in 在
+            # _parse_let 处被消费；恢复 saved_lv 而非 False，否则嵌套 let
+            # （如 `let f = (x) => let y = 1 in x + y in 输出(f(5))`）会清掉
+            # 外层标记，导致外层 in 被当成二元运算符。
+            self._in_let_value = saved_lv
             # 可选 in
             body = None
             if self._check(TokenType.KW_IN):
@@ -2350,7 +2546,8 @@ class Parser:
         self._in_let_value = True
         try:
             value = self._parse_expr()
-            self._in_let_value = False
+            # 让位回外层语境（见 _parse_let 同处注释）
+            self._in_let_value = saved_lv
             body = None
             if self._check(TokenType.KW_IN):
                 self._advance()
@@ -2410,6 +2607,10 @@ class Parser:
         # 在控制流上下文中解析条件和分支，防止 { ... } 被当作函数参数
         saved = self._in_control_flow
         self._in_control_flow = True
+        # if 条件不可能是 let 边界，暂置 _in_let_value 使 `in` 仍可作成员运算符
+        # （例：`(x) => if x in [1, 2] then 10 else 20`）
+        saved_lv = self._in_let_value
+        self._in_let_value = False
         try:
             cond = self._parse_expr()
             # 关键字形式: if cond then expr else expr
@@ -2441,6 +2642,7 @@ class Parser:
             return ast.IfStmt(cond=cond, then_block=then_block, else_block=else_block)
         finally:
             self._in_control_flow = saved
+            self._in_let_value = saved_lv
 
     def _parse_if_then_else_expr(self, cond) -> ast.IfExpr:
         """解析 if cond then expr else expr 三元表达式形式。
@@ -2499,10 +2701,13 @@ class Parser:
             # 条件解析保留控制流上下文（防止 { } 被误判为函数参数）
             saved = self._in_control_flow
             self._in_control_flow = True
+            saved_lv = self._in_let_value
+            self._in_let_value = False
             try:
                 cond = self._parse_expr()
             finally:
                 self._in_control_flow = saved
+                self._in_let_value = saved_lv
             # 关键字形式: if cond then expr else expr
             if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
                 self._advance()
@@ -2946,14 +3151,25 @@ class Parser:
         else:
             param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
         func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
-        # 函数体：(params) => expr 或 expr（直接表达式，零参 lambda）
+        # 函数体：(params) => expr 或 expr（直接表达式）或 { } 代码块
         self._expect(TokenType.OP_ASSIGN, "=")
         self._skip_newlines()
-        # 支持零参函数直接返回表达式（如 func f() -> List = [...]）
+        # 直接体（非 `(` 开头）：以**声明参数**合成 lambda 参数。
+        # 免去 `= (a, b) =>` 的重复参数表；host 与自举 parser 行为一致，
+        # 编译器以 lambda 参数为准，故声明参数即唯一来源。
+        # 语境与显式 lambda 体一致：`=` 按比较解析、起始 `(` 不当作函数应用。
         if not self._check(TokenType.PUNCT_LPAREN):
-            # 直接表达式作为 body，包装为零参 lambda
-            lam_body = self._parse_expr()
-            body = ast.Lambda(params=[], body=lam_body)
+            saved_rel = self._in_lambda_rel
+            saved_lb = self._in_lambda_body
+            self._in_lambda_rel = True
+            self._in_lambda_body = True
+            try:
+                lam_body = self._parse_expr()
+            finally:
+                self._in_lambda_rel = saved_rel
+                self._in_lambda_body = saved_lb
+            lam_vars = [ast.Variable(name=p[0]) for p in params]
+            body = ast.Lambda(params=lam_vars, body=lam_body)
             return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
         self._expect(TokenType.PUNCT_LPAREN, "(")
         lam_params: list[Any] = []
@@ -2983,15 +3199,20 @@ class Parser:
         self._skip_newlines()
         # 在 lambda 体内比较语境中解析 body，使 = 作为比较而非赋值
         # 同时设置 _in_lambda_body = True，使 ( 不被消费为函数应用
+        # 并设置 _in_let_value，使 `in` 作为 let 边界而非成员运算符
+        # （与 _parse_let 中 let rec 分支一致，见该处注释）
         saved_rel = self._in_lambda_rel
         saved_lb = self._in_lambda_body
+        saved_lv = self._in_let_value
         self._in_lambda_rel = True
         self._in_lambda_body = True
+        self._in_let_value = True
         try:
             lam_body = self._parse_lambda_body()
         finally:
             self._in_lambda_rel = saved_rel
             self._in_lambda_body = saved_lb
+            self._in_let_value = saved_lv
         body = ast.Lambda(params=lam_params, body=lam_body)
         return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
 
@@ -3025,8 +3246,18 @@ class Parser:
         self._expect(TokenType.OP_ASSIGN, "=")
         self._skip_newlines()
         if not self._check(TokenType.PUNCT_LPAREN):
-            lam_body = self._parse_expr()
-            body = ast.Lambda(params=[], body=lam_body)
+            # 直接体：语境与显式 lambda 体一致（`=` 按比较、起始 `(` 不作函数应用）。
+            saved_rel = self._in_lambda_rel
+            saved_lb = self._in_lambda_body
+            self._in_lambda_rel = True
+            self._in_lambda_body = True
+            try:
+                lam_body = self._parse_expr()
+            finally:
+                self._in_lambda_rel = saved_rel
+                self._in_lambda_body = saved_lb
+            lam_vars = [ast.Variable(name=p[0]) for p in params]
+            body = ast.Lambda(params=lam_vars, body=lam_body)
             return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
         self._expect(TokenType.PUNCT_LPAREN, "(")
         lam_params: list[Any] = []
@@ -3055,13 +3286,16 @@ class Parser:
         self._skip_newlines()
         saved_rel = self._in_lambda_rel
         saved_lb = self._in_lambda_body
+        saved_lv = self._in_let_value
         self._in_lambda_rel = True
         self._in_lambda_body = True
+        self._in_let_value = True
         try:
             lam_body = self._parse_lambda_body()
         finally:
             self._in_lambda_rel = saved_rel
             self._in_lambda_body = saved_lb
+            self._in_let_value = saved_lv
         body = ast.Lambda(params=lam_params, body=lam_body)
         return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
 

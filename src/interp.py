@@ -113,7 +113,7 @@ def _build_domain_builtins() -> dict:
         ("src.domains.automation", "_register_automation"),
         ("src.domains.iot_hardware", "_register_iot_hardware"),
         ("src.domains.os_network", "_register_os_network"),
-        ("src.domains.audio_video", "_register_audio_video"),
+        ("src.domains.audio_video", "_register_av"),
         ("src.domains.graphics", "_register_graphics"),
         ("src.domains.hpc", "_register_hpc"),
         ("src.domains.fintech", "_register_fintech"),
@@ -128,6 +128,11 @@ def _build_domain_builtins() -> dict:
         ("src.domains.metaverse_arch", "_register_metaverse_arch"),
         ("src.domains.digital_rights", "_register_digital_rights"),
         ("src.domains.acoustics", "_register_acoustics"),
+        ("src.domains.geospatial", "_register_geo"),
+        ("src.domains.chemistry", "_register_chemistry"),
+        ("src.domains.astronomy", "_register_astro"),
+        ("src.domains.music", "_register_music"),
+        ("src.domains.robotics", "_register_robot"),
         ("src.domains.graph", "_register_graph"),
     ]
     for mod_path, fn_name in _domain_registers:
@@ -312,7 +317,9 @@ def builtin_chr(n: int) -> str:
 
 
 def builtin_len(seq) -> int:
-    if isinstance(seq, (str, list, tuple)):
+    # 接受 dict/set：VM 后端直接用 Python len，解释器此前只收 str/list/tuple，
+    # 导致 len(_empty_dict) 在解释器后端报错而 VM 正常。
+    if isinstance(seq, (str, list, tuple, dict, set)):
         return len(seq)
     raise MathaRuntimeError(f"len() 需要字符串或列表或元组，实际 {type(seq).__name__}")
 
@@ -376,7 +383,14 @@ def builtin_mut_set_at(lst):
 
 
 def builtin_list(*args):
-    """list() → []；list(x) → [x]"""
+    """list() → []；list(文本) → 码点列表；list(x) → [x]
+
+    砖块 19：文本按码点拆分（与原生/VM 的 list(文本) 对齐）。VM 侧
+    vm.py:238 直接 `b.setdefault("list", list)`，Python 内建 list 天然按码点
+    迭代字符串；此处原先返回 list(args)，会把整串包成单元素 ["你好"]。
+    """
+    if len(args) == 1 and isinstance(args[0], str):
+        return list(args[0])
     return list(args)
 
 
@@ -581,8 +595,17 @@ def builtin_列表去重(lst) -> list:
     """去重(列表) → 去重后列表。"""
     if not isinstance(lst, (list, tuple)):
         raise MathaRuntimeError("去重() 需要列表")
-    seen = []
-    for x in lst:
+    return _dedup_ordered(lst)
+
+
+def _dedup_ordered(values) -> list:
+    """按 == 去重并保序，返回普通 list。
+
+    集合字面量 / 构造集合 的统一语义，与 VM（src/mbc/vm.py::_builtin_make_set）
+    和原生后端（list_dedup）一致。
+    """
+    seen: list = []
+    for x in values:
         if x not in seen:
             seen.append(x)
     return seen
@@ -629,6 +652,54 @@ def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def builtin_typeof(value) -> str:
+    """typeof(v) → Matha 类型名（中文）。与 VM _builtin_typeof 同表。"""
+    if value is None:
+        return "空"
+    if isinstance(value, bool):
+        return "布尔"
+    if isinstance(value, int):
+        return "整数"
+    if isinstance(value, float):
+        return "浮点"
+    if isinstance(value, str):
+        return "文本"
+    if isinstance(value, list):
+        return "列表"
+    if isinstance(value, dict):
+        return "字典"
+    return "函数"
+
+
+def builtin_safe_index(container, key):
+    """安全索引(c)(k) → c[k]；c 为 None 或键缺失时返回 None，不抛错。"""
+    if container is None:
+        return None
+    try:
+        return container[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def builtin_safe_attr(obj, name):
+    """安全取属性(o)(name) → o?.name；obj 为 None 时返回 None。"""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, str(name), None)
+
+
+def builtin_make_set(form, variables, elements):
+    """构造集合(form, variables, elements) → 去重保序的 list。
+
+    form / variables 保留给编译器降级路径（Matha 的集合构造带条件形式），
+    枚举形式下二者不参与求值。语义与 VM _builtin_make_set 及原生后端
+    list_dedup 一致：{} 为空集合而非空字典。
+    """
+    return _dedup_ordered(elements or [])
+
+
 BUILTINS: dict[str, object] = {
     "ord": builtin_ord,
     "chr": builtin_chr,
@@ -662,12 +733,12 @@ BUILTINS: dict[str, object] = {
     "小写": builtin_字符串小写,
     "大写": builtin_字符串大写,
     # 文本编码（二进制/三进制/十进制）
-    "encode_binary": lambda s: _te.encode_binary(str(s)),
-    "decode_binary": lambda s: _te.decode_binary(str(s)),
-    "encode_ternary": lambda s: _te.encode_ternary(str(s)),
-    "decode_ternary": lambda s: _te.decode_ternary(str(s)),
-    "encode_decimal": lambda s: _te.encode_decimal(str(s)),
-    "decode_decimal": lambda s: _te.decode_decimal(str(s)),
+    "encode_binary": lambda s: _te.encode_binary(s),
+    "decode_binary": lambda s: _te.decode_binary(s),
+    "encode_ternary": lambda s: _te.encode_ternary(s),
+    "decode_ternary": lambda s: _te.decode_ternary(s),
+    "encode_decimal": lambda s: _te.encode_decimal(s),
+    "decode_decimal": lambda s: _te.decode_decimal(s),
     # 列表操作
     "映射": _curry_module(2, lambda lst, fn: builtin_列表映射(lst, fn)),
     "过滤": _curry_module(2, lambda lst, fn: builtin_列表过滤(lst, fn)),
@@ -679,6 +750,15 @@ BUILTINS: dict[str, object] = {
     # 异常控制
     "抛出错误": builtin_throw,
     "错误": builtin_throw,
+    # ---------- 与 VM 后端对齐的原语（src/mbc/vm.py::_default_builtins） ----------
+    # 空字典常量：{} 在 Matha 语法中是空集合构造，故空字典须由宿主提供。
+    "_empty_dict": {},
+    # 注意：typeof 不在此处注册——它是关键字（tokens.py: KW_TYPEOF），
+    # 由 _eval 的 TypeOfExpr 分支直接调用 builtin_typeof。VM 侧把它做成函数
+    # 是因为那边按 LOAD_GLOBAL + CALL 1 编译；解释器走语法层，函数项不可达。
+    "安全索引": _curry_module(2, builtin_safe_index),
+    "安全取属性": _curry_module(2, builtin_safe_attr),
+    "构造集合": _curry_module(3, builtin_make_set),
 }
 
 
@@ -907,7 +987,14 @@ class Interpreter:
                 if isinstance(obj, dict) and fn_name in obj:
                     fn = obj[fn_name]
                     return self._call_func_or_closure(fn, list(args))
+        # _lookup 兼容层：用于自举加载器的向后兼容
+        if name == '_lookup':
+            return self._lookup
         raise MathaRuntimeError(f"未定义函数 '{name}'")
+
+    def _lookup(self, name: str) -> object:
+        """向后兼容的 _lookup 方法，用于自举加载器。"""
+        return self.builtins.get(name) or self.funcs.get(name)
 
     def load_matha_module(self, module_name: str, matha_dir: Path | None = None) -> bool:
         """从文件系统加载 .matha 模块并注册到解释器。
@@ -1607,8 +1694,13 @@ class Interpreter:
                 r = -v
                 self._log_exit("eval Unary", r)
                 return r
-            if expr.op == "^":
+            if expr.op == "^" or expr.op == "sqrt":
+                # 前缀 ^ 开方：^9 → 3，^16 → 4（完全平方回退为整数）。
+                # 解析器把前缀 ^ 记为 "sqrt"，VM 侧亦按 "sqrt" 分派；
+                # 整数完全平方的回退规则与 src/mbc/vm.py::_builtin_sqrt 保持一致。
                 r = v ** 0.5
+                if isinstance(v, int) and not isinstance(v, bool) and r == int(r):
+                    r = int(r)
                 self._log_exit("eval Unary", r)
                 return r
             if expr.op == "++":
@@ -1660,8 +1752,12 @@ class Interpreter:
             finally:
                 self.outputs = saved_outputs
         if isinstance(expr, ast.TypeOfExpr):
-            v = self._eval(expr.operand)
-            return type(v).__name__
+            # typeof / n 是关键字（tokens.py: KW_TYPEOF），编译到 VM 侧是
+            # LOAD_GLOBAL n + CALL 1，即走内建表。此处此前返回 Python 类型名
+            # （'int'/'NoneType'），与 VM（src/mbc/vm.py::_builtin_typeof）和
+            # 原生后端（src/mbc/native.py::_TYPEOF_ZH）的中文类型名不一致，
+            # 故统一到同一张表。
+            return builtin_typeof(self._eval(expr.operand))
         if isinstance(expr, ast.IsExpr):
             left_val = self._eval(expr.left)
             right_val = self._eval(expr.right)
@@ -1740,14 +1836,12 @@ class Interpreter:
             return tuple(self._eval(e) for e in expr.elements)
         if isinstance(expr, ast.SetConstruct):
             if expr.form == "enumeration":
-                return set(self._eval(e) for e in (expr.literals or []))
+                # 集合语义与 VM/native 后端对齐：{} 是空集合（非空字典），
+                # 枚举形式按 == 去重并保序，值用普通 list 承载——
+                # Python set 无序，且会让 len()/索引/去重() 等内建全部失效。
+                return _dedup_ordered(self._eval(e) for e in (expr.literals or []))
             elif expr.form == "comprehension":
-                # {x | cond} 形式：从 env 中已有的变量推导
-                var_name = getattr(expr.variables, "0") if expr.variables else None
-                result = set()
-                # 简化处理：对 comprehension 形式暂不支持
                 raise MathaRuntimeError("集合理解形式暂不支持")
-            return result
         if isinstance(expr, ast.LetTupleBinding):
             # let (a, b) = tuple_val in body
             val = self._eval(expr.value)
@@ -2271,7 +2365,7 @@ class Interpreter:
                     result = self._call_func(l, [r])
                 else:
                     raise MathaRuntimeError(f"右箭头运算符 左侧必须可调用，实际 {type(l).__name__}")
-            elif op == " in ":
+            elif op in ("in", " in "):
                 if isinstance(r, (list, tuple, str, dict, set)):
                     result = l in r
                 elif isinstance(r, ast.SetConstruct):
@@ -2620,6 +2714,16 @@ class Interpreter:
         from src.selfupgrade import upgrade as _upgrade
         return _upgrade(self, source, verify)
 
+    def _b_output(self, value):
+        """输出(value) / print(value) → 记录到输出流并返回原值（可链式）。
+
+        与 VM 的 _make_output 同语义。此前解释器没有 输出/print 内建，
+        只有 Output 语句，导致 Matha 源码里的 输出(...) 在解释器后端
+        直接报「未定义函数」，而 VM 能正常执行。
+        """
+        self.outputs.append(value)
+        return value
+
     def _install_self_builtins(self) -> None:
         """注册依赖本解释器实例的状态化内建（探针 / 沙箱 / 升级）。
 
@@ -2629,6 +2733,11 @@ class Interpreter:
         - 沙箱克隆后必须重新调用本方法，使状态化内建指向沙箱自身解释器。
         """
         b = self.builtins
+        # 输出内建：绑定到本实例的 outputs 流，语义对齐 VM 的
+        # _make_output（记录到输出流并返回原值，支持链式）。
+        emit = self._b_output
+        b["输出"] = emit
+        b["print"] = emit
         b["探针_状态"] = self._b_probe_state
         b["探针_函数列表"] = self._b_func_names
         b["探针_已定义"] = self._b_has
@@ -3064,7 +3173,15 @@ def interpret(source: str, debug: bool | None = None) -> tuple[list, list[str]]:
 
     debug=None 服从 MATHA_DEBUG 环境变量；显式 True/False 优先。
     自动抬高递归深度以支持大文件和深度递归（自举编译等）。
+    输入规范化：list/tuple 自动拼接为字符串，避免 'list' object has no attribute 'strip'。
     """
+    # 输入规范化：list/tuple → 空格连接的字符串
+    if isinstance(source, (list, tuple)):
+        source = " ".join(str(x) for x in source)
+    elif source is not None and not isinstance(source, str):
+        source = str(source)
+    if not source:
+        return [], []
     # 抬高递归深度以支持大文件/深度递归
     _min_limit = 5000 + len(source) // 10
     _current = sys.getrecursionlimit()
