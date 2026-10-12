@@ -74,9 +74,11 @@ def _curry_module(n: int, func):
 def _build_domain_builtins() -> dict:
     """构建包含所有领域内建符号的 dict（模块级缓存，仅调用一次）。"""
     from src.mathlib import _register_math_builtins, _register_unit_builtins
+    from src.regexlib import _register_regex_builtins
     b: dict[str, object] = {}
     _register_math_builtins(b)
     _register_unit_builtins(b)
+    _register_regex_builtins(b)
     _domain_registers = [
         ("src.domains.mechanics", "_register_mechanics"),
         ("src.domains.dynamics", "_register_dynamics"),

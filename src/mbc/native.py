@@ -167,6 +167,7 @@ import struct
 from pathlib import Path
 
 from src.mbc import opcodes as OP
+from src.mbc import native_regex as _regexlib
 
 # ---- 节区布局常量 ----
 TEXT_RVA = 0x1000             # .text 节 RVA（代码）
@@ -711,6 +712,10 @@ def _emit_epilogue(em: _Emitter):
     em.emit(b"\x48\x89\xEC")                        # mov rsp,rbp (ModRM EC: rsp<-rbp)
     em.emit(b"\x5D")                                # pop rbp
     em.emit(b"\xC3")                                # ret
+
+
+# 向正则发射模块注入序/尾声原语（native_regex 无法反向 import 本模块）。
+_regexlib.configure(_emit_prologue, _emit_epilogue)
 
 
 MAX_NATIVE_ARITY = 8
@@ -4521,7 +4526,7 @@ def _emit_exception_runtime(em: _Emitter, guard: bool):
 
     # ---- raise_rt（rax=值；永不返回）----
     em.label_here("raise_rt")
-    em.emit(b"\x48\x83\xEC\x08")                    # sub rsp,8（入口 rsp≡8）
+    em.emit(b"\x48\x83\xE4\xF0")                    # and rsp,-16（对齐，兼容任意入口）
     em.call_rel32("value_to_str")                   # rax = 消息串
     em.store_rip_from("raise_msg", 0)               # mov [rip+raise_msg],rax
     em.load_rip_to(0, "handler_top")                # mov rax,[rip+handler_top]
@@ -6927,6 +6932,8 @@ NATIVE_BUILTINS = (
     # 砖块 17 阶段三：mathlib 统计 / 随机
     "平均值", "中位数", "方差", "标准差", "协方差", "相关系数", "正态密度",
     "均匀随机", "正态随机",
+    # 砖块 21：正则（阶段 A：字面量模式；元字符模式以明确错误中止）
+    "匹配", "全匹配",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -6970,6 +6977,8 @@ _BUILTIN_ARITY = {
     "平均值": 1, "中位数": 1, "方差": 1, "标准差": 1,
     "协方差": 2, "相关系数": 2, "正态密度": 3,
     "均匀随机": 2, "正态随机": 2,
+    # 砖块 21：正则（阶段 A：字面量）
+    "匹配": 2, "全匹配": 2,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7060,6 +7069,9 @@ _BUILTIN_EMITTERS: dict = {
     "正态密度": _emit_builtin_norm_pdf,
     "均匀随机": _emit_builtin_uniform,
     "正态随机": _emit_builtin_gauss,
+    # 砖块 21：正则（阶段 A：字面量）
+    "匹配": _regexlib._emit_builtin_regex_match,
+    "全匹配": _regexlib._emit_builtin_regex_fullmatch,
 }
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
@@ -7091,6 +7103,8 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_decimal", "decode_decimal",
     # 常量（异常原语 错误/调用捕获 已实现，见 NATIVE_BUILTINS）
     "MathaIOError", "真", "假", "null", "None",
+    # 砖块 21：正则内建（阶段 A 仅实现 匹配/全匹配；其余待原生引擎扩展）
+    "查找正则", "查找全部", "命名组", "替换正则", "分割正则",
 })
 
 # 宿主 mathlib 通过 _register_math_builtins 注册的数学/工具函数。
@@ -8019,6 +8033,7 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     _emit_load_crt(ec)                          # CRT 加载（浮点格式化）
     _emit_float_runtime(ec)                     # 浮点运行时
     _emit_bigint_runtime(ec)                    # 大整数运行时
+    _regexlib._emit_re_runtime(ec)              # 正则运行时（阶段 A：字面量）
     return _emit_data_section(mod, labels, ec, user_names)
 
 
@@ -9723,6 +9738,10 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     ed.emit(struct.pack("<Q", len(_oom_text)))
     ed.emit(_oom_text)
     ed.align(8)
+    # 砖块 21：正则引擎静态数据（元字符查表 + 错误消息串）。均落在静态堆区内
+    # （heap_base..heap_free），使错误字符串能被「obj−heap_base<heap_used」判据
+    # 识别为有效指针，从而可安全交给 raise_rt。
+    _regexlib.emit_regex_data(ed)
     # 砖块 16 阶段二：静态空字典对象（_empty_dict）。
     ed.align(8)
     ed.label_here("empty_dict")

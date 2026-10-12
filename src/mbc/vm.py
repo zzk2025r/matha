@@ -287,8 +287,10 @@ def _builtin_append_file(path, content):
 def _default_builtins() -> dict:
     """VM 内建：复用宿主 mathlib 注册的同一套数学/工具函数。"""
     from src.mathlib import _register_math_builtins
+    from src.regexlib import _register_regex_builtins
     b: dict = {}
     _register_math_builtins(b)
+    _register_regex_builtins(b)
     # 基础原语（与宿主解释器一致）
     b.setdefault("len", len)
     b.setdefault("abs", abs)

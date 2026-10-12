@@ -1,5 +1,84 @@
 # Matha 变更摘要
 
+## 原生后端：正则内建（阶段 A：字面量）
+
+**日期**：2026-02-14
+
+### 变更范围
+
+原生后端（`src/mbc/native.py`）新增正则内建 `匹配`/`全匹配` 的机器码发射，
+由新模块 `src/mbc/native_regex.py` 提供。阶段 A 仅实现**纯字面量模式**的
+子串/全串匹配（按 UTF-8 字节比较），模式串含元字符
+（`. ^ $ * + ? { } [ ] ( ) | \`）时于运行期抛出**可捕获**异常
+（「暂不支持元字符模式」），避免给出静默的错误答案。此为「完整 PCRE 风格
+原生引擎」的第一阶段，解析器 + 回溯 VM（阶段 B）后续补齐。
+
+### 变更内容
+
+- 新增 `src/mbc/native_regex.py`：`re_check_str`/`re_has_meta`/
+  `re_lit_match_at`/`re_lit_search` 运行时助手，`匹配`/`全匹配` 内建发射器，
+  `_emit_re_runtime`（追加到 `_build_emitters` 的运行时段）、`emit_regex_data`
+  （元字符查表 + 两条错误消息串，随静态数据区发射）。`configure()` 注入
+  `_emit_prologue/_emit_epilogue`，避免与 `native.py` 循环导入。
+- `native.py`：`NATIVE_BUILTINS`/`_BUILTIN_ARITY`/`_BUILTIN_EMITTERS` 注册两个
+  内建；`_UNRESOLVED_GLOBALS` 增加 `查找正则/查找全部/命名组/替换正则/分割正则`
+  （编译期明确报错，避免静默读到空 cell）；调用 `_emit_re_runtime`/`emit_regex_data`。
+- 阶段 A 不做任何堆分配（静态 scratch cell 非 GC 根），空模式/错误路径均安全。
+
+### 关键修复
+
+- 字面量循环此前以「模式长度」为基址读 haystack（漏加 haystack 指针），
+  运行期访问违例（0xC0000005）。修复为 `hay_ptr + idx + k`。
+- `raise_rt` 改为 `and rsp,-16` 自对齐：此前依赖入口 `rsp≡8`，任何在奇数个
+  寄存器入栈后直接 `call raise_rt` 的调用点都会破坏 SSE 对齐而崩溃。现兼容
+  任意入口对齐。
+
+### 验证
+
+- 新增 `tests/test_native_regex.py`（29 项）：字面量子串/精确、空模式、
+  UTF-8 多字节、元字符/非字符串的可捕获错误与未捕获退出码（=1）、
+  未实现内建的编译期拒绝、与解释器/VM 的 parity。
+- 全量：`2515 passed`（净增 29）。
+
+## 正则表达式库：解释器与 VM 双端内建（`src/regexlib.py`）
+
+**日期**：2026-10-12
+
+### 变更范围
+
+新增可移植回溯正则引擎 `src/regexlib.py` 作为**单一语义源**：解释器
+（`src/interp.py`）与 M3V VM（`src/mbc/vm.py`）复用同一 `_register_regex_builtins`
+注册函数，保证两端语义一致（原生后端后续将复用同一「模式 → 节点」编译结果与
+匹配算法）。
+
+支持 PCRE 风格语法：字面量/转义、`.`、字符类 `[...]`（含范围/取反/内嵌
+`\d\w\s`）、简写类、锚点 `^ $ \A \Z \z \b \B`、量词（贪婪/惰性/占有）、
+捕获/非捕获/命名组、反向引用（`\1`、`\k<名>`、`\g<名>`、`(?P=名)`）、
+环绕断言（`(?=) (?! ) (?<=) (?<!)`）、内联标志 `(?imsx)` 与作用域 `(?i:…)`。
+
+### 内建（柯里化，`查找` 加「正则」后缀以不遮蔽字符串内建 `查找(文本,子串)->索引`）
+
+- `匹配(re)(s)` → 布尔（search）
+- `全匹配(re)(s)` → 布尔（fullmatch）
+- `查找正则(re)(s)` → `[整体, 组1, …]`（未参与组为 null），无匹配为 null
+- `查找全部(re)(s)` → 列表，每项同上
+- `命名组(re)(s)` → `{组名: 文本}`，无匹配为 null
+- `替换正则(re)(新)(s)` → 文本（`新` 可含 `\1..\9`、`$1`、`\g<名>`）
+- `分割正则(re)(s)` → 列表（含捕获组）
+
+### 变更内容
+
+- 新增 `src/regexlib.py`：`_Parser`（模式 → 节点 AST）、`Pattern`/`Match`
+  （CPS 回溯匹配器）、`_expand_repl`、`compile_regex`、`_register_regex_builtins`。
+- `src/interp.py::_build_domain_builtins` 与 `src/mbc/vm.py::_default_builtins`
+  调用 `_register_regex_builtins`。
+
+### 验证
+
+- 新增 `tests/test_regex.py`（37 项）：引擎单元（回溯/字符类/分组/环视/
+  反向引用/贪婪惰性/标志/替换/分割）+ 解释器↔VM parity（含一等值调用）。
+- 全量：`2486 passed`（净增 37）。
+
 ## 原生后端：修复顶层 `func` 值不支持偏应用/柯里化的崩溃
 
 **日期**：2026-10-12
