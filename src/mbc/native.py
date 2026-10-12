@@ -2777,13 +2777,13 @@ def _emit_gc_runtime(em: _Emitter):
     em.emit(b"\x48\x89\xE5")                        # mov rbp,rsp
     em.emit(b"\x48\x83\xE4\xF0")                    # and rsp,-16
     em.emit(b"\x48\x83\xEC\x60")                    # sub rsp,0x60（影子+保存槽）
-    em.mov_mem_r(4, -8, 0)                          # mov [rbp-8],rax
-    em.mov_mem_r(4, -16, 1)                         # mov [rbp-16],rcx
-    em.mov_mem_r(4, -24, 2)                         # mov [rbp-24],rdx
-    em.mov_mem_r(4, -32, 8)                         # mov [rbp-32],r8
-    em.mov_mem_r(4, -40, 9)                         # mov [rbp-40],r9
-    em.mov_mem_r(4, -48, 10)                        # mov [rbp-48],r10
-    em.mov_mem_r(4, -56, 11)                        # mov [rbp-56],r11
+    em.mov_mem_r(5, -8, 0)                          # mov [rbp-8],rax
+    em.mov_mem_r(5, -16, 1)                         # mov [rbp-16],rcx
+    em.mov_mem_r(5, -24, 2)                         # mov [rbp-24],rdx
+    em.mov_mem_r(5, -32, 8)                         # mov [rbp-32],r8
+    em.mov_mem_r(5, -40, 9)                         # mov [rbp-40],r9
+    em.mov_mem_r(5, -48, 10)                        # mov [rbp-48],r10
+    em.mov_mem_r(5, -56, 11)                        # mov [rbp-56],r11
     em.load_rip_to(0, "mark_stack_growable")        # mov rax,[rip+mark_stack_growable]
     em.test_rr(0, 0)                                # test rax,rax
     em.jcc_rel32(0x84, "as_oom")                    # jz（不可增长 → 标记栈耗尽）
@@ -2800,13 +2800,13 @@ def _emit_gc_runtime(em: _Emitter):
     em.rel32_to("mark_stack_limit")
     em.add_ri(0, MARK_CHUNK)                        # add rax,MARK_CHUNK
     em.store_rip_from("mark_stack_limit", 0)        # mov [rip+mark_stack_limit],rax
-    em.mov_rd_mem(0, 4, -8)                         # mov rax,[rbp-8]
-    em.mov_rd_mem(1, 4, -16)                        # mov rcx,[rbp-16]
-    em.mov_rd_mem(2, 4, -24)                        # mov rdx,[rbp-24]
-    em.mov_rd_mem(8, 4, -32)                        # mov r8,[rbp-32]
-    em.mov_rd_mem(9, 4, -40)                        # mov r9,[rbp-40]
-    em.mov_rd_mem(10, 4, -48)                       # mov r10,[rbp-48]
-    em.mov_rd_mem(11, 4, -56)                       # mov r11,[rbp-56]
+    em.mov_rd_mem(0, 5, -8)                         # mov rax,[rbp-8]
+    em.mov_rd_mem(1, 5, -16)                        # mov rcx,[rbp-16]
+    em.mov_rd_mem(2, 5, -24)                        # mov rdx,[rbp-24]
+    em.mov_rd_mem(8, 5, -32)                        # mov r8,[rbp-32]
+    em.mov_rd_mem(9, 5, -40)                        # mov r9,[rbp-40]
+    em.mov_rd_mem(10, 5, -48)                       # mov r10,[rbp-48]
+    em.mov_rd_mem(11, 5, -56)                       # mov r11,[rbp-56]
     em.emit(b"\x48\x89\xEC")                        # mov rsp,rbp
     em.emit(b"\x5D")                                # pop rbp
     em.emit(b"\xC3")                                # ret

@@ -509,3 +509,27 @@ def test_gc_collects_cumulative_allocation_over_1gb():
         'for i in range(0, 1400) {\n  last = range(0, 100000)\n}\n'
         '输出(len(last))\n输出(last[99999])\n'
     ) == ["100000", "99999"]
+
+
+def test_mark_stack_growth_preserves_live_graph(monkeypatch):
+    """回归：标记栈跨越单个 chunk 扩容（mark_stack_grow）时必须完整保留
+    待入栈对象指针。生产 MARK_CHUNK=16MB（约 200 万槽），正常用例难以触达，
+    故调小到 0x1000（512 槽），构造「外层列表 → 900 个子列表 → 各含一个字
+    符串」的存活图，再分配 >1GB 触发 GC，使越界那次入栈恰落在扩容点。
+
+    此前 mark_stack_grow 把易失寄存器保存到 [rsp-8..]（base=4=rsp），被内部
+    call VirtualAlloc 的返回地址/栈帧覆盖，越界对象漏扫 → 其后代被误回收；
+    随后的小对象分配复用其内存，读回即为 None。"""
+    import src.mbc.native as native
+    monkeypatch.setattr(native, "MARK_CHUNK", 0x1000)
+    out = _aot(
+        "let xs = []\n"
+        "for i in range(0, 900) { xs = append(xs)([str(i)]) }\n"
+        "let last = 0\n"
+        "for i in range(0, 1400) { last = range(0, 100000) }\n"
+        "for i in range(0, 4000) { last = str(100000 + i) }\n"
+        "输出(str(xs))\n"
+    )[0]
+    assert "None" not in out
+    assert out.startswith("[['0'], ['1'], ['2'],")
+    assert out.endswith("['899']]")
