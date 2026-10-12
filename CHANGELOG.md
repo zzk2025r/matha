@@ -1,5 +1,47 @@
 # Matha 变更摘要
 
+## 原生后端：修复顶层 `func` 值不支持偏应用/柯里化的崩溃
+
+**日期**：2026-10-12
+
+### 变更范围
+
+顶层 `func` 名在值位置（`let f = g`、放入列表、作为实参传递）此前被发射为
+`.text` 中的**纯代码地址**。`apply_rt` 对落在堆区间之外的值走 `ar_plain`：
+`xor r13d,r13d; jmp rax`，**完全忽略实参数**。因此任何非「实参数 == 形参数」
+的调用都会跳入函数序言并按 arity 弹参数，而栈上并无那么多实参：
+
+- `func g(a,b,c) = …` 时 `g(1)(2)` → 访问违例 `0xC0000005`；
+- `let h = g(1)` 后再 `h(2)` → 崩；
+- `let fns = [g]` 后 `fns[0](1)(2)(3)` → 崩。
+
+直接写 `g(1)(2)(3)` 之所以正常，是因为编译器把**完全应用**的调用融成了单条
+`CALL 3`（`compiler.py:_flatten_call` + `_scan_fn_arities`），绕开了偏应用路径，
+从而长期掩盖了该缺陷。VM 侧无此问题（始终用闭包/Partial）。
+
+### 变更内容
+
+- 新增 `_user_closure_arities`：静态扫描所有 `LOAD_GLOBAL`，凡引用到「顶层
+  `func`、未被同名全局变量遮蔽、且无捕获」的函数，收集 `name → arity`。
+- 启动期 `_start` 为这些函数各分配一条 `[TYPE_CLOSURE][fn][env=0][arity]`
+  记录，指针写入数据槽 `bclo:{name}`（复用 arity>1 内建的柯里化机制）。
+- `LOAD_GLOBAL` 对上述函数名改为载入 `bclo:{name}`（而非裸代码地址），使其
+  调用经 `apply_rt → ar_close` 按 arity 决定「直调 / 偏应用 / 重建调用」。
+- 数据节为这些名字补发 `bclo:` 槽位。
+
+捕获型函数不受影响：它们在运行期经 `MAKE_CLOSURE` 实例化，绝不按名加载。
+
+### 测试
+
+- 新增 `test_func_declaration_value_is_curriable` 与
+  `test_func_declaration_first_class_in_list`（`tests/test_native.py`）：
+  覆盖偏应用、绑定后再调用、经列表一等调用；修复前确定性崩溃，修复后通过
+  且与 VM 输出一致。
+- 新增 `test_gc_survives_many_cycles_small_heap`（`tests/test_native_heap.py`）：
+  把 `HEAP_SIZE` 调小到 `0x200000`（2MB）使程序反复穿越数十轮 GC，验证
+  2000 结点的多层存活图在大量回收后仍完整。原生四套件 **810 passed**，
+  全量 **2449 passed**。
+
 ## 原生后端：修复标记栈扩容的保存槽覆写（`mark_stack_grow`）
 
 **日期**：2026-10-12

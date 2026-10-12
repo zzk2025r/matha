@@ -533,3 +533,25 @@ def test_mark_stack_growth_preserves_live_graph(monkeypatch):
     assert "None" not in out
     assert out.startswith("[['0'], ['1'], ['2'],")
     assert out.endswith("['899']]")
+
+
+def test_gc_survives_many_cycles_small_heap(monkeypatch):
+    """在极小堆（2MB）下让多层存活图反复穿越大量 GC 周期，验证保守式
+    mark-sweep 的根扫描与对象头完整：任何一次 GC 漏标/误回收都会让 len/索引
+    读回错误值（或 str(xs) 出现 None）。
+
+    生产 HEAP_SIZE=1GB，常规用例几乎不触发 GC；调小到 0x200000 后每分配约
+    2MB 即回收一次（此处累计数十 MB 垃圾 → 数十轮 GC）。存活图：2000 个
+    「子列表 → 字符串」；垃圾：300 次各约 160KB 的 range 列表。"""
+    import src.mbc.native as native
+    monkeypatch.setattr(native, "HEAP_SIZE", 0x200000)
+    out = _aot(
+        "let xs = []\n"
+        "for i in range(0, 2000) { xs = append(xs)([str(i)]) }\n"
+        "let junk = 0\n"
+        "for i in range(0, 300) { junk = range(0, 20000) }\n"
+        "输出(len(xs))\n"
+        "输出(xs[0])\n"
+        "输出(xs[1999])\n"
+    )
+    assert out == ["2000", "['0']", "['1999']"]

@@ -252,6 +252,30 @@ def test_partial_application_still_works():
     assert calls == [(OP.CALL, 1)]
 
 
+def test_func_declaration_value_is_curriable():
+    """顶层 func 值必须以闭包记录暴露，支持偏应用/柯里化与一等使用。
+
+    回归：func 名默认发射为 .text 纯代码地址，apply_rt 对堆外值走 ar_plain
+    直接 tail-jmp、忽略实参数；`g(1)(2)`、`let h = g(1)` 后再调用、或把 g
+    放进列表再经运行时值调用，都会访问违例崩溃（0xC0000005）。"""
+    src = ("func g(a: Int, b: Int, c: Int) -> Int = (a, b, c) => a*100 + b*10 + c\n"
+           "let h = g(1)(2)\n"
+           "输出(h(3))\n"
+           "let fns = [g]\n"
+           "输出(fns[0](4)(5)(6))\n")
+    rc, out = _run(src)
+    assert rc == 0 and out == "123\n456"
+
+
+def test_func_declaration_first_class_in_list():
+    """把顶层 func 放入列表后经运行时值完全应用，也必须走柯里化分派。"""
+    src = ("func add3(a: Int, b: Int, c: Int) -> Int = (a, b, c) => a + b + c\n"
+           "let fns = [add3]\n"
+           "输出(fns[0](1)(2)(3))\n")
+    rc, out = _run(src)
+    assert rc == 0 and out == "6"
+
+
 @pytest.mark.parametrize("name", [
     "MathaIOError",
 ])

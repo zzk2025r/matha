@@ -154,9 +154,11 @@
   - 环境寄存器 R13 承载「当前调用环境记录」；每个函数序言把它存入
     [rbp - 8*(nlocals+1)]（env 槽），MAKE_CLOSURE/LOAD_OUTER 均从该槽复载。
   - env 记录 = [TYPE_ENV][parent][ncap][cap0..]（MAKE_CLOSURE 时对定义帧的快照，
-    盒捕获复制 Box 指针即获活语义）；closure 记录 = [TYPE_CLOSURE][fn_addr][env]。
-  - _emit_call 按候选值是否落在堆区间分派：普通函数地址直接 call，
-    闭包记录先载 R13=env 再 call fn_addr。
+    盒捕获复制 Box 指针即获活语义）；closure 记录 = [TYPE_CLOSURE][fn_addr][env][arity]。
+  - _emit_call 按候选值是否落在堆区间分派：裸函数地址直接 call（现仅余 arity-1
+    内建的纯文本地址），闭包记录先载 R13=env 再按 arity 决定直调/偏应用/重建调用。
+    顶层用户函数凡以值形式被引用（LOAD_GLOBAL）也以闭包记录暴露，否则
+    apply_rt 走 ar_plain 会忽略实参数、使偏应用/柯里化崩溃（见 _user_closure_arities）。
 """
 from __future__ import annotations
 
@@ -4307,20 +4309,23 @@ def _emit_in_rt(em: _Emitter):
     em.emit(b"\xC3")                                # ret
 
 
-def _emit_builtin_closure_init(em: _Emitter, names: list):
-    """为 arity>1 的内建各分配一条闭包记录，指针写入数据槽 bclo:{name}。
+def _emit_builtin_closure_init(em: _Emitter, items: list):
+    """为每个 (name, arity) 分配一条 [TYPE_CLOSURE][fn][env=0][arity] 记录，
+    指针写入数据槽 bclo:{name}。
 
+    覆盖两类目标：arity>1 的内建（否则 ar_plain 直接 tail-jmp、忽略实参数）
+    与以值形式被引用的顶层用户函数（同上：纯代码地址不支持偏应用/柯里化）。
     必须在 main_entry 之前、heap_ptr 初始化之后执行（依赖 alloc）。
     """
-    for nm in names:
+    for nm, ar in items:
         em.emit(b"\x48\xC7\xC7\x20\x00\x00\x00")       # mov rdi,32
         em.call_rel32("alloc")
         em.emit(b"\x48\xC7\x00" + struct.pack("<I", TYPE_CLOSURE))
-        em.lea_rip(2, f"fn:{nm}")                      # lea rdx,[fn:{nm}]
+        em.lea_rip(2, f"fn:{nm}")                      # lea rdx,[fn:nm]
         em.emit(b"\x48\x89\x50\x08")                    # mov [rax+8],rdx（fn）
         em.emit(b"\x31\xD2")                            # xor edx,edx（env=null）
         em.emit(b"\x48\x89\x50\x10")                    # mov [rax+16],rdx
-        em.emit(b"\x48\xC7\x40\x18" + struct.pack("<i", _BUILTIN_ARITY[nm]))
+        em.emit(b"\x48\xC7\x40\x18" + struct.pack("<i", ar))
         em.emit(b"\x48\x89\x05")                        # mov [rip+bclo:...],rax
         em.rel32_to(f"bclo:{nm}")
 
@@ -7128,7 +7133,8 @@ _MATH_CONSTANTS = _math_constants()
 def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
               tag: str, nlocals: int, idx: int = 0,
               capmap: dict | None = None, arity: dict | None = None,
-              declared_globals: set | None = None, guard: bool = False):
+              declared_globals: set | None = None, guard: bool = False,
+              func_closures: set | None = None):
     op = ins[0]
     if op == OP.PUSH_CONST:
         v = consts[ins[1]]
@@ -7201,9 +7207,11 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         shadowed = (declared_globals is not None and name in declared_globals
                     and name in NATIVE_BUILTINS)
         if name in fn_names and not shadowed:
-            if name in _CURRIED_BUILTINS and name not in user_names:
-                # arity>1 的内建：读启动期建好的闭包记录，使其调用走
-                # ar_close 分支（否则 ar_plain 直接 tail-jmp，忽略实参数）
+            if (name in _CURRIED_BUILTINS and name not in user_names) or \
+                    (func_closures and name in func_closures):
+                # arity>1 的内建，或以值形式被引用的顶层用户函数：读启动期
+                # 建好的闭包记录，使其调用走 ar_close 分支（否则 ar_plain
+                # 直接 tail-jmp，忽略实参数，偏应用/柯里化会崩溃）。
                 em.load_global(f"bclo:{name}")
             else:
                 em.lea_rip(0, f"fn:{name}")         # 函数代码地址
@@ -7885,15 +7893,40 @@ def _declared_globals(mod) -> set:
     return names
 
 
+def _user_closure_arities(mod) -> dict:
+    """顶层「非捕获」函数中，凡以值形式被 LOAD_GLOBAL 读取的，须以闭包记录暴露。
+
+    原生端把用户函数名默认发射为 .text 中的纯代码地址；apply_rt 对堆区间之外
+    的值走 ar_plain 直接 tail-jmp，忽略实参数，故 `let f = g(1)` 后再 `f(2)`
+    或把函数放入列表再调用都会访问违例崩溃。为其分配 [TYPE_CLOSURE][fn][0][arity]
+    记录（同 arity>1 的内建）即可让 apply_rt 走 ar_close 的柯里化分派。
+
+    只覆盖「被 LOAD_GLOBAL 引用、未被同名全局变量遮蔽、且无捕获」的函数；捕获型
+    函数在运行期经 MAKE_CLOSURE 实例化，绝不按名加载。返回 {name: arity}。
+    """
+    capmap = _closure_captures(mod.functions)
+    declared = _declared_globals(mod)
+    out: dict = {}
+    all_code = [mod.main_code] + [f.code for f in mod.functions.values()]
+    for code in all_code:
+        for ins in code:
+            if len(ins) > 1 and ins[0] == OP.LOAD_GLOBAL:
+                nm = mod.constants[ins[1]]
+                if (nm in mod.functions and nm not in declared
+                        and not capmap.get(nm)):
+                    out[nm] = mod.functions[nm].arity
+    return out
+
+
 def _emit_code(em: _Emitter, code: list, consts: list, fn_names: set[str],
                tag: str, nlocals: int, capmap: dict | None = None,
                arity: dict | None = None, declared_globals: set | None = None,
-               guard: bool = False):
+               guard: bool = False, func_closures: set | None = None):
     for i, ins in enumerate(code):
         em.label_here(f"{tag}:{i}")
         _emit_one(em, ins, consts, fn_names, tag, nlocals, i,
                   capmap=capmap, arity=arity, declared_globals=declared_globals,
-                  guard=guard)
+                  guard=guard, func_closures=func_closures)
 
 
 # ---------------------------------------------------------------- 载荷
@@ -7910,6 +7943,7 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     capmap = _closure_captures(mod.functions)
     arities = {n: f.arity for n, f in mod.functions.items()}
     declared_globals = _declared_globals(mod)
+    user_closures = _user_closure_arities(mod)      # name -> arity（见该函数说明）
 
     for name, fn in mod.functions.items():
         if fn.arity > MAX_NATIVE_ARITY:
@@ -7942,15 +7976,17 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     ec.store_rip_from("handler_top", 0)
     ec.store_rip_from("raise_msg", 0)
     ec.label_here("main_entry")
-    _emit_builtin_closure_init(ec, [b for b in builtin_names
-                                    if b in _CURRIED_BUILTINS])
+    _emit_builtin_closure_init(
+        ec,
+        [(b, _BUILTIN_ARITY[b]) for b in builtin_names if b in _CURRIED_BUILTINS]
+        + list(user_closures.items()))
     # GC 只回收此点之后分配的堆；内建闭包（bclo:*）视为永久根，不移动/不回收。
     ec.emit(b"\x48\x8B\x05")                        # mov rax,[rip+heap_ptr]
     ec.rel32_to("heap_ptr")
     ec.store_rip_from("sweep_start", 0)
     _emit_code(ec, mod.main_code, mod.constants, fn_names, "main", 0,
                capmap=capmap, arity=arities, declared_globals=declared_globals,
-               guard=guard)
+               guard=guard, func_closures=set(user_closures))
 
     # ---- 代码：各用户函数 ----
     for name, fn in mod.functions.items():
@@ -7958,7 +7994,8 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
         _emit_prologue(ec, fn.arity, fn.nlocals)
         _emit_code(ec, fn.code, mod.constants, fn_names, f"fn:{name}",
                    fn.nlocals, capmap=capmap, arity=arities,
-                   declared_globals=declared_globals, guard=guard)
+                   declared_globals=declared_globals, guard=guard,
+                   func_closures=set(user_closures))
         ec.emit(b"\x0F\x0B")                        # 保险（RET 后不可达）
 
     # ---- 代码：内建函数 ----
@@ -9517,12 +9554,15 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
         ed.emit(b"\x00" * 8)
     ed.label_here("cells_end")
 
-    # ---- 数据：柯里化内建的闭包记录指针（启动期填充）----
+    # ---- 数据：柯里化内建 / 以值引用的顶层用户函数的闭包记录指针（启动期填充）----
     ed.align(8)
     for nm in NATIVE_BUILTINS:
         if nm in _CURRIED_BUILTINS and nm not in user_names:
             ed.label_here(f"bclo:{nm}")
             ed.emit(b"\x00" * 8)
+    for nm in sorted(_user_closure_arities(mod)):
+        ed.label_here(f"bclo:{nm}")
+        ed.emit(b"\x00" * 8)
 
     # ---- 数据：操作数栈 / 输出缓冲 / 写字数 ----
     ed.align(16)
