@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 多语言前端统一接口
 
@@ -20,31 +19,48 @@
   └────────────────────────────────────────────────────────────────┘
 """
 from __future__ import annotations
+
 import re
-import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 # 尝试加载 tree-sitter 后端（无外部依赖的回退方案）
 try:
     from src.tree_sitter_backends import (
-        RustParser as _TS_Rust,
-        GoParser as _TS_Go,
-        JSParser as _TS_JS,
+        _TS_AVAILABLE,  # noqa: F401
+    )
+    from src.tree_sitter_backends import (
         CParser as _TS_C,
-        get_parser as _ts_get_parser,
-        _TS_AVAILABLE,
+    )
+    from src.tree_sitter_backends import (
+        GoParser as _TS_Go,
+    )
+    from src.tree_sitter_backends import (
+        JSParser as _TS_JS,
+    )
+    from src.tree_sitter_backends import (
+        RustParser as _TS_Rust,
+    )
+    from src.tree_sitter_backends import (
+        get_parser as _ts_get_parser,  # noqa: F401
     )
     _USE_TS = True
 except ImportError:
     _USE_TS = False
 
-from src.mir import MIRProgram, MIRFunction, MIRInstrType, MIRConstInstr, MIRArithInstr
-from src.mir import MIRCallInstr, MIRCompareInstr, MIRLogicalInstr, MIRLabelInstr
-from src.mir import MIRCondBranchInstr, MIRReturnInstr, MIRInstr
-from src.typesystem_v2_fixed import Type, T_INT, T_FLOAT, T_BOOL, T_STRING, T_ANY, ConstraintSolver
-
+from src.mir import (
+    MIRArithInstr,
+    MIRCallInstr,
+    MIRCompareInstr,
+    MIRConstInstr,
+    MIRFunction,
+    MIRInstr,
+    MIRInstrType,
+    MIRLogicalInstr,
+    MIRProgram,
+)
+from src.typesystem_v2_fixed import T_ANY, T_BOOL, T_FLOAT, T_INT, T_STRING, Type
 
 # ============================================================
 # 统一 IR 节点（语言无关）
@@ -76,14 +92,14 @@ class IRNode:
     """语言无关 IR 节点。"""
     kind: IRKind
     value: Any = None
-    op: Optional[str] = None
+    op: str | None = None
     operands: list = field(default_factory=list)
     result: str = ""
     typ: Type = T_ANY
     children: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
-    def with_type(self, typ: Type) -> "IRNode":
+    def with_type(self, typ: Type) -> IRNode:
         """返回类型注解后的新节点。"""
         node = IRNode(self.kind, self.value, self.op, self.operands.copy(),
                       self.result, typ, self.children.copy(), self.metadata.copy())
@@ -127,8 +143,7 @@ class CompileResult:
 
 def _ir_to_mir(node: IRNode) -> list[MIRInstr]:
     """将 IR 节点转换为 MIR 指令。"""
-    from src.mir import MIRConstInstr, MIRArithInstr, MIRCallInstr, MIRCompareInstr
-    from src.mir import MIRLogicalInstr, MIRUnaryInstr, MIRReturnInstr
+    from src.mir import MIRUnaryInstr
 
     if node.kind == IRKind.CONST:
         return [MIRConstInstr(node.result, MIRInstrType.ADD, [], {"value": float(node.value)})]
@@ -535,7 +550,7 @@ class GoFrontend:
             nodes.append(IRNode(IRKind.RETURN, operands=[expr_nodes[-1].result]))
         return nodes
 
-    def _parse_py_expr(self, expr_str: str, param_types: Optional[dict[str, Type]] = None) -> list[IRNode]:
+    def _parse_py_expr(self, expr_str: str, param_types: dict[str, Type] | None = None) -> list[IRNode]:
         """解析 Python 风格表达式生成 IR。"""
         if param_types is None:
             param_types = {}
@@ -1086,7 +1101,7 @@ class CFrontend:
             nodes.append(IRNode(IRKind.RETURN, operands=[expr_nodes[-1].result]))
         return nodes
 
-    def _parse_py_expr(self, expr_str: str, param_types: Optional[dict[str, Type]] = None) -> list[IRNode]:
+    def _parse_py_expr(self, expr_str: str, param_types: dict[str, Type] | None = None) -> list[IRNode]:
         """解析 Python 风格表达式生成 IR。"""
         if param_types is None:
             param_types = {}
@@ -1476,8 +1491,7 @@ class _TS_JSAdapter:
         return self.compile(source).types
 
     def analyze_effects(self, source: str) -> dict[str, str]:
-        return {name: "IO" if "console" in source else "Pure"
-                for name in self.compile(source).functions}
+        return dict.fromkeys(self.compile(source).functions, "IO" if "console" in source else "Pure")
 
 
 class _TS_CAdapter:

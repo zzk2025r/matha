@@ -50,9 +50,10 @@
 """
 
 from __future__ import annotations
-import math
-from src.stdlib.safe_ops import safe_div
 
+import math
+
+from src.stdlib.safe_ops import safe_div
 
 # ============================================================
 # 柯里化工具（与 mechanics.py 语义一致）

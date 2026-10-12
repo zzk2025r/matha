@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 数字版权领域模块：水印技术、区块链存证、访问控制。
 
 覆盖：
@@ -11,7 +10,7 @@
 """
 
 from __future__ import annotations
-import math
+
 import hashlib
 
 
@@ -96,7 +95,7 @@ def _digital_rights_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "水印嵌入强度", "版权保护指数", "访问控制粒度",
-    "哈希碰撞概率", "密钥轮换周期", "数字指纹",
+    "_水印嵌入强度", "_版权保护指数", "_访问控制粒度",
+    "_哈希碰撞概率", "_密钥轮换周期", "_数字指纹",
     "_register_digital_rights", "_digital_rights_symtab_names",
 ]

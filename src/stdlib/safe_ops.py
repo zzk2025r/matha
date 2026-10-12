@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """安全除法工具
 
 统一除零防护：当分母为零时返回 inf 或 0.0（由 caller 指定），
 避免各 domain 模块重复写防御逻辑。
 """
 from __future__ import annotations
+
 import math
 
 

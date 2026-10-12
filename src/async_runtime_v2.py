@@ -1,16 +1,15 @@
-# -*- coding: utf-8 -*-
 """Matha 增强异步运行时：async/await + Channel + Actor + goroutine 调度器。"""
 
 from __future__ import annotations
+
 import asyncio
-import queue
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Callable, Coroutine, Optional
-
+from typing import Any
 
 # ============================================================
 # Goroutine 调度器
@@ -33,7 +32,7 @@ class Goroutine:
     kwargs: dict = field(default_factory=dict)
     state: GState = GState.READY
     result: Any = None
-    error: Optional[Exception] = None
+    error: Exception | None = None
 
 
 class GoroutineScheduler:
@@ -59,13 +58,13 @@ class GoroutineScheduler:
         self._wakeup()
         return gid
 
-    def spawn_channel(self, fn: Callable, *args, **kwargs) -> "Channel":
+    def spawn_channel(self, fn: Callable, *args, **kwargs) -> Channel:
         """启动 goroutine 并返回结果 channel。"""
         ch = Channel()
-        gid = self.spawn(self._channel_producer, ch, fn, *args, **kwargs)
+        self.spawn(self._channel_producer, ch, fn, *args, **kwargs)
         return ch
 
-    def _channel_producer(self, ch: "Channel", fn: Callable, *args, **kwargs) -> None:
+    def _channel_producer(self, ch: Channel, fn: Callable, *args, **kwargs) -> None:
         try:
             result = fn(*args, **kwargs)
             ch.send(result)
@@ -242,7 +241,7 @@ class Actor:
                     msg = self._mailbox.popleft()
                 try:
                     self._handler(msg)
-                except Exception as e:
+                except Exception:
                     pass  # actor 崩溃隔离
         t = threading.Thread(target=_run, daemon=True)
         t.start()
@@ -354,7 +353,7 @@ class AsyncRuntime:
         self._actors[name] = actor
         return actor
 
-    def get_actor(self, name: str) -> Optional[Actor]:
+    def get_actor(self, name: str) -> Actor | None:
         return self._actors.get(name)
 
     def shutdown(self) -> None:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 离线同步模块
 
 提供离线模式下的数据同步功能：
@@ -8,15 +7,16 @@
   - 同步队列管理
 """
 from __future__ import annotations
-import time
+
 import json
 import logging
-from pathlib import Path
-from typing import List, Dict, Optional, Any, Callable
-from dataclasses import dataclass, field
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +34,13 @@ class SyncConflict:
     """同步冲突"""
     id: str
     record_type: str
-    local_data: Dict[str, Any]
-    remote_data: Dict[str, Any]
+    local_data: dict[str, Any]
+    remote_data: dict[str, Any]
     local_timestamp: float
     remote_timestamp: float
     strategy: ConflictStrategy
     resolved: bool = False
-    resolution: Optional[str] = None
+    resolution: str | None = None
 
 
 @dataclass
@@ -68,15 +68,15 @@ class SyncConflictResolver:
 
     def __init__(self, default_strategy: ConflictStrategy = ConflictStrategy.LAST_WRITE_WINS):
         self._default_strategy = default_strategy
-        self._conflict_callbacks: List[Callable[[SyncConflict], None]] = []
-        self._resolved_conflicts: Dict[str, str] = {}  # id -> resolution
-        self._conflict_history: List[SyncConflict] = []
+        self._conflict_callbacks: list[Callable[[SyncConflict], None]] = []
+        self._resolved_conflicts: dict[str, str] = {}  # id -> resolution
+        self._conflict_history: list[SyncConflict] = []
 
     def register_callback(self, callback: Callable[[SyncConflict], None]) -> None:
         """注册冲突解决回调"""
         self._conflict_callbacks.append(callback)
 
-    def resolve(self, conflict: SyncConflict) -> Optional[Dict[str, Any]]:
+    def resolve(self, conflict: SyncConflict) -> dict[str, Any] | None:
         """
         解决冲突
 
@@ -122,7 +122,7 @@ class SyncConflictResolver:
         self._conflict_history.append(conflict)
         return result
 
-    def _last_write_wins(self, conflict: SyncConflict) -> Optional[Dict[str, Any]]:
+    def _last_write_wins(self, conflict: SyncConflict) -> dict[str, Any] | None:
         """最后写入优先策略"""
         if conflict.remote_timestamp > conflict.local_timestamp:
             logger.info(f"冲突解决: 远程数据更新 (remote:{conflict.remote_timestamp} > local:{conflict.local_timestamp})")
@@ -131,7 +131,7 @@ class SyncConflictResolver:
             logger.info(f"冲突解决: 本地数据更新 (local:{conflict.local_timestamp} >= remote:{conflict.remote_timestamp})")
             return conflict.local_data
 
-    def _first_write_wins(self, conflict: SyncConflict) -> Optional[Dict[str, Any]]:
+    def _first_write_wins(self, conflict: SyncConflict) -> dict[str, Any] | None:
         """最先写入优先策略"""
         if conflict.local_timestamp < conflict.remote_timestamp:
             logger.info(f"冲突解决: 保留本地数据 (local:{conflict.local_timestamp} < remote:{conflict.remote_timestamp})")
@@ -140,7 +140,7 @@ class SyncConflictResolver:
             logger.info(f"冲突解决: 使用远程数据 (remote:{conflict.remote_timestamp} <= local:{conflict.local_timestamp})")
             return conflict.remote_data
 
-    def _merge(self, conflict: SyncConflict) -> Optional[Dict[str, Any]]:
+    def _merge(self, conflict: SyncConflict) -> dict[str, Any] | None:
         """
         智能合并策略
 
@@ -150,10 +150,10 @@ class SyncConflictResolver:
         - 标量：本地优先
         """
         merged = self._deep_merge(conflict.local_data, conflict.remote_data)
-        logger.info(f"冲突解决: 合并数据完成")
+        logger.info("冲突解决: 合并数据完成")
         return merged
 
-    def _deep_merge(self, local: Dict[str, Any], remote: Dict[str, Any]) -> Dict[str, Any]:
+    def _deep_merge(self, local: dict[str, Any], remote: dict[str, Any]) -> dict[str, Any]:
         """
         深层合并两个字典
 
@@ -182,7 +182,7 @@ class SyncConflictResolver:
 
         return result
 
-    def _merge_lists(self, local: List[Any], remote: List[Any]) -> List[Any]:
+    def _merge_lists(self, local: list[Any], remote: list[Any]) -> list[Any]:
         """合并列表，按 ID 去重"""
         seen_ids = set()
         merged = []
@@ -207,7 +207,7 @@ class SyncConflictResolver:
 
         return merged
 
-    def manual_resolve(self, conflict_id: str, resolution: str, resolved_data: Dict[str, Any]) -> None:
+    def manual_resolve(self, conflict_id: str, resolution: str, resolved_data: dict[str, Any]) -> None:
         """手动解决冲突"""
         self._resolved_conflicts[conflict_id] = resolution
         logger.info(f"手动解决冲突 {conflict_id}: {resolution}")
@@ -220,7 +220,7 @@ class SyncConflictResolver:
             except Exception as e:
                 logger.error(f"冲突回调执行失败: {e}")
 
-    def get_conflict_history(self, limit: int = 50) -> List[SyncConflict]:
+    def get_conflict_history(self, limit: int = 50) -> list[SyncConflict]:
         """获取冲突历史"""
         return self._conflict_history[-limit:]
 
@@ -229,7 +229,7 @@ class SyncConflictResolver:
         self._conflict_history.clear()
         self._resolved_conflicts.clear()
 
-    def _apply_resolution(self, conflict: SyncConflict, resolution: str) -> Optional[Dict[str, Any]]:
+    def _apply_resolution(self, conflict: SyncConflict, resolution: str) -> dict[str, Any] | None:
         """应用预解决的策略"""
         if resolution == ConflictStrategy.LAST_WRITE_WINS.value:
             return self._last_write_wins(conflict)
@@ -247,9 +247,9 @@ class SyncLogger:
     记录所有同步操作的详细信息，用于调试和问题排查
     """
 
-    def __init__(self, log_file: Optional[str] = None):
+    def __init__(self, log_file: str | None = None):
         self._log_file = log_file or str(Path.home() / '.matha' / 'sync_log.jsonl')
-        self._logs: List[SyncLog] = []
+        self._logs: list[SyncLog] = []
         Path(self._log_file).parent.mkdir(parents=True, exist_ok=True)
 
     def log(self, action: str, record_type: str, record_id: str,
@@ -291,7 +291,7 @@ class SyncLogger:
         except Exception as e:
             logger.warning(f"写入日志文件失败: {e}")
 
-    def get_logs(self, limit: int = 100, action: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_logs(self, limit: int = 100, action: str | None = None) -> list[dict[str, Any]]:
         """获取日志"""
         logs = self._logs[-limit:]
         if action:
@@ -330,24 +330,24 @@ class OfflineSyncManager:
 
     def __init__(
         self,
-        resolver: Optional[SyncConflictResolver] = None,
-        sync_logger: Optional[SyncLogger] = None,
+        resolver: SyncConflictResolver | None = None,
+        sync_logger: SyncLogger | None = None,
         sync_interval: float = 60.0,
     ):
         self._resolver = resolver or SyncConflictResolver()
         self._logger = sync_logger or SyncLogger()
         self._sync_interval = sync_interval
-        self._sync_queue: List[Dict[str, Any]] = []
+        self._sync_queue: list[dict[str, Any]] = []
         self._last_sync_time: float = 0
         self._is_syncing = False
-        self._sync_callbacks: List[Callable[[str, str, str], None]] = []
+        self._sync_callbacks: list[Callable[[str, str, str], None]] = []
 
     def register_callback(self, callback: Callable[[str, str, str], None]) -> None:
         """注册同步回调 (action, record_type, record_id)"""
         self._sync_callbacks.append(callback)
 
     def enqueue(self, action: str, record_type: str, record_id: str,
-                data: Dict[str, Any], priority: int = 0) -> None:
+                data: dict[str, Any], priority: int = 0) -> None:
         """
         将操作加入同步队列
 
@@ -371,7 +371,7 @@ class OfflineSyncManager:
         self._sync_queue.sort(key=lambda x: (-x['priority'], x['timestamp']))
         self._logger.log(action, record_type, record_id, 'pending', '已加入同步队列')
 
-    def process_queue(self, remote_storage: Any) -> List[Dict[str, Any]]:
+    def process_queue(self, remote_storage: Any) -> list[dict[str, Any]]:
         """
         处理同步队列
 
@@ -412,7 +412,7 @@ class OfflineSyncManager:
 
         return results
 
-    def _process_item(self, item: Dict[str, Any], remote_storage: Any) -> Dict[str, Any]:
+    def _process_item(self, item: dict[str, Any], remote_storage: Any) -> dict[str, Any]:
         """处理单个同步项目"""
         action = item['action']
         record_type = item['record_type']
@@ -437,7 +437,7 @@ class OfflineSyncManager:
                 self._logger.log(action, record_type, record_id, 'pending', f'重试 {item["retry_count"]}/3')
                 return {'success': False, 'error': str(e), 'retry': True}
 
-    def _push_item(self, item: Dict[str, Any], remote_storage: Any) -> Dict[str, Any]:
+    def _push_item(self, item: dict[str, Any], remote_storage: Any) -> dict[str, Any]:
         """推送数据到远程"""
         record_type = item['record_type']
         record_id = item['record_id']
@@ -477,7 +477,7 @@ class OfflineSyncManager:
             self._logger.log('push', record_type, record_id, 'synced', '创建成功')
             return {'success': True}
 
-    def _pull_item(self, item: Dict[str, Any], remote_storage: Any) -> Dict[str, Any]:
+    def _pull_item(self, item: dict[str, Any], remote_storage: Any) -> dict[str, Any]:
         """从远程拉取数据"""
         record_type = item['record_type']
         record_id = item['record_id']
@@ -512,7 +512,7 @@ class OfflineSyncManager:
         else:
             return {'success': False, 'error': '远程数据不存在'}
 
-    def _has_conflict(self, local: Dict[str, Any], remote: Dict[str, Any]) -> bool:
+    def _has_conflict(self, local: dict[str, Any], remote: dict[str, Any]) -> bool:
         """检测是否有冲突"""
         local_time = local.get('timestamp', 0)
         remote_time = remote.get('timestamp', 0)
@@ -552,7 +552,7 @@ class OfflineSyncManager:
         """获取最后同步时间"""
         return self._last_sync_time
 
-    def get_sync_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_sync_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         """获取同步日志"""
         return self._logger.get_logs(limit)
 

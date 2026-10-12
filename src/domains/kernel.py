@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """内核数学函数注册。
 
 供 SemanticAnalyzer 和 Interpreter 在初始化时调用，

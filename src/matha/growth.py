@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 成长引擎（Matha Growth Engine）
 
@@ -33,14 +32,14 @@ Matha 成长引擎（Matha Growth Engine）
   print(engine.growth_log)
 """
 from __future__ import annotations
+
 import logging
 import math
-import re
-from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from dataclasses import dataclass
+from typing import Any
 
-from src.symbolic import Expr, Var, Num, Mul, Div, Add, Sub, Pow, Neg, FuncCall, symbol_expr
 from src.formula_system import Formula, FormulaRegistry
+from src.symbolic import Add, Div, Expr, Mul, Num, Pow, Var, symbol_expr
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +83,7 @@ class FormulaComposer:
     def __init__(self, registry: FormulaRegistry):
         self._reg = registry
 
-    def compose_pair(self, name_a: str, name_b: str) -> Optional[GrowthRecord]:
+    def compose_pair(self, name_a: str, name_b: str) -> GrowthRecord | None:
         """组合两个公式。"""
         fa = self._reg._formulas.get(name_a)
         fb = self._reg._formulas.get(name_b)
@@ -106,7 +105,6 @@ class FormulaComposer:
         # 策略：用公式B消去公式A中的一个共享变量
         # 从公式B解出共享变量的表达式，代入公式A
         best_result = None
-        best_elim_var = None
 
         for elim_var in sorted(shared):
             try:
@@ -136,7 +134,6 @@ class FormulaComposer:
                     )
                     if best_result is None or len(remaining) < len(best_result.result_free_vars):
                         best_result = record
-                        best_elim_var = elim_var
             except Exception as ex:
                 steps.append(f'  尝试消去 {elim_var}: {ex}')
 
@@ -156,7 +153,7 @@ class FormulaComposer:
 
         return best_result
 
-    def compose_all(self, names: List[str]) -> List[GrowthRecord]:
+    def compose_all(self, names: list[str]) -> list[GrowthRecord]:
         """组合多个公式，返回所有有效组合结果。"""
         results = []
         for i, na in enumerate(names):
@@ -183,7 +180,7 @@ class FormulaInferencer:
     def __init__(self, registry: FormulaRegistry):
         self._reg = registry
 
-    def differentiate(self, formula_name: str, var: str) -> Optional[GrowthRecord]:
+    def differentiate(self, formula_name: str, var: str) -> GrowthRecord | None:
         """对公式关于某变量求导，得到新公式。"""
         f = self._reg._formulas.get(formula_name)
         if not f:
@@ -214,7 +211,7 @@ class FormulaInferencer:
 
     def substitute_and_simplify(self, formula_name: str,
                                 elim_var: str,
-                                substitution_expr: Expr) -> Optional[GrowthRecord]:
+                                substitution_expr: Expr) -> GrowthRecord | None:
         """用给定表达式替换公式中的变量并简化。"""
         f = self._reg._formulas.get(formula_name)
         if not f:
@@ -241,7 +238,7 @@ class FormulaInferencer:
                                 error=str(ex))
 
     def infer_from_relation(self, target_expr: Expr, relation_var: str,
-                            relation_expr: Expr) -> Optional[GrowthRecord]:
+                            relation_expr: Expr) -> GrowthRecord | None:
         """从关系式 target = f(relation_var) 和 relation_var = g(...) 推导。"""
         steps = [f'target = {target_expr}', f'relation_var = {relation_var}',
                  f'relation_expr = {relation_expr}']
@@ -262,7 +259,7 @@ class FormulaInferencer:
             return GrowthRecord('infer', 'relation', '—', '—', [], steps, success=False,
                                 error=str(ex))
 
-    def batch_differentiate(self, formula_name: str) -> List[GrowthRecord]:
+    def batch_differentiate(self, formula_name: str) -> list[GrowthRecord]:
         """对公式关于所有变量求导，返回所有结果。"""
         f = self._reg._formulas.get(formula_name)
         if not f:
@@ -301,8 +298,8 @@ class FormulaGenerator:
     ]
 
     def generate(self, name: str, target_var: str,
-                 variables: List[str],
-                 constraints: Optional[Dict[str, Any]] = None) -> List[GrowthRecord]:
+                 variables: list[str],
+                 constraints: dict[str, Any] | None = None) -> list[GrowthRecord]:
         """从无到有生成公式。
 
         Args:
@@ -328,7 +325,7 @@ class FormulaGenerator:
                     continue
 
                 # 自检：能否求值？
-                test_bindings = {v: 1.0 for v in variables}
+                test_bindings = dict.fromkeys(variables, 1.0)
                 try:
                     val = expr.evaluate(test_bindings)
                     if not math.isfinite(val):
@@ -371,7 +368,7 @@ class FormulaGenerator:
         return results
 
 
-def _multiply_expr(vars: List[str]) -> Optional[Expr]:
+def _multiply_expr(vars: list[str]) -> Expr | None:
     """构造乘积形式：v1 * v2 * ... * vn"""
     if not vars:
         return None
@@ -381,21 +378,21 @@ def _multiply_expr(vars: List[str]) -> Optional[Expr]:
     return expr
 
 
-def _divide_expr(vars: List[str]) -> Optional[Expr]:
+def _divide_expr(vars: list[str]) -> Expr | None:
     """构造商形式：v1 / v2"""
     if len(vars) < 2:
         return None
     return Div(Var(vars[0]), Var(vars[1]))
 
 
-def _power_expr(vars: List[str]) -> Optional[Expr]:
+def _power_expr(vars: list[str]) -> Expr | None:
     """构造幂形式：v1 ^ 2（用数值2保证可求值）"""
     if not vars:
         return None
     return Pow(Var(vars[0]), Num(2))
 
 
-def _linear_expr(vars: List[str]) -> Optional[Expr]:
+def _linear_expr(vars: list[str]) -> Expr | None:
     """构造线性组合：v1 + v2 + ... + vn"""
     if not vars:
         return None
@@ -405,7 +402,7 @@ def _linear_expr(vars: List[str]) -> Optional[Expr]:
     return expr
 
 
-def _quadratic_expr(vars: List[str]) -> Optional[Expr]:
+def _quadratic_expr(vars: list[str]) -> Expr | None:
     """构造二次型：v1² + v2²"""
     if not vars:
         return None
@@ -415,7 +412,7 @@ def _quadratic_expr(vars: List[str]) -> Optional[Expr]:
     return expr
 
 
-def _coeff_product_expr(vars: List[str]) -> Optional[Expr]:
+def _coeff_product_expr(vars: list[str]) -> Expr | None:
     """构造带系数乘积：0.5 * v1 * v2"""
     if not vars:
         return None
@@ -444,11 +441,11 @@ class FormulaGrowthEngine:
         self._composer = FormulaComposer(registry)
         self._inferencer = FormulaInferencer(registry)
         self._generator = FormulaGenerator()
-        self._growth_log: List[GrowthRecord] = []
-        self._grown_formulas: Dict[str, Formula] = {}  # 成长产生的公式
+        self._growth_log: list[GrowthRecord] = []
+        self._grown_formulas: dict[str, Formula] = {}  # 成长产生的公式
 
     @property
-    def growth_log(self) -> List[GrowthRecord]:
+    def growth_log(self) -> list[GrowthRecord]:
         return list(self._growth_log)
 
     @property
@@ -459,7 +456,7 @@ class FormulaGrowthEngine:
     # 组合能力
     # ------------------------------------------------------------------
 
-    def compose(self, names: List[str]) -> List[GrowthRecord]:
+    def compose(self, names: list[str]) -> list[GrowthRecord]:
         """从已有公式组合出新公式。"""
         results = self._composer.compose_all(names)
         for r in results:
@@ -478,9 +475,9 @@ class FormulaGrowthEngine:
     # 推导能力
     # ------------------------------------------------------------------
 
-    def infer(self, formula_name: str, var: Optional[str] = None,
-              elim_var: Optional[str] = None,
-              substitution: Optional[Expr] = None) -> List[GrowthRecord]:
+    def infer(self, formula_name: str, var: str | None = None,
+              elim_var: str | None = None,
+              substitution: Expr | None = None) -> list[GrowthRecord]:
         """推导新公式。"""
         results = []
 
@@ -515,8 +512,8 @@ class FormulaGrowthEngine:
     # ------------------------------------------------------------------
 
     def generate(self, name: str, target_var: str,
-                 variables: List[str],
-                 constraints: Optional[Dict[str, Any]] = None) -> List[GrowthRecord]:
+                 variables: list[str],
+                 constraints: dict[str, Any] | None = None) -> list[GrowthRecord]:
         """从无到有生成新公式。"""
         results = self._generator.generate(name, target_var, variables, constraints)
         for r in results:
@@ -543,7 +540,7 @@ class FormulaGrowthEngine:
         logger.info(f'  [成长-吞噬] {record.summary()}')
         return record
 
-    def devour_file(self, path, module_name: Optional[str] = None):
+    def devour_file(self, path, module_name: str | None = None):
         """吞噬外部语言源文件。"""
         from src.matha.language_bridge import LanguageBridge
         if getattr(self, '_bridge', None) is None:
@@ -560,7 +557,7 @@ class FormulaGrowthEngine:
     # ------------------------------------------------------------------
 
     def register_grown_formula(self, record: GrowthRecord,
-                                name_override: Optional[str] = None) -> bool:
+                                name_override: str | None = None) -> bool:
         """将成长产生的公式注册到公式库。"""
         if not record.success:
             return False
@@ -601,10 +598,10 @@ class FormulaGrowthEngine:
     # 全自动化成长流程
     # ------------------------------------------------------------------
 
-    def auto_grow(self, source_names: Optional[List[str]] = None,
+    def auto_grow(self, source_names: list[str] | None = None,
                   max_combinations: int = 10,
                   max_derivatives: int = 20,
-                  generate_constraints: Optional[List[Dict]] = None) -> Dict[str, int]:
+                  generate_constraints: list[dict] | None = None) -> dict[str, int]:
         """全自动成长：组合 + 推导 + 生成。
 
         Returns:
@@ -647,14 +644,14 @@ class FormulaGrowthEngine:
         lines.append(f'  │ 成长记录: {len(self._growth_log)} 条')
         lines.append(f'  │ 已注册新公式: {len(self._grown_formulas)} 个')
 
-        by_type: Dict[str, int] = {}
+        by_type: dict[str, int] = {}
         for r in self._growth_log:
             by_type[r.op_type] = by_type.get(r.op_type, 0) + 1
         for t, c in sorted(by_type.items()):
             lines.append(f'  │   {t}: {c} 条')
 
         if self._grown_formulas:
-            lines.append(f'  │ 已注册公式:')
+            lines.append('  │ 已注册公式:')
             for fname, f in list(self._grown_formulas.items())[:5]:
                 lines.append(f'  │    • {fname} = {f.expr}')
         lines.append('  └──────────────────────────────────────')

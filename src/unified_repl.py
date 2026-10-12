@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha REPL 统一层（Unified REPL）
 
@@ -13,9 +12,9 @@ from __future__ import annotations
 # ── 从 repl_v23 导入增强实现 ────────────────────────────────────────────────
 try:
     from src.repl_v23 import (  # noqa: F401
-        run_repl,
-        REPLState,
         MathaREPL,
+        REPLState,
+        run_repl,
     )
 except ImportError:
     run_repl = None
@@ -24,10 +23,14 @@ except ImportError:
 
 # ── 从 repl 导入基础实现（向后兼容）─────────────────────────────────────────
 try:
+    from src.repl import (
+        MathaREPL as MathaREPLV22,
+    )
+    from src.repl import (
+        REPLState as REPLStateV22,
+    )
     from src.repl import (  # noqa: F401
         run_repl as run_repl_v22,
-        REPLState as REPLStateV22,
-        MathaREPL as MathaREPLV22,
     )
 except ImportError:
     run_repl_v22 = None

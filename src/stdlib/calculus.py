@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — 微积分运算标准库
 
 提供微积分核心功能：
@@ -19,10 +18,9 @@
   )
 """
 from __future__ import annotations
-import math
-from typing import Callable, List, Optional, Tuple
-from dataclasses import dataclass
 
+import math
+from collections.abc import Callable
 
 # ============================================================
 # 数值微分
@@ -187,7 +185,7 @@ def _numerical_derivative(f: Callable[[float], float], x: float, n: int, h: floa
 # 级数求和
 # ============================================================
 
-def infinite_sum(term_fn: Callable[[int], float], max_terms: int = 10000, tolerance: float = 1e-10) -> Tuple[float, int]:
+def infinite_sum(term_fn: Callable[[int], float], max_terms: int = 10000, tolerance: float = 1e-10) -> tuple[float, int]:
     """
     无穷级数求和：S = Σ term(n) for n in [0, ∞)
 
@@ -213,7 +211,7 @@ def infinite_sum(term_fn: Callable[[int], float], max_terms: int = 10000, tolera
 # 牛顿法求根
 # ============================================================
 
-def newton_method(f: Callable[[float], float], x0: float, tolerance: float = 1e-10, max_iter: int = 100) -> Tuple[float, int]:
+def newton_method(f: Callable[[float], float], x0: float, tolerance: float = 1e-10, max_iter: int = 100) -> tuple[float, int]:
     """
     牛顿法求根：f(x) = 0
 

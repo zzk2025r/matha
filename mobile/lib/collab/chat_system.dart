@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'session_manager.dart';
+import 'websocket_manager.dart';
 
 /// 消息类型
 enum MessageType {
@@ -171,8 +172,44 @@ class ChatManager extends ChangeNotifier {
   
   String? _currentSessionId;
   int _unreadCount = 0;
+  WebSocketManager? _wsManager;
 
   ChatManager({required this.documentId});
+
+  /// 连接实时通信通道
+  void attachWebSocket(WebSocketManager? manager) {
+    _wsManager = manager;
+    if (manager != null) {
+      manager.onCustomMessage = _handleServerMessage;
+      debugPrint('[Chat] WebSocket 通道已挂载');
+    } else {
+      debugPrint('[Chat] WebSocket 通道已分离');
+    }
+    notifyListeners();
+  }
+
+  /// 处理服务器推送的自定义消息（聊天等）
+  void _handleServerMessage(Map<String, dynamic> message) {
+    final type = message['type'] as String?;
+    if (type == 'chat') {
+      final data = message['message'];
+      if (data is Map<String, dynamic>) {
+        final sessionId = message['sessionId'] as String? ?? _currentSessionId;
+        if (sessionId == null || sessionId.isEmpty) {
+          debugPrint('[Chat] 忽略无会话的消息');
+          return;
+        }
+        getOrCreateSession(sessionId);
+        final remote = ChatMessage.fromMap(data);
+        _addMessage(sessionId, remote);
+        if (sessionId != _currentSessionId) {
+          _unreadCount++;
+        }
+        notifyListeners();
+        debugPrint('[Chat] 收到远程消息: ${remote.messageId} from ${remote.userName}');
+      }
+    }
+  }
 
   // ========== 会话管理 ==========
 
@@ -238,7 +275,7 @@ class ChatManager extends ChangeNotifier {
     // 添加到本地
     _addMessage(sessionId, message);
     
-    // 发送到服务器（TODO: 实现 WebSocket 发送）
+    // 发送到服务器（WebSocket）
     await _sendToServer(message);
 
     debugPrint('[Chat] ✓ 消息发送成功');
@@ -369,9 +406,19 @@ class ChatManager extends ChangeNotifier {
   }
 
   Future<void> _sendToServer(ChatMessage message) async {
-    // TODO: 实现 WebSocket 发送
-    debugPrint('[Chat] 发送消息到服务器: ${message.messageId}');
-    await Future.delayed(const Duration(milliseconds: 100));
+    final ws = _wsManager;
+    if (ws == null) {
+      debugPrint('[Chat] 未连接 WebSocket，消息仅本地保存: ${message.messageId}');
+      return;
+    }
+    ws.sendRawMessage({
+      'type': 'chat',
+      'sessionId': _currentSessionId ?? 'unknown',
+      'documentId': documentId,
+      'message': message.toMap(),
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+    debugPrint('[Chat] ✓ 消息已通过 WebSocket 发送: ${message.messageId}');
   }
 
   // ========== Stream ==========

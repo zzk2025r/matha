@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha LLVM 工具链架构
 
@@ -32,14 +31,16 @@ Matha LLVM 工具链架构
 """
 
 from __future__ import annotations
-import json
+
 import os
 import subprocess
-import sys
 import tempfile
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
 
+from src.bootstrap import (
+    MathaBytecodeCompiler,
+    MathaSelfCompiler,
+    NumberSystemCompiler,
+)
 
 # ============================================================
 # 1. Matha 前端 (Frontend)
@@ -357,7 +358,7 @@ class MathaParser:
         self._expect("KEYWORD")
         name_tok = self._expect("IDENT")
         self._expect("(")
-        params = self._parse_param_list()
+        self._parse_param_list()
         self._expect(")")
         ret_type = "Any"
         if self._peek().type == "-":
@@ -864,7 +865,7 @@ class MathaCompiler:
         self._stats = {"compile_count": 0, "cache_hits": 0}
 
     def compile_file(self, matha_file: str, output_name: str = "out") -> str:
-        with open(matha_file, "r", encoding="utf-8") as f:
+        with open(matha_file, encoding="utf-8") as f:
             source = f.read()
         return self.compile_source(source, output_name)
 
@@ -933,6 +934,31 @@ def matha_to_llvm(source: str) -> str:
     return generator.generate(matha_ir)
 
 
+def matha2c(source: str, optimize: bool = True) -> str:
+    """将 Matha 源码转译为 C 代码。"""
+    from src.bootstrap import bootstrap_compile
+    return bootstrap_compile(source, target="c", optimize=optimize)
+
+
+def matha_bootstrap_compile(source: str, target: str = "c",
+                               optimize: bool = True,
+                               target_base: int = 2,
+                               hardware_profile: str | None = None
+                               ) -> str:
+    """完整自举编译 Matha 源码。
+
+    支持目标：c, python, llvm, matha, binary, trinary, decimal
+
+    数制选择：
+      根据底层硬件需求自动选择最优数制：
+      - x86/ARM → 二进制 (Base-2)
+      - 三进制处理器 → 三进制 (Base-3)
+      - 十进制硬件 → 十进制 (Base-10)
+    """
+    from src.bootstrap import matha_bootstrap_compile
+    return matha_bootstrap_compile(source, target, optimize, target_base, hardware_profile)
+
+
 # ============================================================
 # 模块导出
 # ============================================================
@@ -951,4 +977,9 @@ __all__ = [
     "matha_compile",
     "matha_run",
     "matha_to_llvm",
+    "matha2c",
+    "matha_bootstrap_compile",
+    "NumberSystemCompiler",
+    "MathaBytecodeCompiler",
+    "MathaSelfCompiler",
 ]

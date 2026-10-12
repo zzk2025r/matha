@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha AOT/JIT 编译器 + 常驻缓存解释器。
 
 核心升级：
@@ -15,15 +14,13 @@
 """
 
 from __future__ import annotations
-import ast as pyast
+
 import hashlib
 import json
 import os
-import sys
 import time
-from functools import lru_cache
-from typing import Any, Callable, Optional
-
+from collections.abc import Callable
+from typing import Any
 
 # ============================================================
 # Trampoline：尾递归消除
@@ -73,7 +70,7 @@ class MathaAOTCompiler:
         try:
             exec(code, namespace)  # noqa: S102
             self._cache_stats["compiled"] += 1
-        except SyntaxError as e:
+        except SyntaxError:
             # 回退到解释执行
             return {}
         return namespace
@@ -284,7 +281,7 @@ class MathaAOTCompiler:
 
         namespace = self.compile_program(program_ast)
         MathaAOTCompiler._cache[cache_key] = namespace
-        MathaOTCompiler._cache_stats["misses"] += 1
+        MathaAOTCompiler._cache_stats["misses"] += 1
         return namespace
 
 
@@ -352,15 +349,15 @@ class AOTProfiler:
 
     def profile(self, name: str, source: str, iterations: int = 1000) -> dict:
         """对源码进行性能测试。"""
-        from src.parser import parse
         from src.interp import Interpreter
+        from src.parser import parse
 
         program = parse(source)
 
         # AOT 编译计时
         compiler = MathaAOTCompiler()
         t0 = time.perf_counter()
-        ns = compiler.compile_and_cache(source, program)
+        compiler.compile_and_cache(source, program)
         compile_time = (time.perf_counter() - t0) * 1000
 
         # 执行计时（AOT）
@@ -413,10 +410,10 @@ class CompilerCache:
         )
         os.makedirs(self._cache_dir, exist_ok=True)
 
-    def get(self, key: str) -> Optional[dict]:
+    def get(self, key: str) -> dict | None:
         path = os.path.join(self._cache_dir, f"{key}.json")
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         return None
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha Windows Multiprocessing 检测与文档
 
@@ -9,9 +8,10 @@ KNP-007: Windows 下 multiprocessing spawn 模式限制
 本模块提供检测工具。
 """
 from __future__ import annotations
+
 import inspect
-import sys
 import logging
+import sys
 
 logger = logging.getLogger("matha.windows_mp")
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 金融科技领域模块：期权定价、风险管理、量化交易、信用评级。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -118,7 +118,7 @@ def _fintech_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "BlackScholes期权定价", "VaR风险价值", "夏普比率",
-    "信用评分", "流动性覆盖率", "杠杆率",
+    "_BlackScholes期权定价", "_VaR风险价值", "_夏普比率",
+    "_信用评分", "_流动性覆盖率", "_杠杆率",
     "_register_fintech", "_fintech_symtab_names",
 ]

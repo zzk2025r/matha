@@ -12,6 +12,8 @@ class NodeWidget extends StatefulWidget {
   final Function(String, Offset) onStartDragConnection;
   final Function(String?, String?) onEndDragConnection;
   final Function(String) isConnected;
+  final VoidCallback? onDragStart;
+  final VoidCallback? onDragEnd;
 
   const NodeWidget({
     super.key,
@@ -22,6 +24,8 @@ class NodeWidget extends StatefulWidget {
     required this.onStartDragConnection,
     required this.onEndDragConnection,
     required this.isConnected,
+    this.onDragStart,
+    this.onDragEnd,
   });
 
   @override
@@ -49,6 +53,7 @@ class _NodeWidgetState extends State<NodeWidget> {
 
   void _onPanStart(DragStartDetails details) {
     _dragStartPos = details.globalPosition;
+    widget.onDragStart?.call();
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
@@ -63,6 +68,7 @@ class _NodeWidgetState extends State<NodeWidget> {
 
   void _onPanEnd(DragEndDetails details) {
     _dragStartPos = null;
+    widget.onDragEnd?.call();
   }
 
   void _onPortDragStart(DragStartDetails details, String portName, bool isInput) {
@@ -87,8 +93,9 @@ class _NodeWidgetState extends State<NodeWidget> {
       child: MouseRegion(
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
-        child: Container(
+child: Container(
           width: 180,
+          constraints: const BoxConstraints(minHeight: 72),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(8),
@@ -140,14 +147,16 @@ class _NodeWidgetState extends State<NodeWidget> {
                   ],
                 ),
               ),
-              
+
               // 端口区域
-              Expanded(
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
                 child: Row(
                   children: [
                     // 输入端口
                     if (definition.inputs.isNotEmpty)
-                      Expanded(
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
                         child: _PortColumn(
                           ports: definition.inputs,
                           isInput: true,
@@ -157,19 +166,19 @@ class _NodeWidgetState extends State<NodeWidget> {
                           onDragEnd: _onPortDragEnd,
                         ),
                       ),
-                    
+
                     // 内容区域
                     Expanded(
-                      flex: 2,
                       child: _NodeContent(
                         node: widget.node,
                         definition: definition,
                       ),
                     ),
-                    
+
                     // 输出端口
                     if (definition.outputs.isNotEmpty)
-                      Expanded(
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
                         child: _PortColumn(
                           ports: definition.outputs,
                           isInput: false,

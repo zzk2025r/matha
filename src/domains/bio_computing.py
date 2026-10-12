@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 生物计算领域模块：生物信息学、基因组学、蛋白质结构、系统生物学。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -111,7 +111,7 @@ def _bio_computing_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "GC含量计算", "分子质量估算", "蛋白折叠能量",
-    "序列比对得分", "系统稳定性", "代谢通量",
+    "_GC含量计算", "_分子质量估算", "_蛋白折叠能量",
+    "_序列比对得分", "_系统稳定性", "_代谢通量",
     "_register_bio_computing", "_bio_computing_symtab_names",
 ]

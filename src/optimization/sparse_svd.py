@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-"""Matha v4.4 — 稀疏矩阵 SVD 优化模块
+﻿"""Matha v4.4 — 稀疏矩阵 SVD 优化模块
 
 本模块提供稀疏矩阵 SVD 分解的优化实现，包括：
   - 稀疏矩阵检测
@@ -25,12 +24,14 @@
   speedup = optimizer.compare_performance(matrix)
 """
 from __future__ import annotations
+
 import logging
 import time
-import random
-import functools
-from typing import List, Tuple, Optional, Dict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.stdlib.linear_algebra import Matrix
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SVDResult:
     """SVD 分解结果。"""
-    U: 'Matrix'          # 左奇异向量
-    S: 'Matrix'          # 奇异值矩阵
-    Vt: 'Matrix'         # 右奇异向量转置
+    U: Matrix          # 左奇异向量
+    S: Matrix          # 奇异值矩阵
+    Vt: Matrix         # 右奇异向量转置
     method: str          # 使用的算法 ('numpy', 'sparse', 'standard')
     computation_time_ms: float = 0.0
     sparsity: float = 0.0
@@ -95,12 +96,12 @@ class SparseSVDOptimizer:
         self.cache_max_size = cache_max_size
 
         # 缓存
-        self._svd_cache: Dict[tuple, SVDResult] = {}
+        self._svd_cache: dict[tuple, SVDResult] = {}
         self._counters = {'sparse_svd': 0, 'numpy_svd': 0, 'standard_svd': 0}
 
         logger.info(f"稀疏 SVD 优化器初始化: threshold={threshold}, max_iter={max_iter}")
 
-    def is_sparse(self, A: 'Matrix') -> bool:
+    def is_sparse(self, A: Matrix) -> bool:
         """
         检测矩阵是否为稀疏矩阵。
 
@@ -122,7 +123,7 @@ class SparseSVDOptimizer:
         logger.debug(f"稀疏度检测: {sparsity:.4f} ({'稀疏' if is_sparse_result else '稠密'})")
         return is_sparse_result
 
-    def _get_sparsity(self, A: 'Matrix') -> float:
+    def _get_sparsity(self, A: Matrix) -> float:
         """计算矩阵稀疏度。"""
         from src.stdlib.linear_algebra import Matrix as MathaMatrix
         if not isinstance(A, MathaMatrix):
@@ -132,7 +133,7 @@ class SparseSVDOptimizer:
         zero_count = sum(1 for row in A.data for v in row if abs(v) < 1e-10)
         return zero_count / total if total > 0 else 0.0
 
-    def _make_cache_key(self, A: 'Matrix') -> tuple:
+    def _make_cache_key(self, A: Matrix) -> tuple:
         """创建缓存键。"""
         return tuple(tuple(row) for row in A.data)
 
@@ -146,7 +147,7 @@ class SparseSVDOptimizer:
 
     def svd(
         self,
-        A: 'Matrix',
+        A: Matrix,
         use_numpy: bool = True,
         force_sparse: bool = False
     ) -> SVDResult:
@@ -161,7 +162,8 @@ class SparseSVDOptimizer:
         Returns:
             SVDResult: 包含 U, S, Vt 和性能统计
         """
-        from src.stdlib.linear_algebra import Matrix as MathaMatrix, svd_decompose, svd_decompose_sparse, _is_sparse_matrix
+        from src.stdlib.linear_algebra import Matrix as MathaMatrix
+        from src.stdlib.linear_algebra import _is_sparse_matrix, svd_decompose, svd_decompose_sparse
 
         if not isinstance(A, MathaMatrix):
             A = MathaMatrix(A)
@@ -231,7 +233,7 @@ class SparseSVDOptimizer:
 
     def compare_performance(
         self,
-        A: 'Matrix',
+        A: Matrix,
         iterations: int = 5
     ) -> PerformanceStats:
         """
@@ -244,8 +246,9 @@ class SparseSVDOptimizer:
         Returns:
             PerformanceStats: 性能统计
         """
-        from src.stdlib.linear_algebra import Matrix, svd_decompose, svd_decompose_sparse
         import statistics
+
+        from src.stdlib.linear_algebra import svd_decompose, svd_decompose_sparse
 
         stats = PerformanceStats()
 
@@ -281,11 +284,11 @@ class SparseSVDOptimizer:
 
     def batch_svd(
         self,
-        matrices: List['Matrix'],
+        matrices: list[Matrix],
         use_numpy: bool = True,
         parallel: bool = False,
         n_workers: int = 4
-    ) -> List[SVDResult]:
+    ) -> list[SVDResult]:
         """
         批量 SVD 分解。
 
@@ -334,7 +337,7 @@ class SparseSVDOptimizer:
         base_time_ms: float,
         target_size: int,
         sparsity: float = 0.9
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         预测大规模矩阵的 SVD 耗时。
 
@@ -376,7 +379,7 @@ class SparseSVDOptimizer:
             'predicted_sparse_time_sec': predicted_sparse_time / 1000,
         }
 
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> dict:
         """获取优化器统计信息。"""
         return {
             'threshold': self.threshold,
@@ -422,10 +425,10 @@ def create_optimizer(
 
 
 def quick_svd(
-    A: 'Matrix',
+    A: Matrix,
     threshold: float = 0.9,
     max_iter: int = 100
-) -> Tuple['Matrix', 'Matrix', 'Matrix']:
+) -> tuple[Matrix, Matrix, Matrix]:
     """
     快速 SVD 分解（便捷函数）。
 
@@ -440,3 +443,5 @@ def quick_svd(
     optimizer = SparseSVDOptimizer(threshold=threshold, max_iter=max_iter)
     result = optimizer.svd(A)
     return result.U, result.S, result.Vt
+
+

@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 Matha 类型系统 v2 - 约束求解器补全
 
 修复 typesystem_v2.py 中的 NotImplemented，实现完整的约束求解。
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
 
+from dataclasses import dataclass, field
 
 # ============================================================
 # 类型系统 v2 补全
@@ -22,46 +20,46 @@ class Type:
     constraints: list = field(default_factory=list)
 
     @classmethod
-    def int_type(cls) -> "Type":
+    def int_type(cls) -> Type:
         return cls(kind="basic", name="Int")
 
     @classmethod
-    def float_type(cls) -> "Type":
+    def float_type(cls) -> Type:
         return cls(kind="basic", name="Float")
 
     @classmethod
-    def string_type(cls) -> "Type":
+    def string_type(cls) -> Type:
         return cls(kind="basic", name="String")
 
     @classmethod
-    def bool_type(cls) -> "Type":
+    def bool_type(cls) -> Type:
         return cls(kind="basic", name="Bool")
 
     @classmethod
-    def void_type(cls) -> "Type":
+    def void_type(cls) -> Type:
         return cls(kind="basic", name="Void")
 
     @classmethod
-    def any_type(cls) -> "Type":
+    def any_type(cls) -> Type:
         return cls(kind="basic", name="Any")
 
     @classmethod
-    def unknown_type(cls) -> "Type":
+    def unknown_type(cls) -> Type:
         return cls(kind="basic", name="Unknown")
 
     @classmethod
-    def list_type(cls, elem: "Type") -> "Type":
+    def list_type(cls, elem: Type) -> Type:
         return cls(kind="container", name="List", args=[elem])
 
     @classmethod
-    def dict_type(cls, key: "Type", value: "Type") -> "Type":
+    def dict_type(cls, key: Type, value: Type) -> Type:
         return cls(kind="container", name="Dict", args=[key, value])
 
     @classmethod
-    def func_type(cls, params: list["Type"], return_type: "Type") -> "Type":
+    def func_type(cls, params: list[Type], return_type: Type) -> Type:
         return cls(kind="function", name="Fn", args=params + [return_type])
 
-    def with_constraints(self, *constraints: str) -> "Type":
+    def with_constraints(self, *constraints: str) -> Type:
         """添加约束。"""
         new = Type(
             kind=self.kind, name=self.name,
@@ -76,7 +74,7 @@ class Type:
     def is_container(self) -> bool:
         return self.name in ("List", "Dict")
 
-    def element_type(self) -> Optional["Type"]:
+    def element_type(self) -> Type | None:
         return self.args[0] if self.args else None
 
     def has_constraint(self, constraint: str) -> bool:

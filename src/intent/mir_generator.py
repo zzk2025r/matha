@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — MIR 代码生成器
 
 将结构化意图转换为可执行的机械语言（MIR）代码。
@@ -13,13 +12,14 @@
   mir_code = generator.generate(intent)
 """
 from __future__ import annotations
+
 import json
 import logging
 import sys
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -73,8 +73,8 @@ class MIRNode:
     """MIR AST 节点。"""
     kind: MIRNodeKind
     value: Any = None
-    children: List['MIRNode'] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    children: list[MIRNode] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_math_code(self, indent: int = 0) -> str:
         """序列化为可读的机械语言代码。"""
@@ -121,7 +121,7 @@ class MIRGenerator:
     """
 
     # 意图类型到 MIR 操作的映射
-    _INTENT_MIR_MAP: Dict[IntentType, MIRNodeKind] = {
+    _INTENT_MIR_MAP: dict[IntentType, MIRNodeKind] = {
         IntentType.ARITHMETIC: MIRNodeKind.ADD,
         IntentType.MATH_FUNC: MIRNodeKind.SQRT,
         IntentType.ALGORITHM: MIRNodeKind.FUNCTION,
@@ -135,7 +135,7 @@ class MIRGenerator:
     }
 
     def __init__(self):
-        self._cache: Dict[str, str] = {}
+        self._cache: dict[str, str] = {}
         self._generation_count = 0
 
     def generate(self, intent: Intent) -> MIRNode:
@@ -189,7 +189,7 @@ class MIRGenerator:
 
         return node
 
-    def generate_from_text(self, text: str, intent: Optional[Intent] = None) -> str:
+    def generate_from_text(self, text: str, intent: Intent | None = None) -> str:
         """
         便捷方法：根据文本生成 MIR 代码。
 
@@ -232,7 +232,7 @@ class MIRGenerator:
         """清空缓存。"""
         self._cache.clear()
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """获取生成器统计。"""
         return {
             "generation_count": self._generation_count,
@@ -244,7 +244,7 @@ class MIRGenerator:
 # 便捷函数
 # ============================================================
 
-def generate_mir(text: str, intent: Optional[Intent] = None) -> str:
+def generate_mir(text: str, intent: Intent | None = None) -> str:
     """便捷函数：生成 MIR 代码。"""
     generator = MIRGenerator()
     return generator.generate_from_text(text, intent)
@@ -294,7 +294,7 @@ if __name__ == "__main__":
     mir_node = generator.generate(intent)
     mir_code = mir_node.to_math_code()
 
-    print(f"\n生成的 MIR 代码:")
+    print("\n生成的 MIR 代码:")
     print(mir_code)
 
     # 解释

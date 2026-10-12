@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 数学驱动层 v1.3.0
 ========================
@@ -18,14 +17,14 @@ Matha 数学驱动层 v1.3.0
   4. 数学公式 → CodeGen 翻译为任意语言
 """
 from __future__ import annotations
-import sys
-import os
+
 import logging
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional, Any, Callable, Dict, List, Tuple
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger("matha.driver")
 
@@ -68,8 +67,8 @@ class MathDriver:
     """
     name: str
     hw_type: HardwareType
-    math_ops: Dict[str, Callable] = field(default_factory=dict)
-    hardware: Optional[HardwareSpec] = None
+    math_ops: dict[str, Callable] = field(default_factory=dict)
+    hardware: HardwareSpec | None = None
     _op_count: int = 0
     _total_latency_ms: float = 0.0
 
@@ -130,7 +129,7 @@ class LinearAlgebraDriver(MathDriver):
         return sum(x * y for x, y in zip(a, b))
 
     @staticmethod
-    def _cross(a: list, b: list) -> List[float]:
+    def _cross(a: list, b: list) -> list[float]:
         return [
             a[1]*b[2] - a[2]*b[1],
             a[2]*b[0] - a[0]*b[2],
@@ -138,9 +137,9 @@ class LinearAlgebraDriver(MathDriver):
         ]
 
     @staticmethod
-    def _mat_mul(a: list, b: list) -> List[List[float]]:
+    def _mat_mul(a: list, b: list) -> list[list[float]]:
         rows_a, cols_a = len(a), len(a[0])
-        rows_b, cols_b = len(b), len(b[0])
+        _rows_b, cols_b = len(b), len(b[0])
         result = [[0.0]*cols_b for _ in range(rows_a)]
         for i in range(rows_a):
             for j in range(cols_b):
@@ -149,11 +148,11 @@ class LinearAlgebraDriver(MathDriver):
         return result
 
     @staticmethod
-    def _mat_add(a: list, b: list) -> List[List[float]]:
+    def _mat_add(a: list, b: list) -> list[list[float]]:
         return [[a[i][j] + b[i][j] for j in range(len(a[0]))] for i in range(len(a))]
 
     @staticmethod
-    def _mat_transpose(m: list) -> List[List[float]]:
+    def _mat_transpose(m: list) -> list[list[float]]:
         return [[m[j][i] for j in range(len(m))] for i in range(len(m[0]))]
 
     @staticmethod
@@ -168,7 +167,7 @@ class LinearAlgebraDriver(MathDriver):
         return det
 
     @staticmethod
-    def _mat_inv(m: list) -> Optional[List[List[float]]]:
+    def _mat_inv(m: list) -> list[list[float]] | None:
         """高斯-若尔当消元法求逆矩阵。"""
         n = len(m)
         aug = [row[:] + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate(m)]
@@ -188,7 +187,7 @@ class LinearAlgebraDriver(MathDriver):
         return [row[n:] for row in aug]
 
     @staticmethod
-    def _eigenvalues(m: list) -> List[float]:
+    def _eigenvalues(m: list) -> list[float]:
         """2x2 矩阵的特征值。"""
         n = len(m)
         if n == 1: return [m[0][0]]
@@ -206,7 +205,7 @@ class LinearAlgebraDriver(MathDriver):
         return sum(abs(x) ** p for x in v) ** (1.0 / p)
 
     @staticmethod
-    def _mat_power(m: list, n: int) -> List[List[float]]:
+    def _mat_power(m: list, n: int) -> list[list[float]]:
         result = [[1.0 if i == j else 0.0 for j in range(len(m))] for i in range(len(m))]
         base = [row[:] for row in m]
         while n > 0:
@@ -317,7 +316,7 @@ class SignalDriver(MathDriver):
         logger.info(f"  [信号驱动] 注册 {len(self.math_ops)} 个运算")
 
     @staticmethod
-    def _fft(signal: List[complex]) -> List[complex]:
+    def _fft(signal: list[complex]) -> list[complex]:
         """朴素 FFT（O(n²)）。"""
         n = len(signal)
         if n <= 1: return list(signal)
@@ -331,13 +330,13 @@ class SignalDriver(MathDriver):
         return result
 
     @staticmethod
-    def _ifft(signal: List[complex]) -> List[complex]:
+    def _ifft(signal: list[complex]) -> list[complex]:
         conj = [x.conjugate() for x in signal]
         result = SignalDriver._fft(conj)
         return [x.conjugate() / len(signal) for x in result]
 
     @staticmethod
-    def _convolve(a: List[float], b: List[float]) -> List[float]:
+    def _convolve(a: list[float], b: list[float]) -> list[float]:
         n, m = len(a), len(b)
         result = [0.0] * (n + m - 1)
         for i in range(n):
@@ -346,20 +345,20 @@ class SignalDriver(MathDriver):
         return result
 
     @staticmethod
-    def _lowpass(signal: List[float], cutoff: float) -> List[float]:
+    def _lowpass(signal: list[float], cutoff: float) -> list[float]:
         """简单移动平均低通滤波。"""
         n = max(2, int(1.0 / cutoff)) if cutoff > 0 else len(signal)
         return [sum(signal[max(0,i-n//2):min(len(signal),i+n//2+1)]) / n
                 for i in range(len(signal))]
 
     @staticmethod
-    def _highpass(signal: List[float], cutoff: float) -> List[float]:
+    def _highpass(signal: list[float], cutoff: float) -> list[float]:
         """高通滤波 = 原始 - 低通。"""
         lp = SignalDriver._lowpass(signal, cutoff)
         return [s - l for s, l in zip(signal, lp)]
 
     @staticmethod
-    def _magnitude(signal: List[complex]) -> List[float]:
+    def _magnitude(signal: list[complex]) -> list[float]:
         return [abs(x) for x in signal]
 
 
@@ -384,7 +383,7 @@ class GeometryDriver(MathDriver):
         logger.info(f"  [几何驱动] 注册 {len(self.math_ops)} 个运算")
 
     @staticmethod
-    def _polygon_area(points: List[Tuple[float, float]]) -> float:
+    def _polygon_area(points: list[tuple[float, float]]) -> float:
         """鞋带公式。"""
         n = len(points)
         area = 0.0
@@ -442,12 +441,12 @@ class OptimizationDriver(MathDriver):
                         tol: float = 1e-8) -> float:
         golden = (math.sqrt(5) - 1) / 2
         a, b = lo, hi
-        fa, fb = func(a), func(b)
+        fa, _fb = func(a), func(b)
         while b - a > tol:
             c = b - golden * (b - a)
             fc = func(c)
             if fc < fa:
-                b, fb = c, fc
+                b, _fb = c, fc
             else:
                 a, fa = c, fc
         return (a + b) / 2
@@ -468,8 +467,8 @@ class MathDriverManager:
     """
 
     def __init__(self):
-        self.drivers: Dict[str, MathDriver] = {}
-        self._hardware_map: Dict[str, HardwareSpec] = {}
+        self.drivers: dict[str, MathDriver] = {}
+        self._hardware_map: dict[str, HardwareSpec] = {}
         self._init_drivers()
         logger.info("  [驱动管理器] 初始化完成")
 
@@ -497,7 +496,7 @@ class MathDriverManager:
             raise ValueError(f"未找到驱动: {driver_name}")
         return driver.execute(op_name, *args, **kwargs)
 
-    def list_drivers(self) -> List[dict]:
+    def list_drivers(self) -> list[dict]:
         """列出所有驱动。"""
         return [
             {"name": d.name, "type": d.hw_type.value, "ops": len(d.math_ops),
@@ -513,7 +512,7 @@ class MathDriverManager:
             "drivers": {name: d.get_stats() for name, d in self.drivers.items()},
         }
 
-    def consume(self, lang: str, functions: List[dict]):
+    def consume(self, lang: str, functions: list[dict]):
         """
         吞噬/同化其他语言的函数。
 
@@ -575,7 +574,7 @@ class MathDriverManager:
 #  单例
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_manager_instance: Optional[MathDriverManager] = None
+_manager_instance: MathDriverManager | None = None
 
 
 def get_driver_manager() -> MathDriverManager:
@@ -591,16 +590,16 @@ if __name__ == "__main__":
     print("=" * 60)
 
     mgr = MathDriverManager()
-    print(f"\n[驱动列表]")
+    print("\n[驱动列表]")
     for d in mgr.list_drivers():
         print(f"  {d['name']} ({d['type']}): {d['ops']} 个运算")
 
-    print(f"\n[线性代数]")
+    print("\n[线性代数]")
     r = mgr.execute("linear_algebra", "mat_mul",
                     [[1,2],[3,4]], [[5,6],[7,8]])
     print(f"  [[1,2],[3,4]] × [[5,6],[7,8]] = {r}")
 
-    print(f"\n[微积分]")
+    print("\n[微积分]")
     f = lambda x: x**2
     r = mgr.execute("calculus", "derivative", f, 2.0)
     print(f"  d/dx(x²) at x=2 = {r:.4f}")
@@ -608,9 +607,9 @@ if __name__ == "__main__":
     r = mgr.execute("calculus", "integral", f, 0, 1)
     print(f"  ∫₀¹ x² dx = {r:.4f}")
 
-    print(f"\n[信号处理]")
+    print("\n[信号处理]")
     sig = [1+0j, 1j, -1+0j, -1j]
     r = mgr.execute("signal", "fft", sig)
     print(f"  FFT([1, i, -1, -i]) = {[f'{x.real:.2f}+{x.imag:.2f}i' for x in r]}")
 
-    print(f"\n完成。")
+    print("\n完成。")

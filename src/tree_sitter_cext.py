@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tree-Sitter C 扩展模块
 
@@ -18,10 +17,6 @@ Tree-Sitter C 扩展模块
   tree-sitter-c>=0.21.0
 """
 from __future__ import annotations
-import sys
-from pathlib import Path
-from typing import Optional
-
 
 # ── 动态加载 tree-sitter ──────────────────────────────────────────────────────
 
@@ -40,10 +35,10 @@ def _try_load_tree_sitter() -> bool:
 
     try:
         import tree_sitter as ts
-        from tree_sitter_rust import language as rust_lang
+        from tree_sitter_c import language as c_lang
         from tree_sitter_go import language as go_lang
         from tree_sitter_javascript import language as js_lang
-        from tree_sitter_c import language as c_lang
+        from tree_sitter_rust import language as rust_lang
 
         _ts_rust = ts.Language(rust_lang())
         _ts_go = ts.Language(go_lang())
@@ -69,7 +64,7 @@ class CST_RustParser:
                 "tree-sitter-javascript tree-sitter-c"
             )
 
-    def parse(self, source: str) -> "CSTNode":
+    def parse(self, source: str) -> CSTNode:
         import tree_sitter as ts
         tree = ts.Parser(_ts_rust).parse(source.encode())
         return _cst_from_tree(tree)
@@ -82,7 +77,7 @@ class CST_GoParser:
         if not _try_load_tree_sitter():
             raise ImportError("tree-sitter 未安装")
 
-    def parse(self, source: str) -> "CSTNode":
+    def parse(self, source: str) -> CSTNode:
         import tree_sitter as ts
         tree = ts.Parser(_ts_go).parse(source.encode())
         return _cst_from_tree(tree)
@@ -95,7 +90,7 @@ class CST_JSParser:
         if not _try_load_tree_sitter():
             raise ImportError("tree-sitter 未安装")
 
-    def parse(self, source: str) -> "CSTNode":
+    def parse(self, source: str) -> CSTNode:
         import tree_sitter as ts
         tree = ts.Parser(_ts_js).parse(source.encode())
         return _cst_from_tree(tree)
@@ -108,7 +103,7 @@ class CST_CParser:
         if not _try_load_tree_sitter():
             raise ImportError("tree-sitter 未安装")
 
-    def parse(self, source: str) -> "CSTNode":
+    def parse(self, source: str) -> CSTNode:
         import tree_sitter as ts
         tree = ts.Parser(_ts_c).parse(source.encode())
         return _cst_from_tree(tree)
@@ -116,11 +111,10 @@ class CST_CParser:
 
 # ── CST 节点转换 ──────────────────────────────────────────────────────────────
 
-def _cst_from_tree(tree) -> "CSTNode":
+def _cst_from_tree(tree) -> CSTNode:
     """将 tree-sitter Tree 转换为统一 CSTNode。"""
-    import tree_sitter as ts
 
-    def _node_to_cst(node) -> "CSTNode":
+    def _node_to_cst(node) -> CSTNode:
         children = []
         for child in node.children:
             children.append(_node_to_cst(child))
@@ -153,7 +147,7 @@ class CSTNode:
         self.children = children or []
         self.fields = fields or {}
 
-    def child(self, type_filter: Optional[str] = None) -> Optional["CSTNode"]:
+    def child(self, type_filter: str | None = None) -> CSTNode | None:
         if type_filter is None:
             return self.children[0] if self.children else None
         for c in self.children:
@@ -161,7 +155,7 @@ class CSTNode:
                 return c
         return None
 
-    def children_by(self, type_filter: str) -> list["CSTNode"]:
+    def children_by(self, type_filter: str) -> list[CSTNode]:
         return [c for c in self.children if c.type == type_filter]
 
     def leaf_text(self) -> str:

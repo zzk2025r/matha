@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 多语言交叉验证引擎 v2.0
 ==============================
@@ -18,15 +17,15 @@ Matha 多语言交叉验证引擎 v2.0
   - 验证通过后自动升级 Matha 实现
 """
 from __future__ import annotations
-import json
+
+import logging
 import os
 import subprocess
 import sys
 import tempfile
 import time
-import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("matha.multi_lang_verifier")
 
@@ -57,11 +56,11 @@ class CompareResult:
 class MultiLangVerification:
     """多语言交叉验证汇总。"""
     func_name: str
-    test_cases: List[Tuple[List[Any], Any]]  # (输入, 期望输出)
-    results: List[CompareResult] = field(default_factory=list)
+    test_cases: list[tuple[list[Any], Any]]  # (输入, 期望输出)
+    results: list[CompareResult] = field(default_factory=list)
     passed_count: int = 0
     failed_count: int = 0
-    benchmarks: Dict[str, float] = field(default_factory=dict)  # lang -> avg_ms
+    benchmarks: dict[str, float] = field(default_factory=dict)  # lang -> avg_ms
 
     @property
     def all_passed(self) -> bool:
@@ -90,7 +89,7 @@ class MultiLangCodeGenerator:
     """生成用于验证的多语言参考实现代码。"""
 
     @staticmethod
-    def gen_python(func_name: str, params: List[str], expr: str) -> str:
+    def gen_python(func_name: str, params: list[str], expr: str) -> str:
         """生成 Python 参考实现。"""
         return f'''def {func_name}({", ".join(params)}):
     result = {expr}
@@ -98,7 +97,7 @@ class MultiLangCodeGenerator:
 '''
 
     @staticmethod
-    def gen_cpp(func_name: str, params: List[str], expr: str) -> str:
+    def gen_cpp(func_name: str, params: list[str], expr: str) -> str:
         """生成 C++ 参考实现。"""
         # 简化表达式转换
         cpp_expr = (expr
@@ -123,7 +122,7 @@ int main() {{
 '''
 
     @staticmethod
-    def gen_rust(func_name: str, params: List[str], expr: str) -> str:
+    def gen_rust(func_name: str, params: list[str], expr: str) -> str:
         """生成 Rust 参考实现。"""
         rust_expr = (expr
                      .replace('^', "**")
@@ -144,7 +143,7 @@ fn main() {{
 '''
 
     @staticmethod
-    def gen_go(func_name: str, params: List[str], expr: str) -> str:
+    def gen_go(func_name: str, params: list[str], expr: str) -> str:
         """生成 Go 参考实现。"""
         go_expr = (expr
                    .replace('^', "**")
@@ -167,7 +166,7 @@ func main() {{
 '''
 
     @staticmethod
-    def gen_java(func_name: str, params: List[str], expr: str) -> str:
+    def gen_java(func_name: str, params: list[str], expr: str) -> str:
         """生成 Java 参考实现。"""
         java_expr = (expr
                      .replace('^', "**")
@@ -198,7 +197,7 @@ class MultiLangCompiler:
 
     def __init__(self, work_dir: str = None):
         self.work_dir = work_dir or tempfile.mkdtemp(prefix="matha_verify_")
-        self._compiled: Dict[str, str] = {}  # lang -> executable path
+        self._compiled: dict[str, str] = {}  # lang -> executable path
 
     def compile_cpp(self, code: str, func_name: str) -> str:
         """编译 C++ 代码。"""
@@ -283,7 +282,7 @@ class MultiLangCompiler:
             logger.warning("javac 未找到，跳过 Java 编译")
             return ""
 
-    def run_executable(self, exe: str, input_args: List[float] = None) -> Tuple[float, str]:
+    def run_executable(self, exe: str, input_args: list[float] = None) -> tuple[float, str]:
         """运行可执行文件并返回结果。"""
         try:
             cmd = [exe] + ([str(a) for a in (input_args or [])])
@@ -299,7 +298,7 @@ class MultiLangCompiler:
                     return None, elapsed
             else:
                 return None, elapsed
-        except Exception as e:
+        except Exception:
             return None, 0
 
 
@@ -323,10 +322,10 @@ class MultiLangVerifier:
         self.matha_impl = matha_impl  # Matha 函数实现
         self._codegen = MultiLangCodeGenerator()
         self._compiler = MultiLangCompiler()
-        self._results: Dict[str, MultiLangVerification] = {}
+        self._results: dict[str, MultiLangVerification] = {}
 
-    def verify(self, func_name: str, params: List[str], expr: str,
-               test_cases: List[Tuple[List[Any], Any]],
+    def verify(self, func_name: str, params: list[str], expr: str,
+               test_cases: list[tuple[list[Any], Any]],
                matha_func=None) -> MultiLangVerification:
         """
         执行多语言交叉验证。
@@ -370,7 +369,6 @@ class MultiLangVerifier:
                 exec(python_code, g)
                 matha_result = g[func_name](*args)
 
-            matha_time = 0.0
 
             # C++ 执行
             if cpp_exe:
@@ -469,7 +467,7 @@ class MultiLangVerifier:
             return False
         return abs(a - b) < tolerance
 
-    def get_verification(self, func_name: str) -> Optional[MultiLangVerification]:
+    def get_verification(self, func_name: str) -> MultiLangVerification | None:
         return self._results.get(func_name)
 
     def generate_report(self) -> str:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 自然语言 → 公式代码 统一管线（NL Pipeline）
 
@@ -21,17 +20,15 @@ Matha 自然语言 → 公式代码 统一管线（NL Pipeline）
   - 公式代码预览
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
 
+from dataclasses import dataclass, field
+
+from src.nl_definition import DefinitionBuilder, DefinitionItem, DefinitionResult
 from src.nl_semantic import NLDictionary
-from src.nl_definition import DefinitionBuilder, DefinitionResult, DefinitionItem
 from src.nl_to_formula import (
     DefinitionToFormulaConverter,
     FormulaTranslation,
-    FormulaCode,
 )
-
 
 # ============================================================
 #  管线结果
@@ -48,10 +45,10 @@ class PipelineResult:
     semantic_map: dict[str, str]  # {词: 当前时代语义}
 
     # 阶段2：定义构建
-    definition_result: Optional[DefinitionResult] = None
+    definition_result: DefinitionResult | None = None
 
     # 阶段3：公式转换
-    formula_translation: Optional[FormulaTranslation] = None
+    formula_translation: FormulaTranslation | None = None
 
     # 阶段4：代码生成（占位，后续接入 compiler）
     executable_code: str = ""
@@ -131,7 +128,7 @@ class NLPipeline:
             summary=summary,
         )
 
-    def run_multi_era(self, text: str, eras: Optional[list[str]] = None) -> dict[str, PipelineResult]:
+    def run_multi_era(self, text: str, eras: list[str] | None = None) -> dict[str, PipelineResult]:
         """
         多时代对比：同一文本在不同时代的定义差异。
 
@@ -213,7 +210,7 @@ class NLPipeline:
                 for code in result.formula_translation.formula_codes:
                     lines.append(f"║    {code.matha_code:<48}║")
                 if result.formula_translation.param_equivalences:
-                    lines.append(f"║    参数等价：")
+                    lines.append("║    参数等价：")
                     for lhs, rhs in result.formula_translation.param_equivalences:
                         lines.append(f"║      {lhs} = {rhs}")
             else:
@@ -278,7 +275,7 @@ class NLPipeline:
 #  便捷函数
 # ============================================================
 
-_pipeline: Optional[NLPipeline] = None
+_pipeline: NLPipeline | None = None
 
 
 def run(text: str, era: str = "当代") -> PipelineResult:
@@ -298,7 +295,7 @@ def report(text: str, era: str = "当代") -> str:
     return _pipeline.format_report(result)
 
 
-def multi_era_compare(text: str, eras: Optional[list[str]] = None) -> dict[str, PipelineResult]:
+def multi_era_compare(text: str, eras: list[str] | None = None) -> dict[str, PipelineResult]:
     """多时代对比。"""
     global _pipeline
     if _pipeline is None:

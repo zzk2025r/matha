@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 矩阵运算标准库
 
 提供线性代数核心功能：
@@ -24,11 +23,10 @@
   )
 """
 from __future__ import annotations
+
+import logging
 import math
 import time
-import logging
-import functools
-from typing import List, Optional, Tuple, Union
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -49,7 +47,7 @@ _svd_cache: dict = {}
 _eigenvalue_cache: dict = {}
 
 
-def _make_cache_key(A: 'Matrix') -> tuple:
+def _make_cache_key(A: Matrix) -> tuple:
     """创建缓存键。"""
     return tuple(tuple(row) for row in A.data)
 
@@ -77,7 +75,7 @@ class Matrix:
       result = mat.multiply(Matrix([[5, 6], [7, 8]]))
     """
 
-    data: List[List[float]] = field(default_factory=list)
+    data: list[list[float]] = field(default_factory=list)
     _rows: int = 0
     _cols: int = 0
 
@@ -92,23 +90,23 @@ class Matrix:
                     raise ValueError("矩阵行数不一致")
 
     @classmethod
-    def zeros(cls, rows: int, cols: int) -> 'Matrix':
+    def zeros(cls, rows: int, cols: int) -> Matrix:
         """创建零矩阵。"""
         return cls([[0.0] * cols for _ in range(rows)])
 
     @classmethod
-    def ones(cls, rows: int, cols: int) -> 'Matrix':
+    def ones(cls, rows: int, cols: int) -> Matrix:
         """创建全一矩阵。"""
         return cls([[1.0] * cols for _ in range(rows)])
 
     @classmethod
-    def identity(cls, n: int) -> 'Matrix':
+    def identity(cls, n: int) -> Matrix:
         """创建单位矩阵。"""
         data = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
         return cls(data)
 
     @classmethod
-    def random(cls, rows: int, cols: int, scale: float = 1.0) -> 'Matrix':
+    def random(cls, rows: int, cols: int, scale: float = 1.0) -> Matrix:
         """创建随机矩阵。"""
         import random
         data = [[random.uniform(-scale, scale) for _ in range(cols)] for _ in range(rows)]
@@ -125,7 +123,7 @@ class Matrix:
         return self._cols
 
     @property
-    def shape(self) -> Tuple[int, int]:
+    def shape(self) -> tuple[int, int]:
         """返回矩阵形状。"""
         return (self._rows, self._cols)
 
@@ -140,21 +138,21 @@ class Matrix:
             lines.append("  [" + ", ".join(f"{v:8.4f}" for v in row) + "]")
         return "\n".join(lines)
 
-    def __add__(self, other: 'Matrix') -> 'Matrix':
+    def __add__(self, other: Matrix) -> Matrix:
         """矩阵加法。"""
         if self.shape != other.shape:
             raise ValueError("矩阵维度不匹配")
         data = [[self.data[i][j] + other.data[i][j] for j in range(self._cols)] for i in range(self._rows)]
         return Matrix(data)
 
-    def __sub__(self, other: 'Matrix') -> 'Matrix':
+    def __sub__(self, other: Matrix) -> Matrix:
         """矩阵减法。"""
         if self.shape != other.shape:
             raise ValueError("矩阵维度不匹配")
         data = [[self.data[i][j] - other.data[i][j] for j in range(self._cols)] for i in range(self._rows)]
         return Matrix(data)
 
-    def __mul__(self, other: Union['Matrix', float]) -> 'Matrix':
+    def __mul__(self, other: Matrix | float) -> Matrix:
         """矩阵乘法或数乘。"""
         if isinstance(other, (int, float)):
             data = [[self.data[i][j] * other for j in range(self._cols)] for i in range(self._rows)]
@@ -164,7 +162,7 @@ class Matrix:
         else:
             raise TypeError("只能与 Matrix 或标量相乘")
 
-    def __rmul__(self, other: float) -> 'Matrix':
+    def __rmul__(self, other: float) -> Matrix:
         """标量左乘。"""
         return self.__mul__(other)
 
@@ -409,7 +407,7 @@ def matrix_rank(A: Matrix) -> int:
     return rank
 
 
-def matrix_norm(A: Matrix, ord: Optional[str] = None) -> float:
+def matrix_norm(A: Matrix, ord: str | None = None) -> float:
     """
     矩阵范数
 
@@ -444,7 +442,7 @@ def matrix_norm(A: Matrix, ord: Optional[str] = None) -> float:
 # 逆矩阵（带缓存）
 # ============================================================
 
-def matrix_inverse(A: Matrix) -> Optional[Matrix]:
+def matrix_inverse(A: Matrix) -> Matrix | None:
     """
     矩阵求逆：A^(-1)
 
@@ -512,7 +510,7 @@ def matrix_inverse(A: Matrix) -> Optional[Matrix]:
 # 特征值与特征向量（带缓存）
 # ============================================================
 
-def matrix_eigenvalues(A: Matrix) -> List[complex]:
+def matrix_eigenvalues(A: Matrix) -> list[complex]:
     """
     矩阵特征值：det(A - λI) = 0
 
@@ -571,7 +569,7 @@ def matrix_eigenvalues(A: Matrix) -> List[complex]:
     return result
 
 
-def _qr_eigenvalues(A: Matrix) -> List[complex]:
+def _qr_eigenvalues(A: Matrix) -> list[complex]:
     """
     QR 算法求特征值（简化版）。
 
@@ -594,7 +592,7 @@ def _qr_eigenvalues(A: Matrix) -> List[complex]:
     return eigenvalues
 
 
-def _qr_decomposition(A: List[List[float]]) -> Tuple[List[List[float]], List[List[float]]]:
+def _qr_decomposition(A: list[list[float]]) -> tuple[list[list[float]], list[list[float]]]:
     """
     QR 分解：A = QR
 
@@ -635,7 +633,7 @@ def _qr_decomposition(A: List[List[float]]) -> Tuple[List[List[float]], List[Lis
 # SVD 分解（带缓存，支持 NumPy）
 # ============================================================
 
-def svd_decompose(A: Matrix) -> Tuple[Matrix, Matrix, Matrix]:
+def svd_decompose(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
     """
     SVD 分解：A = U Σ V^T
 
@@ -710,7 +708,7 @@ def _is_sparse_matrix(A: Matrix, threshold: float = 0.9) -> bool:
     return sparsity >= threshold
 
 
-def svd_decompose_sparse(A: Matrix, max_iter: int = 100) -> Tuple[Matrix, Matrix, Matrix]:
+def svd_decompose_sparse(A: Matrix, max_iter: int = 100) -> tuple[Matrix, Matrix, Matrix]:
     """
     稀疏矩阵 SVD 分解（基于迭代法）。
 
@@ -809,7 +807,7 @@ def svd_decompose_sparse(A: Matrix, max_iter: int = 100) -> Tuple[Matrix, Matrix
     return U, S, Vt
 
 
-def _svd_from_eigenvalues(A: Matrix) -> Tuple[Matrix, Matrix, Matrix]:
+def _svd_from_eigenvalues(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
     """
     从特征值分解推导 SVD（仅适用于对称矩阵）。
 
@@ -897,7 +895,7 @@ def _eigenvectors_with_values(A: Matrix) -> list:
     return eigenpairs
 
 
-def _svd_power_iteration(A: Matrix) -> Tuple[Matrix, Matrix, Matrix]:
+def _svd_power_iteration(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
     """
     使用幂迭代法近似 SVD（简化版）。
     """
@@ -948,7 +946,7 @@ def _svd_power_iteration(A: Matrix) -> Tuple[Matrix, Matrix, Matrix]:
 # LU 分解
 # ============================================================
 
-def lu_decompose(A: Matrix) -> Tuple[Matrix, Matrix]:
+def lu_decompose(A: Matrix) -> tuple[Matrix, Matrix]:
     """
     LU 分解：A = L × U
 
@@ -988,7 +986,7 @@ def lu_decompose(A: Matrix) -> Tuple[Matrix, Matrix]:
 # Cholesky 分解
 # ============================================================
 
-def cholesky_decompose(A: Matrix) -> Optional[Matrix]:
+def cholesky_decompose(A: Matrix) -> Matrix | None:
     """
     Cholesky 分解：A = L × L^T
 
@@ -1024,7 +1022,7 @@ def cholesky_decompose(A: Matrix) -> Optional[Matrix]:
 # 线性方程组求解
 # ============================================================
 
-def solve_linear_system(A: Matrix, b: List[float]) -> Optional[List[float]]:
+def solve_linear_system(A: Matrix, b: list[float]) -> list[float] | None:
     """
     求解线性方程组 Ax = b
 

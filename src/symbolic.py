@@ -1,27 +1,25 @@
-# -*- coding: utf-8 -*-
-"""
-Matha 符号引擎 v1.3.0
-========================
-统一的符号表达式系统，支持 AST 解析、代数运算、微积分、自动简化。
+"""Matha 符号引擎：Expr 代数层 + MathaSymbolic 引擎（两套 API 并存）。
 
-功能：
-  • Symbol       — 符号变量
-  • Expr         — 表达式基类（Add/Mul/Pow/Func/Num/Var）
-  • Parser       — 符号表达式解析器
-  • simplify/diff/integrate/evaluate — 核心运算
-  • ASTNode      — AST 节点（跨平台代码生成用）
-  • LISP/Scheme  — 函数式语言互操作层
+A 组 Expr 代数层：Expr/Num/Var/Neg/Add/Sub/Mul/Div/Pow/Log/FuncCall、
+    to_expr、symbolic、SymbolicParser、symbol_expr、simplify_expr、
+    diff_expr、eval_expr、ast_to_dict、LISPExpr、symbolic_calc。
+B 组 MathaSymbolic 引擎：SymbolType、Symbol、Expression、Equation、
+    MathaSymbolic、create_symbol、parse_expression、differentiate、
+    solve_equation、_register_symbolic、_symbolic_symtab_names。
+
+A 组的 to_expr/symbol_expr/simplify_expr/diff_expr/eval_expr/ast_to_dict
+以 A 组签名为准，B 组不重复定义这些名字。
 """
+
 from __future__ import annotations
-import re
-import sys
-import os
+
 import logging
 import math
+import re
 from dataclasses import dataclass, field
-from functools import reduce
-from typing import Optional, Any, Callable, Dict, List, Tuple
 from enum import Enum
+from functools import reduce
+from typing import Any
 
 logger = logging.getLogger("matha.symbolic")
 
@@ -57,9 +55,9 @@ class ASTNode:
     """AST 节点：统一表示所有表达式和操作。"""
     node_type: ASTNodeType
     value: Any = None           # 数值字面量或变量名
-    children: List['ASTNode'] = field(default_factory=list)
+    children: list[ASTNode] = field(default_factory=list)
     label: str = ""             # 标签（函数名等）
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -71,9 +69,7 @@ class ASTNode:
         }
 
     def __str__(self) -> str:
-        if self.node_type == ASTNodeType.NUM:
-            return str(self.value)
-        elif self.node_type == ASTNodeType.VAR:
+        if self.node_type == ASTNodeType.NUM or self.node_type == ASTNodeType.VAR:
             return str(self.value)
         elif self.node_type == ASTNodeType.NEG:
             return f"(-{self.children[0]})"
@@ -124,13 +120,105 @@ class Expr:
     def __rpow__(self, other): return Pow(to_expr(other), self)
     def __neg__(self): return Neg(self)
 
-    def simplify(self) -> 'Expr': return self
-    def diff(self, var: str) -> 'Expr': raise NotImplementedError
-    def evaluate(self, bindings: Dict[str, float] = None) -> float: raise NotImplementedError
-    def substitute(self, var: str, value: 'Expr') -> 'Expr': raise NotImplementedError
-    def free_vars(self) -> set: raise NotImplementedError
+    def simplify(self) -> Expr: return self
 
-    def __str__(self): raise NotImplementedError
+    def _children(self) -> list[Expr]:
+        import dataclasses as _dc
+        out: list[Expr] = []
+        for f in _dc.fields(self):
+            v = getattr(self, f.name)
+            if isinstance(v, Expr):
+                out.append(v)
+            elif isinstance(v, tuple):
+                out.extend(e for e in v if isinstance(e, Expr))
+        return out
+
+    def diff(self, var: str) -> Expr:
+        name = type(self).__name__
+        if name in ("Add", "Sub", "Mul", "Div", "Pow"):
+            a, b = self._children()
+            da, db = a.diff(var), b.diff(var)
+            if name == "Add":
+                return Add(da, db)
+            if name == "Sub":
+                return Sub(da, db)
+            if name == "Mul":
+                return Add(Mul(da, b), Mul(a, db))
+            if name == "Div":
+                return Div(Sub(Mul(da, b), Mul(a, db)), Mul(b, b))
+            if name == "Pow":
+                return Mul(b, Mul(Pow(a, Sub(b, Num(1))), da))
+        if name == "Neg":
+            return Neg(self._children()[0].diff(var))
+        if isinstance(self, (Num, Var)):
+            return Num(0) if isinstance(self, (Num, Var)) else self
+        raise ValueError(f"表达式类型 {name} 未实现 diff()")
+
+    def evaluate(self,
+                 bindings: dict[str, float] = None) -> float:
+        name = type(self).__name__
+        values = [c.evaluate(bindings) for c in self._children()]
+        if name == "Add":
+            return values[0] + values[1]
+        if name == "Sub":
+            return values[0] - values[1]
+        if name == "Mul":
+            return values[0] * values[1]
+        if name == "Div":
+            return values[0] / values[1]
+        if name == "Pow":
+            return values[0] ** values[1]
+        if name == "Neg":
+            return -values[0]
+        if isinstance(self, Num):
+            return float(self.value)
+        if isinstance(self, Var):
+            if bindings and self.name in bindings:
+                return float(bindings[self.name])
+            raise ValueError(f"未绑定变量: {self.name}")
+        raise ValueError(f"表达式类型 {name} 未实现 evaluate()")
+
+    def substitute(self, var: str, value: Expr) -> Expr:
+        import dataclasses as _dc
+        if isinstance(self, Var):
+            return value if self.name == var else self
+        kwargs = {}
+        for f in _dc.fields(self):
+            v = getattr(self, f.name)
+            if isinstance(v, Expr):
+                kwargs[f.name] = v.substitute(var, value)
+            elif isinstance(v, tuple):
+                kwargs[f.name] = tuple(
+                    e.substitute(var, value) if isinstance(e, Expr) else e
+                    for e in v
+                )
+            else:
+                kwargs[f.name] = v
+        return type(self)(**kwargs)
+
+    def free_vars(self) -> set:
+        result: set = set()
+        for c in self._children():
+            result |= c.free_vars()
+        return result
+
+    def __str__(self):
+        name = type(self).__name__
+        if isinstance(self, Num):
+            return str(int(self.value)) if self.value == int(self.value) \
+                else str(self.value)
+        if isinstance(self, Var):
+            return self.name
+        ops = {"Add": "+", "Sub": "-", "Mul": "*",
+               "Div": "/", "Pow": "**", "Neg": "-"}
+        if name in ("Add", "Sub", "Mul", "Div", "Pow"):
+            a, b = self._children()
+            return f"({a} {ops[name]} {b})"
+        if name == "Neg":
+            return f"(-{self._children()[0]})"
+        children = [str(c) for c in self._children()]
+        return f"{name}({', '.join(children)})" if children else name
+
     def __repr__(self): return f"Expr({self})"
 
 
@@ -311,7 +399,7 @@ class Pow(Expr):
 class Log(Expr):
     def __init__(self, expr): self.expr = expr
     def simplify(self): return Log(self.expr.simplify())
-    def evaluate(self, bindings): import math; return math.log(self.expr.evaluate(bindings))
+    def evaluate(self, bindings): return math.log(self.expr.evaluate(bindings))
     def substitute(self, var, value): return Log(self.expr.substitute(var, value))
     def diff(self, var): return Div(self.expr.diff(var), self.expr)
     def free_vars(self) -> set: return self.expr.free_vars()
@@ -562,7 +650,7 @@ class SymbolicParser:
 
         raise ValueError(f"无法解析表达式: '{text}'")
 
-    def _split_top_level(self, text: str, separators: List[str]) -> List[str]:
+    def _split_top_level(self, text: str, separators: list[str]) -> list[str]:
         """在括号外按分隔符分割。"""
         parts = []
         depth = 0
@@ -589,7 +677,7 @@ class SymbolicParser:
             parts.append(''.join(current))
         return parts
 
-    def _split_with_ops(self, text: str, separators: List[str]) -> List[tuple]:
+    def _split_with_ops(self, text: str, separators: list[str]) -> list[tuple]:
         """在括号外按分隔符分割，同时记录每个分隔符。
         返回 [(part0, op0), (part1, op1), ...]，part0 的 op 为 None。"""
         result = []
@@ -686,7 +774,7 @@ class LISPExpr:
         return LISPExpr._parse_tokens(tokens, 0)[0]
 
     @staticmethod
-    def _tokenize(s: str) -> List[str]:
+    def _tokenize(s: str) -> list[str]:
         tokens = []
         i = 0
         while i < len(s):
@@ -815,7 +903,7 @@ def symbolic_calc(expression: str, **bindings) -> dict:
     simplified = expr.simplify()
     try:
         value = expr.evaluate(bindings)
-    except:
+    except Exception:
         value = None
     return {
         "expression": expression,
@@ -826,33 +914,351 @@ def symbolic_calc(expression: str, **bindings) -> dict:
     }
 
 
-if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("  Matha 符号引擎 v1.3.0")
-    print("=" * 60)
+class SymbolType(Enum):
+    """符号类型。"""
+    VARIABLE = "variable"
+    CONSTANT = "constant"
+    FUNCTION = "function"
+    OPERATOR = "operator"
+    EXPRESSION = "expression"
 
-    # 基本运算
-    print("\n[基本符号运算]")
-    expr = symbol_expr("x^2 + 3*x - 5")
-    print(f"  表达式: {expr}")
-    print(f"  简化:   {expr.simplify()}")
-    print(f"  导数:   {expr.diff('x')}")
-    print(f"  求值(x=2): {expr.evaluate({'x': 2})}")
 
-    # 函数
-    print("\n[函数运算]")
-    sin_expr = symbol_expr("sin(x)")
-    print(f"  sin(x) 导数: {sin_expr.diff('x')}")
-    print(f"  sin(π/2)   = {sin_expr.evaluate({'x': 3.14159/2})}")
+@dataclass
+class Symbol:
+    """符号。"""
+    name: str
+    type: SymbolType = SymbolType.VARIABLE
+    value: Any = None
 
-    # 链式法则
-    print("\n[链式法则]")
-    chain = symbol_expr("sin(x^2)")
-    print(f"  sin(x^2) 导数: {chain.diff('x')}")
+    def __repr__(self) -> str:
+        return f"Symbol({self.name})"
 
-    # LISP
-    print("\n[LISP/Scheme 互操作]")
-    lisp = LISPExpr.parse("(+ (* 2 3) (- 10 4))")
-    print(f"  (+ (* 2 3) (- 10 4)) = {lisp}")
 
-    print("\n完成。")
+@dataclass
+class Expression:
+    """数学表达式。"""
+    operator: str = ""
+    operands: list[Any] = field(default_factory=list)
+    simplified: bool = False
+
+    def __repr__(self) -> str:
+        return f"Expr({self.operator}, {self.operands})"
+
+
+@dataclass
+class Equation:
+    """方程。"""
+    left: Expression = field(default_factory=Expression)
+    right: Expression = field(default_factory=Expression)
+    variable: str = "x"
+
+    def __repr__(self) -> str:
+        return f"Eq({self.left} = {self.right})"
+
+
+class MathaSymbolic:
+    """Matha 符号计算引擎。"""
+
+    def __init__(self):
+        self._symbols: dict[str, Symbol] = {}
+        self._expressions: list[Expression] = []
+        self._initialized = False
+        self._init_symbolic()
+
+    def _init_symbolic(self) -> None:
+        """初始化符号计算。"""
+        self._initialized = True
+        # 预定义常量
+        self._symbols["pi"] = Symbol("pi", SymbolType.CONSTANT, 3.141592653589793)
+        self._symbols["e"] = Symbol("e", SymbolType.CONSTANT, 2.718281828459045)
+        self._symbols["inf"] = Symbol("inf", SymbolType.CONSTANT, float('inf'))
+
+    def symbol(self, name: str, value: Any = None
+                    ) -> Symbol:
+        """创建符号变量。"""
+        sym = Symbol(name=name, type=SymbolType.VARIABLE, value=value)
+        self._symbols[name] = sym
+        return sym
+
+    def parse(self, expression: str) -> Expression:
+        """解析表达式字符串。"""
+        # 简单的表达式解析
+        expr = Expression()
+        # 查找运算符
+        if '+' in expression:
+            parts = expression.split('+', 1)
+            expr = Expression(operator='+', operands=[
+                self.parse(parts[0].strip()),
+                self.parse(parts[1].strip())
+            ])
+        elif '-' in expression and expression[0] != '-':
+            parts = expression.split('-', 1)
+            expr = Expression(operator='-', operands=[
+                self.parse(parts[0].strip()),
+                self.parse(parts[1].strip())
+            ])
+        elif '*' in expression:
+            parts = expression.split('*', 1)
+            expr = Expression(operator='*', operands=[
+                self.parse(parts[0].strip()),
+                self.parse(parts[1].strip())
+            ])
+        elif '/' in expression:
+            parts = expression.split('/', 1)
+            expr = Expression(operator='/', operands=[
+                self.parse(parts[0].strip()),
+                self.parse(parts[1].strip())
+            ])
+        elif '^' in expression:
+            parts = expression.split('^', 1)
+            expr = Expression(operator='**', operands=[
+                self.parse(parts[0].strip()),
+                self.parse(parts[1].strip())
+            ])
+        elif re.match(r'^[a-zA-Z_]\w*$', expression):
+            # 变量名
+            sym = self._symbols.get(expression)
+            if sym:
+                expr = Expression(operator='symbol', operands=[sym])
+            else:
+                expr = Expression(operator='symbol', operands=[
+                    Symbol(name=expression)
+                ])
+        elif expression.replace('.', '').replace('-', '').isdigit():
+            # 数字
+            expr = Expression(operator='number', operands=[float(expression)])
+        else:
+            expr = Expression(operator='unknown', operands=[expression])
+
+        self._expressions.append(expr)
+        return expr
+
+    def simplify(self, expr: Expression) -> Expression:
+        """简化表达式。"""
+        if expr.operator == '+':
+            left = self.simplify(expr.operands[0])
+            right = self.simplify(expr.operands[1])
+            # 数字相加
+            if self._is_number(left) and self._is_number(right):
+                return Expression(operator='number',
+                                    operands=[left.operands[0].value + right.operands[0].value])
+            # 0 + x = x
+            if self._is_zero(left):
+                return right
+            if self._is_zero(right):
+                return left
+        return expr
+
+    def _is_number(self, expr: Expression) -> bool:
+        return expr.operator == 'number'
+
+    def _is_zero(self, expr: Expression) -> bool:
+        return expr.operator == 'number' and expr.operands and expr.operands[0].value == 0
+
+    def diff(self, expr: Expression, var: str = "x"
+                 ) -> Expression:
+        """求导。"""
+        if expr.operator == 'number':
+            return Expression(operator='number', operands=[0])
+        if expr.operator == 'symbol':
+            sym = expr.operands[0] if expr.operands else Symbol(var)
+            if sym.name == var:
+                return Expression(operator='number', operands=[1])
+            return Expression(operator='number', operands=[0])
+        if expr.operator == '+':
+            return Expression(operator='+', operands=[
+                self.diff(expr.operands[0], var),
+                self.diff(expr.operands[1], var)
+            ])
+        if expr.operator == '*':
+            # 乘积法则
+            u = expr.operands[0]
+            v = expr.operands[1]
+            return Expression(operator='+', operands=[
+                Expression(operator='*', operands=[
+                    self.diff(u, var), v
+                ]),
+                Expression(operator='*', operands=[
+                    u, self.diff(v, var)
+                ])
+            ])
+        if expr.operator == '**':
+            # 幂法则
+            base = expr.operands[0]
+            exp = expr.operands[1]
+            return Expression(operator='*', operands=[
+                Expression(operator='*', operands=[
+                    exp, base
+                ]),
+                Expression(operator='**', operands=[
+                    base, Expression(operator='-', operands=[
+                        exp, Expression(operator='number', operands=[1])
+                    ])
+                ])
+            ])
+        return expr
+
+    def solve(self, equation: Equation
+                 ) -> list[float]:
+        """求解方程。"""
+        var = equation.variable
+        # 简单一元一次方程求解
+        expr = equation.left
+        if expr.operator == '=':
+            return []
+        if expr.operator == '+':
+            # ax + b = 0
+            pass
+        # 数值求解
+        return self._numerical_solve(equation, var)
+
+    def _numerical_solve(self, equation: Equation,
+                           var: str) -> list[float]:
+        """数值求解。"""
+        solutions = []
+        # 牛顿法简单实现
+        x = 0.0
+        for _ in range(100):
+            val = self._evaluate(equation.left, {var: x})
+            deriv = self._derivative(equation.left, var)
+            if abs(deriv) < 1e-10:
+                break
+            x_new = x - val / deriv
+            if abs(x_new - x) < 1e-6:
+                solutions.append(x_new)
+                break
+            x = x_new
+        return solutions
+
+    def _evaluate(self, expr: Expression,
+                     vars_dict: dict[str, float]) -> float:
+        """求值。"""
+        if expr.operator == 'number':
+            return expr.operands[0].value if expr.operands else 0
+        if expr.operator == 'symbol':
+            sym = expr.operands[0] if expr.operands else Symbol("")
+            return vars_dict.get(sym.name, 0)
+        if expr.operator == '+':
+            return self._evaluate(expr.operands[0], vars_dict) + \
+                   self._evaluate(expr.operands[1], vars_dict)
+        if expr.operator == '-':
+            return self._evaluate(expr.operands[0], vars_dict) - \
+                   self._evaluate(expr.operands[1], vars_dict)
+        if expr.operator == '*':
+            return self._evaluate(expr.operands[0], vars_dict) * \
+                   self._evaluate(expr.operands[1], vars_dict)
+        if expr.operator == '/':
+            return self._evaluate(expr.operands[0], vars_dict) / \
+                   (self._evaluate(expr.operands[1], vars_dict) or 1)
+        if expr.operator == '**':
+            return self._evaluate(expr.operands[0], vars_dict) ** \
+                   self._evaluate(expr.operands[1], vars_dict)
+        return 0.0
+
+    def _derivative(self, expr: Expression,
+                       var: str) -> float:
+        """数值求导。"""
+        h = 1e-7
+        return (self._evaluate(expr, {var: h}) -
+                self._evaluate(expr, {var: -h})) / (2 * h)
+
+    def integrate(self, expr: Expression, var: str = "x"
+                      ) -> Expression:
+        """积分（符号）。"""
+        # 幂函数积分
+        if expr.operator == '**':
+            base = expr.operands[0]
+            exp = expr.operands[1]
+            return Expression(operator='**', operands=[
+                base,
+                Expression(operator='+', operands=[
+                    exp, Expression(operator='number', operands=[1])
+                ])
+            ])
+        return expr
+
+    def limit(self, expr: Expression, var: str,
+                 approach: float = 0.0) -> float:
+        """极限。"""
+        return self._evaluate(expr, {var: approach})
+
+    def series(self, expr: Expression, var: str,
+                  order: int = 5) -> list[float]:
+        """泰勒展开。"""
+        coeffs = []
+        for n in range(order):
+            deriv = self._nth_derivative(expr, var, n)
+            coeffs.append(deriv / math.factorial(n))
+        return coeffs
+
+    def _nth_derivative(self, expr: Expression, var: str,
+                           n: int) -> float:
+        """n阶导数。"""
+        result = expr
+        for _ in range(n):
+            result = self.diff(result, var)
+        return self._evaluate(result, {var: 0})
+
+    def get_stats(self) -> dict:
+        """获取统计信息。"""
+        return {
+            "initialized": self._initialized,
+            "symbols": len(self._symbols),
+            "expressions": len(self._expressions),
+        }
+
+
+# ============================================================
+# 内置注册
+# ============================================================
+
+def create_symbol(name: str, value: Any = None) -> Symbol:
+    """创建符号。"""
+    ms = MathaSymbolic()
+    return ms.symbol(name, value)
+
+
+def parse_expression(expr: str) -> Expression:
+    """解析表达式。"""
+    ms = MathaSymbolic()
+    return ms.parse(expr)
+
+
+def differentiate(expr: Expression, var: str = "x"
+                      ) -> Expression:
+    """求导。"""
+    ms = MathaSymbolic()
+    return ms.diff(expr, var)
+
+
+def solve_equation(eq: Equation) -> list[float]:
+    """求解方程。"""
+    ms = MathaSymbolic()
+    return ms.solve(eq)
+
+
+def _register_symbolic(builtins: dict) -> None:
+    """注册符号计算内置函数。"""
+    builtins["创建符号"] = create_symbol
+    builtins["解析表达式"] = parse_expression
+    builtins["求导"] = differentiate
+    builtins["求解方程"] = solve_equation
+
+
+def _symbolic_symtab_names() -> list[str]:
+    return [
+        "创建符号", "解析表达式", "求导", "求解方程",
+    ]
+
+
+__all__ = [
+    # A 组：Expr 代数层
+    "ASTNodeType", "ASTNode", "Expr", "Num", "Var", "Neg", "Add", "Sub",
+    "Mul", "Div", "Pow", "Log", "FuncCall", "to_expr", "symbolic",
+    "SymbolicParser", "symbol_expr", "simplify_expr", "diff_expr",
+    "eval_expr", "ast_to_dict", "LISPExpr", "symbolic_calc",
+    # B 组：MathaSymbolic 引擎
+    "SymbolType", "Symbol", "Expression", "Equation", "MathaSymbolic",
+    "create_symbol", "parse_expression", "differentiate", "solve_equation",
+    "_register_symbolic", "_symbolic_symtab_names",
+]

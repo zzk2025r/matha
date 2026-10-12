@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha OpenAI 兼容 API 服务
 
 将 Matha AI 助手封装为 OpenAI 兼容的 /v1/chat/completions 接口，
@@ -13,21 +12,23 @@ Trae 自定义模型配置：
     API Key:  任意非空字符串（matha 本地无需鉴权）
 """
 from __future__ import annotations
+
 import json
-import sys
 import os
+import socket
+import sys
+import threading
 import time
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse
-import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant
-from src.interp import Interpreter
 from src.device_config import get_config
-
+from src.interp import Interpreter
 
 # 全局单例
 _ASSISTANT = MathaAIAssistant()
@@ -43,7 +44,14 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
     interp = _INTERP
 
     def log_message(self, fmt, *args):
-        pass
+        """请求访问日志：仅记录非轮询（health/技术探测）请求。"""
+        try:
+            msg = fmt % args if args else fmt
+        except TypeError:
+            msg = fmt
+        if "/health" not in msg and "_GSt" not in msg:
+            print(f"[openai-compat] {self.address_string()} {msg}",
+                  file=sys.stderr)
 
     def _send_json(self, data: dict, status: int = 200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -213,6 +221,49 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
 
+# ── 端口注册表 ──────────────────────────────────────────────────────────────
+
+_PORT_REGISTRY = Path.home() / ".matha_port.json"
+
+
+def _write_port_registry(port: int, host: str) -> None:
+    """写入端口注册表，供 Trae / 守护进程 / 其他工具读取当前端口。"""
+    import json as _json
+    from datetime import datetime as _dt
+    data = {
+        "port": port,
+        "host": host,
+        "pid": os.getpid(),
+        "updated": _dt.now().isoformat(),
+        "url": f"http://localhost:{port}/v1",
+        "model": "matha",
+    }
+    try:
+        _PORT_REGISTRY.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _clear_port_registry() -> None:
+    """清除端口注册表。"""
+    try:
+        if _PORT_REGISTRY.is_file():
+            _PORT_REGISTRY.unlink()
+    except Exception:
+        pass
+
+
+def _is_port_in_use(port: int, host: str) -> bool:
+    """检查端口是否被占用。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        try:
+            s.bind((host, port))
+            return False
+        except OSError:
+            return True
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Matha OpenAI 兼容 API 服务")
@@ -220,23 +271,46 @@ def main():
     parser.add_argument("--port", type=int, default=8787, help="监听端口")
     args = parser.parse_args()
 
+    port = args.port
+    host = args.host
+
+    # 端口冲突检测：如果被占用，尝试自动查找可用端口
+    if _is_port_in_use(port, host):
+        print(f"端口 {port} 已被占用，尝试查找可用端口...")
+        for offset in range(1, 11):
+            test_port = port + offset
+            if not _is_port_in_use(test_port, host):
+                print(f"自动切换到端口 {test_port}")
+                port = test_port
+                break
+        else:
+            print(f"错误：端口 {port}-{port+10} 均被占用，无法启动")
+            print("提示：请使用守护进程自动管理端口: python -m src.matha_daemon --port 8787")
+            sys.exit(1)
+
     # 使用 daemon 线程，进程退出时自动清理
     ThreadingHTTPServer.daemon_threads = True
-    server = ThreadingHTTPServer((args.host, args.port), OpenAICompatHandler)
+    server = ThreadingHTTPServer((host, port), OpenAICompatHandler)
 
-    print(f"Matha OpenAI 兼容服务启动: http://{args.host}:{args.port}/v1")
-    print(f"  模型名: matha")
+    # 写入端口注册表
+    _write_port_registry(port, host)
+
+    print(f"Matha OpenAI 兼容服务启动: http://{host}:{port}/v1")
+    print("  模型名: matha")
     print(f"  {_DEVICE_CFG.summary()}")
-    print(f"  说明: AI 助手调用经锁串行化（解释器非线程安全），HTTP 请求并发处理")
-    print(f"  Trae 自定义模型配置:")
-    print(f"    接口地址: http://localhost:{args.port}/v1")
-    print(f"    模型名:   matha")
-    print(f"    API Key:  任意非空字符串")
+    print("  说明: AI 助手调用经锁串行化（解释器非线程安全），HTTP 请求并发处理")
+    print("  Trae 自定义模型配置:")
+    print(f"    接口地址: http://localhost:{port}/v1")
+    print("    模型名:   matha")
+    print("    API Key:  任意非空字符串")
+    print(f"  端口注册表: {_PORT_REGISTRY}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n服务已停止")
         server.shutdown()
+    finally:
+        _clear_port_registry()
 
 
 if __name__ == "__main__":

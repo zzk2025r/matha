@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """v2.4 P1 优化：RecoveryStrategy 读写锁分离
 
 设计目标：
@@ -24,17 +23,13 @@
     - 理论加速:     ~4x
 """
 from __future__ import annotations
-import threading
-from typing import Optional
-from enum import Enum, auto
 
+import threading
 
 # ============================================================
 # 前置导入（避免循环依赖）
 # ============================================================
-
-from src.errors import MathaError, ErrorStage  # noqa: E402
-
+from src.errors import ErrorStage, MathaError  # noqa: E402
 
 # ============================================================
 # 读写锁分离的 RecoveryStrategy
@@ -80,7 +75,7 @@ class RWRecoveryStrategy:
     # ── 恢复（高频读操作）─────────────────────────────────
 
     @classmethod
-    def try_recover(cls, error: MathaError) -> Optional[MathaError]:
+    def try_recover(cls, error: MathaError) -> MathaError | None:
         """尝试所有注册的恢复策略（读锁 + 副本遍历 + 锁外执行）。
 
         锁使用策略：
@@ -163,7 +158,8 @@ class RWRecoveryStrategy:
 def benchmark_rwlock_vs_rlock():
     """对比单一 RLock 和读写锁分离的性能。"""
     import time
-    from src.errors import MathaError, ErrorStage
+
+    from src.errors import ErrorStage, MathaError
 
     # 准备测试数据
     stage = ErrorStage.VALIDATING
@@ -172,7 +168,7 @@ def benchmark_rwlock_vs_rlock():
     # 测试 1: 单一 RLock（v2.3）
     from src.errors import RecoveryStrategy as RLockStrategy
     RLockStrategy._strategies[stage] = [
-        lambda e: (e.add_suggestion(f"s{i}"), None)[1]
+        lambda e, i=i: (e.add_suggestion(f"s{i}"), None)[1]
         for i in range(3)
     ]
 
@@ -188,7 +184,7 @@ def benchmark_rwlock_vs_rlock():
 
     # 测试 2: 读写锁分离（v2.4）
     RWRecoveryStrategy._strategies[stage] = [
-        lambda e: (e.add_suggestion(f"s{i}"), None)[1]
+        lambda e, i=i: (e.add_suggestion(f"s{i}"), None)[1]
         for i in range(3)
     ]
 

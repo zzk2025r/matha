@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 多语言前端实现 - 将其他语言源码转换为 Matha MIR
 
@@ -13,13 +12,13 @@ Matha 多语言前端实现 - 将其他语言源码转换为 Matha MIR
   4. 错误恢复 + 渐进式解析
 """
 from __future__ import annotations
+
 import ast
-import sys
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
-from src.typesystem_v2_fixed import T_FLOAT, T_INT, T_BOOL, T_STRING, T_ANY
+from src.typesystem_v2_fixed import T_FLOAT
 
 
 class Effect(Enum):
@@ -49,7 +48,7 @@ class MIR2Expr:
     """MIR² 表达式。"""
     kind: str
     value: Any = None
-    op: Optional[str] = None
+    op: str | None = None
     operands: list = field(default_factory=list)
     result_var: str = ""
     effect: Effect = Effect.PURE
@@ -89,12 +88,12 @@ class PythonFrontend:
 
     def __init__(self):
         self._scope_depth = 0
-        self._current_func: Optional[MIR2Function] = None
+        self._current_func: MIR2Function | None = None
         self._vars: dict = {}
 
     def compile(self, source: str) -> Any:
         """编译 Python 源码为 CompileResult（兼容多语言前端接口）。"""
-        from src.multi_lang_frontend import CompileResult, IRNode, IRKind
+        from src.multi_lang_frontend import CompileResult, IRKind, IRNode
         tree = ast.parse(source)
         result = CompileResult(language="python", source=source)
         result.functions = {}
@@ -192,7 +191,7 @@ class PythonFrontend:
                     effect=Effect.STATE,
                 ))
 
-    def _compile_expr(self, node: ast.expr, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_expr(self, node: ast.expr, func: MIR2Function | None = None) -> MIR2Expr:
         """编译表达式。"""
         if func is None:
             func = MIR2Function("global")
@@ -235,7 +234,7 @@ class PythonFrontend:
             return MIR2Expr(kind="const", typ=TypeInfo.NONE)
         return MIR2Expr(kind="const", value=node.value)
 
-    def _compile_name(self, node: ast.Name, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_name(self, node: ast.Name, func: MIR2Function | None = None) -> MIR2Expr:
         """编译名称引用。"""
         if func is None:
             return MIR2Expr(kind="load", value=node.id)
@@ -250,7 +249,7 @@ class PythonFrontend:
         op = self._map_binop(type(node.op).__name__)
         return MIR2Expr(kind="binop", op=op, operands=[left, right])
 
-    def _compile_unaryop(self, node: ast.UnaryOp, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_unaryop(self, node: ast.UnaryOp, func: MIR2Function | None = None) -> MIR2Expr:
         """编译一元运算。"""
         if func is None:
             func = MIR2Function("global")
@@ -258,7 +257,7 @@ class PythonFrontend:
         op = self._map_unaryop(type(node.op).__name__)
         return MIR2Expr(kind="unaryop", op=op, operands=[operand])
 
-    def _compile_call(self, node: ast.Call, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_call(self, node: ast.Call, func: MIR2Function | None = None) -> MIR2Expr:
         """编译函数调用。"""
         if func is None:
             func = MIR2Function("global")
@@ -281,7 +280,7 @@ class PythonFrontend:
             for stmt in node.orelse:
                 self._compile_stmt(stmt, func)
 
-    def _compile_while(self, node: ast.While, func: Optional[MIR2Function] = None) -> None:
+    def _compile_while(self, node: ast.While, func: MIR2Function | None = None) -> None:
         """编译 while 语句。"""
         if func is None:
             return
@@ -290,7 +289,7 @@ class PythonFrontend:
         for stmt in node.body:
             self._compile_stmt(stmt, func)
 
-    def _compile_for(self, node: ast.For, func: Optional[MIR2Function] = None) -> None:
+    def _compile_for(self, node: ast.For, func: MIR2Function | None = None) -> None:
         """编译 for 语句。"""
         if func is None:
             return
@@ -353,7 +352,7 @@ class PythonFrontend:
             return f"{self._get_name(node.value)}.{node.attr}"
         return ""
 
-    def _compile_boolop(self, node: ast.BoolOp, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_boolop(self, node: ast.BoolOp, func: MIR2Function | None = None) -> MIR2Expr:
         """编译布尔运算。"""
         if func is None:
             func = MIR2Function("global")
@@ -361,7 +360,7 @@ class PythonFrontend:
         values = [self._compile_expr(v, func) for v in node.values]
         return MIR2Expr(kind="boolop", op=op, operands=values)
 
-    def _compile_compare(self, node: ast.Compare, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_compare(self, node: ast.Compare, func: MIR2Function | None = None) -> MIR2Expr:
         """编译比较运算。"""
         if func is None:
             func = MIR2Function("global")
@@ -370,14 +369,14 @@ class PythonFrontend:
         rights = [self._compile_expr(r, func) for r in node.comparators]
         return MIR2Expr(kind="compare", op=ops[0] if ops else "", operands=[left] + rights)
 
-    def _compile_list(self, node: ast.List, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_list(self, node: ast.List, func: MIR2Function | None = None) -> MIR2Expr:
         """编译列表。"""
         if func is None:
             func = MIR2Function("global")
         elements = [self._compile_expr(e, func) for e in node.elts]
         return MIR2Expr(kind="list", operands=elements, typ=TypeInfo.LIST)
 
-    def _compile_dict(self, node: ast.Dict, func: Optional[MIR2Function] = None) -> MIR2Expr:
+    def _compile_dict(self, node: ast.Dict, func: MIR2Function | None = None) -> MIR2Expr:
         """编译字典。"""
         if func is None:
             func = MIR2Function("global")

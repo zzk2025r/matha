@@ -1,16 +1,15 @@
-# -*- coding: utf-8 -*-
 """Matha 并发扩展：进程池 + select + supervision tree。"""
 
 from __future__ import annotations
-import concurrent.futures
+
 import multiprocessing
 import select
 import threading
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable, Optional
-
+from typing import Any
 
 # ============================================================
 # 进程池
@@ -20,7 +19,7 @@ class ProcessPool:
     """Matha 进程池（跨进程并行计算）。"""
 
     def __init__(self, max_workers: int = 4) -> None:
-        self._pool: Optional[multiprocessing.Pool] = None
+        self._pool: multiprocessing.Pool | None = None
         self._max_workers = max_workers
         self._lock = threading.Lock()
 
@@ -120,7 +119,7 @@ class Worker:
     state: WorkerState = WorkerState.IDLE
     restart_count: int = 0
     max_restarts: int = 5
-    last_error: Optional[str] = None
+    last_error: str | None = None
 
 
 class Supervisor:
@@ -166,7 +165,7 @@ class Supervisor:
         time.sleep(0.1)  # 退避
         self.start_worker(name, fn, *args)
 
-    def get_state(self, name: str) -> Optional[WorkerState]:
+    def get_state(self, name: str) -> WorkerState | None:
         worker = self._workers.get(name)
         return worker.state if worker else None
 

@@ -141,6 +141,7 @@ class CommentManager extends ChangeNotifier {
   
   final Map<String, CommentInfo> _comments = {};
   final List<String> _commentOrder = [];
+  final Map<String, Set<String>> _likes = {};
 
   CommentManager({required this.documentId});
 
@@ -241,9 +242,29 @@ class CommentManager extends ChangeNotifier {
 
   /// 点赞评论
   Future<void> likeComment(String commentId, String userId) async {
-    // TODO: 实现点赞功能
-    debugPrint('[Comment] 点赞评论: $commentId by $userId');
+    if (!_comments.containsKey(commentId)) {
+      throw Exception('评论不存在: $commentId');
+    }
+    _likes.putIfAbsent(commentId, () => {}).add(userId);
+    notifyListeners();
+    debugPrint('[Comment] 点赞评论: $commentId by $userId (赞数: ${likeCount(commentId)})');
   }
+
+  /// 取消点赞评论
+  Future<void> unlikeComment(String commentId, String userId) async {
+    final likes = _likes[commentId];
+    if (likes != null && likes.remove(userId)) {
+      notifyListeners();
+      debugPrint('[Comment] 取消点赞: $commentId by $userId');
+    }
+  }
+
+  /// 获取评论赞数
+  int likeCount(String commentId) => _likes[commentId]?.length ?? 0;
+
+  /// 用户是否已点赞
+  bool hasLiked(String commentId, String userId) =>
+      _likes[commentId]?.contains(userId) ?? false;
 
   // ========== 查询操作 ==========
 

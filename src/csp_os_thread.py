@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha CSP OS线程并发模型 v2.0
 ==============================
@@ -20,13 +19,15 @@ Matha CSP OS线程并发模型 v2.0
   - CPU 密集型：~6-7x 加速（受 GIL 限制，需进程级隔离）
 """
 from __future__ import annotations
-import multiprocessing as mp
-import threading
-import queue
-import time
+
 import logging
-from typing import Any, Callable, List, Optional, TypeVar
-from dataclasses import dataclass, field
+import multiprocessing as mp
+import queue
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, TypeVar
 
 logger = logging.getLogger("matha.csp_os")
 
@@ -115,7 +116,7 @@ class Goroutine:
         self._result = None
         self._error = None
 
-    def start(self) -> "Goroutine":
+    def start(self) -> Goroutine:
         """启动 goroutine。"""
         self._thread = threading.Thread(
             target=self._run,
@@ -134,7 +135,7 @@ class Goroutine:
         finally:
             self._finished = True
 
-    def join(self, timeout: float = None) -> Optional[Any]:
+    def join(self, timeout: float = None) -> Any | None:
         """等待 goroutine 完成。"""
         if self._thread:
             self._thread.join(timeout=timeout)
@@ -179,8 +180,8 @@ class CSPRuntime:
 
     def __init__(self, max_workers: int = 8):
         self._max_workers = max_workers
-        self._goroutines: List[Goroutine] = []
-        self._channels: List[Channel] = []
+        self._goroutines: list[Goroutine] = []
+        self._channels: list[Channel] = []
         self._lock = threading.Lock()
 
     def go(self, target: Callable, *args, **kwargs) -> Goroutine:
@@ -198,13 +199,12 @@ class CSPRuntime:
             self._channels.append(ch)
         return ch
 
-    def select(self, cases: List[SelectCase], timeout: float = 1.0) -> tuple:
+    def select(self, cases: list[SelectCase], timeout: float = 1.0) -> tuple:
         """
         多路复用选择。
 
         使用 threading.Condition 实现 select。
         """
-        import select as sel  # 避免与 CSPRuntime.select 冲突
         results = []
         for case in cases:
             try:
@@ -218,7 +218,7 @@ class CSPRuntime:
                 continue
         return results
 
-    def wait_all(self, timeout: float = None) -> List[Any]:
+    def wait_all(self, timeout: float = None) -> list[Any]:
         """等待所有 goroutine 完成。"""
         results = []
         with self._lock:
@@ -252,12 +252,12 @@ class ProcessPool:
         self._num_workers = num_workers or mp.cpu_count()
         self._pool = None
 
-    def map(self, func: Callable, items: List[Any]) -> List[Any]:
+    def map(self, func: Callable, items: list[Any]) -> list[Any]:
         """并行 map。"""
         with mp.Pool(processes=self._num_workers) as pool:
             return pool.map(func, items)
 
-    def starmap(self, func: Callable, items: List[tuple]) -> List[Any]:
+    def starmap(self, func: Callable, items: list[tuple]) -> list[Any]:
         """并行 starmap。"""
         with mp.Pool(processes=self._num_workers) as pool:
             return pool.starmap(func, items)
@@ -285,8 +285,8 @@ def channel(capacity: int = 0) -> Channel:
     return runtime.new_channel(capacity)
 
 
-def parallel_map(func: Callable, items: List[Any],
-                 workers: int = None) -> List[Any]:
+def parallel_map(func: Callable, items: list[Any],
+                 workers: int = None) -> list[Any]:
     """并行 map（绕过 GIL）。"""
     pool = ProcessPool(workers)
     return pool.map(func, items)

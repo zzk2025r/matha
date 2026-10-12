@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 全功能内循环 v1.2.22
 ============================
@@ -29,17 +28,18 @@ Matha 全功能内循环 v1.2.22
   - 定时调度：schedule_cycle()       定时执行内循环
 """
 from __future__ import annotations
-import sys
-import os
-import time
+
 import json
 import logging
+import os
 import re
+import sys
 import threading
-import atexit
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional, Any, Callable
 from datetime import datetime
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -111,38 +111,46 @@ class MathaInnerLoop:
 
         # 控制标志
         self._running = False
-        self._loop_thread: Optional[threading.Thread] = None
+        self._loop_thread: threading.Thread | None = None
         self._interval: float = 30.0  # 持续模式间隔（秒）
 
         # 回调
-        self._on_cycle_start: Optional[Callable] = None
-        self._on_cycle_end: Optional[Callable] = None
-        self._on_error: Optional[Callable] = None
-        self._on_improve: Optional[Callable] = None
+        self._on_cycle_start: Callable | None = None
+        self._on_cycle_end: Callable | None = None
+        self._on_error: Callable | None = None
+        self._on_improve: Callable | None = None
 
     # ── 模块初始化 ──────────────────────────────────────────────────────────────
 
     def init_modules(self):
         """初始化所有核心模块（v1.3.0 + v2.0 HAL）。"""
-        from src.ai_assistant import MathaAIAssistant, FriendlyIntentParser
-        from src.interp import Interpreter
-        from src.firewall import MathaFirewall
-        from src.net_security import NetSecurityEngine
-        from src.growth_engine import create_growth_engine
-        # v1.3.0 新模块
-        from src.symbolic import symbol_expr, diff_expr, eval_expr as sym_eval
+        from src.ai_assistant import MathaAIAssistant
+        from src.compiler.native import (
+            DriverBuilder,
+            NativeCompiler,
+            ProtocolInterpreter,
+        )
         from src.ffi import get_ffi
-        from src.math_driver import get_driver_manager
-        from src.multi_paradigm import get_paradigm_engine
-        from src.symbol_codegen import get_codegen
+        from src.firewall import MathaFirewall
+        from src.growth_engine import create_growth_engine
+
         # v2.0 HAL 新模块
         from src.hardware.hal_v2 import (
-            get_side_effect_engine, get_pointer_manager,
-            get_protocol_parser, get_driver_generator, get_native_backend,
+            get_driver_generator,
+            get_native_backend,
+            get_pointer_manager,
+            get_protocol_parser,
+            get_side_effect_engine,
         )
-        from src.compiler.native import (
-            ProtocolInterpreter, DriverBuilder, NativeCompiler,
-        )
+        from src.interp import Interpreter
+        from src.math_driver import get_driver_manager
+        from src.multi_paradigm import get_paradigm_engine
+        from src.net_security import NetSecurityEngine
+        from src.symbol_codegen import get_codegen
+
+        # v1.3.0 新模块
+        from src.symbolic import diff_expr, symbol_expr
+        from src.symbolic import eval_expr as sym_eval
 
         self._assistant = MathaAIAssistant()
         self._interp = Interpreter()
@@ -151,6 +159,8 @@ class MathaInnerLoop:
         self._engine = create_growth_engine(assistant=self._assistant)
         # v1.3.0
         self._symbolic_parser = symbol_expr
+        self._sym_eval = sym_eval
+        self._diff_expr = diff_expr
         self._ffi = get_ffi()
         self._driver_mgr = get_driver_manager()
         self._paradigm = get_paradigm_engine()
@@ -175,11 +185,11 @@ class MathaInnerLoop:
         logger.info(f"    安全引擎: {self._security.threat_count()} 威胁记录")
         logger.info(f"    FFI: {self._ffi.get_stats().get('registered_functions', 0)} 注册函数")
         logger.info(f"    驱动: {self._driver_mgr.get_stats().get('total_drivers', 0)} 驱动")
-        logger.info(f"    代码生成: Python/JS/C/Matha")
-        logger.info(f"    HAL v2.0: 副作用引擎/指针管理器/协议解析/驱动生成/原生编译")
+        logger.info("    代码生成: Python/JS/C/Matha")
+        logger.info("    HAL v2.0: 副作用引擎/指针管理器/协议解析/驱动生成/原生编译")
         logger.info(f"    裸机目标: {self._native_backend.get_targets()}")
         logger.info(f"    驱动: {self._driver_mgr.get_stats().get('total_drivers', 0)} 驱动")
-        logger.info(f"    代码生成: Python/JS/C/Matha")
+        logger.info("    代码生成: Python/JS/C/Matha")
 
     # ── 1. 感知层 ───────────────────────────────────────────────────────────────
 
@@ -412,7 +422,6 @@ class MathaInnerLoop:
         for record in recent_fails[-20:]:
             text = record.text
             # 提取2-5字连续汉字
-            import re
             matches = re.findall(r'[\u4e00-\u9fff]{2,5}', text)
             for m in matches:
                 if m in STOPWORDS:
@@ -465,7 +474,6 @@ class MathaInnerLoop:
         for err in self._error_buffer:
             intent = err.get("intent", "unknown")
             if intent == "unknown":
-                import re
                 keywords = re.findall(r'[\u4e00-\u9fff]{2,4}', err["text"])
                 for kw in keywords:
                     if kw not in STOPWORDS:
@@ -673,7 +681,7 @@ class MathaInnerLoop:
             improvements["cache_optimized"] = before - 50
             logger.info(f"  [自优化] 搜索缓存: {before} → 50 项 (释放{before-50}项)")
 
-        total_improvements = sum([
+        sum([
             improvements["interval_adjusted"],
             improvements["buffer_cleaned"],
             improvements["log_compressed"],
@@ -754,7 +762,7 @@ class MathaInnerLoop:
             return False
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
 
             saved_state = data.get("state", {})
@@ -787,16 +795,16 @@ class MathaInnerLoop:
         self._state.status = "running"
 
         if verbose:
-            logger.info(f"╔════════════════════════════════════════╗")
+            logger.info("╔════════════════════════════════════════╗")
             logger.info(f"║  内循环 #{self._state.cycle_count} 启动  "
                          f"健康={self._state.health_score} 状态={self._state.status}  ║")
-            logger.info(f"╚════════════════════════════════════════╝")
+            logger.info("╚════════════════════════════════════════╝")
 
         # Phase 1: 感知
         if verbose:
             logger.info("  [感知] 收集资源快照和交互摘要...")
-        resource_snapshot = self.collect_resource_snapshot()
-        interaction_summary = self.collect_interaction_summary()
+        self.collect_resource_snapshot()
+        self.collect_interaction_summary()
 
         # Phase 2: 认知
         if verbose:
@@ -837,11 +845,10 @@ class MathaInnerLoop:
                 # ── 1. FFI 健康检查 ──────────────────────────────────────────
                 ffi_stats = self._ffi.get_stats()
                 reg_count = ffi_stats.get("registered_functions", 0)
-                reg_info = ffi_stats.get("registered_functions_info", [])
+                ffi_stats.get("registered_functions_info", [])
                 v13_result["checks"]["ffi"] = "ok"
                 v13_result["details"].append(f"  [v1.3.0自检] FFI: {reg_count} 个注册函数")
                 # 抽样调用 5 个内建函数验证可执行性
-                import math
                 ffi_tests = [
                     ("sin", [1.0]), ("cos", [0.0]), ("sqrt", [4.0]),
                     ("exp", [1.0]), ("log", [2.718281828]),
@@ -896,7 +903,7 @@ class MathaInnerLoop:
                 for expr_str, bindings, expected in sym_tests:
                     try:
                         expr = self._symbolic_parser(expr_str)
-                        val = sym_eval(expr, **bindings)
+                        val = self._sym_eval(expr, **bindings)
                         status = "✓" if abs(val - expected) < 1e-9 else "✗"
                         v13_result["details"].append(f"    符号 {status} {expr_str}({bindings}) = {val} (期望 {expected})")
                         if abs(val - expected) < 1e-9:
@@ -909,8 +916,8 @@ class MathaInnerLoop:
                 # ── 4. 微积分检查（diff/integrate）───────────────────────────
                 try:
                     expr = self._symbolic_parser("x^3 + 2*x^2 - 5*x + 3")
-                    deriv = diff_expr(expr, 'x')
-                    deriv_val = sym_eval(deriv, x=1)
+                    deriv = self._diff_expr(expr, 'x')
+                    deriv_val = self._sym_eval(deriv, x=1)
                     expected_deriv = 3*1**2 + 4*1 - 5  # 3x²+4x-5 at x=1 = 2
                     status = "✓" if abs(deriv_val - expected_deriv) < 1e-9 else "✗"
                     v13_result["checks"]["calculus"] = "ok" if deriv_val == expected_deriv else "error"
@@ -924,11 +931,11 @@ class MathaInnerLoop:
                 # ── 5. 代码生成检查 ─────────────────────────────────────────
                 if self._codegen:
                     try:
-                        py_code = self._codegen.python("x^2 + 3*x - 5", func_name="f")
-                        js_code = self._codegen.javascript("x^2 + 3*x - 5", func_name="f")
-                        c_code = self._codegen.c("x^2 + 3*x - 5", func_name="f")
+                        self._codegen.python("x^2 + 3*x - 5", func_name="f")
+                        self._codegen.javascript("x^2 + 3*x - 5", func_name="f")
+                        self._codegen.c("x^2 + 3*x - 5", func_name="f")
                         v13_result["checks"]["codegen"] = "ok"
-                        v13_result["details"].append(f"    代码生成 ✓ Python/JS/C 均成功生成")
+                        v13_result["details"].append("    代码生成 ✓ Python/JS/C 均成功生成")
                         logger.info("  [v1.3.0自检] 代码生成: Python/JS/C 均健康")
                     except Exception as e:
                         v13_result["checks"]["codegen"] = "error"
@@ -1007,7 +1014,7 @@ class MathaInnerLoop:
                 hal_result["checks"]["native_compiler"] = "ok"
                 hal_result["details"].append(f"  [HAL v2.0] 原生编译: {len(targets)}目标架构 {targets}")
                 # 协议解析器检查
-                proto_stats = self._proto_parser.parse(
+                self._proto_parser.parse(
                     type('P', (), {'protocol': __import__('src.hardware.hal_v2', fromlist=['ProtocolType']).ProtocolType.UART,
                                    'name': 'test_uart', 'baud_rate': 115200, 'data_bits': 8,
                                    'parity': 'none', 'stop_bits': 1, 'frame_format': 'async',
@@ -1015,14 +1022,14 @@ class MathaInnerLoop:
                                    'metadata': {}})()
                 ) if False else {}
                 # 驱动生成器检查
-                from src.hardware.hal_v2 import DriverKind, DriverSpec, Architecture
-                driver_result = self._driver_gen.generate(DriverSpec(
+                from src.hardware.hal_v2 import Architecture, DriverKind, DriverSpec
+                self._driver_gen.generate(DriverSpec(
                     name="test_driver", kind=DriverKind.MATH,
                     target_arch=Architecture.X86_64, target_lang="python",
                     math_expr="x * 2",
                 ))
                 hal_result["checks"]["driver_gen"] = "ok"
-                hal_result["details"].append(f"  [HAL v2.0] 驱动生成: test_driver 生成成功")
+                hal_result["details"].append("  [HAL v2.0] 驱动生成: test_driver 生成成功")
                 # 原生编译检查
                 compile_result = self._native_compiler.compile("x^2 + 1", Architecture.X86_64, "test_fn", "c")
                 hal_result["checks"]["native_compile"] = "ok" if compile_result.get("success") else "error"
@@ -1090,7 +1097,7 @@ class MathaInnerLoop:
         # Phase 4.7: 自优化
         if verbose:
             logger.info("  [自优化] 性能分析与优化...")
-        optimizations = self.self_optimize_performance()
+        self.self_optimize_performance()
 
         # Phase 5: 持久化
         self.save_state()
@@ -1182,7 +1189,7 @@ class MathaInnerLoop:
 #  便捷函数
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_loop_instance: Optional[MathaInnerLoop] = None
+_loop_instance: MathaInnerLoop | None = None
 
 
 def get_inner_loop() -> MathaInnerLoop:
@@ -1227,14 +1234,14 @@ if __name__ == "__main__":
 
     # 单次运行
     result = loop.trigger_once(verbose=True)
-    print(f"\n内循环结果:")
+    print("\n内循环结果:")
     print(f"  缺陷: {result.get('defects_found', 0)}")
     print(f"  健康分: {result.get('health_score', 0)}")
     print(f"  状态: {result.get('status', 'unknown')}")
     print(f"  耗时: {result.get('duration', 0):.1f}s")
 
     # 持续模式演示
-    print(f"\n启动持续内循环 (30s间隔)...")
+    print("\n启动持续内循环 (30s间隔)...")
     loop.start_loop(interval=30.0)
     time.sleep(5)
     print(f"  状态: {loop.get_status()}")

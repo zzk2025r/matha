@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'websocket_manager.dart';
 
 /// 协作操作类型
 enum CollaborativeOpType {
@@ -129,6 +130,7 @@ class CollaborativeEngine extends ChangeNotifier {
   bool _isConnected = false;
   bool _isSyncing = false;
   String? _connectionError;
+  WebSocketManager? _wsManager;
 
   CollaborativeEngine({
     required String documentId,
@@ -258,19 +260,52 @@ class CollaborativeEngine extends ChangeNotifier {
       debugPrint('[Collab] 服务器地址: $serverUrl');
       debugPrint('[Collab] 文档 ID: $_documentId');
       debugPrint('[Collab] 用户 ID: $_userId');
-      
-      // TODO: 实现 WebSocket 连接
-      // 模拟连接成功
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      _isConnected = true;
-      _connectionError = null;
-      
-      debugPrint('[Collab] 连接成功!');
+
+      _wsManager?.dispose();
+      _wsManager = WebSocketManager(WebSocketConfig(
+        serverUrl: serverUrl,
+        documentId: _documentId,
+        userId: _userId,
+        userName: _userId,
+        headers: auth ?? const {},
+      ));
+
+      _wsManager!.onConnected = (_) {
+        _isConnected = true;
+        _connectionError = null;
+        debugPrint('[Collab] ✓ WebSocket 已连接');
+        _flushPendingOps();
+        notifyListeners();
+      };
+      _wsManager!.onDisconnected = (msg) {
+        _isConnected = false;
+        debugPrint('[Collab] WebSocket 已断开: $msg');
+        notifyListeners();
+      };
+      _wsManager!.onError = (msg) {
+        _connectionError = msg;
+        debugPrint('[Collab] WebSocket 错误: $msg');
+        notifyListeners();
+      };
+      _wsManager!.onRemoteOp = _handleRemoteOp;
+      _wsManager!.onUsersUpdate = (users) {
+        _state = _state.copyWith(presence: users);
+        notifyListeners();
+      };
+      _wsManager!.onCursorMove = (userId, position) {
+        _state.cursors[userId] = position.toString();
+        notifyListeners();
+      };
+
+      final success = await _wsManager!.connect();
+      _isConnected = success;
+      _connectionError = success ? null : (_wsManager!.errorMessage ?? '连接失败');
+
+      debugPrint('[Collab] ${success ? "连接成功!" : "连接失败"}');
       debugPrint('[Collab] ========== 连接完成 ==========');
-      
+
       notifyListeners();
-      return true;
+      return success;
     } catch (e, stackTrace) {
       _connectionError = '连接失败: $e';
       debugPrint('[Collab] ========== 连接失败 ==========');
@@ -285,12 +320,15 @@ class CollaborativeEngine extends ChangeNotifier {
   void disconnect() {
     debugPrint('[Collab] ========== 开始断开连接 ==========');
     _isConnected = false;
-    
+
+    _wsManager?.disconnect();
+    _wsManager = null;
+
     // 清理待发送操作
     if (_pendingOps.isNotEmpty) {
       debugPrint('[Collab] 有 ${_pendingOps.length} 个待发送操作，将重连后发送');
     }
-    
+
     debugPrint('[Collab] 连接已断开');
     debugPrint('[Collab] ========== 断开完成 ==========');
     notifyListeners();
@@ -299,15 +337,35 @@ class CollaborativeEngine extends ChangeNotifier {
   /// 发送操作到服务器
   void _sendToServer(CollaborativeOp op) {
     debugPrint('[Collab] 发送操作: ${op.id} (类型: ${op.type}, 位置: ${op.position})');
-    
-    if (!_isConnected) {
+
+    if (_wsManager == null || !_isConnected) {
       debugPrint('[Collab] ⚠️ 未连接，操作已暂存到队列 (队列长度: ${_pendingOps.length + 1})');
       _pendingOps.add(op);
       return;
     }
-    
-    // TODO: 实现 WebSocket 发送
+
+    _wsManager!.sendOp(op);
     debugPrint('[Collab] ✓ 操作已发送到服务器');
+  }
+
+  /// 处理远程操作（忽略自身回显）
+  void _handleRemoteOp(CollaborativeOp op) {
+    if (op.userId == _userId && _opHistory.containsKey(op.id)) {
+      debugPrint('[Collab] 忽略自身操作回显: ${op.id}');
+      return;
+    }
+    applyRemoteOp(op);
+  }
+
+  /// 连接就绪后刷新待发送操作
+  void _flushPendingOps() {
+    if (_pendingOps.isEmpty) return;
+    debugPrint('[Collab] 连接就绪，发送 ${_pendingOps.length} 个待发送操作');
+    final pending = List<CollaborativeOp>.of(_pendingOps);
+    _pendingOps.clear();
+    for (final op in pending) {
+      _sendToServer(op);
+    }
   }
 
   // ========== 状态查询 ==========
@@ -358,6 +416,7 @@ class CollaborativeEngine extends ChangeNotifier {
 
   @override
   void dispose() {
+    _wsManager?.dispose();
     _stateController?.close();
     _opController?.close();
     super.dispose();

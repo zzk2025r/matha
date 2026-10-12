@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 游戏开发领域模块。
 
@@ -12,10 +11,9 @@ Matha 游戏开发领域模块。
   7) 渲染（2D/3D 投影）
 """
 from __future__ import annotations
-import math
-from dataclasses import dataclass, field
-from typing import Optional
 
+import math
+from dataclasses import dataclass
 
 # ============================================================
 # 游戏状态

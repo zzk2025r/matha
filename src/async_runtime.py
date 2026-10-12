@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 异步运行时与线程池。
 
 支持：
@@ -9,12 +8,12 @@
 """
 
 from __future__ import annotations
+
 import asyncio
 import concurrent.futures
 import threading
-from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, Optional
-
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 # ============================================================
 # 线程池
@@ -27,7 +26,7 @@ class ThreadPool:
     """
 
     def __init__(self, max_workers: int = 4) -> None:
-        self._pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
+        self._pool: concurrent.futures.ThreadPoolExecutor | None = None
         self._max_workers = max_workers
         self._lock = threading.Lock()
 
@@ -72,7 +71,7 @@ class EventLoop:
     """Matha 事件循环封装。"""
 
     def __init__(self) -> None:
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None or self._loop.is_closed():
@@ -136,7 +135,7 @@ class Semaphore:
 class Condition:
     """条件变量。"""
 
-    def __init__(self, mutex: Optional[Mutex] = None) -> None:
+    def __init__(self, mutex: Mutex | None = None) -> None:
         self._cond = threading.Condition(mutex._lock if mutex else threading.Lock())
 
     def wait(self) -> None:
@@ -189,6 +188,7 @@ class AsyncSupport:
 
 # 默认线程池（自适应：根据设备 CPU 核心数决定）
 from src.device_config import get_config as _get_device_config
+
 _default_pool = ThreadPool(max_workers=_get_device_config().thread_workers)
 
 # 默认事件循环

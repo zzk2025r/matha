@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 静态类型推断系统。
 
 支持：
@@ -15,11 +14,10 @@
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Optional
-from enum import Enum, auto
-import re
 
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any
 
 # ============================================================
 # 类型定义
@@ -40,7 +38,7 @@ class Type:
     """类型表示。"""
     kind: TypeKind
     name: str
-    args: tuple["Type", ...] = ()  # 泛型参数
+    args: tuple[Type, ...] = ()  # 泛型参数
 
     def __str__(self) -> str:
         if self.args:
@@ -59,23 +57,23 @@ class Type:
     ANY = None
 
     @staticmethod
-    def list_of(element_type: "Type") -> "Type":
+    def list_of(element_type: Type) -> Type:
         return Type(TypeKind.GENERIC, "List", (element_type,))
 
     @staticmethod
-    def dict_of(key_type: "Type", value_type: "Type") -> "Type":
+    def dict_of(key_type: Type, value_type: Type) -> Type:
         return Type(TypeKind.GENERIC, "Dict", (key_type, value_type))
 
     @staticmethod
-    def tuple_of(*types: "Type") -> "Type":
+    def tuple_of(*types: Type) -> Type:
         return Type(TypeKind.TUPLE, "Tuple", types)
 
     @staticmethod
-    def function(params: tuple["Type", ...], return_type: "Type") -> "Type":
+    def function(params: tuple[Type, ...], return_type: Type) -> Type:
         return Type(TypeKind.FUNCTION, "Func", params + (return_type,))
 
     @staticmethod
-    def option(element_type: "Type") -> "Type":
+    def option(element_type: Type) -> Type:
         return Type(TypeKind.GENERIC, "Option", (element_type,))
 
     def is_numeric(self) -> bool:
@@ -84,11 +82,11 @@ class Type:
     def is_container(self) -> bool:
         return self.name in ("List", "Dict")
 
-    def element_type(self) -> Optional["Type"]:
+    def element_type(self) -> Type | None:
         """获取泛型第一个参数（用于 List）。"""
         return self.args[0] if self.args else None
 
-    def value_type(self) -> Optional["Type"]:
+    def value_type(self) -> Type | None:
         """获取 Dict 的值类型。"""
         return self.args[1] if len(self.args) >= 2 else None
 
@@ -119,18 +117,18 @@ class TypeEnv:
     def define_func(self, name: str, typ: Type) -> None:
         self.functions[name] = typ
 
-    def get_var(self, name: str) -> Optional[Type]:
+    def get_var(self, name: str) -> Type | None:
         return self.variables.get(name)
 
-    def get_func(self, name: str) -> Optional[Type]:
+    def get_func(self, name: str) -> Type | None:
         return self.functions.get(name)
 
-    def merge(self, other: "TypeEnv") -> None:
+    def merge(self, other: TypeEnv) -> None:
         self.variables.update(other.variables)
         self.functions.update(other.functions)
         self.generics.update(other.generics)
 
-    def copy(self) -> "TypeEnv":
+    def copy(self) -> TypeEnv:
         return TypeEnv(
             variables=dict(self.variables),
             functions=dict(self.functions),
@@ -417,11 +415,16 @@ class TypeInferencer:
                 ))
             return Type.BOOL
 
-        elif op == ">>":
-            # Belongs 或位移
-            return Type.BOOL if op == ">>" else Type.ANY
+        elif op in ("<<", ">>"):
+            # 位移（∈ 才是 Belongs，见上方比较分支）
+            if not (left_type.is_numeric() and right_type.is_numeric()):
+                self.errors.append(TypeError(
+                    f"位移运算符 '{op}' 要求数值类型，实际: {left_type} {op} {right_type}",
+                    line=getattr(expr, "line", 0)
+                ))
+            return Type.INT
 
-        elif op == " in ":
+        elif op in ("in", " in "):
             return Type.BOOL
 
         else:
@@ -470,7 +473,7 @@ class TypeInferencer:
             for s in stmt.stmts:
                 self._infer_stmt(s)
 
-    def _get_var_name(self, target: Any) -> Optional[str]:
+    def _get_var_name(self, target: Any) -> str | None:
         """获取变量名。"""
         if hasattr(target, "name"):
             return target.name
@@ -589,4 +592,7 @@ class GenericType:
 __all__ = [
     "Type", "TypeKind", "TypeEnv", "TypeError",
     "TypeInferencer", "TypeChecker", "GenericType",
+    "TypeSystem",
 ]
+
+TypeSystem = TypeChecker

@@ -58,6 +58,7 @@ class PyodidePackage {
 /// Pyodide 桥接控制器
 class PyodideController extends ChangeNotifier {
   static const String _pyodideUrl = 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js';
+  static const String _localPyodideUrl = 'assets/pyodide/pyodide.js';
 
   Pyodide? _pyodide;
   bool _isLoaded = false;
@@ -80,9 +81,13 @@ class PyodideController extends ChangeNotifier {
   // ========== 初始化 ==========
 
   /// 初始化 Pyodide
+  ///
+  /// [preferLocalWasm] 为 true 时优先加载本地打包的 WASM 运行时
+  /// (`assets/pyodide/pyodide.js`)，加载失败时自动回退到 CDN。
   Future<bool> initialize({
     String? pyodideUrl,
     Map<String, String>? packages,
+    bool preferLocalWasm = true,
   }) async {
     if (_isLoaded) return true;
     if (_isInitializing) {
@@ -97,7 +102,19 @@ class PyodideController extends ChangeNotifier {
     try {
       // 动态加载 Pyodide JS
       _notifyProgress(0.2);
-      await _loadPyodideScript(pyodideUrl ?? _pyodideUrl);
+      if (pyodideUrl != null) {
+        await _loadPyodideScript(pyodideUrl);
+      } else if (preferLocalWasm) {
+        try {
+          await _loadPyodideScript(_localPyodideUrl);
+          debugPrint('[Pyodide] ✓ 使用本地 WASM 运行时');
+        } catch (e) {
+          debugPrint('[Pyodide] ⚠ 本地 WASM 不可用 ($e)，回退到 CDN');
+          await _loadPyodideScript(_pyodideUrl);
+        }
+      } else {
+        await _loadPyodideScript(_pyodideUrl);
+      }
       
       _notifyProgress(0.4);
       debugPrint('[Pyodide] 加载 Python 运行时...');
@@ -164,11 +181,19 @@ class PyodideController extends ChangeNotifier {
     debugPrint('[Pyodide] 创建 script 元素并添加到 head...');
     html.document.head!.append(script);
     
-    // 等待加载完成
+    // 等待加载完成（加载失败时快速失败而非挂起）
     debugPrint('[Pyodide] 等待脚本加载...');
-    await script.onLoad.first;
+    try {
+      await Future.any([
+        script.onLoad.first,
+        script.onError.first.then((_) => throw Exception('JS 脚本加载失败: $url')),
+      ]);
+      debugPrint('[Pyodide] ✓ JS 脚本加载完成');
+    } catch (e) {
+      script.remove();
+      rethrow;
+    }
     
-    debugPrint('[Pyodide] ✓ JS 脚本加载完成');
     debugPrint('[Pyodide] ========== 脚本加载完成 ==========');
   }
 

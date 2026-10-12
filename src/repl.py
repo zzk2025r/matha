@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha REPL — 交互式开发环境 — v2.2
 
 支持：
@@ -9,25 +8,24 @@
   5. 多语言输出切换
 """
 from __future__ import annotations
-import sys
-import os
+
 import logging
-from typing import Any, Optional
+import os
+import sys
 from dataclasses import dataclass, field
+from typing import Any
 
 # 确保 src 在路径中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.parser import Parser
-from src import ast_nodes as ast
+from src.intent_parser import IntentParser
 from src.interp import interpret
-from src.intent_parser import IntentParser, explain_intent
-from src.result import Ok, Err, MathaResultError
+from src.parser import Parser
+
 # KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载，不默认激活
 # from src.stdlib.core import register_core_builtins  ← 已移除，按需调用
 from src.repl_completion import REPLCompleter, REPLHistoryManager
 from src.repl_highlight import SyntaxHighlighter
-
 
 logger = logging.getLogger("matha.repl")
 
@@ -43,7 +41,7 @@ class REPLState:
     """REPL 运行时状态。"""
     variables: dict[str, Any] = field(default_factory=dict)
     history: list[str] = field(default_factory=list)
-    intent_parser: Optional[IntentParser] = None
+    intent_parser: IntentParser | None = None
     mode: str = "matha"  # "matha" | "nl" | "intent"
     continue_loop: bool = True
     error_count: int = 0
@@ -244,7 +242,7 @@ class MathaREPL:
         try:
             # 尝试解析
             p = Parser(line)
-            program = p.parse()
+            p.parse()
             # 尝试执行
             outputs, trace = interpret(line)
             self.state.success_count += 1
@@ -429,7 +427,7 @@ def _cmd_run(args) -> int:
     """运行 .matha 文件。"""
     import sys
     try:
-        with open(args.file, "r", encoding="utf-8") as f:
+        with open(args.file, encoding="utf-8") as f:
             source = f.read()
         from src.mir_converter import convert
         py_code = convert(source, "matha", "python")

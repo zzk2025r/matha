@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Embedded Domain: 嵌入式系统内建函数。
 
 覆盖：
@@ -10,7 +9,6 @@
 """
 
 from __future__ import annotations
-
 
 # ============================================================
 # ADC / DAC
@@ -165,7 +163,7 @@ def _spi_clock_divider(clock: float, sys_clock: float = 72000000.0) -> int:
     """SPI 时钟分频器计算。"""
     if clock <= 0:
         return 1
-    div = sys_clock / clock
+    sys_clock / clock
     # SPI 分频器只能是 2,4,8,16,32,64,128
     prescalers = [2, 4, 8, 16, 32, 64, 128]
     for p in prescalers:

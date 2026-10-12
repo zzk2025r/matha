@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 航空航天领域模块：轨道力学、推进系统、结构分析、热防护。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -97,7 +97,7 @@ def _aerospace_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "轨道速度计算", "推进剂消耗率", "结构强度系数",
-    "热防护质量", "再入角估算", "比冲",
+    "_轨道速度计算", "_推进剂消耗率", "_结构强度系数",
+    "_热防护质量", "_再入角估算", "_比冲",
     "_register_aerospace", "_aerospace_symtab_names",
 ]

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """统一物理常量库
 
 所有 domain 模块和 formula_system 应从此处导入物理常量，

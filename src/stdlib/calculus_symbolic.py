@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 符号微积分标准库（SymPy 集成版）
 
 提供符号微积分核心功能：
@@ -24,31 +23,55 @@
   )
 """
 from __future__ import annotations
-import math
+
 import logging
-from typing import Callable, List, Optional, Tuple, Union
-from dataclasses import dataclass
+import math
 
 logger = logging.getLogger(__name__)
 
 try:
     from sympy import (
-        symbols, diff, integrate, limit as sympy_limit,
-        series, Sum, oo, solve, dsolve, Eq,
-        sin, cos, tan, exp, log, sqrt,
-        pi, E, I, nan,
-        Symbol, Function, Derivative, Integral,
-        factorial, gamma, beta,
-        Poly, factor, expand, simplify,
-        latex, pretty
+        Derivative,  # noqa: F401
+        E,
+        Eq,  # noqa: F401
+        Function,
+        I,
+        Integral,  # noqa: F401
+        Poly,  # noqa: F401
+        Sum,
+        Symbol,  # noqa: F401
+        beta,  # noqa: F401
+        cos,
+        diff,
+        dsolve,
+        exp,
+        expand,  # noqa: F401
+        factor,  # noqa: F401
+        factorial,  # noqa: F401
+        gamma,  # noqa: F401
+        integrate,
+        latex,
+        log,
+        nan,
+        oo,
+        pi,
+        pretty,
+        series,  # noqa: F401
+        simplify,
+        sin,
+        solve,  # noqa: F401
+        sqrt,
+        symbols,
+        tan,
     )
+    from sympy import limit as sympy_limit
     # inf 在 SymPy 1.14+ 中已从主命名空间移除
     try:
         from sympy import inf
     except ImportError:
         from math import inf
     HAS_SYMPY = True
-except ImportError as e:
+except ImportError:
     HAS_SYMPY = False
     # 定义占位常量
     class _DummySymbol:
@@ -293,7 +316,7 @@ def limit(expr: str, var: str = "x", point: float = 0, direction: str = "+") -> 
 # 级数求和
 # ============================================================
 
-def infinite_sum(expr: str, var: str = "n", lower: int = 1, upper: Optional[int] = None) -> Union[str, float]:
+def infinite_sum(expr: str, var: str = "n", lower: int = 1, upper: int | None = None) -> str | float:
     """
     级数求和：Σ f(n)
 
@@ -379,7 +402,7 @@ def solve_ode(ode: str, func_name: str = "y", var: str = "x") -> str:
 # 辅助函数
 # ============================================================
 
-def sympy_parse(expr: str, namespace: Optional[dict] = None) -> any:
+def sympy_parse(expr: str, namespace: dict | None = None) -> any:
     """
     解析数学表达式为 SymPy 对象
 
@@ -464,7 +487,7 @@ def pretty_format(expr: str) -> str:
 # 批量计算工具
 # ============================================================
 
-def batch_derivative(expressions: List[str], var: str = "x") -> List[str]:
+def batch_derivative(expressions: list[str], var: str = "x") -> list[str]:
     """
     批量求导
 
@@ -478,7 +501,7 @@ def batch_derivative(expressions: List[str], var: str = "x") -> List[str]:
     return [symbolic_derivative(expr, var) for expr in expressions]
 
 
-def batch_integral(expressions: List[str], var: str = "x") -> List[str]:
+def batch_integral(expressions: list[str], var: str = "x") -> list[str]:
     """
     批量积分
 
@@ -492,7 +515,7 @@ def batch_integral(expressions: List[str], var: str = "x") -> List[str]:
     return [symbolic_integral(expr, var) for expr in expressions]
 
 
-def batch_taylor(expressions: List[str], var: str = "x", point: float = 0, order: int = 5) -> List[str]:
+def batch_taylor(expressions: list[str], var: str = "x", point: float = 0, order: int = 5) -> list[str]:
     """
     批量泰勒展开
 

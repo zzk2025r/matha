@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M3V 字节码 → x86-64 原生机器码（Windows PE64 可执行文件）。
 
 不经过 C 中转：Matha 源码 → AST → M3V 字节码（src.mbc.compiler）
@@ -11,8 +10,8 @@
   - call 前 RSP 16 字节对齐，callee 至少保留 32 字节影子空间
 
 运行时对象模型：
-  - 堆为静态数据段中的 8MB 分配区（保守式非移动 mark-sweep GC，见砖块 18），
-    对象头 = [type][len][payload]。
+  - 堆为静态数据段中的 1GB 保留分配区（页按需提交；保守式非移动 mark-sweep
+    GC，见砖块 18），对象头 = [type][len][payload]。
   - 类型标签：NEG_INF 0=NULL 1=BOOL 2=INT 3=STR 4=LIST 5=DICT 6=ENV 7=CLOSURE
     8=BOX 9=PARTIAL。指针是否落在 [heap_base, heap_free) 区间用于区分
     「堆对象」与「函数地址」。
@@ -134,20 +133,23 @@
        已被改写为 JZ/JNZ 短路，'/' 见砖块 11）
    UNARYOP 已实现：neg not sqrt
    sqrt 前缀 '√' 解析器未产出（VM 侧同样 KeyError），仅 ^ / ** 生效。
-     内建函数：NATIVE_BUILTINS（len/输出/get/错误/调用捕获 + 砖块 15/16 阶段
-      一/二/三 + 砖块 17 阶段一/二/三全部内建），mathlib 全部函数已实现。
+     内建函数：NATIVE_BUILTINS（len/输出/print/get/错误/调用捕获 + 砖块
+       15/16 阶段一/二/三 + 砖块 17 阶段一/二/三全部内建，另含 构造集合/
+       去重/安全索引/安全取属性），mathlib 全部函数已实现。
+       print 是 输出 的别名（LOAD_GLOBAL 期改写，无独立函数体）。
 
  明确不支持（抛 NativeNotSupported）：
    MathaIOError 等非原生名字，及未作为值处理的 mathlib 常量
      （调用未注册内建会在
     apply_rt 走到 ar_plain 的空地址分支，见 _dispatch）
   其余结构性限制：实参数上限 8；操作数栈固定 64KB（无溢出检查）；
-    堆总量固定 8MB（保守式 mark-sweep，回收块可切分/相邻合并）；索引越界
-    静默返回 0；仅生成 Windows PE64（无 ELF64/Mach-O）。
+    堆总量固定 1GB 保留（页按需提交；保守式 mark-sweep，回收块可切分/相邻合并）；
+    仅生成 Windows PE64（无 ELF64/Mach-O）。
+  列表/字符串索引越界与非字典属性访问均经 raise_rt 抛可捕获异常
+    （消息同 VM：list/string index out of range / 属性访问失败）。
 
 已知与 VM 的显式语义偏差（tests/test_native_heap.py 中登记）：
-  缺失字典键 → 原生返回 None（VM 抛 KeyError）；
-  非字典属性访问 → 原生返回 None（VM 抛 TypeError）。
+  缺失字典键索引 → 原生返回 None（VM 抛 KeyError）。
 闭包运行模型：
   - 环境寄存器 R13 承载「当前调用环境记录」；每个函数序言把它存入
     [rbp - 8*(nlocals+1)]（env 槽），MAKE_CLOSURE/LOAD_OUTER 均从该槽复载。
@@ -173,7 +175,9 @@ IMAGE_BASE = 0x140000000
 
 # 运行时自行解析的 kernel32 API（经 PEB 遍历 + 导出表，不依赖 PE 导入表）
 _APIS = ["GetStdHandle", "WriteFile", "ExitProcess",
-         "LoadLibraryA", "GetProcAddress"]
+         "LoadLibraryA", "GetProcAddress",
+         # 砖块 20：动态堆——启动期预留竞技场、按需提交 chunk、可增长标记栈。
+         "VirtualAlloc"]
 
 # 浮点运行时经 LoadLibraryA/GetProcAddress 从 C 运行时解析的函数。
 # _ecvt/_strtod 用于「Python repr 精确」浮点格式化（先取足够精确的十进制
@@ -189,7 +193,15 @@ _CRT_FUNCS = ["_ecvt", "strtod", "sqrt", "pow", "floor", "fmod",
 
 VSTACK_SIZE = 0x10000         # 64KB 操作数栈
 NUMBUF_SIZE = 64              # 整数输出缓冲
-HEAP_SIZE = 0x800000          # 8MB 静态堆（data 段 BSS，bump 分配）
+HEAP_SIZE = 0x40000000        # 1GB 固定堆（data 段 BSS，bump 分配；页按需提交）
+# 砖块 20：固定堆之后的「动态竞技场」。启动期用 VirtualAlloc 于镜像末尾紧邻处
+# 预留一大段虚拟地址（仅 VA，不占物理），bump 指针越过固定区末端时按 chunk 提交
+# （VirtualAlloc MEM_COMMIT），从而在固定 1GB 之外继续增长。与固定区地址连续，
+# 故「是否堆指针」的判据仍是单区间 (v - heap_base) < heap_used。
+DYN_HEAP_SIZE = 0x400000000   # 16GB 动态竞技场（reserve + 按需 commit）
+# 竞技场跨度上界（含镜像末尾对齐空洞），用于给位图/标记栈定尺。
+HEAP_SPAN_MAX = HEAP_SIZE + DYN_HEAP_SIZE + 0x10000
+HEAP_CHUNK = 0x1000000        # 动态竞技场每次提交 16MB
 HSTACK_SIZE = 0x10000         # 64KB 异常处理器栈（每个记录 40 字节）
 HSTACK_REC = 40               # 处理器记录：[prev][rsp][rbp][r12][r13]
 
@@ -204,20 +216,56 @@ TYPE_NULL = 7
 TYPE_ENV = 8
 TYPE_PARTIAL = 9
 TYPE_FLOAT = 10
+TYPE_BIGINT = 11
 
 # 浮点对象：24 字节 [TYPE_FLOAT][len=8][double]（double 在 +16）。
 FLOAT_OBJ_SIZE = 24
+
+# 大整数对象（符号-绝对值，基 10^9，小端 limbs）：
+#   [0]=TYPE_BIGINT [8]=nlimbs [16]=sign(0/1) [24 + i*8]=limb i（最低位在前）
+# 规范化：不保留前导零 limb；能装进 int64 的值一律降级为裸 int64，故
+# 「堆上的 BigInt」必然超出 int64 范围。基取 10^9 使十进制转字符串无需除法
+# （逐步 /10 只在打印时用），且乘法进位用 64 位累加不溢出。
+BIGINT_LIMB_BASE = 10 ** 9
+
+# int64 表示范围：超出者以堆静态 BigInt 对象承载（编译期常量或运行期溢出）。
+_INT64_MIN = -(2 ** 63)
+_INT64_MAX = 2 ** 63 - 1
+
+
+def _bigint_static_limbs(v: int) -> tuple[int, list[int]]:
+    """把超出 int64 的 Python 整数拆成 (sign, limbs)（基 10^9，低位在前）。"""
+    sign = 1 if v < 0 else 0
+    m = -v if v < 0 else v
+    limbs: list[int] = []
+    while m:
+        limbs.append(m % BIGINT_LIMB_BASE)
+        m //= BIGINT_LIMB_BASE
+    if not limbs:
+        limbs.append(0)
+    return sign, limbs
 
 # 砖块 18：堆 GC（保守式非移动 mark-sweep）。
 #   - start_bits：1 bit / 8 字节，标记「该地址是动态堆块起点」（GC 用）。
 #   - mark_bits ：1 bit / 8 字节，标记「本轮 GC 存活」。
 #   - mark_stack：显式标记工作栈（每对象至多入栈一次，容量 ≥ 最大对象数）。
-GC_BITMAP_BYTES = HEAP_SIZE // 64        # 8MB / (8 字节 * 8 bit) = 128KB
-GC_MARK_STACK_ENTRIES = 1 << 20          # 最多约 52 万对象，1M 槽不会溢出
+GC_BITMAP_BYTES = HEAP_SPAN_MAX // 64    # 覆盖固定区 + 动态竞技场（约 272MB）
+# 标记栈改为「运行时可增长」：不再在镜像内预留最坏容量（那会随竞技场放大而
+# 撑破 2GB 镜像上限）。启动期用 VirtualAlloc 预留 MARK_STACK_RESERVE 字节的
+# VA，入栈越界时按 MARK_CHUNK 提交下一页。镜像内仅留 8MB 应急栈（预留/提交
+# 失败时兜底，越界即安全终止）。
+MARK_STACK_RESERVE = HEAP_SPAN_MAX // 2  # 恰好覆盖「最坏对象数 × 8 字节」
+MARK_CHUNK = 0x1000000                   # 标记栈每次提交 16MB
+GC_MARK_STACK_FALLBACK = 8 << 20         # 8MB 镜像内应急标记栈
 
-# 指针区间判定：值 v 是指针 ⟺ (v - heap_base) 无符号 < HEAP_SIZE。
-# 堆对象（静态串对象 + 动态分配）全部落在 [heap_base, heap_base+HEAP_SIZE)，
-# 整数（含负数）不在此区间，故原地保留既有整数算术，零改造成本。
+# 指针区间判定：值 v 是指针 ⟺ (v - heap_base) 无符号 < heap_used，其中
+# heap_used = heap_ptr - heap_base（运行时已用字节数）。堆对象（静态串对象 +
+# 动态分配）全部落在 [heap_base, heap_ptr)；整数（含负数）不在此区间，故原地
+# 保留既有整数算术。用「已用量」而非预留跨度做上界，使误判窗口只随实际使用量
+# 增长（而非随 16GB 竞技场），把大整数被误认成指针的风险压到最小。
+# 固定 1GB 区 + 动态 16GB 竞技场（VirtualAlloc 预留、bump 越界时按需提交）共同
+# 构成单一连续地址区间，故判据无需拆成两段。镜像不加载 SizeOfImage ≥ 2GB
+# （WinError 193），故位图按竞技场上界定尺（约 272MB×2），标记栈移出镜像可增长。
 
 
 class NativeNotSupported(Exception):
@@ -233,6 +281,9 @@ class _Emitter:
         self.buf = bytearray()
         self.base_rva = base_rva
         self.labels: dict[str, int] = labels if labels is not None else {}
+        # 尾部「虚拟零区」：不写入 buf，只计入尺寸/RVA。用于巨大的 BSS（堆、
+        # 位图、标记栈），避免在编译期把数十/上百 MB 零字节物化进 Python 内存。
+        self.virtual_len = 0
         # (载荷偏移, 标签)：RIP 相对 rel32（代码用）
         self.rip_relocs: list[tuple[int, str]] = []
         # (载荷偏移, 标签)：rel8 短跳
@@ -246,7 +297,12 @@ class _Emitter:
 
     @property
     def rva(self) -> int:
-        return self.base_rva + len(self.buf)
+        return self.base_rva + len(self.buf) + self.virtual_len
+
+    @property
+    def total_len(self) -> int:
+        """节区总长度（实体字节 + 尾部虚拟零区）。"""
+        return len(self.buf) + self.virtual_len
 
     def label_here(self, name: str):
         if name in self.labels:
@@ -256,9 +312,20 @@ class _Emitter:
     def emit(self, data: bytes):
         self.buf.extend(data)
 
+    def emit_virtual(self, n: int):
+        """在尾部预留 n 字节零区（不物化到 buf）。"""
+        if n:
+            self.virtual_len += n
+
     def align(self, n: int):
-        while len(self.buf) % n:
-            self.buf.append(0)
+        total = len(self.buf) + self.virtual_len
+        pad = (-total) % n
+        if not pad:
+            return
+        if self.virtual_len:
+            self.virtual_len += pad
+        else:
+            self.buf.extend(b"\x00" * pad)
 
     def rel32_to(self, label: str):
         """RIP 相对：补 4 字节占位，patch 阶段填 (target - next_rva)。"""
@@ -505,6 +572,17 @@ class _Emitter:
         self.emit(bytes([rex, 0x81, 0xF8 | (reg & 7)])
                   + struct.pack("<i", imm32))
 
+    def cmp_heap_used(self, reg: int):
+        """cmp r64, [rip+heap_used]：把「值 − heap_base」与运行时已用堆字节数比较。
+
+        上界取 heap_used（= heap_ptr - heap_base）而非预留跨度：既让判据随动态区
+        增长自然延伸，又把「大整数被误认成堆指针」的窗口限制在实际使用量内。用
+        内存操作数而非 imm32，是因为已用量可超过 2GB（imm32 会符号扩展溢出）。
+        """
+        rex = 0x48 | (0x04 if reg >= 8 else 0)
+        self.emit(bytes([rex, 0x3B, 0x05 | ((reg & 7) << 3)]))
+        self.rel32_to("heap_used")
+
     def shr_ri(self, reg: int, imm: int):
         rex = 0x48 | (0x01 if reg >= 8 else 0)
         self.emit(bytes([rex, 0xC1, 0xE8 | (reg & 7), imm & 0xFF]))
@@ -585,6 +663,23 @@ _FLOAT_CC = {"==": 0x94, "!=": 0x95, "<": 0x92,
 
 _FLOAT_BINOPS = {"+": "f_add", "-": "f_sub", "*": "f_mul", "/": "f_div",
                  "//": "f_floordiv", "%": "f_mod", "**": "f_pow"}
+
+# 位运算（仅整数）：opcode 21 /r = and、09 /r = or、31 /r = xor，均作用 rax,rcx。
+# 注意 `^` 不在此表——按 docs/06 与 EBNF 2.1，中缀 `^` 是**次方**（编译器在
+# src/mbc/compiler.py::_BIN_OPS 已把 AST 的 `^` 归约为 `**`），异或的专用
+# 符号是 `⊕`。移位 `<< >>` 走各自的 shl/sar 分支，不在此表。
+_BIT_BINOPS = {"&": b"\x48\x21\xC8",    # and rax,rcx
+               "|": b"\x48\x09\xC8",    # or  rax,rcx
+               "⊕": b"\x48\x31\xC8"}    # xor rax,rcx
+
+# 非整数操作数的报错串。VM 侧（vm._bitop）会附带 "actual left=…, right=…"，
+# 原生端无法反查类型名，故只给前半句；两者同为可捕获异常，语义一致。
+_BIT_BINOPS_ERR = {"&": "err_bitand", "|": "err_bitor", "⊕": "err_bitxor"}
+
+# 大整数参与（或被提升）的二元运算。`+ - * **` 溢出提升为任意精度；比较走
+# 大整数路径；`// %` 与位运算/移位仍为 int64，遇大整数操作数抛 err_bigintop。
+_BIGINT_BINOPS = {"+", "-", "*", "**", "//", "%",
+                  "==", "!=", "<", "<=", ">", ">="}
 
 
 def _emit_prologue(em: _Emitter, arity: int, nlocals: int):
@@ -997,7 +1092,7 @@ def _emit_resolve_apis(em: _Emitter):
     # GetProcAddress（首 dword "GetP"；+4..+11 "rocAddre"；+12 's'；+13 0）
     em.label_here("rs_getp")
     em.emit(b"\x3D" + struct.pack("<I", 0x50746547))    # cmp eax,"GetP"
-    em.jcc_rel32(0x85, "rs_next")
+    em.jcc_rel32(0x85, "rs_valloc")
     em.emit(b"\x48\x8B\x7A\x04")                        # mov rdi,[rdx+4]
     em.mov_r_imm64(6, 0x6572646441636F72)               # rsi="rocAddre"
     em.emit(b"\x48\x39\xF7")                            # cmp rdi,rsi
@@ -1009,6 +1104,19 @@ def _emit_resolve_apis(em: _Emitter):
     em.emit(b"\x80\x7A\x0E\x00")                        # cmp byte[rdx+14],0
     em.jcc_rel32(0x85, "rs_next")
     resolve_common("api_GetProcAddress")
+    em.jcc_rel32(None, "rs_next")
+
+    # VirtualAlloc（首 dword "Virt"；+4 "ualA"；+8 "lloc"；+12 0）
+    em.label_here("rs_valloc")
+    em.emit(b"\x3D" + struct.pack("<I", 0x74726956))    # cmp eax,"Virt"
+    em.jcc_rel32(0x85, "rs_next")
+    em.emit(b"\x81\x7A\x04" + struct.pack("<I", 0x416C6175))  # cmp dword[rdx+4],"ualA"
+    em.jcc_rel32(0x85, "rs_next")
+    em.emit(b"\x81\x7A\x08" + struct.pack("<I", 0x636F6C6C))  # cmp dword[rdx+8],"lloc"
+    em.jcc_rel32(0x85, "rs_next")
+    em.emit(b"\x80\x7A\x0C\x00")                        # cmp byte[rdx+12],0
+    em.jcc_rel32(0x85, "rs_next")
+    resolve_common("api_VirtualAlloc")
 
     em.label_here("rs_next")
     em.emit(b"\x85\xC9")                                # test ecx,ecx
@@ -1063,7 +1171,75 @@ def _emit_heap_runtime(em: _Emitter):
     str_eq(rax=l,rcx=r) → rax=1/0        字符串内容相等
     print_raw(rax=ptr)                   写字符串字节（无换行）
     print_value(rax=value)               按类型分派打印（无尾随换行）
+    heap_init()                          启动期：设 heap_used、预留动态竞技场与标记栈
     """
+    # ---- heap_init：启动期一次性初始化（_start 在 main_entry 之前调用）----
+    # 1) heap_used = heap_ptr − heap_base（指针判据上界随分配增长）。
+    # 2) dyn_base = align(heap_free + HEAP_SIZE, 0x10000)（镜像末梢，64KB 对齐）；
+    #    VirtualAlloc(dyn_base, DYN_HEAP_SIZE, MEM_RESERVE, RW) 预留 16GB 竞技场，
+    #    成功则 heap_limit=dyn_base（固定区填满后由 heap_extend 按 chunk 提交）。
+    # 3) 预留标记栈（MARK_STACK_RESERVE）并提交首 chunk；失败退化为镜像内
+    #    8MB 兜底栈（不可增长）。
+    em.label_here("heap_init")
+    em.emit(b"\x55")                                # push rbp
+    em.emit(b"\x48\x89\xE5")                        # mov rbp,rsp
+    em.emit(b"\x48\x83\xE4\xF0")                    # and rsp,-16（对齐）
+    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20（影子空间）
+    em.lea_rip(0, "heap_base")                      # lea rax,[heap_base]
+    em.emit(b"\x48\x8B\x0D")                        # mov rcx,[rip+heap_ptr]
+    em.rel32_to("heap_ptr")
+    em.sub_rr(1, 0)                                 # sub rcx,rax（已用堆字节）
+    em.store_rip_from("heap_used", 1)               # mov [rip+heap_used],rcx
+    em.lea_rip(0, "heap_free")                      # lea rax,[heap_free]
+    em.add_ri(0, HEAP_SIZE)                         # add rax,HEAP_SIZE
+    em.add_ri(0, 0xFFFF)                            # add rax,0xFFFF
+    em.and_ri(0, -0x10000)                          # and rax,-0x10000（对齐 64KB）
+    em.store_rip_from("dyn_base", 0)                # mov [rip+dyn_base],rax
+    em.mov_rr(1, 0)                                 # mov rcx,rax（addr=dyn_base）
+    em.mov_r_imm64(2, DYN_HEAP_SIZE)                # mov rdx,DYN_HEAP_SIZE
+    em.mov_r_imm32(8, 0x2000)                       # mov r8d,MEM_RESERVE
+    em.mov_r_imm32(9, 4)                            # mov r9d,PAGE_READWRITE
+    em.call_rip_indirect("api_VirtualAlloc")
+    em.test_rr(0, 0)                                # test rax,rax
+    em.jcc_rel32(0x84, "hi_no_dyn")                 # jz（预留失败 → 仅固定区）
+    em.mov_rr(1, 0)                                 # mov rcx,rax
+    em.mov_r_imm64(2, DYN_HEAP_SIZE)                # mov rdx,DYN_HEAP_SIZE
+    em.add_rr(1, 2)                                 # add rcx,rdx（dyn_end）
+    em.store_rip_from("dyn_end", 1)                 # mov [rip+dyn_end],rcx
+    em.store_rip_from("heap_limit", 0)              # mov [rip+heap_limit],rax
+    em.label_here("hi_no_dyn")
+    # ---- 标记栈 ----
+    em.emit(b"\x31\xC9")                            # xor ecx,ecx（addr=NULL）
+    em.mov_r_imm64(2, MARK_STACK_RESERVE)           # mov rdx,MARK_STACK_RESERVE
+    em.mov_r_imm32(8, 0x2000)                       # mov r8d,MEM_RESERVE
+    em.mov_r_imm32(9, 4)                            # mov r9d,PAGE_READWRITE
+    em.call_rip_indirect("api_VirtualAlloc")
+    em.test_rr(0, 0)                                # test rax,rax
+    em.jcc_rel32(0x84, "hi_mark_fallback")          # jz（预留失败 → 兜底栈）
+    em.store_rip_from("mark_stack_base", 0)         # mov [rip+mark_stack_base],rax
+    em.mov_rr(1, 0)                                 # mov rcx,rax
+    em.mov_r_imm32(2, MARK_CHUNK)                   # mov edx,MARK_CHUNK
+    em.mov_r_imm32(8, 0x1000)                       # mov r8d,MEM_COMMIT
+    em.mov_r_imm32(9, 4)                            # mov r9d,PAGE_READWRITE
+    em.call_rip_indirect("api_VirtualAlloc")
+    em.test_rr(0, 0)                                # test rax,rax
+    em.jcc_rel32(0x84, "hi_mark_fallback")          # jz（首 chunk 提交失败）
+    em.load_rip_to(0, "mark_stack_base")            # mov rax,[rip+mark_stack_base]
+    em.add_ri(0, MARK_CHUNK)                        # add rax,MARK_CHUNK
+    em.store_rip_from("mark_stack_limit", 0)        # mov [rip+mark_stack_limit],rax
+    em.mov_r_imm32(0, 1)                            # mov eax,1
+    em.store_rip_from("mark_stack_growable", 0)     # mov [rip+mark_stack_growable],rax
+    em.jcc_rel32(None, "hi_done")                   # jmp done
+    em.label_here("hi_mark_fallback")
+    em.lea_rip(0, "mark_stack0")                    # lea rax,[mark_stack0]
+    em.store_rip_from("mark_stack_base", 0)
+    em.add_ri(0, GC_MARK_STACK_FALLBACK)            # add rax,GC_MARK_STACK_FALLBACK
+    em.store_rip_from("mark_stack_limit", 0)
+    em.label_here("hi_done")
+    em.emit(b"\x48\x89\xEC")                        # mov rsp,rbp
+    em.emit(b"\x5D")                                # pop rbp
+    em.emit(b"\xC3")                                # ret
+
     # ---- alloc ----
     # 热路径：bump 分配。契约不变——仅破坏 rax/rdx（rcx 用 push/pop 保护）。
     # 在对象头置 start bit（1 bit/8 字节）。当 free list 非空或越界时转 alloc_slow。
@@ -1084,13 +1260,17 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x48\x89\x15")                        # mov [rip+heap_ptr],rdx
     em.rel32_to("heap_ptr")
     em.emit(b"\x51")                                # push rcx
+    em.emit(b"\x52")                                # push rdx（保存新 top）
     em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
     em.emit(b"\x48\xC1\xE9\x03")                    # shr rcx,3
     em.emit(b"\x48\x0F\xAB\x0D")                    # bts qword [rip+start_bits],rcx
     em.rel32_to("start_bits")
-    em.emit(b"\x59")                                # pop rcx
+    em.emit(b"\x59")                                # pop rcx（新堆顶）
+    em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx（新顶 − heap_base）
+    em.store_rip_from("heap_used", 1)               # mov [rip+heap_used],rcx
+    em.emit(b"\x59")                                # pop rcx（恢复原 rcx）
     em.emit(b"\xC3")                                # ret
 
     # ---- str_concat ----
@@ -1143,7 +1323,7 @@ def _emit_heap_runtime(em: _Emitter):
     em.mov_rr(1, 13)                                # mov rcx,r13
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.sub_rr(1, 2)                                 # sub rcx,rdx
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "sqr_none")                  # jae 非堆指针
     em.emit(b"\x41\x8B\x7D\x00")                 # mov edi,[r13+0]  类型标签
     em.emit(b"\x83\xFF" + bytes([TYPE_STR]))       # cmp edi,TYPE_STR
@@ -1271,7 +1451,7 @@ def _emit_heap_runtime(em: _Emitter):
     em.mov_rr(1, 0)                                 # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.sub_rr(1, 2)                                 # sub rcx,rdx
-    em.cmp_ri(1, HEAP_SIZE)                         # cmp rcx,HEAP_SIZE
+    em.cmp_heap_used(1)                         # cmp rcx,HEAP_SIZE
     em.jcc_rel32(0x83, "isc_no")                    # jae 非堆指针
     em.emit(b"\x8B\x08")                            # mov ecx,[rax]  类型标签
     em.emit(b"\x83\xF9" + bytes([TYPE_STR]))        # cmp ecx,TYPE_STR
@@ -1321,7 +1501,7 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
-    em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x82, "ty_ptr")                    # jb ptr
     em.emit(b"\x48\x85\xC0")                        # test rax,rax（整数）
     em.emit(b"\xC3")                                # ret
@@ -1401,7 +1581,7 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
-    em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))  # cmp rcx,HEAP_SIZE
+    em.cmp_heap_used(1)  # cmp rcx,HEAP_SIZE
     em.jcc_rel32(0x82, "pv_ptr")                    # jb ptr
     em.call_rel32("print_int")
     em.emit(b"\xC3")                                # ret
@@ -1419,7 +1599,13 @@ def _emit_heap_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "pv_dict")                   # je dict
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_FLOAT]))  # cmp rcx,TYPE_FLOAT
     em.jcc_rel32(0x84, "pv_float")                  # je float
+    em.emit(b"\x48\x83\xF9" + bytes([TYPE_BIGINT]))  # cmp rcx,TYPE_BIGINT
+    em.jcc_rel32(0x84, "pv_bigint")                 # je bigint
     em.emit(b"\xC3")                                # ret（其他类型待实现）
+    em.label_here("pv_bigint")
+    em.call_rel32("bi_to_str")
+    em.call_rel32("print_raw")
+    em.emit(b"\xC3")
     em.label_here("pv_float")
     em.call_rel32("str_float")
     em.call_rel32("print_raw")
@@ -1479,47 +1665,195 @@ def _emit_heap_runtime(em: _Emitter):
     em.call_rel32("print_raw")
     _emit_epilogue(em)
 
-    # ---- val_eq：对象内容相等（作为字典键比较）----
-    # val_eq(rax=l, rcx=r) → rax=1/0。整数直接比较；指针对象比 type+len+bytes。
+    # ---- val_eq：结构相等（deep）----
+    # val_eq(rax=l, rcx=r) → rax=1/0。对齐 VM/Python 语义：整数按值比较、
+    # 布尔与整数可跨比较（真/假=1/0）、浮点按数值（NaN≠NaN）、字符串比内容、
+    # 列表逐元素递归、字典逐 (键,值) 递归（同序）、其余指针类型比身份。
+    # 寄存器纪律：保存 rbx/rdx（list_dedup 依赖 rdx/rbx 存活），只破坏
+    # rax/rcx/rsi/rdi/r8/r9（与旧实现一致）；r12-r15 不触碰。
     em.label_here("val_eq")
-    em.emit(b"\x49\x89\xC0")                        # mov r8,rax
-    em.lea_rip(9, "heap_base")                      # lea r9,[heap_base]
-    em.emit(b"\x4D\x29\xC8")                        # sub r8,r9
-    em.emit(b"\x49\x81\xF8" + struct.pack("<I", HEAP_SIZE))  # cmp r8,HEAP_SIZE
-    em.jcc_rel32(0x82, "ve_lptr")                   # jb：l 为指针
-    em.emit(b"\x49\x89\xC8")                        # mov r8,rcx
-    em.lea_rip(9, "heap_base")                      # lea r9,[heap_base]
-    em.emit(b"\x4D\x29\xC8")                        # sub r8,r9
-    em.emit(b"\x49\x81\xF8" + struct.pack("<I", HEAP_SIZE))  # cmp r8,HEAP_SIZE
-    em.jcc_rel32(0x83, "ve_intcmp")                 # jae：r 也非指针 → 整数比较
-    em.emit(b"\x31\xC0")                            # xor eax,eax（l 非指针 r 指针）
-    em.emit(b"\xC3")                                # ret
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x53")                                # push rbx
+    em.emit(b"\x52")                                # push rdx
+    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20（局部槽到 [rbp-48]）
+    em.mov_rr(3, 0)                                 # rbx = l
+    em.mov_mem_r(5, -24, 1)                         # [rbp-24] = r
+    # 分类 l：是否堆指针
+    em.mov_rr(2, 3)                                 # rdx = l
+    em.lea_rip(8, "heap_base")                      # r8 = heap_base
+    em.sub_rr(2, 8)                                 # rdx = l - heap_base
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x82, "ve_lptr")                   # jb → l 是指针
+    # ---- l 非指针（整数）----
+    em.mov_rd_mem(1, 5, -24)                        # rcx = r
+    em.mov_rr(2, 1)                                 # rdx = r
+    em.sub_rr(2, 8)                                 # rdx = r - heap_base
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x82, "ve_imm_rptr")               # jb → r 是指针
+    em.cmp_rr(0, 1)                                 # cmp l, r（都是整数）
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # sete al; movzx eax,al
+    em.jcc_rel32(None, "ve_ret")
+    em.label_here("ve_imm_rptr")                    # l 整数、r 指针
+    em.emit(b"\x83\x39" + bytes([TYPE_FLOAT]))      # cmp dword[rcx],TYPE_FLOAT
+    em.jcc_rel32(0x84, "ve_num")
+    em.emit(b"\x83\x39" + bytes([TYPE_BOOL]))       # cmp dword[rcx],TYPE_BOOL
+    em.jcc_rel32(0x84, "ve_bool_r")
+    em.jcc_rel32(None, "ve_false")
+    # ---- l 是指针 ----
     em.label_here("ve_lptr")
-    em.emit(b"\x49\x89\xC8")                        # mov r8,rcx
-    em.lea_rip(9, "heap_base")                      # lea r9,[heap_base]
-    em.emit(b"\x4D\x29\xC8")                        # sub r8,r9
-    em.emit(b"\x49\x81\xF8" + struct.pack("<I", HEAP_SIZE))  # cmp r8,HEAP_SIZE
-    em.jcc_rel32(0x83, "ve_false")                  # jae：r 非指针 → 不等
-    em.emit(b"\x4C\x8B\x00")                        # mov r8,[rax]（l 类型）
-    em.emit(b"\x4C\x3B\x01")                        # cmp r8,[rcx]（r 类型）
-    em.jcc_rel32(0x85, "ve_false")                  # jne
-    em.emit(b"\x4C\x8B\x40\x08")                    # mov r8,[rax+8]（l 长度）
-    em.emit(b"\x4C\x3B\x41\x08")                    # cmp r8,[rcx+8]（r 长度）
-    em.jcc_rel32(0x85, "ve_false")                  # jne
-    em.emit(b"\x48\x8D\x70\x10")                    # lea rsi,[rax+16]
-    em.emit(b"\x48\x8D\x79\x10")                    # lea rdi,[rcx+16]
-    em.emit(b"\x4C\x89\xC1")                        # mov rcx,r8（字节数）
+    em.mov_rd_mem(1, 5, -24)                        # rcx = r
+    em.mov_rr(2, 1)                                 # rdx = r
+    em.sub_rr(2, 8)                                 # rdx = r - heap_base
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x82, "ve_both_ptr")               # jb → r 也是指针
+    em.emit(b"\x83\x38" + bytes([TYPE_FLOAT]))      # cmp dword[rbx],TYPE_FLOAT
+    em.jcc_rel32(0x84, "ve_num")
+    em.emit(b"\x83\x38" + bytes([TYPE_BOOL]))       # cmp dword[rbx],TYPE_BOOL
+    em.jcc_rel32(0x84, "ve_bool_l")
+    em.jcc_rel32(None, "ve_false")
+    # r 是布尔对象、l 是整数：比较 (r 的 0/1) 与 l
+    em.label_here("ve_bool_r")
+    em.lea_rip(8, "bool_true")
+    em.cmp_rr(1, 8)                                 # cmp rcx, bool_true
+    em.emit(b"\x0F\x94\xC1\x0F\xB6\xC9")            # sete cl; movzx ecx,cl
+    em.cmp_rr(0, 1)                                 # cmp l, rcx
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # sete al; movzx eax,al
+    em.jcc_rel32(None, "ve_ret")
+    # l 是布尔对象、r 是整数：比较 (l 的 0/1) 与 r
+    em.label_here("ve_bool_l")
+    em.lea_rip(8, "bool_true")
+    em.cmp_rr(3, 8)                                 # cmp rbx, bool_true
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # sete al; movzx eax,al
+    em.mov_rd_mem(1, 5, -24)                        # rcx = r
+    em.cmp_rr(0, 1)                                 # cmp l值, r
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # sete al; movzx eax,al
+    em.jcc_rel32(None, "ve_ret")
+    # ---- 两侧都是指针 ----
+    em.label_here("ve_both_ptr")
+    em.emit(b"\x8B\x03")                            # mov eax,[rbx]（类型 l）
+    em.emit(b"\x3B\x01")                            # cmp eax,[rcx]（类型 r）
+    em.jcc_rel32(0x85, "ve_false")                  # jne → 类型不同
+    em.emit(b"\x83\xF8" + bytes([TYPE_FLOAT]))      # cmp eax,TYPE_FLOAT
+    em.jcc_rel32(0x84, "ve_num")
+    em.emit(b"\x83\xF8" + bytes([TYPE_STR]))        # cmp eax,TYPE_STR
+    em.jcc_rel32(0x84, "ve_obj_str")
+    em.emit(b"\x83\xF8" + bytes([TYPE_LIST]))       # cmp eax,TYPE_LIST
+    em.jcc_rel32(0x84, "ve_obj_list")
+    em.emit(b"\x83\xF8" + bytes([TYPE_DICT]))       # cmp eax,TYPE_DICT
+    em.jcc_rel32(0x84, "ve_obj_dict")
+    em.emit(b"\x83\xF8" + bytes([TYPE_BIGINT]))     # cmp eax,TYPE_BIGINT
+    em.jcc_rel32(0x84, "ve_obj_bigint")
+    em.jcc_rel32(None, "ve_obj_ident")              # 其余类型 → 身份比较
+    em.label_here("ve_obj_bigint")
+    em.mov_rr(0, 3)                                 # rax = l
+    em.call_rel32("bi_cmp")                         # rax = -1/0/1
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # sete al; movzx eax,al
+    em.jcc_rel32(None, "ve_ret")
+    em.label_here("ve_obj_ident")
+    em.cmp_rr(3, 1)                                 # cmp rbx, rcx
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # sete al; movzx eax,al
+    em.jcc_rel32(None, "ve_ret")
+    # ---- 字符串：长度 + 逐字节 ----
+    em.label_here("ve_obj_str")
+    em.mov_rd_mem(8, 3, 8)                          # r8 = len_l
+    em.mov_rd_mem(9, 1, 8)                          # r9 = len_r
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x85, "ve_false")
+    em.lea_mem(6, 3, 16)                            # rsi = l+16
+    em.lea_mem(7, 1, 16)                            # rdi = r+16
+    em.mov_rr(1, 8)                                 # rcx = len
     em.emit(b"\xF3\xA6")                            # rep cmpsb
-    em.jcc_rel32(0x85, "ve_false")                  # jne
+    em.jcc_rel32(0x85, "ve_false")
+    em.jcc_rel32(None, "ve_true")
+    # ---- 列表：长度 + 逐元素递归 ----
+    em.label_here("ve_obj_list")
+    em.mov_rd_mem(8, 3, 8)                          # r8 = n_l
+    em.mov_rd_mem(9, 1, 8)                          # r9 = n_r
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x85, "ve_false")
+    em.mov_mem_r(5, -32, 8)                         # [rbp-32] = n
+    em.emit(b"\x48\xC7\x45\xD8\x00\x00\x00\x00")    # [rbp-40] = i = 0
+    em.label_here("ve_list_loop")
+    em.mov_rd_mem(0, 5, -40)                        # rax = i
+    em.mov_rd_mem(1, 5, -32)                        # rcx = n
+    em.cmp_rr(0, 1)
+    em.jcc_rel32(0x83, "ve_true")                   # jae → 全部相等
+    em.mov_rd_mem(0, 5, -40)                        # rax = i
+    em.mov_rd_mem(0, 3, 16, index=0, scale=8)       # rax = l[i]
+    em.mov_mem_r(5, -48, 0)                         # [rbp-48] = l[i]
+    em.mov_rd_mem(9, 5, -24)                        # r9 = r
+    em.mov_rd_mem(1, 5, -40)                        # rcx = i
+    em.mov_rd_mem(1, 9, 16, index=1, scale=8)       # rcx = r[i]
+    em.mov_rd_mem(0, 5, -48)                        # rax = l[i]
+    em.call_rel32("val_eq")
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x84, "ve_false")
+    em.mov_rd_mem(0, 5, -40)
+    em.inc_r(0)
+    em.mov_mem_r(5, -40, 0)                         # i++
+    em.jcc_rel32(None, "ve_list_loop")
+    # ---- 字典：长度 + 逐 (键,值) 递归（同序）----
+    em.label_here("ve_obj_dict")
+    em.mov_rd_mem(8, 3, 8)                          # r8 = n_l
+    em.mov_rd_mem(9, 1, 8)                          # r9 = n_r
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x85, "ve_false")
+    em.mov_mem_r(5, -32, 8)                         # [rbp-32] = n
+    em.emit(b"\x48\xC7\x45\xD8\x00\x00\x00\x00")    # [rbp-40] = i = 0
+    em.label_here("ve_dict_loop")
+    em.mov_rd_mem(0, 5, -40)                        # rax = i
+    em.mov_rd_mem(1, 5, -32)                        # rcx = n
+    em.cmp_rr(0, 1)
+    em.jcc_rel32(0x83, "ve_true")                   # jae → 全部相等
+    em.mov_rd_mem(0, 5, -40)                        # rax = i
+    em.shl_ri(0, 4)                                 # rax = i*16
+    em.mov_rd_mem(0, 3, 16, index=0, scale=1)       # rax = key_l
+    em.mov_mem_r(5, -48, 0)
+    em.mov_rd_mem(9, 5, -24)                        # r9 = r
+    em.mov_rd_mem(1, 5, -40)                        # rcx = i
+    em.shl_ri(1, 4)                                 # rcx = i*16
+    em.mov_rd_mem(1, 9, 16, index=1, scale=1)       # rcx = key_r
+    em.mov_rd_mem(0, 5, -48)                        # rax = key_l
+    em.call_rel32("val_eq")
+    em.emit(b"\x48\x85\xC0")
+    em.jcc_rel32(0x84, "ve_false")
+    em.mov_rd_mem(0, 5, -40)                        # rax = i
+    em.shl_ri(0, 4)
+    em.mov_rd_mem(0, 3, 24, index=0, scale=1)       # rax = val_l
+    em.mov_mem_r(5, -48, 0)
+    em.mov_rd_mem(9, 5, -24)
+    em.mov_rd_mem(1, 5, -40)
+    em.shl_ri(1, 4)
+    em.mov_rd_mem(1, 9, 24, index=1, scale=1)       # rcx = val_r
+    em.mov_rd_mem(0, 5, -48)
+    em.call_rel32("val_eq")
+    em.emit(b"\x48\x85\xC0")
+    em.jcc_rel32(0x84, "ve_false")
+    em.mov_rd_mem(0, 5, -40)
+    em.inc_r(0)
+    em.mov_mem_r(5, -40, 0)                         # i++
+    em.jcc_rel32(None, "ve_dict_loop")
+    # ---- 数值等价（涉及浮点）：UCOMISD + 排除 NaN ----
+    em.label_here("ve_num")
+    em.mov_rr(0, 3)                                 # rax = l
+    em.mov_rd_mem(1, 5, -24)                        # rcx = r
+    em.call_rel32("float_cmp2")
+    em.emit(b"\x0F\x9B\xC1")                        # setnp cl（PF=0 → 非 NaN）
+    em.emit(b"\x0F\x94\xC0")                        # sete al（ZF=1）
+    em.emit(b"\x20\xC8")                            # and al,cl
+    em.emit(b"\x0F\xB6\xC0")                        # movzx eax,al
+    em.jcc_rel32(None, "ve_ret")
+    em.label_here("ve_true")
     em.emit(b"\xB8\x01\x00\x00\x00")                # mov eax,1
-    em.emit(b"\xC3")                                # ret
+    em.jcc_rel32(None, "ve_ret")
     em.label_here("ve_false")
     em.emit(b"\x31\xC0")                            # xor eax,eax
-    em.emit(b"\xC3")                                # ret
-    em.label_here("ve_intcmp")
-    em.emit(b"\x48\x39\xC8")                        # cmp rax,rcx
-    em.emit(b"\x0F\x94\xC0")                        # sete al
-    em.emit(b"\x0F\xB6\xC0")                        # movzx eax,al
+    em.label_here("ve_ret")
+    em.emit(b"\x48\x83\xC4\x20")                    # add rsp,0x20
+    em.emit(b"\x5A")                                # pop rdx
+    em.emit(b"\x5B")                                # pop rbx
+    em.emit(b"\x5D")                                # pop rbp
     em.emit(b"\xC3")                                # ret
 
     # ---- dict_get：字典键查找（线性扫描）----
@@ -1562,7 +1896,7 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
-    em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))  # cmp rcx,HEAP_SIZE
+    em.cmp_heap_used(1)  # cmp rcx,HEAP_SIZE
     em.jcc_rel32(0x83, "pr_v")                      # jae：非指针 → print_value
     em.emit(b"\x48\x8B\x08")                        # mov rcx,[rax]
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_STR]))    # cmp rcx,TYPE_STR
@@ -1935,15 +2269,34 @@ def _emit_gc_runtime(em: _Emitter):
     em.emit(b"\x48\x83\xE2\xF8")                    # and rdx,-8
     em.emit(b"\x48\x3B\x15")                        # cmp rdx,[rip+heap_limit]
     em.rel32_to("heap_limit")
-    em.jcc_rel32(0x87, "as_oom")                    # ja（回收后仍越界 → 内存不足）
+    em.jcc_rel32(0x86, "as_bump")                   # jbe（固定区仍有空间）
+    em.label_here("as_grow")                        # 循环提交动态区 chunk 直至容纳本块
+    em.call_rel32("heap_extend")                    # 提交动态竞技场下一 chunk
+    em.test_rr(0, 0)                                # rax=1 成功 / 0 竞技场耗尽
+    em.jcc_rel32(0x84, "as_oom")                    # jz（无更多虚拟区 → 内存不足）
+    em.emit(b"\x48\x8B\x3C\x24")                    # mov rdi,[rsp]（重取 size）
+    em.emit(b"\x48\x8B\x05")                        # mov rax,[rip+heap_ptr]
+    em.rel32_to("heap_ptr")
+    em.emit(b"\x48\x89\xC2")                        # mov rdx,rax
+    em.emit(b"\x48\x01\xFA")                        # add rdx,rdi
+    em.emit(b"\x48\x83\xC2\x07")                    # add rdx,7
+    em.emit(b"\x48\x83\xE2\xF8")                    # and rdx,-8
+    em.emit(b"\x48\x3B\x15")                        # cmp rdx,[rip+heap_limit]
+    em.rel32_to("heap_limit")
+    em.jcc_rel32(0x87, "as_grow")                   # ja（单块仍大于已提交区 → 继续扩展）
+    em.label_here("as_bump")
     em.emit(b"\x48\x89\x15")                        # mov [rip+heap_ptr],rdx
     em.rel32_to("heap_ptr")
-    em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
+    em.emit(b"\x48\x89\xC1")                        # mov rcx,rax（旧堆顶=对象起点）
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
     em.emit(b"\x48\xC1\xE9\x03")                    # shr rcx,3
     em.emit(btf(0xAB, 1))                           # bts qword [rip+start_bits],rcx
     em.rel32_to("start_bits")
+    em.emit(b"\x48\x8B\x0D")                        # mov rcx,[rip+heap_ptr]（新堆顶）
+    em.rel32_to("heap_ptr")
+    em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx（新堆顶 − heap_base）
+    em.store_rip_from("heap_used", 1)               # mov [rip+heap_used],rcx
     em.label_here("as_done")
     em.emit(b"\x48\x83\xC4\x20")                    # add rsp,0x20
     em.emit(b"\x41\x5F\x41\x5E\x41\x5D\x41\x5C")    # pop r15,r14,r13,r12
@@ -2031,7 +2384,7 @@ def _emit_gc_runtime(em: _Emitter):
     em.emit(b"\x41\x50\x41\x51\x41\x52\x41\x53")    # push r8,r9,r10,r11
     em.emit(b"\x41\x54\x41\x55\x41\x56\x41\x57")    # push r12,r13,r14,r15
     em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20
-    em.lea_rip(0, "mark_stack")                     # lea rax,[mark_stack]
+    em.load_rip_to(0, "mark_stack_base")            # mov rax,[rip+mark_stack_base]
     em.emit(b"\x48\x89\x05")                        # mov [rip+mark_top],rax
     em.rel32_to("mark_top")
     em.call_rel32("gc_clear_marks")
@@ -2122,6 +2475,14 @@ def _emit_gc_runtime(em: _Emitter):
     em.emit(b"\x49\x0F\xAB\x08")                    # bts qword [r8],rcx
     em.emit(b"\x48\x8B\x0D")                        # mov rcx,[rip+mark_top]
     em.rel32_to("mark_top")
+    em.emit(b"\x4C\x8B\x05")                        # mov r8,[rip+mark_stack_limit]
+    em.rel32_to("mark_stack_limit")
+    em.cmp_rr(1, 8)                                 # cmp rcx,r8（已提交末端）
+    em.jcc_rel32(0x82, "gmc_have")                  # jb have（尚有余量）
+    em.call_rel32("mark_stack_grow")                # 提交标记栈下一 chunk
+    em.emit(b"\x48\x8B\x0D")                        # mov rcx,[rip+mark_top]
+    em.rel32_to("mark_top")
+    em.label_here("gmc_have")
     em.emit(b"\x48\x89\x01")                        # mov [rcx],rax
     em.emit(b"\x48\x83\xC1\x08")                    # add rcx,8
     em.emit(b"\x48\x89\x0D")                        # mov [rip+mark_top],rcx
@@ -2134,7 +2495,7 @@ def _emit_gc_runtime(em: _Emitter):
     em.label_here("gt_loop")
     em.emit(b"\x48\x8B\x0D")                        # mov rcx,[rip+mark_top]
     em.rel32_to("mark_top")
-    em.lea_rip(8, "mark_stack")
+    em.load_rip_to(8, "mark_stack_base")            # mov r8,[rip+mark_stack_base]
     em.cmp_rr(1, 8)                                 # cmp rcx,r8
     em.jcc_rel32(0x86, "gt_done")                   # jbe done（空）
     em.emit(b"\x48\x83\xE9\x08")                    # sub rcx,8
@@ -2180,6 +2541,8 @@ def _emit_gc_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "gos_clos")
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_PARTIAL]))
     em.jcc_rel32(0x84, "gos_part")
+    em.emit(b"\x48\x83\xF9" + bytes([TYPE_BIGINT]))
+    em.jcc_rel32(0x84, "gos_bigint")
     em.emit(b"\xB8\x10\x00\x00\x00")                # mov eax,16（默认：BOX）
     em.emit(b"\xC3")
     em.label_here("gos_str")
@@ -2199,6 +2562,11 @@ def _emit_gc_runtime(em: _Emitter):
     em.label_here("gos_float")
     em.emit(b"\xB8\x18\x00\x00\x00")                # mov eax,24
     em.emit(b"\xC3")
+    em.label_here("gos_bigint")
+    em.emit(b"\x48\x8B\x47\x08")                    # mov rax,[rdi+8]（nlimbs）
+    em.emit(b"\x48\xC1\xE0\x03")                    # shl rax,3
+    em.emit(b"\x48\x83\xC0\x18")                    # add rax,24
+    em.jcc_rel32(None, "gos_align")
     em.label_here("gos_env")
     em.emit(b"\x48\x8B\x47\x10")                    # mov rax,[rdi+16]（ncap）
     em.emit(b"\x48\x83\xC0\x03")                    # add rax,3
@@ -2360,6 +2728,87 @@ def _emit_gc_runtime(em: _Emitter):
     em.store_rip_from("free_head", 11)              # mov [rip+free_head],r11
     em.label_here("gswf_ins_done")
     em.mov_rr(13, 11)                               # mov r13,r11（游标 prev）
+    em.emit(b"\xC3")                                # ret
+
+    # ============ heap_extend：提交动态竞技场下一 chunk ============
+    # 返回 rax=1（已提交，heap_limit 前移）或 0（无动态区 / 竞技场耗尽）。
+    # 仅由 alloc_slow 在 bump 越界时调用（调用点已保存全部易失寄存器）。
+    em.label_here("heap_extend")
+    em.emit(b"\x55")                                # push rbp
+    em.emit(b"\x48\x89\xE5")                        # mov rbp,rsp
+    em.emit(b"\x48\x83\xE4\xF0")                    # and rsp,-16（对齐）
+    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20（影子空间）
+    em.emit(b"\x48\x8B\x05")                        # mov rax,[rip+heap_limit]（已提交末端）
+    em.rel32_to("heap_limit")
+    em.emit(b"\x48\x8B\x0D")                        # mov rcx,[rip+dyn_end]
+    em.rel32_to("dyn_end")
+    em.cmp_rr(0, 1)                                 # cmp rax,rcx
+    em.jcc_rel32(0x83, "he_fail")                   # jae fail（无动态区/耗尽）
+    em.mov_rr(2, 0)                                 # mov rdx,rax
+    em.add_ri(2, HEAP_CHUNK)                        # add rdx,HEAP_CHUNK
+    em.cmp_rr(2, 1)                                 # cmp rdx,rcx
+    em.jcc_rel32(0x86, "he_have")                   # jbe have（未越过 dyn_end）
+    em.mov_rr(2, 1)                                 # mov rdx,rcx（夹到 dyn_end）
+    em.label_here("he_have")                        # rax=旧末端，rdx=新末端
+    em.mov_mem_r(5, -8, 2)                          # mov [rbp-8],rdx（保存新末端）
+    em.mov_rr(1, 0)                                 # mov rcx,rax（addr=旧末端）
+    em.sub_rr(2, 0)                                 # sub rdx,rax（size）
+    em.mov_r_imm32(8, 0x1000)                       # mov r8d,MEM_COMMIT
+    em.mov_r_imm32(9, 4)                            # mov r9d,PAGE_READWRITE
+    em.call_rip_indirect("api_VirtualAlloc")
+    em.test_rr(0, 0)                                # test rax,rax
+    em.jcc_rel32(0x84, "he_fail")                   # jz（提交失败）
+    em.mov_rd_mem(2, 5, -8)                         # mov rdx,[rbp-8]（新末端）
+    em.store_rip_from("heap_limit", 2)              # mov [rip+heap_limit],rdx（前移界限）
+    em.mov_r_imm32(0, 1)                            # mov eax,1
+    em.emit(b"\x48\x89\xEC")                        # mov rsp,rbp
+    em.emit(b"\x5D")                                # pop rbp
+    em.emit(b"\xC3")                                # ret
+    em.label_here("he_fail")
+    em.emit(b"\x31\xC0")                            # xor eax,eax
+    em.emit(b"\x48\x89\xEC")                        # mov rsp,rbp
+    em.emit(b"\x5D")                                # pop rbp
+    em.emit(b"\xC3")                                # ret
+
+    # ============ mark_stack_grow：提交标记栈下一 chunk ============
+    # 就地提交（预留区不搬移），故 mark_top 不变；保护全部易失寄存器。
+    em.label_here("mark_stack_grow")
+    em.emit(b"\x55")                                # push rbp
+    em.emit(b"\x48\x89\xE5")                        # mov rbp,rsp
+    em.emit(b"\x48\x83\xE4\xF0")                    # and rsp,-16
+    em.emit(b"\x48\x83\xEC\x60")                    # sub rsp,0x60（影子+保存槽）
+    em.mov_mem_r(4, -8, 0)                          # mov [rbp-8],rax
+    em.mov_mem_r(4, -16, 1)                         # mov [rbp-16],rcx
+    em.mov_mem_r(4, -24, 2)                         # mov [rbp-24],rdx
+    em.mov_mem_r(4, -32, 8)                         # mov [rbp-32],r8
+    em.mov_mem_r(4, -40, 9)                         # mov [rbp-40],r9
+    em.mov_mem_r(4, -48, 10)                        # mov [rbp-48],r10
+    em.mov_mem_r(4, -56, 11)                        # mov [rbp-56],r11
+    em.load_rip_to(0, "mark_stack_growable")        # mov rax,[rip+mark_stack_growable]
+    em.test_rr(0, 0)                                # test rax,rax
+    em.jcc_rel32(0x84, "as_oom")                    # jz（不可增长 → 标记栈耗尽）
+    em.emit(b"\x48\x8B\x05")                        # mov rax,[rip+mark_stack_limit]
+    em.rel32_to("mark_stack_limit")
+    em.mov_rr(1, 0)                                 # mov rcx,rax（addr=已提交末端）
+    em.mov_r_imm32(2, MARK_CHUNK)                   # mov edx,MARK_CHUNK
+    em.mov_r_imm32(8, 0x1000)                       # mov r8d,MEM_COMMIT
+    em.mov_r_imm32(9, 4)                            # mov r9d,PAGE_READWRITE
+    em.call_rip_indirect("api_VirtualAlloc")
+    em.test_rr(0, 0)                                # test rax,rax
+    em.jcc_rel32(0x84, "as_oom")                    # jz（提交失败 → 标记栈耗尽）
+    em.emit(b"\x48\x8B\x05")                        # mov rax,[rip+mark_stack_limit]
+    em.rel32_to("mark_stack_limit")
+    em.add_ri(0, MARK_CHUNK)                        # add rax,MARK_CHUNK
+    em.store_rip_from("mark_stack_limit", 0)        # mov [rip+mark_stack_limit],rax
+    em.mov_rd_mem(0, 4, -8)                         # mov rax,[rbp-8]
+    em.mov_rd_mem(1, 4, -16)                        # mov rcx,[rbp-16]
+    em.mov_rd_mem(2, 4, -24)                        # mov rdx,[rbp-24]
+    em.mov_rd_mem(8, 4, -32)                        # mov r8,[rbp-32]
+    em.mov_rd_mem(9, 4, -40)                        # mov r9,[rbp-40]
+    em.mov_rd_mem(10, 4, -48)                       # mov r10,[rbp-48]
+    em.mov_rd_mem(11, 4, -56)                       # mov r11,[rbp-56]
+    em.emit(b"\x48\x89\xEC")                        # mov rsp,rbp
+    em.emit(b"\x5D")                                # pop rbp
     em.emit(b"\xC3")                                # ret
 
 
@@ -2605,7 +3054,7 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "la_notptr")                 # jae 非指针
     em.mov_rd_mem(1, 0, 0)                          # rcx=[rax]（类型）
     em.cmp_ri(1, TYPE_LIST)
@@ -2646,7 +3095,7 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "ld_empty")                   # 非指针 → 空表
     em.mov_rd_mem(1, 0, 0)                            # rcx=[rax]（类型）
     em.cmp_ri(1, TYPE_LIST)
@@ -3337,13 +3786,12 @@ def _emit_unpack_seq(em: _Emitter, n: int, tag: str, idx: int):
     em.pop_to(0)                                    # rax = 序列
     lnull = f"unpk_null_{tag}_{idx}"
     ldone = f"unpk_done_{tag}_{idx}"
-    lst = f"unpk_list_{tag}_{idx}"
     lstr = f"unpk_str_{tag}_{idx}"
     em.emit(b"\x49\x89\xC5")                        # mov r13,rax（r13=序列）
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x4C\x89\xC5")                        # mov rax,r13
     em.emit(b"\x48\x29\xD0")                        # sub rax,rdx
-    em.emit(b"\x48\x81\xF8" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(0)
     em.jcc_rel32(0x83, lnull)                       # jae：非堆指针 → 全 None
     em.emit(b"\x41\x8B\x7D\x00")                    # mov edi,[r13]（类型）
     em.emit(bytes([0x83, 0xFF, TYPE_LIST]))          # cmp edi,TYPE_LIST
@@ -3410,7 +3858,7 @@ def _emit_builtin_len(em: _Emitter):
     em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
-    em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x82, "len_isptr")                 # jb isptr
     em.emit(b"\x31\xC0")                            # xor eax,eax
     em.jcc_rel32(None, "len_done")                  # jmp done
@@ -3467,13 +3915,16 @@ def _emit_utf8_width(em: _Emitter, out: int, tag: str):
     em.label_here(ldone)
 
 
-def _emit_getitem(em: _Emitter, pfx: str):
+def _emit_getitem(em: _Emitter, pfx: str, raise_oob: bool = True):
     """下标读取核心：入参 rax=容器、rcx=下标，出参 rax=元素。
 
     与 vm.py:501 的 `c[idx]` 对齐：列表按下标、字符串按 **Unicode 码点**
     （砖块 19：此前按字节取单字节，"你好"[1] 返回半个汉字）、字典按键；
-    其余类型返回 null。索引越界不做检查（沿用原生端既有的「越界静默」
-    限制，返回 null 而非抛 IndexError）。
+    其余类型返回 null。列表/字符串索引越界抛可捕获异常（raise_rt，
+    消息同 VM/Python："list/string index out of range"）。
+
+    raise_oob=False 时改为返回 null_obj（供 `安全索引` 复用：VM 侧
+    `_builtin_safe_index` 捕获 IndexError/KeyError/TypeError 后返回 None）。
     """
     lstr = f"gi_str_{pfx}"
     ldict = f"gi_dict_{pfx}"
@@ -3521,8 +3972,13 @@ def _emit_getitem(em: _Emitter, pfx: str):
     em.emit(b"\x48\x8B\x40\x10")                    # mov rax,[rax+16]
     em.jcc_rel32(None, ldone)
     em.label_here(loob_l)
-    em.lea_rip(0, "null_obj")
-    em.jcc_rel32(None, ldone)
+    if raise_oob:
+        em.lea_rip(0, "err_index_list")             # 越界 → 抛可捕获异常（对齐 VM）
+        em.call_rel32("raise_rt")                   # 不返回
+        em.emit(b"\x0F\x0B")                        # ud2
+    else:
+        em.lea_rip(0, "null_obj")                   # 安全索引：越界 → null
+        em.jcc_rel32(None, ldone)
     em.label_here(lstr)
     # 砖块 19：文本下标按 **Unicode 码点**（此前按字节取单字节："你好"[1]
     # 会返回半个汉字、emoji 返回残字节）。扫到第 rcx 个 UTF-8 前导字节，按
@@ -3558,8 +4014,13 @@ def _emit_getitem(em: _Emitter, pfx: str):
     em.call_rel32("buf_to_str")                     # → rax=该码点 str
     em.jcc_rel32(None, ldone)
     em.label_here(loob)
-    em.lea_rip(0, "null_obj")                       # 越界 → null（沿用静默限制）
-    em.jcc_rel32(None, ldone)
+    if raise_oob:
+        em.lea_rip(0, "err_index_str")              # 越界 → 抛可捕获异常（对齐 VM）
+        em.call_rel32("raise_rt")                   # 不返回
+        em.emit(b"\x0F\x0B")                        # ud2
+    else:
+        em.lea_rip(0, "null_obj")                   # 安全索引：越界 → null
+        em.jcc_rel32(None, ldone)
     em.label_here(ldict)
     em.call_rel32("dict_get")                       # rax=字典,rcx=键
     em.label_here(ldone)
@@ -3586,7 +4047,7 @@ def _emit_slice(em: _Emitter):
     em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
-    em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "bs_null")                   # jae：非堆指针 → null
     em.emit(b"\x48\x8B\x45\xF8")                    # mov rax,[rbp-0x08]
     em.emit(b"\x8B\x10")                            # mov edx,[rax]（类型）
@@ -3727,7 +4188,7 @@ def _emit_in_rt(em: _Emitter):
     em.emit(b"\x48\x89\xC8")                        # mov rax,rcx
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD0")                        # sub rax,rdx
-    em.emit(b"\x48\x81\xF8" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(0)
     em.jcc_rel32(0x83, "sc_false")                  # jae：非堆指针 → 假
     em.emit(b"\x48\x8B\x4D\xF0")                    # mov rcx,[rbp-0x10]
     em.emit(b"\x8B\x11")                            # mov edx,[rcx]（类型）
@@ -3784,7 +4245,7 @@ def _emit_in_rt(em: _Emitter):
     em.emit(b"\x48\x8B\x45\xF8")                    # mov rax,[rbp-0x08]（needle）
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD0")                        # sub rax,rdx
-    em.emit(b"\x48\x81\xF8" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(0)
     em.jcc_rel32(0x83, "sc_false")                  # jae：整数 needle → 假
     em.emit(b"\x48\x8B\x45\xF8")                    # mov rax,[rbp-0x08]
     em.emit(b"\x83\x38" + bytes([TYPE_STR]))        # cmp dword [rax],TYPE_STR
@@ -3918,7 +4379,7 @@ def _emit_builtin_guard(em: _Emitter):
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.mov_rr(1, 10)                                # mov rcx,r10
     em.sub_rr(1, 2)                                 # sub rcx,rdx
-    em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "cg_done")                   # jae done（非堆指针）
     em.emit(b"\x49\x83\x3A" + bytes([TYPE_LIST]))   # cmp qword [r10],TYPE_LIST
     em.jcc_rel32(0x85, "cg_done")                   # jne done
@@ -4015,7 +4476,7 @@ def _emit_exception_runtime(em: _Emitter, guard: bool):
     em.mov_rr(1, 0)                                 # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.sub_rr(1, 2)                                 # sub rcx,rdx
-    em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x82, "vvs_ptr")                   # jb ptr
     em.jcc_rel32(None, "int_to_str")                # 整数 → 十进制串
     em.label_here("vvs_ptr")
@@ -4028,8 +4489,13 @@ def _emit_exception_runtime(em: _Emitter, guard: bool):
     em.jcc_rel32(0x84, "vvs_ret")                   # None 载荷即字符串
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_FLOAT]))  # cmp rcx,TYPE_FLOAT
     em.jcc_rel32(0x84, "vvs_float")                 # je float
+    em.emit(b"\x48\x83\xF9" + bytes([TYPE_BIGINT]))  # cmp rcx,TYPE_BIGINT
+    em.jcc_rel32(0x84, "vvs_bigint")                # je bigint
     em.label_here("vvs_ret")
     em.emit(b"\xC3")                                # ret（其他类型原样返回）
+    em.label_here("vvs_bigint")
+    em.emit(b"\xE9")                                # jmp bi_to_str
+    em.rel32_to("bi_to_str")
     em.label_here("vvs_float")
     em.emit(b"\xE9")                                # jmp str_float
     em.rel32_to("str_float")
@@ -4317,7 +4783,7 @@ def _emit_builtin_int(em: _Emitter, name: str):
     em.mov_rr(2, 0)
     em.lea_rip(1, "heap_base")
     em.sub_rr(2, 1)
-    em.cmp_ri(2, HEAP_SIZE)
+    em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_done)                      # jae：裸整数 → 原样
     em.mov_rd_mem(2, 0, 0)                          # rdx=[rax]（类型）
     em.cmp_ri(2, TYPE_BOOL)
@@ -4357,7 +4823,7 @@ def _emit_builtin_float(em: _Emitter, name: str):
     em.mov_rr(2, 0)
     em.lea_rip(1, "heap_base")
     em.sub_rr(2, 1)
-    em.cmp_ri(2, HEAP_SIZE)
+    em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_int)                       # jae：裸整数
     em.mov_rd_mem(2, 0, 0)
     em.cmp_ri(2, TYPE_BOOL)
@@ -4408,6 +4874,7 @@ def _emit_builtin_str(em: _Emitter):
     l_bool_false = "tostr_bool_false"
     l_null = "tostr_null"
     l_container = "tostr_container"
+    l_bigint = "tostr_bigint"
     l_unsup = "tostr_unsup"
     l_done = "tostr_done"
     em.label_here("fn:str")
@@ -4416,7 +4883,7 @@ def _emit_builtin_str(em: _Emitter):
     em.mov_rr(2, 0)
     em.lea_rip(1, "heap_base")
     em.sub_rr(2, 1)
-    em.cmp_ri(2, HEAP_SIZE)
+    em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_int)                       # jae：裸整数
     em.mov_rd_mem(2, 0, 0)                          # rdx=类型
     em.cmp_ri(2, TYPE_STR)
@@ -4431,7 +4898,12 @@ def _emit_builtin_str(em: _Emitter):
     em.jcc_rel32(0x84, l_container)
     em.cmp_ri(2, TYPE_DICT)
     em.jcc_rel32(0x84, l_container)
+    em.cmp_ri(2, TYPE_BIGINT)
+    em.jcc_rel32(0x84, l_bigint)
     em.jcc_rel32(None, l_unsup)
+    em.label_here(l_bigint)
+    em.call_rel32("bi_to_str")                      # rax=BigInt → str
+    em.jcc_rel32(None, l_done)
     em.label_here(l_float)
     em.call_rel32("str_float")                      # rax=float obj → str
     em.jcc_rel32(None, l_done)
@@ -4495,12 +4967,13 @@ def _emit_builtin_type_name(em: _Emitter, name: str, m: dict):
     em.mov_rr(2, 0)
     em.lea_rip(1, "heap_base")
     em.sub_rr(2, 1)
-    em.cmp_ri(2, HEAP_SIZE)
+    em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_int)                       # jae：裸整数
     em.mov_rd_mem(2, 0, 0)                          # rdx=类型
     for ty, lab in ((TYPE_FLOAT, m["float"]), (TYPE_BOOL, m["bool"]),
                     (TYPE_NULL, m["null"]), (TYPE_STR, m["str"]),
                     (TYPE_LIST, m["list"]), (TYPE_DICT, m["dict"]),
+                    (TYPE_BIGINT, m["int"]),
                     (TYPE_CLOSURE, m["func"]), (TYPE_PARTIAL, m["func"])):
         l_skip = f"tn_{name}_s{ty}"
         em.cmp_ri(2, ty)
@@ -4576,7 +5049,7 @@ def _emit_builtin_mut_set_at(em: _Emitter):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, l_bad)                       # 非指针
     em.mov_rd_mem(1, 0, 0)                          # 类型
     em.cmp_ri(1, TYPE_LIST)
@@ -4650,6 +5123,84 @@ def _emit_builtin_make_set(em: _Emitter):
     _emit_epilogue(em)
 
 
+def _emit_builtin_dedup(em: _Emitter):
+    """内建 去重(列表) → 按 == 去重且保序的新列表（arity 1）。
+
+    对齐 vm.py _builtin_dedup：仅接受列表，非列表抛可捕获异常
+    （消息 "去重() 需要列表"，与宿主解释器 builtin_列表去重 一致）。
+    """
+    em.label_here("fn:去重")
+    _emit_prologue(em, 1, 1)
+    em.mov_rd_mem(0, 5, -8)                          # rax = 列表
+    em.lea_rip(2, "heap_base")
+    em.mov_rr(8, 0)
+    em.sub_rr(8, 2)                                  # r8 = 值 - heap_base
+    em.cmp_heap_used(8)
+    em.jcc_rel32(0x83, "dd_bad")                     # 非堆指针 → 报错
+    em.emit(b"\x4C\x8B\x00")                         # mov r8,[rax]（类型）
+    em.emit(b"\x49\x83\xF8" + bytes([TYPE_LIST]))
+    em.jcc_rel32(0x85, "dd_bad")                     # 非列表 → 报错
+    em.call_rel32("list_dedup")
+    em.push_rax()
+    _emit_epilogue(em)
+    em.label_here("dd_bad")
+    em.lea_rip(0, "err_dedup")
+    em.call_rel32("raise_rt")                        # 不返回
+    em.emit(b"\x0F\x0B")                             # ud2
+
+
+def _emit_builtin_safe_index(em: _Emitter):
+    """内建 安全索引(c)(k) → c[k]，越界/缺键/不可下标一律返回 null。
+
+    对齐 vm.py _builtin_safe_index：容器为 None、键缺失或类型不支持时返回
+    None 而非抛错。非堆指针（裸整数等）直接判为 null；堆对象的取值复用
+    `_emit_getitem(..., raise_oob=False)`，故列表/字典越界分支返回 null。
+    """
+    em.label_here("fn:安全索引")
+    _emit_prologue(em, 2, 2)
+    em.mov_rd_mem(0, 5, -16)                         # rax = 容器
+    em.mov_rd_mem(1, 5, -8)                          # rcx = 键
+    em.lea_rip(2, "heap_base")
+    em.mov_rr(8, 0)
+    em.sub_rr(8, 2)                                  # r8 = 容器 - heap_base
+    em.cmp_heap_used(8)
+    em.jcc_rel32(0x83, "si_null")                    # 非堆指针 → null
+    _emit_getitem(em, "safeidx", raise_oob=False)
+    em.jcc_rel32(None, "si_done")
+    em.label_here("si_null")
+    em.lea_rip(0, "null_obj")
+    em.label_here("si_done")
+    em.push_rax()
+    _emit_epilogue(em)
+
+
+def _emit_builtin_safe_attr(em: _Emitter):
+    """内建 安全取属性(o)(name) → o?.name，非字典/None 一律返回 null。
+
+    对齐 vm.py _builtin_safe_attr：obj 为 None 或非字典时返回 None；字典缺键
+    返回 None（dict_get 的既定语义）。非堆指针直接判为 null。
+    """
+    em.label_here("fn:安全取属性")
+    _emit_prologue(em, 2, 2)
+    em.mov_rd_mem(0, 5, -16)                         # rax = obj
+    em.mov_rd_mem(1, 5, -8)                          # rcx = name
+    em.lea_rip(2, "heap_base")
+    em.mov_rr(8, 0)
+    em.sub_rr(8, 2)                                  # r8 = obj - heap_base
+    em.cmp_heap_used(8)
+    em.jcc_rel32(0x83, "sa_null")                    # 非堆指针 → null
+    em.emit(b"\x4C\x8B\x00")                         # mov r8,[rax]（类型）
+    em.emit(b"\x49\x83\xF8" + bytes([TYPE_DICT]))
+    em.jcc_rel32(0x85, "sa_null")                    # 非字典 → null
+    em.call_rel32("dict_get")
+    em.jcc_rel32(None, "sa_done")
+    em.label_here("sa_null")
+    em.lea_rip(0, "null_obj")
+    em.label_here("sa_done")
+    em.push_rax()
+    _emit_epilogue(em)
+
+
 def _emit_builtin_dict_put(em: _Emitter):
     em.label_here("fn:_dict_put")
     _emit_prologue(em, 3, 3)
@@ -4681,7 +5232,7 @@ def _emit_builtin_ord(em: _Emitter):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "ord_fail")                  # 非指针
     em.mov_rd_mem(1, 0, 0)
     em.cmp_ri(1, TYPE_STR)
@@ -4823,7 +5374,7 @@ def _emit_builtin_list(em: _Emitter):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "ls_fail")                   # 非指针
     em.mov_rd_mem(1, 0, 0)                          # 类型
     em.cmp_ri(1, TYPE_LIST)
@@ -5147,7 +5698,7 @@ def _emit_builtin_sum(em: _Emitter):
     em.mov_rr(2, 0)
     em.lea_rip(1, "heap_base")
     em.sub_rr(2, 1)
-    em.cmp_ri(2, HEAP_SIZE)
+    em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_notlist)                   # 非指针 → 0
     em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))   # cmp qword[rax],TYPE_LIST
     em.jcc_rel32(0x85, l_notlist)
@@ -5200,7 +5751,7 @@ def _emit_builtin_extremum(em: _Emitter, name: str, want_max: bool):
     em.mov_rr(2, 0)
     em.lea_rip(1, "heap_base")
     em.sub_rr(2, 1)
-    em.cmp_ri(2, HEAP_SIZE)
+    em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_nonlist)
     em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))
     em.jcc_rel32(0x85, l_nonlist)
@@ -6068,7 +6619,7 @@ def _emit_builtin_read_file(em: _Emitter):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "rf_fail")
     em.mov_rd_mem(1, 0, 0)
     em.cmp_ri(1, TYPE_STR)
@@ -6127,7 +6678,7 @@ def _emit_builtin_write_like(em: _Emitter, name: str, mode_label: str):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, fail)
     em.mov_rd_mem(1, 0, 0)
     em.cmp_ri(1, TYPE_STR)
@@ -6137,7 +6688,7 @@ def _emit_builtin_write_like(em: _Emitter, name: str, mode_label: str):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, fail)
     em.mov_rd_mem(1, 0, 0)
     em.cmp_ri(1, TYPE_STR)
@@ -6171,7 +6722,7 @@ def _emit_builtin_encode_like(em: _Emitter, name: str, base: int):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, t + "_fail")
     em.mov_rd_mem(1, 0, 0)
     em.cmp_ri(1, TYPE_STR)
@@ -6236,7 +6787,7 @@ def _emit_builtin_decode_like(em: _Emitter, name: str, base: int):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, t + "_fail")
     em.mov_rd_mem(1, 0, 0)
     em.cmp_ri(1, TYPE_STR)
@@ -6333,7 +6884,7 @@ def _emit_builtin_decode_decimal(em: _Emitter):
 
 
 NATIVE_BUILTINS = (
-    "len", "输出", "get", "错误", "调用捕获",
+    "len", "输出", "print", "get", "错误", "调用捕获",
     # 砖块 16 阶段一：数值 + 转换核心
     "abs", "sign",
     "sin", "cos", "tan", "asin", "acos", "atan",
@@ -6348,7 +6899,9 @@ NATIVE_BUILTINS = (
     "slice", "append", "mut_set_at",
     "_dict_keys", "_dict_values", "_dict_has", "_dict_put", "_dict_remove",
     # 集合字面量语法糖 {} / {1,2,3} / {x | cond} 的归约目标
-    "构造集合",
+    "构造集合", "去重",
+    # 安全访问（a?.b / a?[b] 脱糖目标）
+    "安全索引", "安全取属性",
     # 砖块 16 阶段三：基础原语 / 序列构造
     "ord", "chr", "list", "range",
     # 砖块 16 阶段三：文件 I/O
@@ -6376,7 +6929,7 @@ NATIVE_BUILTINS = (
 # ar_close 分支并按 arity 决定「偏应用 / 重建调用」。启动时在 _start 中各
 # 分配一条 [TYPE_CLOSURE][fn][env=0][arity] 记录，指针存入数据槽 bclo:{name}。
 _BUILTIN_ARITY = {
-    "len": 1, "输出": 1, "get": 2, "错误": 1, "调用捕获": 2,
+    "len": 1, "输出": 1, "print": 1, "get": 2, "错误": 1, "调用捕获": 2,
     # 砖块 16 阶段一
     "abs": 1, "sign": 1,
     "sin": 1, "cos": 1, "tan": 1, "asin": 1, "acos": 1, "atan": 1,
@@ -6391,7 +6944,8 @@ _BUILTIN_ARITY = {
     "slice": 3, "append": 2, "mut_set_at": 3,
     "_dict_keys": 1, "_dict_values": 1, "_dict_has": 2,
     "_dict_put": 3, "_dict_remove": 2,
-    "构造集合": 3,
+    "构造集合": 3, "去重": 1,
+    "安全索引": 2, "安全取属性": 2,
     # 砖块 16 阶段三
     "ord": 1, "chr": 1, "list": 1, "range": 2,
     "_read_file": 1, "_write_file": 2, "_append_file": 2,
@@ -6448,6 +7002,9 @@ _BUILTIN_EMITTERS: dict = {
     "_dict_put": _emit_builtin_dict_put,
     "_dict_remove": _emit_builtin_dict_remove,
     "构造集合": _emit_builtin_make_set,
+    "去重": _emit_builtin_dedup,
+    "安全索引": _emit_builtin_safe_index,
+    "安全取属性": _emit_builtin_safe_attr,
     # 砖块 16 阶段三
     "ord": _emit_builtin_ord,
     "chr": _emit_builtin_chr,
@@ -6517,6 +7074,9 @@ _UNRESOLVED_GLOBALS = frozenset({
     "ord", "chr", "range", "type_of",
     # 序列/字典原语（get 已实现，见 NATIVE_BUILTINS）
     "slice", "append", "mut_set_at",
+    # 自举编译器 `_发` 使用的原地追加（VM 端 list_push，原生暂未实现；
+    # 线性构建器语义等价 append，见 vm.py _builtin_list_push）
+    "list_push",
     "_dict_keys", "_dict_values", "_dict_has", "_dict_put", "_dict_remove",
     "_empty_dict",
     # 文件 I/O 与编码
@@ -6576,7 +7136,10 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.lea_rip(0, "bool_true" if v else "bool_false")
             em.push_rax()
         elif isinstance(v, int):
-            em.mov_rax_imm64(v)
+            if _INT64_MIN <= v <= _INT64_MAX:
+                em.mov_rax_imm64(v)
+            else:
+                em.lea_rip(0, f"bob:{ins[1]}")     # 超 int64 常量 → 静态 BigInt 对象
             em.push_rax()
         elif isinstance(v, str):
             em.lea_rip(0, f"sob:{ins[1]}")          # 静态字符串对象地址
@@ -6629,6 +7192,12 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         # user_names（= arity 的键集）优先于同名内建：`func get` 是用户函数，
         # 不能去读内建 get 的闭包记录（该槽此时未初始化）。
         user_names = set(arity or ())
+        # print 是 输出 的别名（无独立代码，见 NATIVE_BUILTINS 注释）：未被子名
+        # 遮蔽且 输出 可用时，直接改写为 输出 复用其函数体。
+        if (name == "print" and name not in user_names
+                and name not in (declared_globals or ())
+                and "输出" in fn_names):
+            name = "输出"
         shadowed = (declared_globals is not None and name in declared_globals
                     and name in NATIVE_BUILTINS)
         if name in fn_names and not shadowed:
@@ -6712,6 +7281,14 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
                 em.call_rel32("is_float2")
                 em.emit(b"\x85\xD2")                # test edx,edx（保留 rax/rcx）
                 em.jcc_rel32(0x85, fp)              # jnz → 浮点
+        # 大整数分派：任一操作数为 TYPE_BIGINT（或整数溢出，见各分支的 jo）→
+        # 提升为任意精度路径。放在浮点之后（浮点优先）。
+        lbi = f"bo_bi_{tag}_{idx}"
+        lbifin = f"bo_bifin_{tag}_{idx}"
+        if sym in _BIGINT_BINOPS:
+            em.call_rel32("is_bigint2")
+            em.emit(b"\x85\xD2")                    # test edx,edx（保留 rax/rcx）
+            em.jcc_rel32(0x85, lbi)                 # jnz → 大整数
         if sym == "+":
             # 按**两侧的类型标签**分派：字符串拼接 / 列表拼接 / 整数加。
             # 旧实现只判「左值是否落在堆区间」，于是 [1]+[2] 也走 str_concat，
@@ -6729,7 +7306,7 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.mov_rr(2, 8)                         # mov rdx,r8
             em.lea_rip(10, "heap_base")             # lea r10,[heap_base]
             em.sub_rr(2, 10)                        # sub rdx,r10
-            em.cmp_ri(2, HEAP_SIZE)                 # cmp rdx,HEAP_SIZE
+            em.cmp_heap_used(2)                 # cmp rdx,HEAP_SIZE
             em.jcc_rel32(0x83, lchk)                # jae 左值非堆对象 → 只能是整数
             em.mov_rr(0, 8)                         # mov rax,r8
             em.emit(b"\x8B\x38")                    # mov edi,[rax]  左值类型
@@ -6742,18 +7319,23 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.label_here(lchk)
             em.mov_rr(2, 9)                         # mov rdx,r9
             em.sub_rr(2, 10)                        # 复用 rdx-r10 判右值是否堆对象
-            em.cmp_ri(2, HEAP_SIZE)
+            em.cmp_heap_used(2)
             em.jcc_rel32(0x83, lints)               # jae 两侧都是整数
             em.jcc_rel32(None, lunsup)              # 右值是容器但左侧不是 → 不支持
             em.label_here(lints)
             em.mov_rr(0, 8)                         # mov rax,左
             em.emit(b"\x4C\x01\xC8")                # add rax,r9
+            laddovf = f"bo_addovf_{tag}_{idx}"
+            em.jcc_rel32(0x80, laddovf)             # jo → 溢出提升大整数
             em.jcc_rel32(None, ldone)
+            em.label_here(laddovf)
+            em.mov_rr(0, 8)                         # 复原 rax=左（mov 不改标志）
+            em.jcc_rel32(None, lbi)
             # ---- 字符串拼接：右值也必须是字符串 ----
             em.label_here(lstr)
             em.mov_rr(2, 9)
             em.sub_rr(2, 10)
-            em.cmp_ri(2, HEAP_SIZE)
+            em.cmp_heap_used(2)
             em.jcc_rel32(0x83, lunsup)
             em.mov_rr(0, 9)
             em.emit(b"\x8B\x30")                    # mov esi,[rax]  右值类型
@@ -6767,7 +7349,7 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.label_here(llist)
             em.mov_rr(2, 9)
             em.sub_rr(2, 10)
-            em.cmp_ri(2, HEAP_SIZE)
+            em.cmp_heap_used(2)
             em.jcc_rel32(0x83, lunsup)
             em.mov_rr(0, 9)
             em.emit(b"\x8B\x30")                    # mov esi,[rax]  右值类型
@@ -6783,7 +7365,16 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.lea_rip(0, "null_obj")
             em.label_here(ldone)
         elif sym == "-":
+            em.mov_rr(10, 0)                        # r10=左（供溢出复原）
             em.emit(b"\x48\x29\xC8")                # sub rax,rcx
+            lsubovf = f"bo_subovf_{tag}_{idx}"
+            lsubdone = f"bo_subdone2_{tag}_{idx}"
+            em.jcc_rel32(0x80, lsubovf)             # jo → 溢出
+            em.jcc_rel32(None, lsubdone)
+            em.label_here(lsubovf)
+            em.mov_rr(0, 10)                        # 复原 rax=左
+            em.jcc_rel32(None, lbi)                 # 提升大整数
+            em.label_here(lsubdone)
         elif sym == "*":
             # 类型分派：序列重复（字符串/列表 × 整数）与整数乘法。
             # 旧实现无条件 imul，于是 "ab" * 3 把堆地址当整数相乘，输出裸指针
@@ -6801,7 +7392,7 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.mov_rr(2, 8)                         # mov rdx,r8
             em.lea_rip(10, "heap_base")             # lea r10,[heap_base]
             em.sub_rr(2, 10)                        # sub rdx,r10
-            em.cmp_ri(2, HEAP_SIZE)
+            em.cmp_heap_used(2)
             em.jcc_rel32(0x83, lchk)                # jae 左侧非序列 → 只能是整数
             em.mov_rr(0, 8)
             em.emit(b"\x8B\x38")                    # mov edi,[rax]  左侧类型
@@ -6814,7 +7405,7 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.label_here(lchk)
             em.mov_rr(2, 9)
             em.sub_rr(2, 10)
-            em.cmp_ri(2, HEAP_SIZE)
+            em.cmp_heap_used(2)
             em.jcc_rel32(0x83, lints)               # 两侧都是整数
             # 右序列 × 左整数：交换成 (序列, 次数) 交给 seq_repeat
             # 此处左侧已确认不是堆指针（是整数），绝不能解引用它：必须读右侧类型。
@@ -6834,7 +7425,12 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.label_here(lints)
             em.mov_rr(0, 8)                         # mov rax,左
             em.emit(b"\x48\x0F\xAF\xC1")            # imul rax,rcx
+            lmulovf = f"bo_mulovf_{tag}_{idx}"
+            em.jcc_rel32(0x80, lmulovf)             # jo → 溢出提升大整数
             em.jcc_rel32(None, ldone)
+            em.label_here(lmulovf)
+            em.mov_rr(0, 8)                         # 复原 rax=左
+            em.jcc_rel32(None, lbi)
             # ---- 序列 × 整数（左侧为字符串或列表）----
             em.label_here(lm)
             em.jcc_rel32(None, lseq)
@@ -6842,7 +7438,7 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.label_here(lseq)
             em.mov_rr(2, 9)
             em.sub_rr(2, 10)
-            em.cmp_ri(2, HEAP_SIZE)
+            em.cmp_heap_used(2)
             # jb ⟺ 右值也是堆对象 ⟹ 序列 × 序列 不支持。
             # 注意与 `+` 的分支相反：这里「右值不是堆对象」才是被支持的情形
             # （字符串/列表 × 整数），早期把 jae 当成不支持，导致 "ab" * 3
@@ -6875,6 +7471,8 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             lz = f"pow_{tag}_{idx}_zero"
             # mov rdx,1 须用 C7 /0 的 imm32 形式：
             # B8+rd 配 REX.W 是 imm64（10 字节），只发 4 字节会错位指令流
+            em.emit(b"\x48\x83\xEC\x10")            # sub rsp,16（保存原指数）
+            em.mov_mem_r(4, 0, 1)                   # [rsp]=rcx 原指数
             em.emit(b"\x48\xC7\xC2\x01\x00\x00\x00")  # mov rdx,1  累乘器
             em.emit(b"\x48\x85\xC9")                # test rcx,rcx
             em.jcc_rel32(0x89, top)                 # jns  top（指数非负）
@@ -6890,14 +7488,48 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.emit(b"\x48\x85\xC9")                # test rcx,rcx
             em.jcc_rel32(0x84, fin)                 # jz   fin
             em.emit(b"\x48\x0F\xAF\xD0")            # imul rdx,rax（rdx*=rax）
+            lovf = f"pow_ovf_{tag}_{idx}"
+            em.jcc_rel32(0x80, lovf)                # jo → 溢出提升大整数
             em.emit(b"\x48\xFF\xC9")                # dec rcx
             em.jcc_rel32(None, top)
             em.label_here(fin)
             em.emit(b"\x48\x89\xD0")                # mov rax,rdx
             em.label_here(end)
+            em.emit(b"\x48\x83\xC4\x10")            # add rsp,16
+            em.jcc_rel32(None, f"pow_skip_{tag}_{idx}")
+            em.label_here(lovf)
+            em.emit(b"\x48\x8B\x0C\x24")            # mov rcx,[rsp] 原指数
+            em.emit(b"\x48\x83\xC4\x10")            # add rsp,16
+            em.jcc_rel32(None, lbi)
+            em.label_here(f"pow_skip_{tag}_{idx}")
         elif sym == "in":
             em.call_rel32("seq_contains")              # rax=左元素 rcx=右容器
             _emit_rax_to_bool(em, tag, f"{idx}m")
+        elif sym in _BIT_BINOPS:
+            # 位运算 `&` `|` `⊕`：两侧都必须是整数。语义对齐 vm._BINOPS 的
+            # _bitop 与解释器 src/interp.py:2376-2395（均强制整数）。
+            # 判据沿用本文件的「是否落在堆区间」：指针 − heap_base < HEAP_SIZE
+            # 即为堆对象（字符串/列表/字典），位运算必须拒绝——否则会把堆地址
+            # 当整数按位算出垃圾值。走 raise_rt 以便 try/catch 捕获，
+            # 不返回 null_obj（返回 None 会把类型错误伪装成「无值」）。
+            lbad = f"bo_bit_bad_{tag}_{idx}"
+            ldone_b = f"bo_bit_done_{tag}_{idx}"
+            em.mov_rr(2, 0)                            # rdx=左
+            em.lea_rip(10, "heap_base")
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x82, lbad)                   # jb 左是堆对象 → 报错
+            em.mov_rr(2, 1)                            # rdx=右
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x82, lbad)                   # jb 右是堆对象 → 报错
+            em.emit(_BIT_BINOPS[sym])                  # and/or/xor rax,rcx
+            em.jcc_rel32(None, ldone_b)
+            em.label_here(lbad)
+            em.lea_rip(0, _BIT_BINOPS_ERR[sym])
+            em.call_rel32("raise_rt")                  # 不返回
+            em.emit(b"\x0F\x0B")                       # ud2
+            em.label_here(ldone_b)
         elif sym in ("<<", ">>"):
             # 与 vm._BINOPS 的 Python `a << b` / `a >> b` 对齐。两处易错点：
             # 1. `>>` 必须用 SAR（算术），用 SHR 会把 -8>>1 算成 +4。
@@ -6931,21 +7563,26 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.label_here(lend)
         elif sym in _CC:
             if sym in ("==", "!="):
-                # 字符串内容比较（左值为堆指针）；否则整数比较。
-                lstr = f"bo_cmp_str_{tag}_{idx}"
+                # 任一侧为堆指针 → 结构相等 val_eq（字符串/列表/字典递归）；
+                # 否则按整数比较。
+                lobj = f"bo_cmp_obj_{tag}_{idx}"
                 ldone = f"bo_cmp_done_{tag}_{idx}"
                 em.emit(b"\x48\x89\xC2")            # mov rdx,rax
                 em.lea_rip(8, "heap_base")          # lea r8,[heap_base]
                 em.emit(b"\x4C\x29\xC2")            # sub rdx,r8
-                em.emit(b"\x48\x81\xFA" + struct.pack("<I", HEAP_SIZE))
-                em.jcc_rel32(0x82, lstr)            # jb str
-                em.emit(b"\x48\x39\xC8")            # cmp rax,rcx
+                em.cmp_heap_used(2)
+                em.jcc_rel32(0x82, lobj)            # jb：l 是指针
+                em.emit(b"\x48\x89\xCA")            # mov rdx,rcx
+                em.emit(b"\x4C\x29\xC2")            # sub rdx,r8
+                em.cmp_heap_used(2)
+                em.jcc_rel32(0x82, lobj)            # jb：r 是指针
+                em.emit(b"\x48\x39\xC8")            # cmp rax,rcx（都是整数）
                 em.emit(bytes([0x0F, _CC[sym], 0xC0]))  # setCC al
                 em.emit(b"\x0F\xB6\xC0")            # movzx eax,al
                 _emit_rax_to_bool(em, tag, f"{idx}i")
                 em.jcc_rel32(None, ldone)           # jmp done
-                em.label_here(lstr)
-                em.call_rel32("str_eq")
+                em.label_here(lobj)
+                em.call_rel32("val_eq")
                 if sym == "!=":
                     em.emit(b"\x48\x83\xF0\x01")    # xor rax,1
                 _emit_rax_to_bool(em, tag, f"{idx}s")
@@ -6970,19 +7607,37 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             else:
                 em.call_rel32(_FLOAT_BINOPS[sym])
             em.label_here(fdone)
+        if sym in _BIGINT_BINOPS:
+            em.jcc_rel32(None, lbifin)              # 普通路径 → 统一 push
+            em.label_here(lbi)
+            _emit_bigint_binop(em, sym, tag, idx)   # rax=结果
+            em.label_here(lbifin)
         em.push_rax()
     elif op == OP.UNARYOP:
         sym = consts[ins[1]]
         if sym == "neg":
             lf = f"neg_f_{tag}_{idx}"
             ld = f"neg_d_{tag}_{idx}"
-            em.read_top_to(0)                       # rax=栈顶
+            lbig = f"neg_bi_{tag}_{idx}"
+            em.read_top_to(0)
             em.call_rel32("is_float")
             em.emit(b"\x85\xC0")                    # test eax,eax
-            em.jcc_rel32(0x85, lf)                  # 浮点 → f_neg
+            em.jcc_rel32(0x85, lf)                  # 真 → 浮点
+            em.read_top_to(0)
+            em.call_rel32("is_bigint")
+            em.emit(b"\x85\xC0")                    # test eax,eax
+            em.jcc_rel32(0x85, lbig)                # 真 → 大整数
             em.emit(b"\x49\xF7\x5C\x24\xF8")        # neg qword [r12-8]（整数）
             em.jcc_rel32(None, ld)
+            em.label_here(lbig)
+            em.read_top_to(0)                       # rax=大整数对象
+            em.call_rel32("bi_neg")                 # 符号翻转（新对象）
+            em.call_rel32("bi_normalize")           # 可能降级回 int64
+            em.emit(b"\x49\x89\x44\x24\xF8")        # mov [r12-8],rax
+            em.jcc_rel32(None, ld)
             em.label_here(lf)
+            # << 浮点取反
+            em.read_top_to(0)                       # rax=栈顶（重新取回）
             em.call_rel32("f_neg")                  # rax 为浮点对象 → 取反
             em.emit(b"\x49\x89\x44\x24\xF8")        # mov [r12-8],rax
             em.label_here(ld)
@@ -7002,6 +7657,126 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.read_top_to(0)                       # rax=栈顶（不弹出）
             em.call_rel32("f_sqrt")                 # 完全平方→整数，否则→浮点对象
             em.emit(b"\x49\x89\x44\x24\xF8")        # mov [r12-8],rax（就地替换）
+        elif sym == "angle":
+            # << 角度前缀（docs/06 级 6）：度数 → 弧度，与 f_deg 同语义。
+            # 接受裸整数与浮点对象；bool/字符串/列表等 → 抛可捕获异常（对齐
+            # interp.py:1735 与 vm._builtin_angle，二者对非数值一律 raise）。
+            #
+            # 两个必须避开的坑：
+            # 1. **不能用 is_float 判定**：它的返回码走 eax（mov eax,1 /
+            #    xor eax,eax），会把 rax 整个清掉，之后再拿 rax 当操作数就
+            #    读到垃圾 → 0xC0000005。`neg` 分支因此也必须从栈槽重新读回。
+            #    故这里自己判「是否堆对象」，再用类型标签判是否浮点。
+            # 2. 两个分支都要写回栈槽，否则栈上仍是原操作数，表达式结果错。
+            lbad = f"angle_bad_{tag}_{idx}"
+            ld = f"angle_d_{tag}_{idx}"
+            lobj = f"angle_obj_{tag}_{idx}"
+            em.read_top_to(0)
+            em.mov_rr(2, 0)                          # rdx=rax
+            em.lea_rip(10, "heap_base")
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x82, lobj)                 # jb 是堆对象 → 查是否浮点
+            em.call_rel32("f_deg")                   # 裸整数
+            em.emit(b"\x49\x89\x44\x24\xF8")         # mov [r12-8],rax
+            em.jcc_rel32(None, ld)
+            em.label_here(lobj)
+            em.emit(b"\x83\x38" + bytes([TYPE_FLOAT]))   # cmp dword[rax],TYPE_FLOAT
+            em.jcc_rel32(0x85, lbad)                 # jne 非浮点对象 → 报错
+            em.call_rel32("f_deg")                   # 浮点对象（度数本身已是浮点）
+            em.emit(b"\x49\x89\x44\x24\xF8")         # mov [r12-8],rax
+            em.jcc_rel32(None, ld)
+            em.label_here(lbad)
+            em.lea_rip(0, "err_angle")
+            em.call_rel32("raise_rt")                # 不返回
+            em.emit(b"\x0F\x0B")                     # ud2
+            em.label_here(ld)
+        elif sym in ("++", "--"):
+            # 前缀自增/自减：**非原地**的 v±1（与解释器 src/interp.py:1708-1720
+            # 一致，不写回绑定），故只需就地替换栈槽。裸 int64 走 imm 指令；
+            # 浮点对象走 as_double/addsd/box_float；bool 是 bool_true 指针，
+            # 按 Python 的 bool⊂int 先还原 0/1 再 ±1（`++真` == 2）。
+            # 字符串/列表/字典等 → 抛可捕获异常。
+            lbad = f"incr_bad_{tag}_{idx}"
+            ld = f"incr_d_{tag}_{idx}"
+            lobj = f"incr_obj_{tag}_{idx}"
+            lflt = f"incr_flt_{tag}_{idx}"
+            lbool = f"incr_bool_{tag}_{idx}"
+            em.read_top_to(0)
+            em.mov_rr(2, 0)                          # rdx=rax
+            em.lea_rip(10, "heap_base")
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x82, lobj)                 # jb 是堆对象 → 分类
+            # 裸整数：add rax,1 / sub rax,1
+            em.emit(b"\x48\x83\xC0\x01" if sym == "++"
+                    else b"\x48\x83\xE8\x01")
+            em.jcc_rel32(None, ld)
+            em.label_here(lobj)
+            em.emit(b"\x83\x38" + bytes([TYPE_FLOAT]))   # cmp dword[rax],TYPE_FLOAT
+            em.jcc_rel32(0x84, lflt)                 # je 浮点
+            em.emit(b"\x83\x38" + bytes([TYPE_BOOL]))   # cmp dword[rax],TYPE_BOOL
+            em.jcc_rel32(0x85, lbad)                 # jne 其它容器 → 报错
+            em.label_here(lbool)
+            em.lea_rip(1, "bool_true")
+            em.cmp_rr(0, 1)                            # cmp rax,rcx（rax 仍是 bool 对象）
+            em.setcc(0x94)                             # sete al
+            em.movzx_eax_al()                          # movzx eax,al
+            em.emit(b"\x48\x83\xC0\x01" if sym == "++"
+                    else b"\x48\x83\xE8\x01")
+            em.jcc_rel32(None, ld)
+            em.label_here(lflt)
+            em.call_rel32("as_double")                 # xmm0=v
+            em.emit(b"\x48\xB8" + struct.pack("<Q", 0x3FF0000000000000))  # movabs rax,1.0
+            em.emit(b"\x66\x48\x0F\x6E\xC8")            # movq  xmm1,rax（1.0）
+            # SSE 标量指令的 ModRM.reg 是**目的**操作数，故 C1 = "xmm0,xmm1"。
+            # 结果必须留在 xmm0——box_float 只读 xmm0（曾写成 subsd xmm1,xmm0
+            # 导致结果停在 xmm1、box_float 把 1.0 当结果装箱）。
+            em.emit(b"\xF2\x0F\x58\xC1" if sym == "++"
+                    else b"\xF2\x0F\x5C\xC1")            # addsd/subsd xmm0,xmm1
+            em.call_rel32("box_float")
+            em.jcc_rel32(None, ld)
+            em.label_here(lbad)
+            em.lea_rip(0, "err_incr" if sym == "++" else "err_decr")
+            em.call_rel32("raise_rt")                   # 不返回
+            em.emit(b"\x0F\x0B")                        # ud2
+            em.label_here(ld)
+            em.emit(b"\x49\x89\x44\x24\xF8")            # mov [r12-8],rax（就地替换）
+        elif sym == "~":
+            # 一元位取反：仅整数（对齐 vm._builtin_bitnot 与 interp.py:1730）。
+            # 本后端的整数是**裸 int64**（不是堆对象），所以绝不能按类型标签
+            # 解引用 rax——那会把任意整数当成指针读，直接触发 0xC0000005。
+            # 判据沿用本文件的「是否落在堆区间」：(rax-heap_base) < HEAP_SIZE。
+            lbad = f"bitnot_bad_{tag}_{idx}"
+            ld = f"bitnot_d_{tag}_{idx}"
+            lobj = f"bitnot_obj_{tag}_{idx}"
+            em.read_top_to(0)
+            em.mov_rr(2, 0)                            # rdx=rax
+            em.lea_rip(10, "heap_base")
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x82, lobj)                   # jb 是堆对象 → 再判 bool
+            em.emit(b"\x48\xF7\xD0")                    # not rax（裸整数）
+            em.jcc_rel32(None, ld)
+            em.label_here(lobj)
+            em.emit(b"\x8B\x38")                        # mov edi,[rax] 类型标签
+            em.emit(b"\x83\xFF" + bytes([TYPE_BOOL]))   # cmp edi,TYPE_BOOL
+            em.jcc_rel32(0x85, lbad)                   # jne 非 bool → 报错
+            # bool 是内部 bool_true / bool_false 两个对象的**指针**，值必须按指针
+            # 还原成 0/1 再取反。直接 `not rax` 会把堆地址当整数，输出
+            # -(ptr+1)（形如 -140699650725569）而非 ~真 == -2。
+            em.lea_rip(1, "bool_true")
+            em.cmp_rr(0, 1)                            # cmp rax,rcx（rax 仍是 bool 对象）
+            em.setcc(0x94)                             # sete al（rax==bool_true）
+            em.movzx_eax_al()                          # movzx eax,al（清零高 32 位）
+            em.emit(b"\x48\xF7\xD0")                    # not rax（bool 按 int 处理）
+            em.jcc_rel32(None, ld)
+            em.label_here(lbad)
+            em.lea_rip(0, "err_bitnot")
+            em.call_rel32("raise_rt")                   # 不返回
+            em.emit(b"\x0F\x0B")                        # ud2
+            em.label_here(ld)
+            em.emit(b"\x49\x89\x44\x24\xF8")            # mov [r12-8],rax（就地替换）
         else:
             raise NativeNotSupported(f"原生后端暂不支持一元运算 {sym!r}")
     elif op == OP.DUP:
@@ -7028,8 +7803,6 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.push_rax()
     elif op == OP.BUILD_DICT:
         n = ins[1]
-        bl = f"bd_loop_{tag}_{idx}"
-        be = f"bd_end_{tag}_{idx}"
 
         em.emit(b"\x48\xC7\xC7" + struct.pack("<i", 16 + 16 * n))  # mov rdi,16+16n
         em.call_rel32("alloc")
@@ -7049,7 +7822,7 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.emit(b"\x48\x89\xC1")                    # mov rcx,rax
         em.lea_rip(2, "heap_base")                  # lea rdx,[heap_base]
         em.emit(b"\x48\x29\xD1")                    # sub rcx,rdx
-        em.emit(b"\x48\x81\xF9" + struct.pack("<I", HEAP_SIZE))
+        em.cmp_heap_used(1)
         em.jcc_rel32(0x83, lmiss)                   # jae：非指针对象
         em.emit(b"\x4C\x8B\x00")                    # mov r8,[rax]
         em.emit(b"\x49\x83\xF8" + bytes([TYPE_DICT]))
@@ -7059,7 +7832,9 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.call_rel32("dict_get")
         em.jcc_rel32(None, ldone)
         em.label_here(lmiss)
-        em.lea_rip(0, "null_obj")
+        em.lea_rip(0, "err_attr")                   # 非字典属性 → 抛可捕获异常
+        em.call_rel32("raise_rt")                   # 不返回
+        em.emit(b"\x0F\x0B")                        # ud2
         em.label_here(ldone)
         em.push_rax()
     elif op == OP.UNPACK_SEQ:
@@ -7081,6 +7856,11 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.pop_to(0)                                # rax = 抛出值
         em.call_rel32("raise_rt")                   # 不返回（展开或终止）
         em.emit(b"\x0F\x0B")                        # ud2
+    elif op == OP.FORMULA_SCHEMA:
+        # `#N：？公式` 登记模式：纯静态规格元数据，无运行期效果（不产生输出、
+        # 不触碰栈与变量表），故原生后端发空实现即可——与解释器/VM 的可观察
+        # 行为（stdout）一致。
+        pass
     elif op == OP.HALT:
         em.emit(b"\x31\xC9")                        # xor ecx,ecx
         em.call_rip_indirect("api_ExitProcess")
@@ -7118,7 +7898,7 @@ def _emit_code(em: _Emitter, code: list, consts: list, fn_names: set[str],
 
 # ---------------------------------------------------------------- 载荷
 
-def _build_emitters(mod) -> tuple["_Emitter", "_Emitter", dict]:
+def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     """构建代码/数据发射器（未 patch），供 _build_payload 与调试工具复用。"""
     labels: dict[str, int] = {}
     user_names = set(mod.functions.keys())
@@ -7146,13 +7926,15 @@ def _build_emitters(mod) -> tuple["_Emitter", "_Emitter", dict]:
     ec.emit(b"\x45\x31\xED")                        # xor r13d,r13d（main 环境=null）
     _emit_resolve_apis(ec)                          # PEB 遍历解析 kernel32 API
     ec.call_rel32("load_crt")                       # 加载 CRT（浮点格式化）
-    # 初始化堆指针 = 静态对象区之后；heap_limit = heap_base + HEAP_SIZE
+    # 初始化堆指针 = 静态对象区之后；heap_limit = heap_free + HEAP_SIZE（固定区
+    # 末梢）。砖块 20：随后 heap_init 尝试在镜像末梢预留动态竞技场并做好标记栈。
     ec.lea_rip(0, "heap_free")                      # lea rax,[heap_free]
     ec.emit(b"\x48\x89\x05")                        # mov [rip+heap_ptr],rax
     ec.rel32_to("heap_ptr")
-    ec.lea_rip(0, "heap_base")                      # lea rax,[heap_base]
+    ec.lea_rip(0, "heap_free")                      # lea rax,[heap_free]
     ec.add_ri(0, HEAP_SIZE)                         # add rax,HEAP_SIZE
     ec.store_rip_from("heap_limit", 0)
+    ec.call_rel32("heap_init")                      # 预留动态竞技场 + 标记栈
     # 初始化异常处理器栈：hstack_ptr = hstack，handler_top = 0（空），raise_msg = 0
     ec.lea_rip(0, "hstack")                         # lea rax,[hstack]
     ec.store_rip_from("hstack_ptr", 0)
@@ -7199,6 +7981,7 @@ def _build_emitters(mod) -> tuple["_Emitter", "_Emitter", dict]:
     _emit_exception_runtime(ec, guard)          # 异常运行时（raise/错误/调用捕获）
     _emit_load_crt(ec)                          # CRT 加载（浮点格式化）
     _emit_float_runtime(ec)                     # 浮点运行时
+    _emit_bigint_runtime(ec)                    # 大整数运行时
     return _emit_data_section(mod, labels, ec, user_names)
 
 
@@ -7232,7 +8015,7 @@ def _emit_float_runtime(em: _Emitter):
     em.mov_rr(2, 0)                                 # mov rdx,rax
     em.lea_rip(1, "heap_base")                      # lea rcx,[heap_base]
     em.sub_rr(2, 1)                                 # sub rdx,rcx
-    em.cmp_ri(2, HEAP_SIZE)
+    em.cmp_heap_used(2)
     em.jcc_rel32(0x83, "isf_no")                    # jae：非堆指针
     em.emit(b"\x48\x83\x38" + bytes([TYPE_FLOAT]))  # cmp qword[rax],TYPE_FLOAT
     em.jcc_rel32(0x85, "isf_no")
@@ -7324,7 +8107,7 @@ def _emit_float_runtime(em: _Emitter):
     em.mov_rr(1, 0)
     em.lea_rip(2, "heap_base")
     em.sub_rr(1, 2)
-    em.cmp_ri(1, HEAP_SIZE)
+    em.cmp_heap_used(1)
     em.jcc_rel32(0x83, "asd_int")
     em.movsd_load(0, 0, 16)                         # movsd xmm0,[rax+16]
     em.emit(b"\xC3")
@@ -7368,6 +8151,23 @@ def _emit_float_runtime(em: _Emitter):
         ins(0, 1)
         em.call_rel32("box_float")
         em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- f_deg：`<<n` 角度前缀，度数 → 弧度 ----
+    # 三角函数（sin/cos/tan）一律吃弧度，故 <<30 必须先归一化成 π/6，
+    # sin(<<30) 才是 0.5。π/180 的 float64 位模式内联在指令里
+    # （movabs rax + movq xmm0,rax），无需 .rdata 常量池。
+    em.label_here("f_deg")
+    em.emit(b"\x55\x48\x89\xE5")
+    em.emit(b"\x48\x83\xEC\x20")
+    em.call_rel32("as_double")                      # rax（整数/浮点对象）→ xmm0
+    em.emit(b"\xF2\x0F\x10\xC8")                    # movsd xmm1,xmm0（留度数）
+    # 注意 ModRM 是 C8 而非 C1：C1 的 reg 字段=0 即「xmm0 = xmm1」，
+    # 会把刚算出的度数丢掉、拿未初始化的 xmm1 去乘。参照 bin_to_xmm2 同款写法。
+    em.emit(b"\x48\xB8" + struct.pack("<Q", 0x3F91DF46A2529D39))  # movabs rax,π/180
+    em.emit(b"\x66\x48\x0F\x6E\xC0")                # movq  xmm0,rax
+    em.emit(b"\xF2\x0F\x59\xC1")                    # mulsd xmm0,xmm1
+    em.call_rel32("box_float")                      # xmm0 → 浮点对象
+    em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
 
     # ---- f_floordiv：floor(a/b) ----
     # 除数为 0（含 -0.0）抛 "division by zero"，对齐 VM 的 ZeroDivisionError。
@@ -7862,7 +8662,782 @@ def _emit_float_runtime(em: _Emitter):
     em.emit(b"\x48\x89\xEC\x5D\xC3")
 
 
-def _emit_data_section(mod, labels: dict, ec: "_Emitter", user_names: set):
+def _emit_bigint_runtime(em: _Emitter):
+    """大整数（任意精度）运行时：TYPE_BIGINT 对象 + 符号-绝对值算术。
+
+    首个增量范围：`+ - * **` 溢出提升、比较、repr/str、type_of/typeof、GC 尺寸。
+    `//` `%` 与位运算/移位仍走 int64，遇大整数操作数抛 err_bigintop（已知局限）。
+
+    表示（基 D = 10^9 的符号-绝对值，小端 limb）：
+      [0]=TYPE_BIGINT [8]=nlimbs [16]=sign(0/1) [24+i*8]=limb i
+    规范形：无前导零 limb；能装进 int64 的值一律降级为裸 int64，故堆上的
+    BigInt 必然 |值| 超出 int64。基取 10^9 让十进制转换无需反复除 10 之外
+    的除法，乘法进位用 64 位累加（< 1e18）不溢出。
+    """
+    D = BIGINT_LIMB_BASE
+
+    # ---- is_bigint(rax) → eax=1/0 ----
+    em.label_here("is_bigint")
+    em.mov_rr(2, 0)
+    em.lea_rip(1, "heap_base")
+    em.sub_rr(2, 1)
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x83, "isbi_no")
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_BIGINT]))
+    em.jcc_rel32(0x85, "isbi_no")
+    em.emit(b"\xB8\x01\x00\x00\x00")                # mov eax,1
+    em.emit(b"\xC3")
+    em.label_here("isbi_no")
+    em.emit(b"\x31\xC0\xC3")                        # xor eax,eax; ret
+
+    # ---- is_bigint2(rax,rcx) → edx=1/0（完整保留 rax/rcx）----
+    em.label_here("is_bigint2")
+    em.lea_rip(8, "heap_base")
+    em.mov_rr(9, 0)
+    em.sub_rr(9, 8)
+    em.cmp_heap_used(9)
+    em.jcc_rel32(0x83, "isbi2_r")
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_BIGINT]))
+    em.jcc_rel32(0x84, "isbi2_yes")
+    em.label_here("isbi2_r")
+    em.mov_rr(9, 1)
+    em.sub_rr(9, 8)
+    em.cmp_heap_used(9)
+    em.jcc_rel32(0x83, "isbi2_no")
+    em.emit(b"\x48\x83\x39" + bytes([TYPE_BIGINT]))
+    em.jcc_rel32(0x84, "isbi2_yes")
+    em.label_here("isbi2_no")
+    em.emit(b"\x31\xD2\xC3")                        # xor edx,edx; ret
+    em.label_here("isbi2_yes")
+    em.emit(b"\xBA\x01\x00\x00\x00\xC3")            # mov edx,1; ret
+
+    # ---- bi_alloc(rdi=nlimbs) → rax ----
+    em.label_here("bi_alloc")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x20")
+    em.mov_mem_r(5, -8, 7)                          # [rbp-8]=nlimbs
+    em.mov_rr(0, 7)
+    em.shl_ri(0, 3)
+    em.add_ri(0, 24 + 7)
+    em.and_ri(0, -8)
+    em.mov_rr(7, 0)
+    em.call_rel32("alloc")
+    em.mov_rd_mem(1, 5, -8)
+    em.emit(b"\x48\xC7\x00" + struct.pack("<i", TYPE_BIGINT))
+    em.mov_mem_r(0, 8, 1)                           # [rax+8]=nlimbs
+    em.emit(b"\x48\xC7\x40\x10\x00\x00\x00\x00")    # sign=0
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_from_i64(rax=int64) → rax=BigInt（含 0，令 nlimbs=0）----
+    em.label_here("bi_from_i64")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x40")
+    em.mov_mem_r(5, -8, 0)                          # value
+    em.emit(b"\x45\x31\xC0")                        # xor r8d,r8d
+    em.mov_mem_r(5, -16, 8)                         # sign=0
+    em.test_rr(0, 0)
+    em.jcc_rel32(0x89, "bi64_pos")
+    em.emit(b"\x48\xC7\x45\xF0\x01\x00\x00\x00")    # sign=1
+    em.emit(b"\x48\xF7\xD8")                        # neg rax
+    em.label_here("bi64_pos")
+    em.mov_mem_r(5, -24, 0)                         # magnitude
+    em.mov_rr(9, 0)
+    em.test_rr(9, 9)
+    em.jcc_rel32(0x84, "bi64_have")
+    em.label_here("bi64_cnt")
+    em.inc_r(8)
+    em.mov_rr(0, 9)
+    em.xor_rr32(2, 2)
+    em.mov_r_imm32(1, D)
+    em.emit(b"\x48\xF7\xF1")                        # div rcx
+    em.mov_rr(9, 0)
+    em.test_rr(9, 9)
+    em.jcc_rel32(0x85, "bi64_cnt")
+    em.label_here("bi64_have")
+    em.mov_mem_r(5, -32, 8)                         # nlimbs
+    em.mov_rr(7, 8)
+    em.call_rel32("bi_alloc")
+    em.mov_mem_r(5, -40, 0)                         # obj
+    em.mov_rd_mem(1, 5, -16)
+    em.mov_mem_r(0, 16, 1)                          # obj.sign
+    em.mov_rr(10, 0)                                # r10=obj
+    em.mov_rd_mem(9, 5, -24)                        # r9=mag
+    em.emit(b"\x45\x31\xDB")                        # i=0
+    em.label_here("bi64_fill")
+    em.mov_rd_mem(1, 5, -32)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bi64_done")
+    em.mov_rr(0, 9)
+    em.xor_rr32(2, 2)
+    em.mov_r_imm32(1, D)
+    em.emit(b"\x48\xF7\xF1")
+    em.mov_mem_r_idx(10, 2, 24, 11, 8)              # obj[i]=limb
+    em.mov_rr(9, 0)
+    em.inc_r(11)
+    em.jcc_rel32(None, "bi64_fill")
+    em.label_here("bi64_done")
+    em.mov_rd_mem(0, 5, -40)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_trim(rax=BigInt) → rax=同对象（去前导零 limb，保留 >=1 limb）----
+    # 供 bi_pow_i 内部使用：乘法返回 na+nb+1 个 limb，若不去零，反复平方会让
+    # limb 数指数膨胀（2 的幂每平方翻倍）直至堆耗尽。
+    em.label_here("bi_trim")
+    em.mov_rd_mem(8, 0, 8)                          # n
+    em.label_here("bt_loop")
+    em.cmp_ri(8, 1)
+    em.jcc_rel32(0x86, "bt_done")                   # jbe（n<=1）→ 停
+    em.mov_rr(1, 8)
+    em.dec_r(1)
+    em.mov_rd_mem(9, 0, 24, index=1, scale=8)
+    em.test_rr(9, 9)
+    em.jcc_rel32(0x85, "bt_done")                   # 最高 limb 非零 → 停
+    em.dec_r(8)
+    em.jcc_rel32(None, "bt_loop")
+    em.label_here("bt_done")
+    em.mov_mem_r(0, 8, 8)
+    em.emit(b"\xC3")
+
+    # ---- bi_normalize(rax=BigInt) → rax=int64 或（装不下时）BigInt ----
+    em.label_here("bi_normalize")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x20")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_rd_mem(8, 0, 8)                          # n
+    em.label_here("bn_strip")
+    em.test_rr(8, 8)
+    em.jcc_rel32(0x84, "bn_zero")
+    em.mov_rr(9, 8)
+    em.dec_r(9)
+    em.mov_rd_mem(1, 0, 24, index=9, scale=8)
+    em.test_rr(1, 1)
+    em.jcc_rel32(0x85, "bn_stripped")
+    em.dec_r(8)
+    em.jcc_rel32(None, "bn_strip")
+    em.label_here("bn_stripped")
+    em.mov_mem_r(0, 8, 8)                           # 写回 nlimbs
+    em.cmp_ri(8, 2)
+    em.jcc_rel32(0x86, "bn_small")                  # n<=2 恒装得下
+    em.cmp_ri(8, 3)
+    em.jcc_rel32(0x84, "bn_three")
+    em.emit(b"\x48\x89\xEC\x5D\xC3")                # n>=4 → 保留 BigInt
+    em.label_here("bn_zero")
+    em.emit(b"\x31\xC0\x48\x89\xEC\x5D\xC3")        # 0
+    em.label_here("bn_small")
+    em.mov_rd_mem(9, 0, 24)                         # l0
+    em.cmp_ri(8, 2)
+    em.jcc_rel32(0x82, "bn_small1")
+    em.mov_rd_mem(1, 0, 32)                         # l1
+    em.emit(b"\x48\x69\xC9" + struct.pack("<i", D))
+    em.add_rr(9, 1)
+    em.label_here("bn_small1")
+    em.mov_rd_mem(1, 0, 16)
+    em.test_rr(1, 1)
+    em.jcc_rel32(0x84, "bn_small_pos")
+    em.emit(b"\x49\xF7\xD9")                        # neg r9
+    em.label_here("bn_small_pos")
+    em.mov_rr(0, 9)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+    em.label_here("bn_three")
+    em.mov_rd_mem(9, 0, 32)                         # l1
+    em.mov_rd_mem(10, 0, 40)                        # l2
+    em.cmp_ri(10, 9)
+    em.jcc_rel32(0x82, "bn_fits3")
+    em.jcc_rel32(0x87, "bn_keep")
+    em.cmp_ri(9, 223372036)
+    em.jcc_rel32(0x82, "bn_fits3")
+    em.jcc_rel32(0x87, "bn_keep")
+    em.mov_rd_mem(1, 0, 24)                         # l0
+    em.mov_rd_mem(11, 0, 16)                        # sign
+    em.test_rr(11, 11)
+    em.jcc_rel32(0x85, "bn_three_neg")
+    em.cmp_ri(1, 854775807)
+    em.jcc_rel32(0x86, "bn_fits3")
+    em.jcc_rel32(None, "bn_keep")
+    em.label_here("bn_three_neg")
+    em.cmp_ri(1, 854775808)
+    em.jcc_rel32(0x86, "bn_fits3")
+    em.jcc_rel32(None, "bn_keep")
+    em.label_here("bn_fits3")
+    em.mov_rd_mem(9, 0, 24)
+    em.mov_rd_mem(1, 0, 32)
+    em.emit(b"\x48\x69\xC9" + struct.pack("<i", D))
+    em.add_rr(9, 1)
+    em.mov_rd_mem(1, 0, 40)
+    em.mov_r_imm64(11, 10 ** 18)
+    em.emit(b"\x48\x0F\xAF\xCB")                    # imul rcx,r11
+    em.add_rr(9, 1)
+    em.mov_rd_mem(1, 0, 16)
+    em.test_rr(1, 1)
+    em.jcc_rel32(0x84, "bn_fits3_pos")
+    em.emit(b"\x49\xF7\xD9")
+    em.label_here("bn_fits3_pos")
+    em.mov_rr(0, 9)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+    em.label_here("bn_keep")
+    em.mov_rd_mem(0, 5, -8)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_neg(rax=BigInt) → rax=新对象（符号翻转）----
+    em.label_here("bi_neg")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x20")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_rd_mem(7, 0, 8)
+    em.call_rel32("bi_alloc")
+    em.mov_rd_mem(8, 5, -8)
+    em.mov_rd_mem(1, 8, 16)
+    em.emit(b"\x48\x83\xF1\x01")                    # xor rcx,1
+    em.mov_mem_r(0, 16, 1)
+    em.mov_rd_mem(9, 8, 8)
+    em.mov_rr(10, 0)
+    em.emit(b"\x45\x31\xDB")
+    em.label_here("bineg_loop")
+    em.cmp_rr(11, 9)
+    em.jcc_rel32(0x83, "bineg_done")
+    em.mov_rd_mem(1, 8, 24, index=11, scale=8)
+    em.mov_mem_r_idx(10, 1, 24, 11, 8)
+    em.inc_r(11)
+    em.jcc_rel32(None, "bineg_loop")
+    em.label_here("bineg_done")
+    em.mov_rr(0, 10)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_mag_cmp(rax=a,rcx=b) → rax=-1/0/1（比较绝对值）----
+    em.label_here("bi_mag_cmp")
+    em.mov_rd_mem(8, 0, 8)
+    em.mov_rd_mem(9, 1, 8)
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x82, "bmc_lt")
+    em.jcc_rel32(0x87, "bmc_gt")
+    em.mov_rr(10, 8)
+    em.label_here("bmc_top")
+    em.test_rr(10, 10)
+    em.jcc_rel32(0x84, "bmc_eq")
+    em.dec_r(10)
+    em.mov_rd_mem(11, 0, 24, index=10, scale=8)
+    em.mov_rd_mem(2, 1, 24, index=10, scale=8)
+    em.cmp_rr(11, 2)
+    em.jcc_rel32(0x82, "bmc_lt")
+    em.jcc_rel32(0x87, "bmc_gt")
+    em.jcc_rel32(None, "bmc_top")
+    em.label_here("bmc_eq")
+    em.emit(b"\x48\x31\xC0\xC3")
+    em.label_here("bmc_lt")
+    em.emit(b"\x48\xC7\xC0\xFF\xFF\xFF\xFF\xC3")
+    em.label_here("bmc_gt")
+    em.emit(b"\x48\xC7\xC0\x01\x00\x00\x00\xC3")
+
+    # ---- bi_mag_add(rax=a,rcx=b) → rax=新对象（正值）----
+    em.label_here("bi_mag_add")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x40")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    em.mov_rd_mem(8, 0, 8)
+    em.mov_mem_r(5, -24, 8)                         # na
+    em.mov_rd_mem(9, 1, 8)
+    em.mov_mem_r(5, -32, 9)                         # nb
+    em.mov_rr(10, 8)
+    em.cmp_rr(9, 10)
+    em.jcc_rel32(0x86, "bma_nmax")
+    em.mov_rr(10, 9)
+    em.label_here("bma_nmax")
+    em.mov_mem_r(5, -40, 10)                        # nmax
+    em.mov_rr(7, 10)
+    em.add_ri(7, 2)
+    em.call_rel32("bi_alloc")
+    em.mov_mem_r(5, -48, 0)                         # res
+    em.emit(b"\x48\xC7\x40\x10\x00\x00\x00\x00")
+    em.emit(b"\x45\x31\xDB")                        # i=0
+    em.emit(b"\x48\xC7\x45\xC8\x00\x00\x00\x00")    # carry=0
+    em.label_here("bma_loop")
+    em.mov_rd_mem(1, 5, -40)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x87, "bma_done")
+    em.emit(b"\x45\x31\xC9")                        # r9=0
+    em.mov_rd_mem(1, 5, -24)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bma_nola")
+    em.mov_rd_mem(8, 5, -8)
+    em.mov_rd_mem(9, 8, 24, index=11, scale=8)
+    em.label_here("bma_nola")
+    em.emit(b"\x45\x31\xD2")                        # r10=0
+    em.mov_rd_mem(1, 5, -32)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bma_nolb")
+    em.mov_rd_mem(8, 5, -16)
+    em.mov_rd_mem(10, 8, 24, index=11, scale=8)
+    em.label_here("bma_nolb")
+    em.add_rr(9, 10)
+    em.emit(b"\x4C\x03\x4D\xC8")                    # add r9,[rbp-56]
+    em.mov_rr(0, 9)
+    em.xor_rr32(2, 2)
+    em.mov_r_imm32(1, D)
+    em.emit(b"\x48\xF7\xF1")
+    em.mov_mem_r(5, -56, 0)                         # carry=q
+    em.mov_rd_mem(1, 5, -48)
+    em.mov_mem_r_idx(1, 2, 24, 11, 8)
+    em.inc_r(11)
+    em.jcc_rel32(None, "bma_loop")
+    em.label_here("bma_done")
+    em.mov_rd_mem(9, 5, -40)
+    em.inc_r(9)
+    em.mov_rd_mem(1, 5, -48)
+    em.mov_rd_mem(2, 5, -56)
+    em.mov_mem_r_idx(1, 2, 24, 9, 8)                # res[nmax+1]=carry
+    em.mov_rd_mem(0, 5, -48)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_mag_sub(rax=a,rcx=b) → rax=新对象（要求 |a|>=|b|）----
+    em.label_here("bi_mag_sub")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x40")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    em.mov_rd_mem(8, 0, 8)
+    em.mov_mem_r(5, -24, 8)                         # na
+    em.mov_rd_mem(9, 1, 8)
+    em.mov_mem_r(5, -32, 9)                         # nb
+    em.mov_rd_mem(7, 0, 8)
+    em.call_rel32("bi_alloc")
+    em.mov_mem_r(5, -40, 0)
+    em.emit(b"\x48\xC7\x40\x10\x00\x00\x00\x00")
+    em.emit(b"\x45\x31\xDB")
+    em.emit(b"\x48\xC7\x45\xC8\x00\x00\x00\x00")    # borrow=0
+    em.label_here("bms_loop")
+    em.mov_rd_mem(1, 5, -24)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bms_done")
+    em.mov_rd_mem(8, 5, -8)
+    em.mov_rd_mem(9, 8, 24, index=11, scale=8)
+    em.emit(b"\x45\x31\xD2")
+    em.mov_rd_mem(1, 5, -32)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bms_nolb")
+    em.mov_rd_mem(8, 5, -16)
+    em.mov_rd_mem(10, 8, 24, index=11, scale=8)
+    em.label_here("bms_nolb")
+    em.sub_rr(9, 10)
+    em.emit(b"\x4C\x2B\x4D\xC8")                    # sub r9,[rbp-56]
+    em.emit(b"\x48\xC7\x45\xC8\x00\x00\x00\x00")    # borrow=0
+    em.test_rr(9, 9)
+    em.jcc_rel32(0x89, "bms_pos")
+    em.add_ri(9, D)
+    em.emit(b"\x48\xC7\x45\xC8\x01\x00\x00\x00")    # borrow=1
+    em.label_here("bms_pos")
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_mem_r_idx(1, 9, 24, 11, 8)
+    em.inc_r(11)
+    em.jcc_rel32(None, "bms_loop")
+    em.label_here("bms_done")
+    em.mov_rd_mem(0, 5, -40)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_mag_mul(rax=a,rcx=b) → rax=新对象（学校式乘法）----
+    em.label_here("bi_mag_mul")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x60")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    em.mov_rd_mem(8, 0, 8)
+    em.mov_mem_r(5, -24, 8)                         # na
+    em.mov_rd_mem(9, 1, 8)
+    em.mov_mem_r(5, -32, 9)                         # nb
+    em.mov_rr(10, 8)
+    em.add_rr(10, 9)
+    em.add_ri(10, 1)
+    em.mov_mem_r(5, -88, 10)                        # nres
+    em.mov_rr(7, 10)
+    em.call_rel32("bi_alloc")
+    em.mov_mem_r(5, -40, 0)                         # res
+    em.emit(b"\x48\xC7\x40\x10\x00\x00\x00\x00")
+    em.emit(b"\x45\x31\xDB")
+    em.label_here("bmm_zero")
+    em.mov_rd_mem(1, 5, -88)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bmm_zdone")
+    em.emit(b"\x48\x31\xC0")
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_mem_r_idx(1, 0, 24, 11, 8)
+    em.inc_r(11)
+    em.jcc_rel32(None, "bmm_zero")
+    em.label_here("bmm_zdone")
+    em.emit(b"\x45\x31\xDB")                        # i=0
+    em.label_here("bmm_i")
+    em.mov_rd_mem(1, 5, -24)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bmm_done")
+    em.mov_rd_mem(8, 5, -8)
+    em.mov_rd_mem(9, 8, 24, index=11, scale=8)
+    em.mov_mem_r(5, -64, 9)                         # ai
+    em.emit(b"\x48\xC7\x45\xC8\x00\x00\x00\x00")    # carry=0
+    em.emit(b"\x45\x31\xD2")                        # j=0
+    em.label_here("bmm_j")
+    em.mov_rd_mem(1, 5, -32)
+    em.cmp_rr(10, 1)
+    em.jcc_rel32(0x83, "bmm_jdone")
+    em.mov_rr(0, 11)
+    em.add_rr(0, 10)                                # k=i+j
+    em.mov_mem_r(5, -72, 0)
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_rd_mem(2, 1, 24, index=0, scale=8)       # res[k]
+    em.mov_mem_r(5, -80, 2)                         # t
+    em.mov_rd_mem(8, 5, -16)
+    em.mov_rd_mem(9, 8, 24, index=10, scale=8)      # b[j]
+    em.mov_rd_mem(0, 5, -64)
+    em.emit(b"\x49\x0F\xAF\xC1")                    # imul rax,r9
+    em.emit(b"\x48\x03\x45\xB0")                    # add rax,[rbp-80]
+    em.emit(b"\x48\x03\x45\xC8")                    # add rax,[rbp-56]
+    em.xor_rr32(2, 2)
+    em.mov_r_imm32(1, D)
+    em.emit(b"\x48\xF7\xF1")
+    em.mov_mem_r(5, -56, 0)                         # carry=q
+    em.mov_rd_mem(8, 5, -72)
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_mem_r_idx(1, 2, 24, 8, 8)                # res[k]=rem
+    em.inc_r(10)
+    em.jcc_rel32(None, "bmm_j")
+    em.label_here("bmm_jdone")
+    em.mov_rd_mem(1, 5, -32)
+    em.mov_rr(0, 11)
+    em.add_rr(0, 1)
+    em.mov_mem_r(5, -72, 0)                         # k=i+nb
+    em.label_here("bmm_prop")
+    em.emit(b"\x48\x8B\x45\xC8")                    # mov rax,[rbp-56] carry
+    em.test_rr(0, 0)
+    em.jcc_rel32(0x84, "bmm_propdone")
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_rd_mem(8, 5, -72)
+    em.mov_rd_mem(2, 1, 24, index=8, scale=8)       # sum=res[k]
+    em.add_rr(2, 0)
+    em.mov_rr(0, 2)
+    em.xor_rr32(2, 2)
+    em.mov_r_imm32(1, D)
+    em.emit(b"\x48\xF7\xF1")
+    em.mov_mem_r(5, -56, 0)
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_rd_mem(8, 5, -72)
+    em.mov_mem_r_idx(1, 2, 24, 8, 8)
+    em.mov_rd_mem(1, 5, -72)
+    em.inc_r(1)
+    em.mov_mem_r(5, -72, 1)
+    em.jcc_rel32(None, "bmm_prop")
+    em.label_here("bmm_propdone")
+    em.inc_r(11)
+    em.jcc_rel32(None, "bmm_i")
+    em.label_here("bmm_done")
+    em.mov_rd_mem(0, 5, -40)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_add/bi_sub(rax=a,rcx=b) → rax=BigInt（未规范化）----
+    em.label_here("bi_sub")
+    em.emit(b"\xBF\x01\x00\x00\x00")                # mov edi,1
+    em.jcc_rel32(None, "bi_as_common")
+    em.label_here("bi_add")
+    em.emit(b"\x31\xFF")                            # xor edi,edi
+    em.label_here("bi_as_common")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x40")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    em.mov_mem_r(5, -24, 7)                         # flip
+    em.mov_rd_mem(8, 0, 16)
+    em.mov_mem_r(5, -40, 8)                         # sign_a
+    em.mov_rd_mem(9, 1, 16)
+    em.mov_rd_mem(2, 5, -24)
+    em.emit(b"\x49\x31\xD1")                        # xor r9,rdx → seff_b
+    em.mov_mem_r(5, -48, 9)
+    em.mov_rd_mem(8, 5, -40)
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x85, "bi_as_diff")
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_rd_mem(1, 5, -16)
+    em.call_rel32("bi_mag_add")
+    em.mov_mem_r(5, -32, 0)
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_mem_r(0, 16, 1)
+    em.jcc_rel32(None, "bi_as_done")
+    em.label_here("bi_as_diff")
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_rd_mem(1, 5, -16)
+    em.call_rel32("bi_mag_cmp")
+    em.test_rr(0, 0)
+    em.jcc_rel32(0x88, "bi_as_neg")
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_rd_mem(1, 5, -16)
+    em.call_rel32("bi_mag_sub")
+    em.mov_mem_r(5, -32, 0)
+    em.mov_rd_mem(1, 5, -40)
+    em.mov_mem_r(0, 16, 1)
+    em.jcc_rel32(None, "bi_as_done")
+    em.label_here("bi_as_neg")
+    em.mov_rd_mem(0, 5, -16)
+    em.mov_rd_mem(1, 5, -8)
+    em.call_rel32("bi_mag_sub")
+    em.mov_mem_r(5, -32, 0)
+    em.mov_rd_mem(1, 5, -48)
+    em.mov_mem_r(0, 16, 1)
+    em.label_here("bi_as_done")
+    em.mov_rd_mem(0, 5, -32)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_mul(rax=a,rcx=b) → rax=BigInt（未规范化）----
+    em.label_here("bi_mul")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x40")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    em.mov_rd_mem(8, 0, 16)
+    em.mov_mem_r(5, -40, 8)
+    em.mov_rd_mem(9, 1, 16)
+    em.mov_mem_r(5, -48, 9)
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_rd_mem(1, 5, -16)
+    em.call_rel32("bi_mag_mul")
+    em.mov_mem_r(5, -32, 0)
+    em.mov_rd_mem(8, 5, -40)
+    em.mov_rd_mem(9, 5, -48)
+    em.emit(b"\x4D\x31\xC8")                        # xor r8,r9
+    em.mov_mem_r(0, 16, 8)
+    em.mov_rd_mem(0, 5, -32)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_cmp(rax=a,rcx=b) → rax=-1/0/1（有符号数值比较）----
+    em.label_here("bi_cmp")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xEC\x20")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    em.mov_rd_mem(8, 0, 16)
+    em.mov_rd_mem(9, 1, 16)
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x84, "bicmp_same")
+    em.test_rr(8, 8)
+    em.jcc_rel32(0x84, "bicmp_posa")
+    em.emit(b"\x48\xC7\xC0\xFF\xFF\xFF\xFF")
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+    em.label_here("bicmp_posa")
+    em.emit(b"\x48\xC7\xC0\x01\x00\x00\x00")
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+    em.label_here("bicmp_same")
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_rd_mem(1, 5, -16)
+    em.call_rel32("bi_mag_cmp")
+    em.mov_rd_mem(8, 5, -8)
+    em.mov_rd_mem(9, 8, 16)
+    em.test_rr(9, 9)
+    em.jcc_rel32(0x84, "bicmp_ret")
+    em.emit(b"\x48\xF7\xD8")                        # neg rax（负数时反转序）
+    em.label_here("bicmp_ret")
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_pow_i(rax=底 BigInt, rcx=指数 int64≥0) → rax（BigInt 或降级 int64）----
+    em.label_here("bi_pow_i")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x83\xEC\x40")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    em.mov_r_imm32(0, 1)
+    em.call_rel32("bi_from_i64")
+    em.mov_mem_r(5, -24, 0)                         # result
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_mem_r(5, -32, 0)                         # base_big（已是 BigInt 对象）
+    em.label_here("bipow_loop")
+    em.mov_rd_mem(1, 5, -16)
+    em.test_rr(1, 1)
+    em.jcc_rel32(0x84, "bipow_done")
+    em.emit(b"\xF6\xC1\x01")                        # test cl,1
+    em.jcc_rel32(0x84, "bipow_even")
+    em.mov_rd_mem(0, 5, -24)
+    em.mov_rd_mem(1, 5, -32)
+    em.call_rel32("bi_mul")
+    em.call_rel32("bi_trim")
+    em.mov_mem_r(5, -24, 0)
+    em.label_here("bipow_even")
+    em.mov_rd_mem(0, 5, -32)
+    em.mov_rd_mem(1, 5, -32)
+    em.call_rel32("bi_mul")
+    em.call_rel32("bi_trim")
+    em.mov_mem_r(5, -32, 0)
+    em.mov_rd_mem(1, 5, -16)
+    em.shr_ri(1, 1)
+    em.mov_mem_r(5, -16, 1)
+    em.jcc_rel32(None, "bipow_loop")
+    em.label_here("bipow_done")
+    em.mov_rd_mem(0, 5, -24)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- bi_to_str(rax=BigInt) → rax=STR ----
+    em.label_here("bi_to_str")
+    em.emit(b"\x55\x48\x89\xE5\x48\x83\xE4\xF0\x48\x81\xEC\x80\x00\x00\x00")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_rd_mem(8, 0, 8)
+    em.mov_mem_r(5, -16, 8)                         # n
+    em.test_rr(8, 8)
+    em.jcc_rel32(0x84, "bits_zero")
+    em.mov_rr(9, 8)
+    em.dec_r(9)
+    em.mov_rd_mem(10, 0, 24, index=9, scale=8)      # ms limb
+    em.mov_mem_r(5, -24, 10)
+    em.emit(b"\x45\x31\xC9")                        # msd=0
+    em.label_here("bits_msd")
+    em.inc_r(9)
+    em.mov_rr(0, 10)
+    em.xor_rr32(2, 2)
+    em.mov_r_imm32(1, 10)
+    em.emit(b"\x48\xF7\xF1")
+    em.mov_rr(10, 0)
+    em.test_rr(10, 10)
+    em.jcc_rel32(0x85, "bits_msd")
+    em.mov_mem_r(5, -32, 9)                         # msd
+    em.mov_rd_mem(8, 5, -16)
+    em.dec_r(8)
+    em.mov_rr(0, 8)                                 # rax = n-1
+    em.emit(b"\x48\x69\xC0" + struct.pack("<i", 9)) # imul rax,rax,9
+    em.add_rr(0, 9)                                 # + msd
+    em.mov_mem_r(5, -40, 0)                         # totaldigits
+    em.emit(b"\x48\xC7\x45\xD0\x00\x00\x00\x00")    # signlen=0（[rbp-48] 必须先清零）
+    em.mov_rd_mem(8, 5, -8)
+    em.mov_rd_mem(2, 8, 16)
+    em.test_rr(2, 2)
+    em.jcc_rel32(0x84, "bits_nosign")
+    em.emit(b"\x48\xC7\x45\xD0\x01\x00\x00\x00")    # [rbp-48]=1
+    em.label_here("bits_nosign")
+    em.mov_rd_mem(7, 5, -40)
+    em.mov_rd_mem(1, 5, -48)
+    em.add_rr(7, 1)
+    em.add_ri(7, 16)
+    em.call_rel32("alloc")
+    em.mov_mem_r(5, -56, 0)                         # str
+    em.emit(b"\x48\xC7\x00" + struct.pack("<i", TYPE_STR))
+    em.mov_rd_mem(2, 5, -40)
+    em.mov_rd_mem(1, 5, -48)
+    em.add_rr(2, 1)
+    em.mov_mem_r(0, 8, 2)                           # str.len
+    em.lea_mem(10, 0, 16)
+    em.add_rr(10, 2)
+    em.mov_mem_r(5, -64, 10)                        # cursor
+    em.emit(b"\x45\x31\xDB")                        # i=0
+    em.label_here("bits_i")
+    em.mov_rd_mem(1, 5, -16)
+    em.cmp_rr(11, 1)
+    em.jcc_rel32(0x83, "bits_after")
+    em.mov_rd_mem(8, 5, -8)
+    em.mov_rd_mem(9, 8, 24, index=11, scale=8)
+    em.mov_mem_r(5, -88, 9)                         # limb
+    em.mov_r_imm32(1, 9)
+    em.mov_rd_mem(2, 5, -16)
+    em.dec_r(2)
+    em.cmp_rr(11, 2)
+    em.jcc_rel32(0x85, "bits_lim")
+    em.mov_rd_mem(1, 5, -32)                        # msd
+    em.label_here("bits_lim")
+    em.mov_mem_r(5, -80, 1)                         # limit
+    em.emit(b"\x45\x31\xD2")                        # j=0
+    em.label_here("bits_j")
+    em.mov_rd_mem(1, 5, -80)
+    em.cmp_rr(10, 1)
+    em.jcc_rel32(0x83, "bits_nexti")
+    em.mov_rd_mem(0, 5, -88)
+    em.xor_rr32(2, 2)
+    em.mov_r_imm32(1, 10)
+    em.emit(b"\x48\xF7\xF1")
+    em.mov_mem_r(5, -88, 0)                         # limb=q
+    em.add_ri(2, 48)                                # '0'+digit
+    em.mov_rd_mem(1, 5, -64)
+    em.dec_r(1)
+    em.mov_mem_r(5, -64, 1)
+    em.emit(b"\x88\x11")                            # mov [rcx],dl
+    em.inc_r(10)
+    em.jcc_rel32(None, "bits_j")
+    em.label_here("bits_nexti")
+    em.inc_r(11)
+    em.jcc_rel32(None, "bits_i")
+    em.label_here("bits_after")
+    em.mov_rd_mem(1, 5, -48)
+    em.test_rr(1, 1)
+    em.jcc_rel32(0x84, "bits_ret")
+    em.mov_rd_mem(1, 5, -64)
+    em.dec_r(1)
+    em.mov_mem_r(5, -64, 1)
+    em.emit(b"\xC6\x01\x2D")                        # mov byte[rcx],'-'
+    em.label_here("bits_ret")
+    em.mov_rd_mem(0, 5, -56)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+    em.label_here("bits_zero")
+    em.mov_r_imm32(7, 17)
+    em.call_rel32("alloc")
+    em.emit(b"\x48\xC7\x00" + struct.pack("<i", TYPE_STR))
+    em.emit(b"\x48\xC7\x40\x08\x01\x00\x00\x00")
+    em.emit(b"\xC6\x40\x10\x30")                    # '0'
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+
+def _emit_bigint_binop(em: _Emitter, sym: str, tag: str, idx: int):
+    """发射 BINOP 的大整数分支（入口 rax=左, rcx=右）。"""
+    p = f"bo_bi_{tag}_{idx}_"
+    if sym == "**":
+        em.emit(b"\x48\x83\xEC\x10")                # 保存 base/exp
+        em.mov_mem_r(4, 8, 0)                       # [rsp+8]=base（左）
+        em.mov_mem_r(4, 0, 1)                       # [rsp]=exp（右）
+        em.mov_rd_mem(0, 4, 0)                      # 指数是 BigInt → 溢出过大
+        em.call_rel32("is_bigint")
+        em.test_rr(0, 0)
+        em.jcc_rel32(0x85, p + "err")
+        em.mov_rd_mem(1, 4, 0)
+        em.test_rr(1, 1)
+        em.jcc_rel32(0x88, p + "err")               # 负指数 + 大底 → 不支持
+        em.mov_rd_mem(0, 4, 8)
+        em.call_rel32("is_bigint")
+        em.test_rr(0, 0)
+        em.jcc_rel32(0x85, p + "baseok")
+        em.mov_rd_mem(0, 4, 8)
+        em.call_rel32("bi_from_i64")
+        em.mov_mem_r(4, 8, 0)
+        em.label_here(p + "baseok")
+        em.mov_rd_mem(0, 4, 8)
+        em.mov_rd_mem(1, 4, 0)
+        em.call_rel32("bi_pow_i")
+        em.call_rel32("bi_normalize")
+        em.emit(b"\x48\x83\xC4\x10")                # add rsp,16
+        em.jcc_rel32(None, p + "done")
+        em.label_here(p + "err")
+        em.emit(b"\x48\x83\xC4\x10")                # add rsp,16（raise 不返回）
+        em.lea_rip(0, "err_bigintop")
+        em.call_rel32("raise_rt")                   # 不返回
+        em.emit(b"\x0F\x0B")                        # ud2
+        em.label_here(p + "done")
+        return
+    if sym in ("//", "%"):
+        em.lea_rip(0, "err_bigintop")
+        em.call_rel32("raise_rt")                   # 不返回
+        em.emit(b"\x0F\x0B")
+        return
+    # + - * 与比较：两操作数各按需提升为 BigInt
+    em.emit(b"\x48\x83\xEC\x10")
+    em.mov_mem_r(4, 8, 0)                           # [rsp+8]=左
+    em.mov_mem_r(4, 0, 1)                           # [rsp]=右
+    em.mov_rd_mem(0, 4, 8)
+    em.call_rel32("is_bigint")
+    em.test_rr(0, 0)
+    em.jcc_rel32(0x85, p + "l_ok")
+    em.mov_rd_mem(0, 4, 8)
+    em.call_rel32("bi_from_i64")
+    em.mov_mem_r(4, 8, 0)
+    em.label_here(p + "l_ok")
+    em.mov_rd_mem(0, 4, 0)
+    em.call_rel32("is_bigint")
+    em.test_rr(0, 0)
+    em.jcc_rel32(0x85, p + "r_ok")
+    em.mov_rd_mem(0, 4, 0)
+    em.call_rel32("bi_from_i64")
+    em.mov_mem_r(4, 0, 0)
+    em.label_here(p + "r_ok")
+    em.mov_rd_mem(0, 4, 8)
+    em.mov_rd_mem(1, 4, 0)
+    if sym in ("+", "-", "*"):
+        em.call_rel32({"+": "bi_add", "-": "bi_sub", "*": "bi_mul"}[sym])
+        em.call_rel32("bi_normalize")
+    else:
+        em.call_rel32("bi_cmp")
+        em.emit(b"\x48\x85\xC0")                    # test rax,rax
+        em.emit(bytes([0x0F, _CC[sym], 0xC0]))      # setCC al（用 setCC 操作码）
+        em.emit(b"\x0F\xB6\xC0")                    # movzx eax,al
+        _emit_rax_to_bool(em, tag, f"{idx}bi")
+    em.emit(b"\x48\x83\xC4\x10")
+
+
+def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     """按实际 .text 大小确定 .data 起始 RVA 后发射数据节。
 
     .data 的 RVA 必须落在 .text 之后并按 SectionAlignment(0x1000) 对齐。
@@ -7871,9 +9446,32 @@ def _emit_data_section(mod, labels: dict, ec: "_Emitter", user_names: set):
 
     注意：此处不调用 patch()，因为代码节的 RIP 相对重定位会引用尚未
     发射的数据标签（如 vstack）；两节均发射完毕后由调用方统一 patch。
+
+    砖块 20：数据被拆成两节——
+      .bss（低地址）：GC 位图 + 异常栈 + 镜像内兜底标记栈，全部零填充。
+      .data（高地址）：标量全局 + 静态对象 + 末尾的固定堆（emit_virtual）。
+    固定堆必须位于镜像 VA 末梢，紧随其后的对齐空洞即动态竞技场的预留起点，
+    使「固定 1GB + 动态 16GB」在地址上连续、可被单区间判据覆盖。位图必须
+    落在堆区间之下（低于 heap_base），否则会与动态竞技场地址冲突。
     """
     text_size = len(ec.buf)     # 代码趟已发射完毕，其大小已确定
-    data_rva = TEXT_RVA + ((text_size + 0xFFF) & ~0xFFF)
+    # ---- .bss：零填充的 GC 位图 / 异常栈 / 兜底标记栈（低于堆区间）----
+    bss_rva = TEXT_RVA + ((text_size + 0xFFF) & ~0xFFF)
+    eb = _Emitter(bss_rva, labels)
+    eb.align(64)
+    eb.label_here("start_bits")                     # 1 bit / 8 字节：对象起点
+    eb.emit_virtual(GC_BITMAP_BYTES)
+    eb.label_here("mark_bits")                      # 1 bit / 8 字节：本轮存活
+    eb.emit_virtual(GC_BITMAP_BYTES)
+    eb.align(64)
+    eb.label_here("hstack")                         # 异常处理器栈（记录自低向高）
+    eb.emit_virtual(HSTACK_SIZE)
+    eb.align(64)
+    eb.label_here("mark_stack0")                    # 镜像内兜底标记栈（不可增长）
+    eb.emit_virtual(GC_MARK_STACK_FALLBACK)
+
+    # ---- .data：标量 + 静态对象 + 末尾固定堆 ----
+    data_rva = bss_rva + ((eb.total_len + 0xFFF) & ~0xFFF)
     ed = _Emitter(data_rva, labels)             # 数据节
     builtin_names = [b for b in NATIVE_BUILTINS if b not in user_names]
     fn_names = user_names | set(builtin_names)
@@ -7951,6 +9549,21 @@ def _emit_data_section(mod, labels: dict, ec: "_Emitter", user_names: set):
     ed.emit(b"\x00" * 8)
     ed.label_here("heap_limit")
     ed.emit(b"\x00" * 8)
+    # 砖块 20：指针判据上界 = 已用堆字节数（heap_ptr − heap_base）。初值取固定区
+    # 已用量（静态对象区大小）；此后每次 bump 分配都会同步更新（见 alloc 运行时）。
+    ed.label_here("heap_used")
+    ed.emit(b"\x00" * 8)
+    ed.label_here("dyn_base")
+    ed.emit(b"\x00" * 8)
+    ed.label_here("dyn_end")
+    ed.emit(b"\x00" * 8)
+    ed.label_here("mark_stack_base")
+    ed.emit(b"\x00" * 8)
+    ed.label_here("mark_stack_limit")
+    ed.emit(b"\x00" * 8)
+    # 标记栈是否可增长（heap_init 预留动态标记栈成功后置 1；兜底栈恒 0）。
+    ed.label_here("mark_stack_growable")
+    ed.emit(b"\x00" * 8)
     ed.label_here("sweep_start")
     ed.emit(b"\x00" * 8)
     ed.label_here("free_head")
@@ -7984,6 +9597,17 @@ def _emit_data_section(mod, labels: dict, ec: "_Emitter", user_names: set):
             ed.emit(struct.pack("<Q", 8))
             ed.emit(struct.pack("<d", c))
             ed.align(8)
+        elif isinstance(c, int) and not isinstance(c, bool):
+            if not (_INT64_MIN <= c <= _INT64_MAX):
+                sign, limbs = _bigint_static_limbs(c)
+                ed.align(8)
+                ed.label_here(f"bob:{i}")
+                ed.emit(struct.pack("<Q", TYPE_BIGINT))
+                ed.emit(struct.pack("<Q", len(limbs)))
+                ed.emit(struct.pack("<Q", sign))
+                for lb in limbs:
+                    ed.emit(struct.pack("<Q", lb))
+                ed.align(8)
     # 砖块 15：数学/物理常量静态浮点对象（LOAD_GLOBAL 经 const:{名} 引用）。
     # 整数常量（如光速 c）走裸整数路径，无需静态对象。
     for cname in sorted(_MATH_CONSTANTS):
@@ -8001,7 +9625,19 @@ def _emit_data_section(mod, labels: dict, ec: "_Emitter", user_names: set):
                    ("dk_col", ": "),
 ("tag_normal", "__正常__"), ("tag_error", "__异常__"),
                     ("err_divzero", "division by zero"),
-                    ("err_powzero", "zero to a negative power")):
+                    ("err_powzero", "zero to a negative power"),
+                    ("err_bitand", "& 操作数需为整数"),
+                    ("err_bitor", "| 操作数需为整数"),
+                    ("err_bitxor", "⊕ 操作数需为整数"),
+                    ("err_bitnot", "~ 仅适用于整数"),
+                     ("err_incr", "++ 仅适用于数值"),
+                     ("err_decr", "-- 仅适用于数值"),
+                     ("err_angle", "<< 仅适用于整数或浮点数"),
+                     ("err_index_list", "list index out of range"),
+                     ("err_index_str", "string index out of range"),
+                     ("err_dedup", "去重() 需要列表"),
+                     ("err_bigintop", "大整数不支持该运算"),
+                     ("err_attr", "属性访问失败: 非字典对象")):
         raw = s.encode("utf-8")
         ed.align(8)
         ed.label_here(lbl)
@@ -8040,7 +9676,7 @@ def _emit_data_section(mod, labels: dict, ec: "_Emitter", user_names: set):
         ed.label_here(_lbl)
         ed.emit(_s + b"\x00")
     # 砖块 18：内存不足诊断串（静态 STR 对象，供 alloc_slow 的 OOM 路径打印）。
-    _oom_text = "内存不足：原生堆（8MB）已耗尽".encode("utf-8")
+    _oom_text = f"内存不足：原生堆（{HEAP_SIZE // (1024 * 1024)}MB）已耗尽".encode()
     ed.align(8)
     ed.label_here("oom_msg")
     ed.emit(struct.pack("<Q", TYPE_STR))
@@ -8053,64 +9689,65 @@ def _emit_data_section(mod, labels: dict, ec: "_Emitter", user_names: set):
     ed.emit(struct.pack("<Q", TYPE_DICT))
     ed.emit(struct.pack("<Q", 0))
     ed.label_here("heap_free")
-    ed.emit(b"\x00" * HEAP_SIZE)
-    # ---- 数据：异常处理器栈（记录从低地址向高地址推进）----
-    ed.align(8)
-    ed.label_here("hstack")
-    ed.emit(b"\x00" * HSTACK_SIZE)
-
-    # ---- 数据：GC 位图与标记栈（1 bit/8 字节；位于堆区间之外）----
-    ed.align(64)
-    ed.label_here("start_bits")
-    ed.emit(b"\x00" * GC_BITMAP_BYTES)
-    ed.label_here("mark_bits")
-    ed.emit(b"\x00" * GC_BITMAP_BYTES)
-    ed.align(64)
-    ed.label_here("mark_stack")
-    ed.emit(b"\x00" * (GC_MARK_STACK_ENTRIES * 8))
-    return ec, ed, labels
+    ed.emit_virtual(HEAP_SIZE)
+    return ec, ed, eb, labels
 
 
 def label_rvas(mod) -> dict[str, int]:
     """返回各静态标签 RVA（调试/测试锚点用）。"""
-    _ec, _ed, labels = _build_emitters(mod)
+    _ec, _ed, _eb, labels = _build_emitters(mod)
     return dict(labels)
 
 
-def _build_payload(mod) -> tuple[bytes, bytes]:
-    """发射代码节与数据节，返回 (text_bytes, data_bytes)。"""
-    ec, ed, _labels = _build_emitters(mod)
+def _build_payload(mod) -> tuple[bytes, bytes, int, bytes, int]:
+    """发射代码节与两节数据，返回 (text, bss, bss_vsize, data, data_vsize)。
+
+    bss/data 的 bytes 只含已物化的非零前缀；*_vsize 是该节完整虚拟尺寸（含尾部
+    零区），用于节表 VirtualSize 与镜像大小，使巨大的零填充区不需物化。
+    """
+    ec, ed, eb, _labels = _build_emitters(mod)
     ec.patch()
     ed.patch()
-    return bytes(ec.buf), bytes(ed.buf)
+    eb.patch()
+    return (bytes(ec.buf), bytes(eb.buf), eb.total_len,
+            bytes(ed.buf), ed.total_len)
 
 
 # ---------------------------------------------------------------- PE64 链接
 
-def _build_pe(text: bytes, data: bytes) -> bytes:
+def _build_pe(text: bytes, bss: bytes, bss_vsize: int,
+              data: bytes, data_vsize: int | None = None) -> bytes:
     def align(v: int, n: int) -> int:
         return (v + n - 1) & ~(n - 1)
 
-    # 节表（RVA 顺序）：name, rva, 内容, chars
-    # .data 的 RVA 由发射器按 .text 实际大小确定并对齐到 0x1000，
-    # 不可用固定常量：代码超过 4KB 时固定值会与 .text 重叠。
-    data_rva = TEXT_RVA + align(len(text), 0x1000)
+    if data_vsize is None:
+        data_vsize = len(data)
+
+    # 节表（RVA 顺序）：.text → .bss（位图/异常栈，纯零填充）→ .data（标量 +
+    # 静态对象 + 末尾固定堆）。各节 RVA 由前节实际尺寸对齐推出；.data 必须是
+    # 末节，其后 64KB 对齐边界即运行时动态竞技场的预留起点（见 heap_init）。
+    bss_rva = TEXT_RVA + align(len(text), 0x1000)
+    data_rva = bss_rva + align(bss_vsize, 0x1000)
+
+    # 尾部恒零区（1GB 固定堆、位图、异常栈、兜底标记栈）不物化到文件：发射阶段
+    # 用 emit_virtual 只记尺寸（见 _Emitter.virtual_len），链接时 VirtualSize 覆盖
+    # 全长而 SizeOfRawData 只覆盖到首个尾零之前，加载器把 raw 尾部零填充，RVA
+    # 布局逐字节不变。这些页首次访问时才由 OS 按需提交，故大堆几乎零成本。
+    # .data 为末节：把「镜像绝对末梢」向上取整到 64KB，使
+    # dyn_base = align(heap_free + HEAP_SIZE, 0x10000) 恰等于 SizeOfImage。
+    # 注意必须对齐绝对地址而非尺寸——data_rva 本身未必 64KB 对齐。
+    data_raw_len = len(data.rstrip(b"\x00"))
+    size_of_image = align(data_rva + data_vsize, 0x10000)
+    data_sec_vsize = size_of_image - data_rva
+
     secs = [
-        (b".text\x00\x00\x00", TEXT_RVA, text, 0x60000020),   # CODE|EXEC|READ
-        (b".data\x00\x00\x00", data_rva, data, 0xC0000040),   # INIT_DATA|READ|WRITE
+        (b".text\x00\x00\x00", TEXT_RVA, text, 0x60000020,
+         len(text)),                                 # CODE|EXEC|READ
+        (b".bss\x00\x00\x00\x00", bss_rva, b"", 0xC0000040,
+         align(bss_vsize, 0x1000)),                  # INIT_DATA|READ|WRITE
+        (b".data\x00\x00\x00", data_rva, data[:data_raw_len],
+         0xC0000040, data_sec_vsize),
     ]
-
-    data_va_end = data_rva + align(len(data), 0x1000)
-    size_of_image = data_va_end
-
-    # .data 尾部是恒为零的运行时状态（8MB 堆 free 区、64KB 异常栈、两片 128KB
-    # GC 位图、8MB 标记栈），合计约 16.6MB。此前这些零字节被当作已初始化数据
-    # 写进文件，使每个 exe 膨胀到 17MB（`.text` 仅 29KB），启动要为整段做文件
-    # 映射。改为「VirtualSize 覆盖全长、SizeOfRawData 只覆盖到首个尾零之前」：
-    # 加载器按规范把 raw 尾部零填充，RVA 布局逐字节不变，代码无需改动。
-    data_raw_len = len(data)
-    while data_raw_len and data[data_raw_len - 1] == 0:
-        data_raw_len -= 1
 
     hdr = bytearray(HEADERS_SIZE)
     hdr[0:2] = b"MZ"
@@ -8142,7 +9779,7 @@ def _build_pe(text: bytes, data: bytes) -> bytes:
     struct.pack_into("<I", opt, 60, HEADERS_SIZE)
     struct.pack_into("<I", opt, 64, 0)              # CheckSum
     struct.pack_into("<H", opt, 68, 3)              # Subsystem: WINDOWS_CUI
-    struct.pack_into("<H", opt, 70, 0x0160)         # DYNAMIC_BASE|HIGH_ENTROPY|NX_COMPAT
+    struct.pack_into("<H", opt, 70, 0x0100)         # NX_COMPAT（无重定位表 → 禁用 ASLR）
     struct.pack_into("<Q", opt, 72, 0x100000)       # StackReserve
     struct.pack_into("<Q", opt, 80, 0x1000)         # StackCommit
     struct.pack_into("<Q", opt, 88, 0x100000)       # HeapReserve
@@ -8153,12 +9790,10 @@ def _build_pe(text: bytes, data: bytes) -> bytes:
     # 节表 @0x188
     raw_off = HEADERS_SIZE
     parts = [bytes(hdr)]
-    raw_sizes = [align(len(text), 0x200), align(data_raw_len, 0x200)]
-    for i, (name, rva, content, chars) in enumerate(secs):
-        content = content if i == 0 else data[:data_raw_len]
-        raw_size = raw_sizes[i]
+    for i, (name, rva, content, chars, vsize) in enumerate(secs):
+        raw_size = align(len(content), 0x200)
         sh = name
-        sh += struct.pack("<I", len(secs[i][2]))          # VirtualSize（未初始化尾段仍计入）
+        sh += struct.pack("<I", vsize)              # VirtualSize（含未物化零尾）
         sh += struct.pack("<I", rva)                # VirtualAddress
         sh += struct.pack("<I", raw_size)           # SizeOfRawData
         sh += struct.pack("<I", raw_off if raw_size else 0)  # PointerToRawData
@@ -8175,8 +9810,8 @@ def _build_pe(text: bytes, data: bytes) -> bytes:
 
 def emit_exe(mod) -> bytes:
     """MModule → PE64 exe 字节串。"""
-    text, data = _build_payload(mod)
-    return _build_pe(text, data)
+    text, bss, bss_vsize, data, data_vsize = _build_payload(mod)
+    return _build_pe(text, bss, bss_vsize, data, data_vsize)
 
 
 def compile_to_exe(source: str) -> bytes:

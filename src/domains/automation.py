@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 自动化领域模块：PLC控制、传感器采集、执行器驱动、时序控制。
 
 覆盖：
@@ -11,7 +10,6 @@
 """
 
 from __future__ import annotations
-import math
 
 
 def _curry1(func):
@@ -113,7 +111,7 @@ def _automation_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "PLC扫描周期估算", "传感器采样率", "执行器响应时间",
-    "时序约束满足", "自动化流程效率", "异常检测率",
+    "_PLC扫描周期估算", "_传感器采样率", "_执行器响应时间",
+    "_时序约束满足", "_自动化流程执行效率", "_异常检测率",
     "_register_automation", "_automation_symtab_names",
 ]

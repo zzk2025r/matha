@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha AI 与数据科学领域模块。
 
@@ -10,9 +9,8 @@ Matha AI 与数据科学领域模块。
   5) 矩阵运算
 """
 from __future__ import annotations
-import math
-from typing import Optional
 
+import math
 
 # ============================================================
 # 激活函数
@@ -182,6 +180,7 @@ def forward_prop(layers: list[list[float]], weights: list[list[list[float]]], bi
 def backward_prop(
     layers: list[list[float]],
     weights: list[list[list[float]]],
+    biases: list[list[float]],
     outputs: list[list[float]],
     y_true: list[float]
 ) -> tuple[list[list[list[float]]], list[list[float]]]:

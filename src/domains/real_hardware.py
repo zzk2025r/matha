@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """真实硬件驱动层。
 
 为 Matha 提供真实硬件访问能力：
@@ -15,9 +14,9 @@
 """
 
 from __future__ import annotations
-import time
-from typing import Any, Optional
 
+import time
+from typing import Any
 
 # ============================================================
 # GPIO 驱动（Raspberry Pi 兼容）
@@ -26,10 +25,10 @@ from typing import Any, Optional
 class GPIOHardware:
     """Raspberry Pi GPIO 驱动。"""
 
-    _instance: Optional["GPIOHardware"] = None
+    _instance: GPIOHardware | None = None
     _initialized = False
 
-    def __new__(cls) -> "GPIOHardware":
+    def __new__(cls) -> GPIOHardware:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -214,8 +213,8 @@ class ADCDriver:
 
         # 尝试 ADS1115 / MCP3008
         try:
-            import board
             import adafruit_ads1x15.ads1115 as ADS
+            import board
             from adafruit_ads1x15.analog_in import AnalogIn
             self._ads = ADS.ADS1115(board.I2C())
             self._adc = AnalogIn(self._ads, channel)

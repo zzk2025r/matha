@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 自主成长扩展：自动发现、学习、进化 + 自升级子系统。
 
 功能：
@@ -11,13 +10,12 @@
 """
 
 from __future__ import annotations
-import ast as pyast
-import json
+
 import logging
 import os
 import re
 import time
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("matha.autonomous")
 
@@ -53,7 +51,7 @@ class KnowledgeDiscovery:
     def _scan_matha_file(self, filepath: str) -> None:
         """解析 .matha 文件，提取函数和公式。"""
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 content = f.read()
         except Exception:
             return
@@ -245,9 +243,10 @@ class AutoDebugger:
 
     def debug(self, src, max_attempts=3):
         """调试并修复源码。返回 {成功, 修复方案, 错误类型}。"""
-        from src.parser import parse as matha_parse
-        from src.interp import Interpreter as _Interp
         import re
+
+        from src.interp import Interpreter as _Interp
+        from src.parser import parse as matha_parse
 
         applied_fix = ""
         i = _Interp()
@@ -373,16 +372,32 @@ class SelfGrower:
             self._interp.run(program)
             funcs = re.findall(r'func\s+(\w+)', src)
             return _GrowResult(成功=True, 新能力=funcs, 名称=name)
-        except Exception as e:
+        except Exception:
             return _GrowResult(成功=False, 新能力=[], 名称=name)
 
     def learn_from_file(self, filepath):
-        """从文件学习。优先 utf-8，失败时 fallback 到 gb18030。"""
+        """从文件学习。优先 utf-8，失败时 fallback 到 gb18030/utf-16。
+
+        UUID：UTF-16/32 文件先通过 BOM 显式识别，避免被 UTF-8 误读。
+        """
+        try:
+            with open(filepath, "rb") as f:
+                raw = f.read()
+        except OSError:
+            return _GrowResult(成功=False, 新能力=[], 名称=filepath, 错误="无法读取文件")
+
+        # 通过 BOM 识别 UTF-16/UTF-32
+        if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+            first_enc = "utf-16"
+        elif raw.startswith(b"\x00\x00\xfe\xff") or raw.startswith(b"\xff\xfe\x00\x00"):
+            first_enc = "utf-32"
+        else:
+            first_enc = "utf-8"
+
         src = None
-        for enc in ("utf-8", "gb18030", "utf-16"):
+        for enc in (first_enc, "utf-8", "gb18030", "utf-16"):
             try:
-                with open(filepath, "r", encoding=enc) as f:
-                    src = f.read()
+                src = raw.decode(enc)
                 break
             except (UnicodeDecodeError, LookupError):
                 continue
@@ -400,7 +415,7 @@ class SelfGrower:
             program = matha_parse(spec_src)
             self._interp.run(program)
             return _GrowResult(成功=True, 新能力=[spec_name])
-        except Exception as e:
+        except Exception:
             return _GrowResult(成功=False, 新能力=[], 名称="")
 
 

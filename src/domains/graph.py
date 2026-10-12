@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 图算法模块实现
 
 提供图论算法的核心实现：
@@ -16,11 +15,9 @@
   from src.domains.graph import Graph, bfs, dfs, dijkstra, prim, kruskal
 """
 from __future__ import annotations
-import math
-import heapq
-from typing import List, Tuple, Dict, Optional, Set, Any
-from dataclasses import dataclass, field
 
+import heapq
+from dataclasses import dataclass, field
 
 # ============================================================
 # 图数据结构
@@ -40,8 +37,8 @@ class Graph:
 
     n: int = 0
     directed: bool = False
-    adjacency: List[List[int]] = field(default_factory=list)
-    weights: Dict[Tuple[int, int], float] = field(default_factory=dict)
+    adjacency: list[list[int]] = field(default_factory=list)
+    weights: dict[tuple[int, int], float] = field(default_factory=dict)
 
     def __post_init__(self):
         """初始化邻接表"""
@@ -83,7 +80,7 @@ class Graph:
         """检查边是否存在"""
         return v in self.adjacency[u]
 
-    def neighbors(self, u: int) -> List[int]:
+    def neighbors(self, u: int) -> list[int]:
         """获取邻接顶点"""
         if u < 0 or u >= self.n:
             raise ValueError(f"顶点索引超出范围: {u}")
@@ -93,7 +90,7 @@ class Graph:
         """获取顶点度数"""
         return len(self.adjacency[u])
 
-    def edges(self) -> List[Tuple[int, int, float]]:
+    def edges(self) -> list[tuple[int, int, float]]:
         """获取所有边"""
         result = []
         seen = set()
@@ -122,7 +119,7 @@ class Graph:
 # BFS 广度优先搜索
 # ============================================================
 
-def bfs(graph: Graph, start: int) -> Dict[int, int]:
+def bfs(graph: Graph, start: int) -> dict[int, int]:
     """
     BFS 遍历，返回各顶点到起点的距离
 
@@ -136,7 +133,7 @@ def bfs(graph: Graph, start: int) -> Dict[int, int]:
     if start < 0 or start >= graph.n:
         raise ValueError(f"起始顶点超出范围: {start}")
 
-    dist = {i: -1 for i in range(graph.n)}
+    dist = dict.fromkeys(range(graph.n), -1)
     dist[start] = 0
     queue = [start]
 
@@ -150,7 +147,7 @@ def bfs(graph: Graph, start: int) -> Dict[int, int]:
     return dist
 
 
-def bfs_path(graph: Graph, start: int, end: int) -> Optional[List[int]]:
+def bfs_path(graph: Graph, start: int, end: int) -> list[int] | None:
     """
     BFS 最短路径
 
@@ -192,7 +189,7 @@ def bfs_path(graph: Graph, start: int, end: int) -> Optional[List[int]]:
 # DFS 深度优先搜索
 # ============================================================
 
-def dfs(graph: Graph, start: int) -> List[int]:
+def dfs(graph: Graph, start: int) -> list[int]:
     """
     DFS 遍历
 
@@ -220,7 +217,7 @@ def dfs(graph: Graph, start: int) -> List[int]:
     return order
 
 
-def dfs_cycles(graph: Graph) -> List[List[int]]:
+def dfs_cycles(graph: Graph) -> list[list[int]]:
     """
     DFS 检测环（有向图）
 
@@ -263,7 +260,7 @@ def dfs_cycles(graph: Graph) -> List[List[int]]:
 # Dijkstra 最短路径
 # ============================================================
 
-def dijkstra(graph: Graph, start: int) -> Tuple[List[float], List[Optional[int]]]:
+def dijkstra(graph: Graph, start: int) -> tuple[list[float], list[int | None]]:
     """
     Dijkstra 最短路径
 
@@ -301,7 +298,7 @@ def dijkstra(graph: Graph, start: int) -> Tuple[List[float], List[Optional[int]]
     return dist, prev
 
 
-def dijkstra_path(graph: Graph, start: int, end: int) -> Optional[List[int]]:
+def dijkstra_path(graph: Graph, start: int, end: int) -> list[int] | None:
     """
     Dijkstra 最短路径（单点对）
 
@@ -331,7 +328,7 @@ def dijkstra_path(graph: Graph, start: int, end: int) -> Optional[List[int]]:
 # 最小生成树
 # ============================================================
 
-def prim(graph: Graph, start: int = 0) -> List[Tuple[int, int, float]]:
+def prim(graph: Graph, start: int = 0) -> list[tuple[int, int, float]]:
     """
     Prim 算法最小生成树
 
@@ -370,7 +367,7 @@ def prim(graph: Graph, start: int = 0) -> List[Tuple[int, int, float]]:
     return mst
 
 
-def kruskal(graph: Graph) -> List[Tuple[int, int, float]]:
+def kruskal(graph: Graph) -> list[tuple[int, int, float]]:
     """
     Kruskal 算法最小生成树
 
@@ -421,7 +418,7 @@ def kruskal(graph: Graph) -> List[Tuple[int, int, float]]:
 # 拓扑排序
 # ============================================================
 
-def topological_sort(graph: Graph) -> Optional[List[int]]:
+def topological_sort(graph: Graph) -> list[int] | None:
     """
     拓扑排序（Kahn 算法）
 
@@ -464,7 +461,7 @@ def topological_sort(graph: Graph) -> Optional[List[int]]:
 # 连通性分析
 # ============================================================
 
-def connected_components(graph: Graph) -> List[List[int]]:
+def connected_components(graph: Graph) -> list[list[int]]:
     """
     连通分量分析
 
@@ -499,7 +496,7 @@ def connected_components(graph: Graph) -> List[List[int]]:
     return components
 
 
-def _strongly_connected_components(graph: Graph) -> List[List[int]]:
+def _strongly_connected_components(graph: Graph) -> list[list[int]]:
     """有向图的强连通分量（简化版，使用 Kosaraju 算法）"""
     # 第一次 DFS，记录完成顺序
     visited = set()
@@ -563,7 +560,7 @@ def is_connected(graph: Graph) -> bool:
 # ============================================================
 
 def random_graph(n: int, m: int, directed: bool = False,
-                 weight_range: Tuple[float, float] = (1.0, 10.0)) -> Graph:
+                 weight_range: tuple[float, float] = (1.0, 10.0)) -> Graph:
     """
     生成随机图
 
@@ -679,7 +676,7 @@ if __name__ == "__main__":
     # BFS
     print("\n【2. BFS 遍历】")
     dist = bfs(g, 0)
-    print(f"  从顶点 0 出发:")
+    print("  从顶点 0 出发:")
     for v, d in sorted(dist.items()):
         print(f"    顶点 {v}: 距离 {d}")
 
@@ -694,7 +691,7 @@ if __name__ == "__main__":
     # Dijkstra
     print("\n【4. Dijkstra 最短路径】")
     dist, prev = dijkstra(g, 0)
-    print(f"  从顶点 0 出发的最短距离:")
+    print("  从顶点 0 出发的最短距离:")
     for v, d in enumerate(dist):
         print(f"    顶点 {v}: {d:.1f}")
 

@@ -5,8 +5,9 @@
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -26,9 +27,9 @@ class Scope:
     """作用域。"""
 
     name: str            # 作用域名（如 "global"、"module:math"、"seg#1"）
-    parent: Optional["Scope"] = None
+    parent: Scope | None = None
     symbols: dict[str, Symbol] = field(default_factory=dict)
-    children: list["Scope"] = field(default_factory=list)
+    children: list[Scope] = field(default_factory=list)
 
     def define(self, sym: Symbol) -> bool:
         """在当前作用域定义符号。若已存在同名符号则返回 False。"""
@@ -37,7 +38,7 @@ class Scope:
         self.symbols[sym.name] = sym
         return True
 
-    def resolve(self, name: str) -> Optional[Symbol]:
+    def resolve(self, name: str) -> Symbol | None:
         """从当前作用域向上查找符号。"""
         if name in self.symbols:
             return self.symbols[name]
@@ -45,11 +46,11 @@ class Scope:
             return self.parent.resolve(name)
         return None
 
-    def resolve_local(self, name: str) -> Optional[Symbol]:
+    def resolve_local(self, name: str) -> Symbol | None:
         """仅在当前作用域查找（不向上）。"""
         return self.symbols.get(name)
 
-    def child(self, name: str) -> "Scope":
+    def child(self, name: str) -> Scope:
         """创建并挂载子作用域。"""
         sub = Scope(name=name, parent=self)
         self.children.append(sub)
@@ -87,11 +88,11 @@ class SymbolTable:
         )
         return self.current.define(sym)
 
-    def resolve(self, name: str) -> Optional[Symbol]:
+    def resolve(self, name: str) -> Symbol | None:
         """解析符号引用。"""
         return self.current.resolve(name)
 
-    def resolve_local(self, name: str) -> Optional[Symbol]:
+    def resolve_local(self, name: str) -> Symbol | None:
         """仅在当前作用域解析（不向上查找）。"""
         return self.current.resolve_local(name)
 
@@ -125,12 +126,12 @@ class SegmentTracker:
 
     M3.1/M3.2 规则：命令→变量→？公式→字母公式→输出，顺序不可调换，可省略。
     """
-    seg_id: Optional[int]
+    seg_id: int | None
     seen_steps: list[str] = field(default_factory=list)
     # 记录每步的 AST 节点（用于公式对应检查）
     step_nodes: dict[str, Any] = field(default_factory=dict)
 
-    def record_step(self, step: str, node: Any) -> Optional[str]:
+    def record_step(self, step: str, node: Any) -> str | None:
         """记录一个步骤，返回错误信息（若有顺序违规）。"""
         expected_order = SEG_STEPS[step]
         # 检查是否有更晚的步骤已经出现过
@@ -146,7 +147,7 @@ class SegmentTracker:
         self.step_nodes[step] = node
         return None
 
-    def get_step(self, step: str) -> Optional[Any]:
+    def get_step(self, step: str) -> Any | None:
         return self.step_nodes.get(step)
 
 

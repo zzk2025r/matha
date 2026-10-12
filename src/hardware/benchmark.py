@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
 """Matha HAL 高频操作性能分析与优化方案
 
 基于 1000 次 GPIO 写入的性能测试，分析瓶颈并给出优化建议。
 """
-import time
 import logging
-from src.hardware.hal import HardwareAbstractionLayer, GPIODevice
+import time
+
+from src.hardware.hal import GPIODevice, HardwareAbstractionLayer
 
 
 def benchmark_with_logging():
@@ -78,7 +78,7 @@ def benchmark_without_logging():
     print("=" * 60)
     print(f"\n迭代次数: {iterations}")
     print(f"  单次写入: {write_time:.1f}ms ({write_time/iterations:.4f}ms/次)")
-    print(f"\n日志输出量: 0 条")
+    print("\n日志输出量: 0 条")
 
 
 def benchmark_batch_write():

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """SystemGenerator：把 Matha 规格编译为系统脚本成品。
 
 输出文件：
@@ -13,7 +12,8 @@
 """
 
 from __future__ import annotations
-from src.codegen.base import Generator, CodegenResult
+
+from src.codegen.base import CodegenResult, Generator
 
 
 class SystemGenerator(Generator):

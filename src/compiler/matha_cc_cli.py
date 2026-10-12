@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha LLVM 工具链 - matha-cc 编译器前端。
 
 命令行接口：
@@ -10,9 +9,8 @@
 """
 
 from __future__ import annotations
+
 import argparse
-import json
-import os
 import subprocess
 import sys
 import time
@@ -88,11 +86,11 @@ def cmd_info(args) -> int:
     print("=" * 60)
     print("Matha LLVM 工具链 (matha-cc)")
     print("=" * 60)
-    print(f"版本:     1.0.0")
-    print(f"前端:     MathaLexer → MathaParser → MathaFrontend")
-    print(f"IR:       MathaIR (三地址码)")
-    print(f"后端:     MathaLLVMGenerator → LLVM IR")
-    print(f"代码生成: llc/clang → 原生机器码")
+    print("版本:     1.0.0")
+    print("前端:     MathaLexer → MathaParser → MathaFrontend")
+    print("IR:       MathaIR (三地址码)")
+    print("后端:     MathaLLVMGenerator → LLVM IR")
+    print("代码生成: llc/clang → 原生机器码")
     print()
     print("支持的优化 Pass:")
     print("  • MathaConstFoldPass  - 常量折叠")

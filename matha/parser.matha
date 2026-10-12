@@ -614,12 +614,11 @@ module 语法器 {
     解析花括号块(p2)
 
   (* <set_construct> = { <literal_list> }，枚举形式 {1, 2, 3}（逗号分隔）。
-     p 指向 { 之后；与宿主 _parse_set_construct 的**可达**行为对齐。
-     注意：宿主 _parse_set_construct 里的 `|` 理解分支（form="comprehension"）
-     是死代码——first 由 _parse_expr 解析时 `|` 已被当作二元运算符吞掉
-     （实测 {x | x > 3} → enumeration，literals=[BinaryOp('|', x, x>3)]），
-     且宿主字节码编译器本就拒绝 `|`（"不支持的二元运算符"）。
-     故自举层同样只产出枚举形式，不伪造宿主到不了的 AST。 *)
+     p 指向 { 之后；与宿主 _parse_set_construct 的枚举行为对齐。
+     注意：宿主 _parse_set_construct 现已支持理解形式
+     { 输出 | v >> S | 条件 }（form="comprehension"）与有界域推断 { x | 1 <= x <= 10 }，
+     宿主解释器与字节码/原生后端（同源 MMB 字节码）均已支持；自举层只产出枚举形式，
+     遇到理解形式不伪造宿主 VM 到不了的 AST（保持阶段一致性）。 *)
   func 解析集合构造(p: 解析器) -> (Dict, 解析器) =
     if 匹配(p, 类型.右括号花) then
       (做集合构造("enumeration", null, null, []), 推进(p))

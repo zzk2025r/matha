@@ -40,8 +40,8 @@
 """
 
 from __future__ import annotations
-import math
 
+import math
 
 # ============================================================
 # 柯里化工具（与 mechanics.py / dynamics.py 语义一致）

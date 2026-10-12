@@ -1,13 +1,14 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 异常处理优化模块
 
 本模块提供统一的异常处理工具和最佳实践。
 """
 from __future__ import annotations
-import logging
-from typing import Callable, Type, Any, Optional
-from contextlib import contextmanager
+
 import functools
+import logging
+from collections.abc import Callable
+from contextlib import contextmanager
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

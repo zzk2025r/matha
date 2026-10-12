@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha API 文档自动生成器
 
 从源码中提取函数签名、类型注解、docstring，生成 Markdown 和 HTML 文档。
@@ -16,17 +15,11 @@
   gen.generate_all()
 """
 from __future__ import annotations
+
 import ast
-import importlib
-import inspect
 import json
-import os
-import sys
-import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
 
 # ============================================================
 # AST 节点提取
@@ -42,14 +35,14 @@ class DocEntry:
     line: int
     signature: str = ""
     docstring: str = ""
-    params: List[Dict] = field(default_factory=list)
+    params: list[dict] = field(default_factory=list)
     returns: str = ""
-    decorators: List[str] = field(default_factory=list)
-    annotations: Dict[str, str] = field(default_factory=dict)
-    parent: Optional[str] = None
-    examples: List[str] = field(default_factory=list)
+    decorators: list[str] = field(default_factory=list)
+    annotations: dict[str, str] = field(default_factory=dict)
+    parent: str | None = None
+    examples: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "name": self.name,
             "kind": self.kind,
@@ -71,8 +64,8 @@ class DocExtractor(ast.NodeVisitor):
     def __init__(self, source_file: str, module_name: str):
         self._source_file = source_file
         self._module_name = module_name
-        self._entries: List[DocEntry] = []
-        self._current_class: Optional[str] = None
+        self._entries: list[DocEntry] = []
+        self._current_class: str | None = None
         self._indent_level = 0
 
     def visit_Module(self, node: ast.Module) -> None:
@@ -208,7 +201,7 @@ class DocExtractor(ast.NodeVisitor):
         """将 AST 节点转换为源码字符串。"""
         return ast.unparse(node)
 
-    def get_entries(self) -> List[DocEntry]:
+    def get_entries(self) -> list[DocEntry]:
         """获取所有文档条目。"""
         return self._entries
 
@@ -233,10 +226,10 @@ class DocGenerator:
         self._output_dir = Path(output_dir)
         self._project_name = project_name
         self._project_version = project_version
-        self._entries: List[DocEntry] = []
-        self._modules: Dict[str, List[DocEntry]] = {}
+        self._entries: list[DocEntry] = []
+        self._modules: dict[str, list[DocEntry]] = {}
 
-    def generate_all(self) -> Dict[str, str]:
+    def generate_all(self) -> dict[str, str]:
         """生成所有格式的文档。"""
         # 1. 扫描并提取
         self._scan_and_extract()
@@ -291,7 +284,7 @@ class DocGenerator:
             except Exception as e:
                 print(f"  [跳过] {py_file.name}: {e}")
 
-    def _get_module_name(self, path: Path) -> Optional[str]:
+    def _get_module_name(self, path: Path) -> str | None:
         """从文件路径推导模块名。"""
         try:
             rel = path.relative_to(self._src_dir)
@@ -311,12 +304,12 @@ class DocGenerator:
 
         lines = [
             f"# {self._project_name} API 参考文档",
-            f"",
+            "",
             f"> 自动生成于 {__import__('datetime').date.today()} | 版本 {self._project_version}",
             f"> 共 {len(self._entries)} 个文档条目",
-            f"",
-            f"## 目录",
-            f"",
+            "",
+            "## 目录",
+            "",
         ]
 
         # 目录
@@ -334,13 +327,13 @@ class DocGenerator:
                 lines.append("")
 
             if functions:
-                lines.append(f"**函数**")
+                lines.append("**函数**")
                 for fn in functions:
                     lines.append(f"- `{fn.signature}` — {fn.docstring[:60] if fn.docstring else ''}")
                 lines.append("")
 
             if methods:
-                lines.append(f"**方法**")
+                lines.append("**方法**")
                 for meth in methods:
                     lines.append(f"- `{meth.signature}`")
                 lines.append("")
@@ -362,7 +355,7 @@ class DocGenerator:
 
         return str(output_path)
 
-    def _entry_to_markdown(self, entry: DocEntry) -> List[str]:
+    def _entry_to_markdown(self, entry: DocEntry) -> list[str]:
         """将单个条目转换为 Markdown。"""
         lines = []
         kind_prefix = {"class": "##", "function": "##", "method": "###", "module": "#"}
@@ -370,7 +363,7 @@ class DocGenerator:
 
         lines.append(f"{prefix} `{entry.name}`")
         lines.append("")
-        lines.append(f"```matha")
+        lines.append("```matha")
         lines.append(entry.signature)
         lines.append("```")
         lines.append("")
@@ -416,41 +409,41 @@ class DocGenerator:
         output_path = self._output_dir / "api_reference.html"
 
         html_parts = [
-            f'<!DOCTYPE html>',
-            f'<html lang="zh-CN">',
-            f'<head>',
-            f'  <meta charset="UTF-8">',
-            f'  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+            '<!DOCTYPE html>',
+            '<html lang="zh-CN">',
+            '<head>',
+            '  <meta charset="UTF-8">',
+            '  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
             f'  <title>{self._project_name} API 参考</title>',
-            f'  <style>',
-            f'    * {{ box-sizing: border-box; }}',
-            f'    body {{ font-family: "Segoe UI", sans-serif; margin: 0; padding: 0;',
-            f'           background: #0f0f23; color: #e0e0e0; }}',
-            f'    .sidebar {{ width: 280px; position: fixed; height: 100vh;',
-            f'                overflow-y: auto; background: #16213e; padding: 20px; }}',
-            f'    .sidebar h2 {{ color: #00d4ff; font-size: 16px; margin-top: 0; }}',
-            f'    .sidebar a {{ color: #aaa; text-decoration: none; display: block;',
-            f'                  padding: 4px 8px; border-radius: 4px; font-size: 13px; }}',
-            f'    .sidebar a:hover {{ background: #1a1a3e; color: #fff; }}',
-            f'    .content {{ margin-left: 300px; padding: 30px; }}',
-            f'    h1 {{ color: #00d4ff; border-bottom: 2px solid #00d4ff; padding-bottom: 10px; }}',
-            f'    h2 {{ color: #00b4d8; margin-top: 40px; }}',
-            f'    h3 {{ color: #48cae4; }}',
-            f'    pre {{ background: #1a1a2e; padding: 15px; border-radius: 8px;',
-            f'           overflow-x: auto; font-size: 13px; }}',
-            f'    code {{ color: #90e0ef; font-family: "Consolas", monospace; }}',
-            f'    table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}',
-            f'    th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }}',
-            f'    th {{ background: #16213e; color: #00d4ff; }}',
-            f'    .badge {{ display: inline-block; padding: 2px 8px; border-radius: 12px;',
-            f'               font-size: 11px; margin-right: 5px; }}',
-            f'    .badge-class {{ background: #e94560; color: white; }}',
-            f'    .badge-func {{ background: #0f3460; color: #00d4ff; }}',
-            f'    .badge-method {{ background: #1a5276; color: #5dade2; }}',
-            f'    .meta {{ color: #666; font-size: 12px; }}',
-            f'  </style>',
-            f'</head>',
-            f'<body>',
+            '  <style>',
+            '    * { box-sizing: border-box; }',
+            '    body { font-family: "Segoe UI", sans-serif; margin: 0; padding: 0;',
+            '           background: #0f0f23; color: #e0e0e0; }',
+            '    .sidebar { width: 280px; position: fixed; height: 100vh;',
+            '                overflow-y: auto; background: #16213e; padding: 20px; }',
+            '    .sidebar h2 { color: #00d4ff; font-size: 16px; margin-top: 0; }',
+            '    .sidebar a { color: #aaa; text-decoration: none; display: block;',
+            '                  padding: 4px 8px; border-radius: 4px; font-size: 13px; }',
+            '    .sidebar a:hover { background: #1a1a3e; color: #fff; }',
+            '    .content { margin-left: 300px; padding: 30px; }',
+            '    h1 { color: #00d4ff; border-bottom: 2px solid #00d4ff; padding-bottom: 10px; }',
+            '    h2 { color: #00b4d8; margin-top: 40px; }',
+            '    h3 { color: #48cae4; }',
+            '    pre { background: #1a1a2e; padding: 15px; border-radius: 8px;',
+            '           overflow-x: auto; font-size: 13px; }',
+            '    code { color: #90e0ef; font-family: "Consolas", monospace; }',
+            '    table { border-collapse: collapse; width: 100%; margin: 15px 0; }',
+            '    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }',
+            '    th { background: #16213e; color: #00d4ff; }',
+            '    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px;',
+            '               font-size: 11px; margin-right: 5px; }',
+            '    .badge-class { background: #e94560; color: white; }',
+            '    .badge-func { background: #0f3460; color: #00d4ff; }',
+            '    .badge-method { background: #1a5276; color: #5dade2; }',
+            '    .meta { color: #666; font-size: 12px; }',
+            '  </style>',
+            '</head>',
+            '<body>',
         ]
 
         # Sidebar
@@ -475,7 +468,7 @@ class DocGenerator:
             html_parts.append(f'<h2 id="{entry.kind}-{entry.name.lower()}">')
             badge = f'<span class="badge badge-{entry.kind}">{entry.kind}</span>'
             html_parts.append(f'{badge} <code>{entry.name}</code>')
-            html_parts.append(f'</h2>')
+            html_parts.append('</h2>')
 
             html_parts.append('<pre><code>' + entry.signature + '</code></pre>')
 

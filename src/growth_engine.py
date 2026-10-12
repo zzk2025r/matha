@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 自主成长引擎 v1.2.18
 ============================
@@ -12,17 +11,15 @@ Matha 自主成长引擎 v1.2.18
   7. 成长缺陷自动替换 / 升级回滚
 """
 from __future__ import annotations
-import sys
-import os
-import time
+
 import json
 import logging
+import os
 import re
-import inspect
+import sys
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Any, Callable
-from datetime import datetime
 
 # ── 路径设置 ─────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -81,7 +78,7 @@ class Defect:
     discovered_at: float
     status: str = "open" # open / processing / resolved / superseded
     related_defects: list[str] = field(default_factory=list)
-    remediation: Optional[RemediationAction] = None
+    remediation: RemediationAction | None = None
     patch_code: str = ""
     resolved_at: float = 0.0
     resolved_by: str = ""
@@ -130,7 +127,7 @@ class GrowthEngine:
         self._remediation_queue: list[tuple[Defect, RemediationAction]] = []
         self._upgrade_history: list[dict] = []
         self._web_search_cache: dict[str, str] = {}
-        self._report: Optional[GrowthReport] = None
+        self._report: GrowthReport | None = None
 
         # ── 定义需要审计的资源清单 ──
         self._resource_spec: list[dict] = self._build_resource_spec()
@@ -298,8 +295,8 @@ class GrowthEngine:
     def _check_formula_growth(self, kwargs: dict) -> tuple[bool, str]:
         """检查公式成长引擎。"""
         try:
-            from src.matha.growth import FormulaGrowthEngine
             from src.formula_system import FormulaRegistry
+            from src.matha.growth import FormulaGrowthEngine
             reg = FormulaRegistry()
             engine = FormulaGrowthEngine(reg)
             # 简单测试：auto_grow 是否可用
@@ -591,7 +588,7 @@ class GrowthEngine:
             from src.net_security import NetSecurityEngine
             eng = NetSecurityEngine()
             # 创建测试威胁并验证
-            threat = eng.scan_threats([])
+            eng.scan_threats([])
             virus = eng.create_virus("test_worm", "worm", "high",
                                      behavior="propagate", payload="echo")
             if virus.get("success"):
@@ -661,7 +658,7 @@ class GrowthEngine:
 
     # ── 5. 网络搜索补丁 ──────────────────────────────────────────────────────────
 
-    def web_search(self, query: str) -> Optional[str]:
+    def web_search(self, query: str) -> str | None:
         """通过网络搜索获取补丁方案（优先使用 MCP WebSearch）。"""
         if query in self._web_search_cache:
             return self._web_search_cache[query]
@@ -680,9 +677,8 @@ class GrowthEngine:
 
         # 尝试 Python 内置搜索（备用，超时 2s）
         try:
-            import urllib.request
             import urllib.parse
-            import json
+            import urllib.request
             url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
             req = urllib.request.Request(url, headers={"User-Agent": "MathaGrowthEngine/1.0"})
             with urllib.request.urlopen(req, timeout=2) as resp:
@@ -700,7 +696,7 @@ class GrowthEngine:
         logger.warning(f"  [搜索] '{query}' → 未找到结果")
         return None
 
-    def search_and_patch(self, defect: Defect) -> Optional[str]:
+    def search_and_patch(self, defect: Defect) -> str | None:
         """搜索缺陷的补丁方案并生成补丁。"""
         query = f"Matha {defect.message[:30]} fix patch"
         logger.info(f"  [搜索补丁] {defect.defect_id}: {query}")
@@ -727,7 +723,7 @@ class GrowthEngine:
 
     # ── 6. 自动补丁生成 ──────────────────────────────────────────────────────────
 
-    def generate_patch(self, defect: Defect) -> Optional[str]:
+    def generate_patch(self, defect: Defect) -> str | None:
         """根据缺陷自动生成补丁代码。"""
         patch_lines = [f"# Auto-generated patch for {defect.defect_id}",
                        f"# Category: {defect.category.value}",
@@ -776,7 +772,7 @@ class GrowthEngine:
 
     def auto_expand_concepts(self, max_new: int = 10) -> int:
         """自动扩充 MATH_CONCEPTS 知识库。返回新增概念数量。"""
-        from src.ai_assistant import FriendlyIntentParser, IntentType
+        from src.ai_assistant import FriendlyIntentParser
         p = FriendlyIntentParser()
         known = set(p.MATH_CONCEPTS.keys())
         gaps = self.identify_concept_gaps()
@@ -835,7 +831,6 @@ class GrowthEngine:
     def run_upgrade_pipeline(self, patch_code: str, verify_fn=None) -> bool:
         """执行升级管道：应用补丁 → 验证 → 失败则回滚。"""
         logger.info(f"  [升级] 开始升级管道，补丁长度={len(patch_code)}")
-        success = False
 
         # Step 1: 沙箱验证
         logger.info("  [升级] Step 1: 沙箱验证")
@@ -1006,7 +1001,7 @@ class GrowthEngine:
 
             # Phase 2: 功能自检
             logger.info("[Phase 2] 功能自检")
-            new_defects = self.self_diagnose()
+            self.self_diagnose()
 
             # Phase 3: 缺陷关联与平衡
             logger.info("[Phase 3] 缺陷关联与平衡")

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 自然语言定义 → 公式代码转换器（Definition-to-Formula Compiler）
 
@@ -15,13 +14,11 @@ Matha 自然语言定义 → 公式代码转换器（Definition-to-Formula Compi
   - 函数关系 → 公式声明（def f(x) = ...）
 """
 from __future__ import annotations
-import re
+
 from dataclasses import dataclass, field
-from typing import Optional
 
 from src.nl_definition import DefinitionItem, DefinitionResult
-from src.symbolic import to_expr, Expr, Var, Num, Add, Mul, Div, Pow, Sub, Neg
-
+from src.symbolic import Expr, to_expr
 
 # ============================================================
 #  公式代码节点
@@ -32,10 +29,10 @@ class FormulaCode:
     """转换后的单个公式代码节点。"""
     name: str                    # 公式名（中文）
     params: list[str]            # 参数名列表
-    expr: Optional[Expr]         # 符号表达式（None 表示仅声明）
+    expr: Expr | None         # 符号表达式（None 表示仅声明）
     expr_text: str               # 表达式文本
     matha_code: str              # 生成的 Matha 源码行
-    source_item: Optional[DefinitionItem]  # 来源条目
+    source_item: DefinitionItem | None  # 来源条目
     category: str = "general"    # 分类
 
 
@@ -184,7 +181,7 @@ class DefinitionToFormulaConverter:
             notes=notes,
         )
 
-    def _convert_item(self, item: DefinitionItem) -> Optional[FormulaCode]:
+    def _convert_item(self, item: DefinitionItem) -> FormulaCode | None:
         """将单个定义条目转换为公式代码节点。"""
         word = item.raw_word
         domain = item.domain
@@ -231,7 +228,7 @@ class DefinitionToFormulaConverter:
         name: str,
         expr_text: str,
         item: DefinitionItem,
-        params: Optional[list[str]] = None,
+        params: list[str] | None = None,
         category: str = "general",
     ) -> FormulaCode:
         """创建 FormulaCode 节点。"""
@@ -254,7 +251,7 @@ class DefinitionToFormulaConverter:
             category=category,
         )
 
-    def _try_parse_expr(self, text: str) -> Optional[Expr]:
+    def _try_parse_expr(self, text: str) -> Expr | None:
         """尝试将文本解析为 Expr。"""
         if not text or text in ("—", "", "?"):
             return None
@@ -305,7 +302,7 @@ class DefinitionToFormulaConverter:
     ) -> str:
         """生成完整的 Matha 源码。"""
         lines = []
-        lines.append(f"# 由自然语言自动生成的 Matha 代码")
+        lines.append("# 由自然语言自动生成的 Matha 代码")
         lines.append(f"# 原文：'{codes[0].source_item.raw_word if codes and codes[0].source_item else '—'}'")
         lines.append("")
 

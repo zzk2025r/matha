@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 元宇宙架构领域模块：渲染引擎、物理模拟、用户交互。
 
 覆盖：
@@ -11,7 +10,6 @@
 """
 
 from __future__ import annotations
-import math
 
 
 def _curry1(func):
@@ -89,7 +87,7 @@ def _metaverse_arch_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "渲染帧率估算", "物理模拟步长", "碰撞检测复杂度",
-    "用户并发数", "资产加载延迟", "网络同步延迟",
+    "_渲染帧率估算", "_物理模拟步长", "_碰撞检测复杂度",
+    "_用户并发数", "_资产加载延迟", "_网络同步延迟",
     "_register_metaverse_arch", "_metaverse_arch_symtab_names",
 ]

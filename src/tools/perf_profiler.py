@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 性能分析器模块
 
 提供性能分析功能：
@@ -17,19 +16,17 @@
   profiler.generate_report('docs/performance_report.html')
 """
 from __future__ import annotations
-import time
-import sys
-import os
-import json
-import tracemalloc
-import functools
-import tempfile
-import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable, Tuple
-from dataclasses import dataclass, field
-from datetime import datetime
 
+import functools
+import json
+import logging
+import time
+import tracemalloc
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +48,10 @@ class ProfileResult:
 class PerformanceReport:
     """性能报告"""
     timestamp: str
-    results: List[ProfileResult]
-    summary: Dict[str, Any]
-    html_content: Optional[str] = None
-    json_content: Optional[str] = None
+    results: list[ProfileResult]
+    summary: dict[str, Any]
+    html_content: str | None = None
+    json_content: str | None = None
 
 
 class MathaProfiler:
@@ -68,13 +65,13 @@ class MathaProfiler:
             enable_memory: 是否启用内存分析
             enable_jit: 是否启用 JIT 效果对比
         """
-        self._results: Dict[str, ProfileResult] = {}
+        self._results: dict[str, ProfileResult] = {}
         self._start_time: float = 0.0
         self._end_time: float = 0.0
         self._enable_memory = enable_memory
         self._enable_jit = enable_jit
-        self._jit_cache: Dict[str, Tuple[float, Callable]] = {}
-        self._benchmark_data: Dict[str, Dict[str, float]] = {}
+        self._jit_cache: dict[str, tuple[float, Callable]] = {}
+        self._benchmark_data: dict[str, dict[str, float]] = {}
 
         if enable_memory:
             tracemalloc.start()
@@ -124,7 +121,7 @@ class MathaProfiler:
             return result
         return wrapper
 
-    def benchmark(self, name: str, func: Callable, *args, iterations: int = 100, **kwargs) -> Dict[str, float]:
+    def benchmark(self, name: str, func: Callable, *args, iterations: int = 100, **kwargs) -> dict[str, float]:
         """
         运行基准测试
 
@@ -162,7 +159,7 @@ class MathaProfiler:
         self._benchmark_data[name] = result
         return result
 
-    def compare_jit(self, name: str, func: Callable, *args, **kwargs) -> Dict[str, float]:
+    def compare_jit(self, name: str, func: Callable, *args, **kwargs) -> dict[str, float]:
         """
         比较 JIT 编译效果
 
@@ -207,7 +204,7 @@ class MathaProfiler:
 
         return result
 
-    def get_memory_usage(self) -> Dict[str, float]:
+    def get_memory_usage(self) -> dict[str, float]:
         """获取当前内存使用情况"""
         if not self._enable_memory:
             return {}
@@ -332,7 +329,7 @@ class MathaProfiler:
         Path(output_path).write_text(content, encoding='utf-8')
         return content
 
-    def _generate_summary(self) -> Dict[str, Any]:
+    def _generate_summary(self) -> dict[str, Any]:
         """生成执行摘要"""
         total_time = self._end_time - self._start_time if self._end_time > 0 else 0
         total_calls = sum(r.call_count for r in self._results.values())
@@ -492,7 +489,7 @@ def profile(func: Callable) -> Callable:
     return profiler.profile(func)
 
 
-def benchmark(name: str, func: Callable, *args, iterations: int = 100, **kwargs) -> Dict[str, float]:
+def benchmark(name: str, func: Callable, *args, iterations: int = 100, **kwargs) -> dict[str, float]:
     """简化的 benchmark 函数"""
     profiler = MathaProfiler()
     return profiler.benchmark(name, func, *args, iterations=iterations, **kwargs)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 网络安全引擎 — 威胁检测 · 漏洞扫描 · 病毒清杀 · 防火墙管理
 
@@ -31,6 +30,7 @@ Matha 网络安全引擎 — 威胁检测 · 漏洞扫描 · 病毒清杀 · 防
     rules = engine.generate_firewall_rules(threats)
 """
 from __future__ import annotations
+
 import hashlib
 import logging
 import re
@@ -38,7 +38,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
 
 logger = logging.getLogger("matha.net_security")
 
@@ -239,7 +238,7 @@ class NetSecurityEngine:
       - get_threat_report()   生成威胁报告
     """
 
-    def __init__(self, signatures: Optional[list[ThreatSignature]] = None):
+    def __init__(self, signatures: list[ThreatSignature] | None = None):
         self.signatures = signatures or list(THREAT_SIGNATURES)
         self._threats: dict[str, NetworkThreat] = {}
         self._quarantine_log: list[dict] = []
@@ -366,7 +365,7 @@ class NetSecurityEngine:
         logger.info(f"🛡️ 清杀威胁: {threat_id} ({threat.threat_name})")
         return {"success": True, **entry}
 
-    def eliminate_all(self, level: Optional[str] = None) -> dict:
+    def eliminate_all(self, level: str | None = None) -> dict:
         """批量清杀威胁。"""
         results = []
         target_ids = list(self._threats.keys())
@@ -382,7 +381,7 @@ class NetSecurityEngine:
 
     # ── 防火墙规则生成 ───────────────────────────────────
 
-    def generate_firewall_rules(self, threats: Optional[list[dict]] = None) -> list[dict]:
+    def generate_firewall_rules(self, threats: list[dict] | None = None) -> list[dict]:
         """
         根据威胁列表生成防火墙规则。
 
@@ -680,7 +679,7 @@ class NetSecurityEngine:
         logger.info(f"创建测试病毒: {virus_id} ({name}) [{level}] → 威胁{threat.threat_id}")
         return {"success": True, **virus}
 
-    def create_virus_batch(self, count: int, categories: Optional[list] = None) -> list:
+    def create_virus_batch(self, count: int, categories: list | None = None) -> list:
         """
         批量创建测试病毒。
 
@@ -921,7 +920,7 @@ class NetSecurityEngine:
                 "rules_generated": 0,
                 "status": "skipped",
             })
-            logger.warning(f"  ⚠️ 防火墙规则生成: 无有效规则")
+            logger.warning("  ⚠️ 防火墙规则生成: 无有效规则")
 
         logger.info(f"  📝 中和完成: {threat.threat_name} via {method}, "
                      f"成功步骤: {len([s for s in steps if s.get('status') == 'success'])}/{len(steps)}")
@@ -981,7 +980,6 @@ class NetSecurityEngine:
 
         返回: 场景摘要
         """
-        import random
         scenarios = {
             "worm_attack": (["worm"], "high", "port scan self replicate"),
             "ransomware_attack": (["ransomware"], "critical", "encrypt files demand bitcoin"),
@@ -1032,7 +1030,7 @@ class NetSecurityEngine:
 # ============================================================
 
 # 全局引擎实例（懒初始化）
-_engine: Optional[NetSecurityEngine] = None
+_engine: NetSecurityEngine | None = None
 
 def _get_engine() -> NetSecurityEngine:
     global _engine

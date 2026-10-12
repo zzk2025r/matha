@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -13,7 +12,7 @@ class User:
     email: str
     password_hash: str   # PBKDF2 哈希值
     created_at: float = field(default_factory=time.time)
-    last_login: Optional[float] = None
+    last_login: float | None = None
     is_active: bool = True
     roles: list[str] = field(default_factory=list)
 

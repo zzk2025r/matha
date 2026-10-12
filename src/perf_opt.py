@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.0 性能优化层：热点追踪 + 局部变量 + 内存池 + PyPy JIT 适配。
 
 优化策略：
@@ -10,14 +9,14 @@
 """
 
 from __future__ import annotations
+
 import collections
 import functools
-import linecache
 import os
 import sys
 import time
-from typing import Any, Callable, Optional
-
+from collections.abc import Callable
+from typing import Any
 
 # ============================================================
 # 热点追踪编译器
@@ -45,7 +44,7 @@ class HotFunctionTracker:
         py_code = compiler.compile_func(func_def.body, [p.name for p in func_def.params])
         self._compiled[name] = py_code
 
-    def get_compiled(self, name: str) -> Optional[Callable]:
+    def get_compiled(self, name: str) -> Callable | None:
         return self._compiled.get(name)
 
     @property
@@ -111,12 +110,14 @@ class NumericPool:
     """数值对象池：预分配常用整数值（-128~256）避免重复创建。"""
 
     def __init__(self, low: int = -128, high: int = 256) -> None:
+        self._low = low
+        self._high = high
         self._cache: dict[int, int] = {}
         for i in range(low, high + 1):
             self._cache[i] = i
 
     def get(self, value: int) -> int:
-        if low <= value <= high:
+        if self._low <= value <= self._high:
             return self._cache.get(value, value)
         return value
 
@@ -140,7 +141,7 @@ class ArithmeticInlineOptimizer:
     }
 
     @staticmethod
-    def try_inline(expr_str: str) -> Optional[float]:
+    def try_inline(expr_str: str) -> float | None:
         """尝试直接计算表达式字符串。"""
         import re
         # 纯数字
@@ -248,15 +249,15 @@ class PersistentCache:
         safe = "".join(c if c.isalnum() else "_" for c in key)
         return os.path.join(self._cache_dir, f"{safe[:32]}.json")
 
-    def get(self, key: str) -> Optional[dict]:
+    def get(self, key: str) -> dict | None:
         path = self._key_path(key)
         if os.path.exists(path):
             try:
                 import json
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     self._stats["hits"] += 1
                     return json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 pass
         self._stats["misses"] += 1
         return None

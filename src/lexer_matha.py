@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 三进制词法器
 ==================
@@ -8,12 +7,9 @@ Matha 三进制词法器
   - 支持：标识符（含中文）、数字、运算符、字符串、注释
 """
 
-import sys
-import os
 import re
 
-from base3_matha import Base3, Base2, Base10, register_chinese_chars, char_to_trinary
-
+from src.base3_matha import char_to_trinary
 
 # ============================================================
 # Token 类型

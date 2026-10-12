@@ -5,8 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/io.dart';
 import 'collab_engine.dart';
+import 'ws_connection_factory.dart';
 
 /// WebSocket 连接状态
 enum WebSocketState {
@@ -99,6 +99,7 @@ class WebSocketManager extends ChangeNotifier {
   
   final List<WSConnectionEvent> _eventLog = [];
   final List<CollaborativeOp> _pendingOps = [];
+  final Map<String, String> _users = {};
 
   final WebSocketConfig _config;
   final StreamController<WSConnectionEvent> _eventController = StreamController.broadcast();
@@ -109,6 +110,8 @@ class WebSocketManager extends ChangeNotifier {
   Function(String)? onError;
   Function(CollaborativeOp)? onRemoteOp;
   Function(Map<String, String>)? onUsersUpdate;
+  Function(String userId, int position)? onCursorMove;
+  Function(Map<String, dynamic>)? onCustomMessage;
 
   WebSocketManager(this._config) {
     _registerDefaultHandlers();
@@ -150,11 +153,11 @@ class WebSocketManager extends ChangeNotifier {
         _handleConnectionError('连接超时');
       });
 
-      // 创建 WebSocket 连接
+      // 创建 WebSocket 连接（平台自适应：VM 使用 IO，Web 使用 HTML）
       debugPrint('[WS] 正在建立 WebSocket 连接...');
-      _channel = IOWebSocketChannel.connect(
-        Uri.parse(_config.serverUrl),
-        headers: _config.headers,
+      _channel = createCollabChannel(
+        _config.serverUrl,
+        headers: Map<String, dynamic>.from(_config.headers),
       );
 
       // 等待连接建立
@@ -179,6 +182,8 @@ class WebSocketManager extends ChangeNotifier {
       _reconnectAttempts = 0;
       _setState(WebSocketState.connected);
       _errorMessage = null;
+
+      _flushPendingOps();
       
       debugPrint('[WS] ========== 连接完成 ==========');
       debugPrint('[WS] 连接状态: connected');
@@ -254,6 +259,31 @@ class WebSocketManager extends ChangeNotifier {
     }
   }
 
+  /// 连接就绪后冲刷待发送操作
+  void _flushPendingOps() {
+    if (_pendingOps.isEmpty) return;
+    debugPrint('[WS] 连接已就绪，发送 ${_pendingOps.length} 个待发送操作');
+    for (final op in List.of(_pendingOps)) {
+      sendOp(op);
+    }
+    _pendingOps.clear();
+  }
+
+  /// 发送自定义消息（聊天、评论等协作消息）
+  void sendRawMessage(Map<String, dynamic> message) {
+    if (_state != WebSocketState.connected) {
+      debugPrint('[WS] 未连接，放弃发送自定义消息 (type: ${message['type']})');
+      return;
+    }
+    try {
+      _channel?.sink.add(jsonEncode(message));
+      debugPrint('[WS] ✓ 自定义消息已发送: ${message['type']}');
+    } catch (e) {
+      debugPrint('[WS] ✗ 发送自定义消息失败: $e');
+      _notifyError('发送消息失败: $e');
+    }
+  }
+
   /// 发送心跳
   void _sendHeartbeat() {
     if (_state != WebSocketState.connected) return;
@@ -307,6 +337,7 @@ class WebSocketManager extends ChangeNotifier {
               break;
             default:
               debugPrint('[WS] 未知消息类型: $type');
+              onCustomMessage?.call(message);
           }
         } catch (e) {
           debugPrint('[WS] ✗ 处理消息失败: $e');
@@ -326,16 +357,33 @@ class WebSocketManager extends ChangeNotifier {
   }
 
   void _handleJoin(Map<String, dynamic> message) {
-    debugPrint('[WS] 收到加入消息');
+    final users = (message['users'] as List?)?.cast<Map<String, dynamic>>();
+    if (users != null) {
+      _users.clear();
+      for (final u in users) {
+        _users[u['userId'] as String] = u['userName'] as String? ?? '';
+      }
+      onUsersUpdate?.call(Map.unmodifiable(_users));
+    }
+    debugPrint('[WS] 收到加入消息，当前在线用户: ${_users.length}');
   }
 
   void _handleLeave(Map<String, dynamic> message) {
-    debugPrint('[WS] 收到离开消息');
+    final userId = message['userId'] as String?;
+    if (userId != null) {
+      _users.remove(userId);
+      onUsersUpdate?.call(Map.unmodifiable(_users));
+      debugPrint('[WS] 收到离开消息: $userId (在线: ${_users.length})');
+    }
   }
 
   void _handleAck(Map<String, dynamic> message) {
-    debugPrint('[WS] 收到操作确认: ${message['opId']}');
-    // 可以从 pendingOps 中移除已确认的操作
+    final opId = message['opId'] as String?;
+    debugPrint('[WS] 收到操作确认: $opId');
+    if (opId != null) {
+      _pendingOps.removeWhere((op) => op.id == opId);
+      debugPrint('[WS] 剩余待发送操作: ${_pendingOps.length}');
+    }
   }
 
   void _handleHeartbeat(Map<String, dynamic> message) {
@@ -358,7 +406,12 @@ class WebSocketManager extends ChangeNotifier {
   }
 
   void _handleCursor(Map<String, dynamic> message) {
-    debugPrint('[WS] 收到光标移动: ${message['userId']} -> ${message['position']}');
+    final userId = message['userId'] as String?;
+    final position = message['position'];
+    debugPrint('[WS] 收到光标移动: $userId -> $position');
+    if (userId != null && position is int) {
+      onCursorMove?.call(userId, position);
+    }
   }
 
   void _handleError(Map<String, dynamic> message) {
@@ -449,6 +502,7 @@ class WebSocketManager extends ChangeNotifier {
     final message = {
       'type': WSMessageType.join,
       'sessionId': _config.documentId,
+      'documentId': _config.documentId,
       'userId': _config.userId,
       'userName': _config.userName,
       'clientVersion': _version,

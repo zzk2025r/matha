@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 混合语言编译器/解释器（Hybrid Language Compiler）
 
 职责：
@@ -22,16 +21,14 @@
 """
 
 from __future__ import annotations
-import json
+
 import logging
 import time
-import traceback
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from pathlib import Path
-from typing import Any, Callable, Optional
+from enum import Enum
+from typing import Any
 
-from src.interp import Interpreter, MathaRuntimeError
+from src.interp import Interpreter
 from src.parser import parse
 from src.transpiler import PythonTranspiler
 
@@ -77,9 +74,9 @@ class DefectReport:
     severity: Severity
     message: str
     source: str                       # 原始 Matha 源码片段
-    location: Optional[str] = None    # 行/列位置
-    suggestion: Optional[str] = None  # 修复建议
-    hybrid_workaround: Optional[str] = None  # 混合语言临时方案
+    location: str | None = None    # 行/列位置
+    suggestion: str | None = None  # 修复建议
+    hybrid_workaround: str | None = None  # 混合语言临时方案
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -103,9 +100,9 @@ class BuildResult:
     output: Any = None
     logs: list[str] = field(default_factory=list)
     defects: list[DefectReport] = field(default_factory=list)
-    hybrid_code: Optional[str] = None       # 混合语言生成的代码
-    target_language: Optional[str] = None   # 使用的目标语言
-    refactored_matha: Optional[str] = None  # 重构后的纯 Matha 代码
+    hybrid_code: str | None = None       # 混合语言生成的代码
+    target_language: str | None = None   # 使用的目标语言
+    refactored_matha: str | None = None  # 重构后的纯 Matha 代码
     elapsed_ms: float = 0.0
 
 
@@ -365,8 +362,8 @@ class AutoDiagnoser:
         """检查类型问题。"""
         try:
             from src.typesystem_unified import EnhancedTypeInferencer
-            prog = parse(source)
-            inferencer = EnhancedTypeInferencer()
+            parse(source)
+            EnhancedTypeInferencer()
             # 类型推断只报告明显错误
             return []
         except Exception:
@@ -409,7 +406,7 @@ class AutoDiagnoser:
             ))
         return defects
 
-    def _make_hybrid_workaround(self, feature: str) -> Optional[str]:
+    def _make_hybrid_workaround(self, feature: str) -> str | None:
         """为缺失功能生成混合语言临时方案。"""
         workarounds = {
             "async/await": (
@@ -500,7 +497,7 @@ class UpgradeSubmitter:
                 results["failed"] += 1
         return results
 
-    def _generate_patch(self, defect: DefectReport) -> Optional[str]:
+    def _generate_patch(self, defect: DefectReport) -> str | None:
         """为缺陷生成升级补丁（Matha 源码）。"""
         if defect.kind == DefectKind.MISSING_FEATURE:
             return self._generate_feature_patch(defect)
@@ -512,7 +509,7 @@ class UpgradeSubmitter:
             return self._generate_perf_patch(defect)
         return None
 
-    def _generate_feature_patch(self, defect: DefectReport) -> Optional[str]:
+    def _generate_feature_patch(self, defect: DefectReport) -> str | None:
         """为缺失功能生成补丁。"""
         feature = "新功能"
         if "async" in defect.message.lower():
@@ -528,13 +525,13 @@ class UpgradeSubmitter:
             f"func {feature}_helper(x: Any) -> Any = (x) => x\n"
         )
 
-    def _generate_parser_fix(self, defect: DefectReport) -> Optional[str]:
+    def _generate_parser_fix(self, defect: DefectReport) -> str | None:
         return "(* 解析器修复补丁 *)\n"
 
-    def _generate_runtime_fix(self, defect: DefectReport) -> Optional[str]:
+    def _generate_runtime_fix(self, defect: DefectReport) -> str | None:
         return "(* 运行时修复补丁 *)\n"
 
-    def _generate_perf_patch(self, defect: DefectReport) -> Optional[str]:
+    def _generate_perf_patch(self, defect: DefectReport) -> str | None:
         return "(* 性能优化补丁 *)\n"
 
 
@@ -609,7 +606,7 @@ class MixedProjectBuilder:
         self._refactor = MathaRefactor(interp)
 
     def build(self, task: str, matha_source: str,
-              fallback_languages: Optional[list[Language]] = None) -> BuildResult:
+              fallback_languages: list[Language] | None = None) -> BuildResult:
         """构建项目：先尝试纯 Matha，失败则使用混合语言。
 
         Args:
@@ -667,7 +664,7 @@ class MixedProjectBuilder:
                     logs.append(f"  ✓ 重构成功，耗时 {refactor_result.elapsed_ms:.1f}ms")
                     hybrid_result.refactored_matha = refactor_result.output
                 else:
-                    logs.append(f"  ⚠ 重构部分成功，保留混合代码")
+                    logs.append("  ⚠ 重构部分成功，保留混合代码")
 
                 # ── 阶段 5：提交至自我升级 ──────────────────────────────────
                 critical_defects = [d for d in defects
@@ -866,7 +863,7 @@ class HybridCompiler:
     # ── 公共 API ──────────────────────────────────────────────────────────
 
     def build_project(self, task: str, matha_source: str,
-                      fallback_langs: Optional[list[str]] = None) -> dict:
+                      fallback_langs: list[str] | None = None) -> dict:
         """构建项目：尝试 Matha → 混合语言 → 诊断 → 升级 → 重构。
 
         Args:
@@ -1006,10 +1003,10 @@ class HybridCompiler:
 
 # ── 全局实例（懒初始化） ──────────────────────────────────────────────────────
 
-_hybrid_compiler: Optional[HybridCompiler] = None
+_hybrid_compiler: HybridCompiler | None = None
 
 
-def get_hybrid_compiler(interp: Optional[Interpreter] = None) -> HybridCompiler:
+def get_hybrid_compiler(interp: Interpreter | None = None) -> HybridCompiler:
     """获取或创建 HybridCompiler 实例。"""
     global _hybrid_compiler
     if _hybrid_compiler is None or interp is not None:

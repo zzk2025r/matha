@@ -1,27 +1,26 @@
-# -*- coding: utf-8 -*-
 """
 Matha AI Assistant — Web 后端 API 服务
 提供 RESTful API 供前端调用，零依赖轻量服务
 """
 from __future__ import annotations
+
 import json
-import sys
 import os
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse
 
 # 确保 src 在路径中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant
-from src.interp import Interpreter
-from src.inner_loop import get_inner_loop
-from src.symbolic import symbol_expr, diff_expr, eval_expr, ast_to_dict
 from src.ffi import get_ffi
-from src.symbol_codegen import get_codegen
+from src.inner_loop import get_inner_loop
+from src.interp import Interpreter
 from src.math_driver import get_driver_manager
 from src.multi_paradigm import get_paradigm_engine
-
+from src.symbol_codegen import get_codegen
+from src.symbolic import ast_to_dict, symbol_expr
 
 # ── API 处理器 ──────────────────────────────────────────────────
 
@@ -179,7 +178,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 deriv = expr.diff(list(data.get("params", {}).keys())[0] if data.get("params") else 'x')
                 try:
                     val = expr.evaluate(data.get("params", {}))
-                except:
+                except Exception:
                     val = None
                 self._send_json({
                     "expression": expr_str,
@@ -311,7 +310,9 @@ class APIHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(content_length)
             try:
                 data = json.loads(body.decode('utf-8'))
-                text = data.get('text', '').strip()
+                # 归一化 text：list/tuple 拼接为字符串，避免 'list' object has no attribute 'strip'
+                _raw = data.get('text', '')
+                text = (" ".join(str(x) for x in _raw) if isinstance(_raw, (list, tuple)) else str(_raw)).strip()
                 if not text:
                     self._send_json({"error": "输入不能为空"}, 400)
                     return
@@ -358,7 +359,7 @@ class APIHandler(BaseHTTPRequestHandler):
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         full_path = os.path.join(project_root, path)
         try:
-            with open(full_path, 'r', encoding='utf-8') as f:
+            with open(full_path, encoding='utf-8') as f:
                 content = f.read()
             self.send_response(200)
             self.send_header('Content-Type', content_type)
@@ -374,10 +375,10 @@ def run(host: str = '127.0.0.1', port: int = 8080):
     """启动 Web 服务。"""
     server = HTTPServer((host, port), APIHandler)
     print(f"\n{'='*50}")
-    print(f"  🧮 Matha AI Assistant 已启动")
+    print("  🧮 Matha AI Assistant 已启动")
     print(f"  📍 访问地址: http://{host}:{port}")
     print(f"  📱 手机/平板访问: 在同一 WiFi 下输入本机 IP:{port}")
-    print(f"  💡 提示: 无需安装任何软件，浏览器即可使用")
+    print("  💡 提示: 无需安装任何软件，浏览器即可使用")
     print(f"{'='*50}\n")
     try:
         server.serve_forever()

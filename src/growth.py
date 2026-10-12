@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 自主成长系统：可扩展模块注册、自诊断、自修改、成长循环
 
@@ -14,15 +13,12 @@ Matha 自主成长系统：可扩展模块注册、自诊断、自修改、成�
   - 可扩展：新 Pass/模块/目标可通过注册表动态添加
 """
 from __future__ import annotations
-import importlib
-import inspect
-import json
-import os
-import time
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Optional
 
+import importlib
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 # ============================================================
 # 扩展注册表
@@ -66,7 +62,7 @@ class ExtensionRegistry:
             return True
         return False
 
-    def get(self, name: str) -> Optional[Extension]:
+    def get(self, name: str) -> Extension | None:
         """获取扩展。"""
         return self._extensions.get(name)
 
@@ -79,7 +75,7 @@ class ExtensionRegistry:
                 self._instances[name] = cls(**ext.config) if ext.config else cls()
         return self._instances.get(name)
 
-    def list_extensions(self, kind: Optional[str] = None) -> list[dict]:
+    def list_extensions(self, kind: str | None = None) -> list[dict]:
         """列出所有扩展。"""
         result = []
         for name, ext in self._extensions.items():
@@ -269,7 +265,7 @@ class SelfModifier:
         self._modifications: list[Modification] = []
         self._applied: list[Modification] = []
 
-    def propose_fix(self, diagnostic: DiagnosticResult) -> Optional[Modification]:
+    def propose_fix(self, diagnostic: DiagnosticResult) -> Modification | None:
         """根据诊断结果提出修改建议。"""
         if not diagnostic.auto_fix:
             return None
@@ -280,7 +276,7 @@ class SelfModifier:
 
         return None
 
-    def _propose_enable_pass(self, message: str) -> Optional[Modification]:
+    def _propose_enable_pass(self, message: str) -> Modification | None:
         """提议启用优化 Pass。"""
         if "CSE" in message or "公共子表达式" in message:
             # 检查 CommonSubexprElimPass 是否已启用
@@ -347,7 +343,7 @@ class GrowthState:
     """成长状态。"""
     iteration: int = 0
     total_improvements: int = 0
-    last_improvement: Optional[str] = None
+    last_improvement: str | None = None
     improvement_history: list[dict] = field(default_factory=list)
 
 
@@ -362,7 +358,7 @@ class GrowthLoop:
         self._max_iterations = 10
         self._verbose = False
 
-    def run(self, source: str, max_iterations: Optional[int] = None) -> dict:
+    def run(self, source: str, max_iterations: int | None = None) -> dict:
         """运行成长循环。"""
         max_iter = max_iterations or self._max_iterations
         results = []
@@ -472,9 +468,14 @@ def create_growth_system() -> GrowthLoop:
 
     # 注册现有优化 Pass
     from src.mir_opt import (
-        MathaConstFoldPass, MathaSimplifyPass, MathaDeadCodeElimPass,
-        MathaCommonSubexprElimPass, MathaCopyPropagationPass,
-        MathaStrengthReductionPass, MathaInlinePass, MathaPeepholeOptimizer,
+        MathaCommonSubexprElimPass,
+        MathaConstFoldPass,
+        MathaCopyPropagationPass,
+        MathaDeadCodeElimPass,
+        MathaInlinePass,
+        MathaPeepholeOptimizer,
+        MathaSimplifyPass,
+        MathaStrengthReductionPass,
     )
     for cls in [
         MathaConstFoldPass, MathaSimplifyPass, MathaDeadCodeElimPass,

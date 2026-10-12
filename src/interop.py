@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 跨语言互操作层。
 
 支持：
@@ -10,11 +9,11 @@
 """
 
 from __future__ import annotations
+
 import json
 import subprocess
-import sys
-from typing import Any, Callable, Optional
-
+from collections.abc import Callable
+from typing import Any
 
 # ============================================================
 # Python ↔ Matha 互操作
@@ -161,7 +160,7 @@ class IPC:
         """发送消息。"""
         self._queue.put(data)
 
-    def receive(self, timeout: float = 1.0) -> Optional[Any]:
+    def receive(self, timeout: float = 1.0) -> Any | None:
         """接收消息。"""
         try:
             return self._queue.get(timeout=timeout)
@@ -217,6 +216,7 @@ _interop = MathaInterop()
 
 # 预注册 Python 常用函数
 import math
+
 _interop.python.register_py_func("py_sin", math.sin)
 _interop.python.register_py_func("py_cos", math.cos)
 _interop.python.register_py_func("py_sqrt", math.sqrt)

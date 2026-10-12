@@ -55,8 +55,8 @@
 """
 
 from __future__ import annotations
-import math
 
+import math
 
 # ============================================================
 # 柯里化工具
@@ -90,6 +90,7 @@ def _curry4(func):
 # 物理常量（统一来源）
 # ============================================================
 from src.stdlib.physics_constants import C as _P
+
 # 万有引力常数 G = 6.674e-11 N·m²/kg²
 G_GRAV = _P.G
 # 光速 c = 2.998e8 m/s

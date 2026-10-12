@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — 算术运算标准库
 
 提供数学计算核心功能：
@@ -19,10 +18,8 @@
   )
 """
 from __future__ import annotations
-import math
-from typing import List, Optional, Union
-from dataclasses import dataclass
 
+import math
 
 # ============================================================
 # 数学常数
@@ -64,7 +61,7 @@ PHI = MathConstants.PHI
 # 基本运算
 # ============================================================
 
-def add(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
+def add(a: int | float, b: int | float) -> int | float:
     """
     加法运算：a + b
 
@@ -88,7 +85,7 @@ def add(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
     return a + b
 
 
-def subtract(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
+def subtract(a: int | float, b: int | float) -> int | float:
     """
     减法运算：a - b
 
@@ -110,7 +107,7 @@ def subtract(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
     return a - b
 
 
-def multiply(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
+def multiply(a: int | float, b: int | float) -> int | float:
     """
     乘法运算：a × b
 
@@ -132,7 +129,7 @@ def multiply(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
     return a * b
 
 
-def divide(a: Union[int, float], b: Union[int, float]) -> Optional[float]:
+def divide(a: int | float, b: int | float) -> float | None:
     """
     除法运算：a ÷ b
 
@@ -158,7 +155,7 @@ def divide(a: Union[int, float], b: Union[int, float]) -> Optional[float]:
     return a / b
 
 
-def power(base: Union[int, float], exp: Union[int, float]) -> Union[int, float]:
+def power(base: int | float, exp: int | float) -> int | float:
     """
     幂运算：base^exp
 
@@ -182,7 +179,7 @@ def power(base: Union[int, float], exp: Union[int, float]) -> Union[int, float]:
     return base ** exp
 
 
-def sqrt(x: Union[int, float]) -> Optional[float]:
+def sqrt(x: int | float) -> float | None:
     """
     平方根运算：√x
 
@@ -207,7 +204,7 @@ def sqrt(x: Union[int, float]) -> Optional[float]:
     return math.sqrt(x)
 
 
-def abs_value(x: Union[int, float]) -> Union[int, float]:
+def abs_value(x: int | float) -> int | float:
     """
     绝对值运算：|x|
 
@@ -234,7 +231,7 @@ def abs_value(x: Union[int, float]) -> Union[int, float]:
 # 取整运算
 # ============================================================
 
-def floor(x: Union[int, float]) -> int:
+def floor(x: int | float) -> int:
     """
     向下取整：⌊x⌋
 
@@ -257,7 +254,7 @@ def floor(x: Union[int, float]) -> int:
     return math.floor(x)
 
 
-def ceil(x: Union[int, float]) -> int:
+def ceil(x: int | float) -> int:
     """
     向上取整：⌈x⌉
 
@@ -280,7 +277,7 @@ def ceil(x: Union[int, float]) -> int:
     return math.ceil(x)
 
 
-def round_value(x: Union[int, float], ndigits: int = 0) -> Union[int, float]:
+def round_value(x: int | float, ndigits: int = 0) -> int | float:
     """
     四舍五入：round(x, ndigits)
 
@@ -304,7 +301,7 @@ def round_value(x: Union[int, float], ndigits: int = 0) -> Union[int, float]:
     return round(x, ndigits)
 
 
-def trunc(x: Union[int, float]) -> Union[int, float]:
+def trunc(x: int | float) -> int | float:
     """
     截断取整：向零取整
 
@@ -439,7 +436,7 @@ def is_prime(n: int) -> bool:
     return True
 
 
-def prime_factors(n: int) -> List[int]:
+def prime_factors(n: int) -> list[int]:
     """
     素因数分解：n = p1^a1 × p2^a2 × ... × pk^ak
 
@@ -474,7 +471,7 @@ def prime_factors(n: int) -> List[int]:
     return factors
 
 
-def sieve_of_eratosthenes(limit: int) -> List[int]:
+def sieve_of_eratosthenes(limit: int) -> list[int]:
     """
     埃拉托斯特尼筛法：找出 2 到 limit 之间的所有素数
 
@@ -525,14 +522,14 @@ def tan(rad: float) -> float:
     return math.tan(rad)
 
 
-def asin(x: float) -> Optional[float]:
+def asin(x: float) -> float | None:
     """反正弦函数：arcsin(x)，x ∈ [-1, 1]"""
     if -1 <= x <= 1:
         return math.asin(x)
     return None
 
 
-def acos(x: float) -> Optional[float]:
+def acos(x: float) -> float | None:
     """反余弦函数：arccos(x)，x ∈ [-1, 1]"""
     if -1 <= x <= 1:
         return math.acos(x)
@@ -553,21 +550,21 @@ def atan2(y: float, x: float) -> float:
 # 对数函数
 # ============================================================
 
-def log(x: float, base: float = math.e) -> Optional[float]:
+def log(x: float, base: float = math.e) -> float | None:
     """对数函数：log_base(x)"""
     if x > 0 and base > 0 and base != 1:
         return math.log(x) / math.log(base)
     return None
 
 
-def log2(x: float) -> Optional[float]:
+def log2(x: float) -> float | None:
     """以 2 为底的对数：log2(x)"""
     if x > 0:
         return math.log2(x)
     return None
 
 
-def log10(x: float) -> Optional[float]:
+def log10(x: float) -> float | None:
     """以 10 为底的对数：log10(x)"""
     if x > 0:
         return math.log10(x)
@@ -578,7 +575,7 @@ def log10(x: float) -> Optional[float]:
 # 组合数学
 # ============================================================
 
-def combination(n: int, k: int) -> Optional[int]:
+def combination(n: int, k: int) -> int | None:
     """
     组合数：C(n, k) = n! / (k! × (n-k)!)
 
@@ -598,7 +595,7 @@ def combination(n: int, k: int) -> Optional[int]:
     return math.comb(n, k)
 
 
-def permutation(n: int, k: int) -> Optional[int]:
+def permutation(n: int, k: int) -> int | None:
     """
     排列数：P(n, k) = n! / (n-k)!
 

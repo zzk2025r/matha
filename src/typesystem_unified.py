@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 类型系统统一层（Unified Type System）
 
@@ -13,31 +12,33 @@ Matha 类型系统统一层（Unified Type System）
 """
 from __future__ import annotations
 
-# ── 从 typesystem_v2_fixed 导入生产级实现 ──────────────────────────────────
-from src.typesystem_v2_fixed import (  # noqa: F401
-    Type,
-    Constraint,
-    ConstraintSolver,
-    T_INT,
-    T_FLOAT,
-    T_STRING,
-    T_BOOL,
-    T_VOID,
-    T_ANY,
-    T_UNKNOWN,
-    T_NUMERIC,
-    T_COMPARABLE,
-)
-
 # ── 从 type_system_v2 导入增强功能 ──────────────────────────────────────────
 from src.type_system_v2 import (  # noqa: F401
-    TypeKind,
-    SubtypeRegistry,
-    RefinementChecker,
     EnhancedTypeInferencer,
+    RefinementChecker,
+    SubtypeRegistry,
     TypeConstraint,
+    TypeKind,
+)
+from src.type_system_v2 import (
     # 基本类型别名（与 typesystem_v2_fixed 一致）
     Type as TypeBase,
+)
+
+# ── 从 typesystem_v2_fixed 导入生产级实现 ──────────────────────────────────
+from src.typesystem_v2_fixed import (  # noqa: F401
+    T_ANY,
+    T_BOOL,
+    T_COMPARABLE,
+    T_FLOAT,
+    T_INT,
+    T_NUMERIC,
+    T_STRING,
+    T_UNKNOWN,
+    T_VOID,
+    Constraint,
+    ConstraintSolver,
+    Type,
 )
 
 # ── 兼容性重命名：让两种 API 都能工作 ───────────────────────────────────────

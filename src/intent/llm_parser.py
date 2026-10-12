@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — LLM 意图解析器
 
 集成 Claude/DeepSeek/GPT 等 LLM API，将自然语言转换为结构化意图。
@@ -29,13 +28,15 @@
   print(intent.suggested_code)
 """
 from __future__ import annotations
+
 import json
-import time
 import logging
+import os
+import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -67,19 +68,19 @@ class Intent:
     """计算意图描述。"""
     intent_type: IntentType
     description: str
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
     target_lang: str = "mir"  # 目标语言
     confidence: float = 0.0
     suggested_code: str = ""
-    follow_up_questions: List[str] = field(default_factory=list)
+    follow_up_questions: list[str] = field(default_factory=list)
     parse_time_ms: float = 0.0
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     def is_valid(self) -> bool:
         """检查意图是否有效。"""
         return self.intent_type != IntentType.UNKNOWN and self.confidence >= 0.5
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """序列化为字典。"""
         return {
             "intent_type": self.intent_type.name,
@@ -191,38 +192,87 @@ class LLMIntentParser:
 - confidence 表示你对解析结果的置信度
 """
 
+    @staticmethod
+    def _load_dotenv(path: str = ".env") -> None:
+        """尝试加载 .env 文件中的环境变量（不覆盖已存在的）。"""
+        import os
+        env_path = Path(path)
+        if not env_path.is_file():
+            # 向上查找最多 4 层
+            for parent in Path().resolve().parents[:4]:
+                env_path = parent / ".env"
+                if env_path.is_file():
+                    break
+            else:
+                return
+        try:
+            for raw in env_path.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+        except Exception as e:
+            logger.debug(f"加载 .env 失败: {e}")
+
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: str = "claude-3-5-sonnet",
-        base_url: Optional[str] = None,
-        timeout: float = 15.0,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout: float = 60.0,
         cache_dir: str = ".matha_cache",
     ):
         """
         初始化 LLM 意图解析器。
 
         Args:
-            api_key: API 密钥（可选，从环境变量读取）
-            model: 模型名称
+            api_key: API 密钥（可选，从环境变量 / .env 读取）
+            model: 模型名称（可选，从 MATHA_LLM_MODEL 环境变量读取，默认 glm-4-flash）
             base_url: API 基础 URL（可选）
-            timeout: 请求超时时间（秒）
+            timeout: 请求超时时间（秒，默认 60）
             cache_dir: 缓存目录
         """
-        self.model = model
+        # 加载 .env 文件（不覆盖已有环境变量）
+        self._load_dotenv()
+
+        import os
+        self.model = model or os.environ.get("MATHA_LLM_MODEL", "claude-3-5-sonnet")
         self.base_url = base_url
         self.timeout = timeout
         self._api_client = None
         self._cache_dir = Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        self._template_cache: Dict[str, Intent] = {}
+        self._template_cache: dict[str, Intent] = {}
 
-        # 设置 API 密钥
+        # 设置 API 密钥 — 按模型类型优先查找对应的提供商 key
         if api_key:
             self._api_key = api_key
         else:
-            import os
-            self._api_key = os.environ.get("MATHA_LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
+            model_lower = self.model.lower()
+            env_keys: list[str]
+            if "glm" in model_lower or "chatglm" in model_lower:
+                env_keys = ["ZHIPUAI_API_KEY", "MATHA_LLM_API_KEY"]
+            elif "deepseek" in model_lower:
+                env_keys = ["DEEPSEEK_API_KEY", "MATHA_LLM_API_KEY"]
+            elif "claude" in model_lower:
+                env_keys = ["ANTHROPIC_API_KEY", "MATHA_LLM_API_KEY"]
+            elif "gemini" in model_lower:
+                env_keys = ["GEMINI_API_KEY", "MATHA_LLM_API_KEY"]
+            elif "gpt" in model_lower or "4o" in model_lower:
+                env_keys = ["OPENAI_API_KEY", "MATHA_LLM_API_KEY"]
+            else:
+                env_keys = ["MATHA_LLM_API_KEY"]
+            for ek in env_keys:
+                val = os.environ.get(ek)
+                if val:
+                    self._api_key = val
+                    break
+            else:
+                self._api_key = None
 
     def _get_client(self):
         """延迟获取 API 客户端。"""
@@ -258,7 +308,7 @@ class LLMIntentParser:
             # Gemini 使用专用 SDK
             self._gemini_client = self._get_gemini_client()
             return None
-        elif "chatglm" in self.model.lower():
+        elif "chatglm" in self.model.lower() or "glm" in self.model.lower():
             # ChatGLM 使用 OpenAI 兼容接口
             self._api_client = self._get_chatglm_client()
         else:
@@ -283,6 +333,8 @@ class LLMIntentParser:
         Returns:
             Intent 对象
         """
+        # 归一化 text：list/tuple 拼接为字符串，避免 'list' object has no attribute 'strip'
+        text = (" ".join(str(x) for x in text) if isinstance(text, (list, tuple)) else str(text))
         if not text or not text.strip():
             return Intent(
                 intent_type=IntentType.UNKNOWN,
@@ -322,55 +374,97 @@ class LLMIntentParser:
         return intent
 
     def _call_llm(self, text: str) -> Intent:
-        """调用 LLM API 解析意图。"""
+        """调用 LLM API 解析意图（带重试和兼容处理）。"""
         user_prompt = self.USER_PROMPT_TEMPLATE.format(text=text)
 
-        try:
-            if "claude" in self.model.lower():
-                client = self._get_client()
-                response = client.messages.create(
-                    model=self.model,
-                    max_tokens=1024,
-                    system=self.SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    response_format={"type": "json_object"},
-                )
-                raw_json = response.content[0].text
-            elif "gemini" in self.model.lower():
-                raw_json = self._call_gemini(user_prompt)
-            elif "chatglm" in self.model.lower():
-                client = self._get_client()
-                response = client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    max_tokens=1024,
-                    response_format={"type": "json_object"},
-                    timeout=self.timeout,
-                )
-                raw_json = response.choices[0].message.content or "{}"
-            else:
-                client = self._get_client()
-                response = client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    max_tokens=1024,
-                    response_format={"type": "json_object"},
-                    timeout=self.timeout,
-                )
-                raw_json = response.choices[0].message.content or "{}"
+        # 判断是否需要 response_format（glm 系列部分模型不支持 json_object）
+        model_lower = self.model.lower()
+        is_glm = "glm" in model_lower
+        # glm-4-flash / glm-4-plus 等支持 json_object，但老版 chatglm 不支持
+        supports_json_format = not is_glm or "glm-4" in model_lower
 
-        except Exception as e:
-            logger.error(f"LLM API 调用失败: {e}")
-            return self._fallback_regex_parse(text)
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
 
-        # 解析 JSON 响应
-        return self._parse_llm_response(raw_json, text)
+        # 重试参数
+        max_retries = int(os.environ.get("MATHA_LLM_MAX_RETRIES", "3"))
+        base_delay = float(os.environ.get("MATHA_LLM_RETRY_DELAY", "1.0"))
+
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                if "claude" in model_lower:
+                    client = self._get_client()
+                    response = client.messages.create(
+                        model=self.model,
+                        max_tokens=1024,
+                        system=self.SYSTEM_PROMPT,
+                        messages=[{"role": "user", "content": user_prompt}],
+                        response_format={"type": "json_object"},
+                        timeout=self.timeout,
+                    )
+                    raw_json = response.content[0].text
+                elif "gemini" in model_lower:
+                    raw_json = self._call_gemini(user_prompt)
+                else:
+                    # OpenAI 兼容接口（含 ChatGLM / GLM / DeepSeek / GPT 等）
+                    client = self._get_client()
+                    kwargs = {
+                        "model": self.model,
+                        "messages": messages,
+                        "max_tokens": 1024,
+                        "timeout": self.timeout,
+                    }
+                    if supports_json_format:
+                        kwargs["response_format"] = {"type": "json_object"}
+                    response = client.chat.completions.create(**kwargs)
+                    raw_json = response.choices[0].message.content or "{}"
+
+                # 成功：解析并返回
+                return self._parse_llm_response(raw_json, text)
+
+            except Exception as e:
+                last_error = e
+                error_msg = str(e).lower()
+                status_code = getattr(e, "status_code", None) or getattr(e, "http_status", None)
+
+                # 判断是否为可重试错误
+                retryable = (
+                    status_code in (408, 429, 500, 502, 503, 504)
+                    or "timeout" in error_msg
+                    or "timed out" in error_msg
+                    or "connection" in error_msg
+                    or "rate limit" in error_msg
+                    or "429" in error_msg
+                    or "500" in error_msg
+                    or "502" in error_msg
+                    or "503" in error_msg
+                    or "serviceunavailable" in error_msg
+                )
+
+                # response_format 不兼容：去掉后重试一次
+                if "response_format" in error_msg or "json_object" in error_msg:
+                    logger.warning(f"LLM 不支持 response_format，去掉后重试: {e}")
+                    supports_json_format = False
+                    if attempt < max_retries:
+                        time.sleep(0.5)
+                        continue
+
+                if retryable and attempt < max_retries:
+                    delay = base_delay * (2 ** (attempt - 1))  # 指数退避 1s, 2s, 4s
+                    logger.warning(f"LLM 调用失败(第{attempt}次)，{delay:.1f}s 后重试: {e}")
+                    time.sleep(delay)
+                    continue
+
+                # 不可重试或已达最大重试次数
+                logger.error(f"LLM API 调用失败(第{attempt}次): {e}")
+                break
+
+        # 所有重试失败 → 降级到正则解析
+        logger.error(f"LLM 最终调用失败，降级正则解析: {last_error}")
+        return self._fallback_regex_parse(text)
 
     def _call_gemini(self, user_prompt: str) -> str:
         """调用 Gemini API 解析意图。"""
@@ -392,10 +486,10 @@ class LLMIntentParser:
 
         # 验证必要字段
         required = ["intent_type", "description", "params", "confidence"]
-        for field in required:
-            if field not in data:
-                logger.warning(f"LLM 响应缺少字段: {field}")
-                data[field] = "" if field == "description" else ({} if field == "params" else 0.0)
+        for field_name in required:
+            if field_name not in data:
+                logger.warning(f"LLM 响应缺少字段: {field_name}")
+                data[field_name] = "" if field_name == "description" else ({} if field_name == "params" else 0.0)
 
         # 构建 Intent 对象
         try:
@@ -433,7 +527,6 @@ class LLMIntentParser:
         fallback_type = node_type_map.get(root.node_type.name, IntentType.UNKNOWN)
 
         # KNP-008: 动态计算降级置信度（基于文本长度和规则匹配数）
-        import re
         rule_matches = sum(1 for kw in root.text if any(k in root.text.lower() for k in ["加", "减", "乘", "除", "算", "求", "多少"]))
         dynamic_confidence = min(0.9, 0.3 + rule_matches * 0.1 + len(root.text) * 0.005)
 
@@ -454,7 +547,7 @@ class LLMIntentParser:
         """清空缓存。"""
         self._template_cache.clear()
 
-    def get_supported_models(self) -> List[str]:
+    def get_supported_models(self) -> list[str]:
         """获取支持的模型列表。"""
         return [
             "claude-3-5-sonnet",
@@ -471,6 +564,12 @@ class LLMIntentParser:
             "gemini-1.5-flash",
             "chatglm3-6b",
             "chatglm-6b",
+            "glm-4-flash",
+            "glm-4-plus",
+            "glm-4-0520",
+            "glm-4-long",
+            "glm-4-air",
+            "glm-4-airx",
             "qwen-max",
             "qwen-plus",
         ]
@@ -488,12 +587,12 @@ class LLMIntentParser:
             raise ImportError("请安装 google-generativeai: pip install google-generativeai")
 
     def _get_chatglm_client(self):
-        """获取 ChatGLM 客户端（通过 OpenAI 兼容接口）。"""
+        """获取 ChatGLM / GLM 客户端（智谱AI OpenAI 兼容接口）。"""
         try:
             from openai import OpenAI
-            api_key = self._api_key or os.environ.get("ZHIPUAI_API_KEY")
+            api_key = self._api_key or os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("MATHA_LLM_API_KEY")
             base_url = self.base_url or "https://open.bigmodel.cn/api/paas/v4"
-            return OpenAI(api_key=api_key, base_url=base_url)
+            return OpenAI(api_key=api_key, base_url=base_url, timeout=self.timeout)
         except ImportError:
             raise ImportError("请安装 openai: pip install openai")
 
@@ -535,7 +634,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("=" * 60)
-    print(f"  Matha v4.2 — LLM 意图解析器")
+    print("  Matha v4.2 — LLM 意图解析器")
     print("=" * 60)
     print(f"\n输入: {args.text!r}")
     print(f"模型: {args.model}")

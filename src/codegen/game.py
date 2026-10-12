@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """GameGenerator：把 Matha 规格编译为 HTML5 Canvas 游戏。
 
 游戏与建模同属「交互式可视化」体系：
@@ -33,7 +32,8 @@
 """
 
 from __future__ import annotations
-from src.codegen.base import Generator, CodegenResult, Element
+
+from src.codegen.base import CodegenResult, Element, Generator
 
 
 class GameGenerator(Generator):
@@ -57,7 +57,7 @@ class GameGenerator(Generator):
         width = self.app.meta.get("宽度", "800")
         height = self.app.meta.get("高度", "600")
         bg = self.app.meta.get("背景", "#1a1a2e")
-        fps = self.app.meta.get("帧率", "60")
+        self.app.meta.get("帧率", "60")
 
         # 分类元素
         players = []

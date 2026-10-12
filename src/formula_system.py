@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 公式互转系统（Formula Interconversion System）
 
@@ -21,17 +20,30 @@ Matha 公式互转系统（Formula Interconversion System）
   5. 几何公式预置库   — 平面几何、立体几何核心公式
 """
 from __future__ import annotations
+
 import ast
 import inspect
 import logging
 import math
 import random
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional, Any, Callable
 
-from src.symbolic import Expr, Var, Num, Mul, Div, Add, Sub, Pow, Neg, FuncCall, to_expr, symbol_expr
-from src.symbolic import simplify_expr
+from src.symbolic import (
+    Add,
+    Div,
+    Expr,
+    FuncCall,
+    Mul,
+    Neg,
+    Num,
+    Pow,
+    Sub,
+    Var,
+    simplify_expr,
+    symbol_expr,
+)
 
 logger = logging.getLogger("matha.formula_system")
 
@@ -69,6 +81,9 @@ class Formula:
 
     def free_vars(self) -> set[str]:
         """返回公式中所有自由变量名。"""
+        if isinstance(self.expr, str):
+            # 虚构函数：表达式是字符串，直接使用 params
+            return set(self.params)
         return _collect_vars(self.expr)
 
     def evaluate(self, bindings: dict[str, float]) -> float:
@@ -140,10 +155,7 @@ def _collect_vars(expr: Expr) -> set[str]:
 def _collect_vars_recursive(expr: Expr, result: set[str]) -> None:
     if isinstance(expr, Var):
         result.add(expr.name)
-    elif isinstance(expr, (Add, Sub)):
-        _collect_vars_recursive(expr.left, result)
-        _collect_vars_recursive(expr.right, result)
-    elif isinstance(expr, Mul):
+    elif isinstance(expr, (Add, Sub)) or isinstance(expr, Mul):
         _collect_vars_recursive(expr.left, result)
         _collect_vars_recursive(expr.right, result)
     elif isinstance(expr, Div):
@@ -182,10 +194,10 @@ class Capability:
     domain: str
     capability: str
     params: list[str] = field(default_factory=list)
-    expr: Optional[Expr] = None
+    expr: Expr | None = None
     description: str = ""
-    docstring: Optional[str] = None
-    source_file: Optional[str] = None
+    docstring: str | None = None
+    source_file: str | None = None
     source_line: int = 0
 
     def __str__(self) -> str:
@@ -218,7 +230,7 @@ class CapabilityRegistry:
         self._caps[cap.name] = cap
         logger.info(f"  [能力标注] 注册: {cap}")
 
-    def get(self, name: str) -> Optional[Capability]:
+    def get(self, name: str) -> Capability | None:
         return self._caps.get(name)
 
     def list_all(self) -> list[Capability]:
@@ -253,7 +265,7 @@ class CapabilityRegistry:
 
 
 # 全局能力注册表（延迟初始化）
-_capability_registry: Optional[CapabilityRegistry] = None
+_capability_registry: CapabilityRegistry | None = None
 
 
 def get_capability_registry() -> CapabilityRegistry:
@@ -304,9 +316,9 @@ def scan_module_capabilities(module) -> int:
         # 提取 docstring
         docstring = inspect.getdoc(func) or ""
         # 从函数体提取表达式（尝试从注释或代码结构）
-        expr: Optional[Expr] = None
+        expr: Expr | None = None
         description = ""
-        source_file: Optional[str] = None
+        source_file: str | None = None
         source_line = 0
         try:
             source = inspect.getsource(func)
@@ -1054,7 +1066,7 @@ class FormulaRegistry:
         def _segment_area_derivation(_env):
             """弓形面积 = 扇形面积 - 三角形面积（弓形 = 扇形 - 三角形）。"""
             circ = reg._formulas["圆面积"]
-            tri = reg._formulas["三角形面积"]
+            reg._formulas["三角形面积"]
             # 弓形 = πr²θ/360 - r²sinθ/2
             sector_expr = Div(Mul(circ.expr, Var("圆心角")), Num(360))
             tri_expr = Div(Mul(Pow(Var("半径"), Num(2)), FuncCall("sin", [Var("圆心角")])), Num(2))
@@ -1160,7 +1172,7 @@ class FormulaRegistry:
 
         def _inscribed_polygon_from_circle(_env):
             """圆内接正六边形：边长 = 半径（圆内接正六边形的特殊性质）。"""
-            circ = reg._formulas["圆面积"]
+            reg._formulas["圆面积"]
             # 圆内接正六边形边长=半径，面积=3√3/2 × R²
             return Div(Mul(Mul(Num(3), FuncCall("sqrt", [Num(3)])), Pow(Var("半径"), Num(2))), Num(2))
 
@@ -1364,7 +1376,7 @@ class FormulaRegistry:
             self._register_evolution_rules()
         return self._evolution_engine.evolve_all(verbose=True)
 
-    def get(self, name: str) -> Optional[Formula]:
+    def get(self, name: str) -> Formula | None:
         return self._formulas.get(name)
 
     def list_formulas(self) -> list[str]:
@@ -1431,7 +1443,7 @@ class FormulaRegistry:
                 steps.append(f"{src_var}→{tgt_var}: {substituted}")
 
             # 3. 应用关系操作（直接在 Expr 上运算，无需字符串解析）
-            rel = relationship_expr.strip()
+            rel = (" ".join(str(x) for x in relationship_expr) if isinstance(relationship_expr, (list, tuple)) else str(relationship_expr)).strip()
             if rel.startswith("expr / ") or rel.startswith("expr÷"):
                 divisor = float(rel.split("/")[-1].strip().split("÷")[-1].strip())
                 substituted = Div(substituted, Num(divisor))
@@ -1503,7 +1515,7 @@ class FormulaRegistry:
 
     def verify_equivalence(
         self, formula_a: str, formula_b: str,
-        test_bindings: Optional[dict[str, float]] = None,
+        test_bindings: dict[str, float] | None = None,
     ) -> DerivationResult:
         fa = self._formulas.get(formula_a)
         fb = self._formulas.get(formula_b)
@@ -1514,7 +1526,7 @@ class FormulaRegistry:
         if formula_a == formula_b:
             return DerivationResult(True, [formula_a], [],
                                     f"{formula_a} == {formula_b} (恒等)", Num(0), [],
-                                    [f"同一公式"])
+                                    ["同一公式"])
         mapping = self.get_param_mapping(formula_a, formula_b)
         if not mapping:
             return DerivationResult(False, [formula_a, formula_b], [], "", Num(0), [],
@@ -1552,7 +1564,7 @@ class FormulaRegistry:
 
     def _generate_test_bindings(self, mapping: dict[str, str]) -> dict[str, float]:
         import random
-        return {p: random.uniform(1.0, 100.0) for p in mapping.keys()}
+        return {p: random.uniform(1.0, 100.0) for p in mapping}
 
     def _apply_mapping(self, bindings, mapping: dict[str, str]) -> dict[str, float]:
         return {mapped: bindings[param] for param, mapped in mapping.items() if param in bindings}
@@ -1562,9 +1574,9 @@ class FormulaRegistry:
 #  全局单例
 # ============================================================
 
-_global_registry: Optional[FormulaRegistry] = None
-_global_resolver: Optional[DefinitionResolver] = None
-_global_primitives: Optional[PrimitiveRegistry] = None
+_global_registry: FormulaRegistry | None = None
+_global_resolver: DefinitionResolver | None = None
+_global_primitives: PrimitiveRegistry | None = None
 
 
 def _init_primitives() -> PrimitiveRegistry:
@@ -1640,16 +1652,16 @@ def derive_formula(relationship: str, source: str = "长方形面积",
 
 
 def verify_formulas(formula_a: str, formula_b: str,
-                    bindings: Optional[dict[str, float]] = None) -> DerivationResult:
+                    bindings: dict[str, float] | None = None) -> DerivationResult:
     return get_formula_registry().verify_equivalence(formula_a, formula_b, bindings)
 
 
-def list_formulas(category: Optional[str] = None) -> list[str]:
+def list_formulas(category: str | None = None) -> list[str]:
     reg = get_formula_registry()
     return reg.list_by_category(category) if category else reg.list_formulas()
 
 
-def register_formula(name: str, expr_str: str, params: list[str]) -> Optional[Formula]:
+def register_formula(name: str, expr_str: str, params: list[str]) -> Formula | None:
     reg = get_formula_registry()
     try:
         expr = symbol_expr(expr_str)
@@ -1674,7 +1686,7 @@ class EvolutionRule:
     # 派生公式名
     derived_name: str
     # 派生表达式构建函数：env → Expr（env 是当前注册表引用）
-    builder: Callable[["FormulaRegistry"], Expr]
+    builder: Callable[[FormulaRegistry], Expr]
     # 派生参数列表
     derived_params: list[str]
     # 派生分类
@@ -1713,7 +1725,7 @@ class EvolutionEngine:
       4. 自动注册：验证通过的公式自动注册到注册表
     """
 
-    def __init__(self, registry: "FormulaRegistry"):
+    def __init__(self, registry: FormulaRegistry):
         self._reg = registry
         self._rules: list[EvolutionRule] = []
         self._history: list[EvolutionStep] = []
@@ -1874,10 +1886,10 @@ class PrimitiveRegistry:
     def register_param(self, cn_name: str, internal_name: str) -> None:
         self._params[cn_name] = internal_name
 
-    def get_constant(self, name: str) -> Optional[float]:
+    def get_constant(self, name: str) -> float | None:
         return self._constants.get(name)
 
-    def get_formula_expr(self, name: str) -> Optional[Expr]:
+    def get_formula_expr(self, name: str) -> Expr | None:
         return self._formulas.get(name)
 
     def resolve_param(self, name: str) -> str:
@@ -1923,6 +1935,7 @@ class DefinitionResolver:
         if isinstance(definition, Expr):
             logger.info(f"  [定义解析] 表达式即定义: {definition}")
             return definition
+        definition = (" ".join(str(x) for x in definition) if isinstance(definition, (list, tuple)) else str(definition))
         if not definition or not definition.strip():
             return Num(0)
         text = definition.strip()
@@ -2070,14 +2083,11 @@ class DefinitionResolver:
                     already_parenthesized = True
                 # 检查括号是否已被处理过（括号在text最外层）
                 bracket_text = text[best_i:best_j + 1]
-                bracket_already_processed = (bracket_text.startswith('（') and bracket_text.endswith('）')) or \
+                (bracket_text.startswith('（') and bracket_text.endswith('）')) or \
                                             (bracket_text.startswith('(') and bracket_text.endswith(')'))
-                original_inner_str = inner_str
                 if not already_parenthesized and isinstance(inner_expr, (Mul, Div)) and (
                         any(op in prefix for op in '加减')
-                        or any(op in suffix for op in '加减')):
-                    inner_str = '（' + inner_str + '）'
-                elif not already_parenthesized and isinstance(inner_expr, (Add, Sub)) and (
+                        or any(op in suffix for op in '加减')) or not already_parenthesized and isinstance(inner_expr, (Add, Sub)) and (
                         any(op in prefix for op in '乘除')
                         or any(op in suffix for op in '乘除')):
                     inner_str = '（' + inner_str + '）'
@@ -2369,7 +2379,7 @@ class DefinitionResolver:
             return f"{base_str} 的 {exp_str} 次方"
         return '?'
 
-    def _parse_chinese_number(self, text: str) -> Optional[float]:
+    def _parse_chinese_number(self, text: str) -> float | None:
         """解析中文数字为浮点数。支持：一二三四五六七八九十百千万亿、分数。
 
         算法：递归分解，按大单位（万/亿）分段，每段用简单规则解析。
@@ -2472,7 +2482,6 @@ class DefinitionResolver:
             start = m.start()
             # 检查是否在括号内
             depth = 0
-            in_parens = False
             for ch in text[:start]:
                 if ch in '（(':
                     depth += 1
@@ -2517,7 +2526,7 @@ class FormulaDefinition:
     verified: bool = False
     definition: str = ""           # 自然语言定义（核心，位置10，仅通过 keyword 使用）
 
-    def to_formula(self, registry: "FormulaRegistry", resolver: "DefinitionResolver | None" = None) -> Formula:
+    def to_formula(self, registry: FormulaRegistry, resolver: DefinitionResolver | None = None) -> Formula:
         """从定义构建 Formula。优先使用 definition，其次 expr_str。"""
         expr = Num(0)
         params = list(self.params)
@@ -2557,7 +2566,7 @@ class FormulaDefinition:
 class FormulaLibrary:
     """全局公式库：管理 4000+ 公式的加载、查询、发现和演化。"""
 
-    def __init__(self, registry: "FormulaRegistry"):
+    def __init__(self, registry: FormulaRegistry):
         self._reg = registry
         self._definitions: dict[str, FormulaDefinition] = {}
         self._loaded: set[str] = set()
@@ -2623,7 +2632,7 @@ class FormulaLibrary:
         """列出某分类的所有公式名。"""
         return [name for name, d in self._definitions.items() if d.category == category]
 
-    def get_definition(self, name: str) -> Optional[FormulaDefinition]:
+    def get_definition(self, name: str) -> FormulaDefinition | None:
         """获取公式定义。"""
         return self._definitions.get(name)
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha MIR → Matha 代码生成器
 
@@ -6,8 +5,8 @@ Matha MIR → Matha 代码生成器
 """
 
 from __future__ import annotations
+
 import re
-from typing import Optional
 
 
 class MIRToMathaGenerator:
@@ -88,7 +87,7 @@ class MIRToMathaGenerator:
 
         return lines
 
-    def _generate_instr_code(self, instr: any) -> Optional[str]:
+    def _generate_instr_code(self, instr: any) -> str | None:
         """生成单条指令的 Matha 代码。"""
         result = getattr(instr, "result", "").lstrip("%")
 
@@ -169,8 +168,8 @@ class MathaToMIRGenerator:
 
     def generate_from_matha(self, matha_source: str) -> str:
         """从 Matha 源码生成 MIR 文本表示。"""
-        from src.mir import MIRGenerator
         from src.compiler.matha_cc import MathaLexer, MathaParser
+        from src.mir import MIRGenerator
 
         lexer = MathaLexer(matha_source)
         tokens = lexer.tokenize()
@@ -245,8 +244,7 @@ class MathaConverter:
 
     def _c_to_mir(self, c_code: str) -> any:
         """将 C 代码解析为 MIR。"""
-        import re
-        from src.mir import MIRProgram, MIRFunction, MIRCallInstr, MIRInstrType, MIRArithInstr, MIRConstInstr
+        from src.mir import MIRArithInstr, MIRCallInstr, MIRFunction, MIRInstrType, MIRProgram
 
         program = MIRProgram()
         func_pattern = re.compile(r'double\s+(\w+)\s*\(([^)]*)\)\s*\{([^}]*)\}', re.DOTALL)
@@ -296,8 +294,7 @@ class MathaConverter:
 
     def _python_to_mir(self, py_code: str) -> any:
         """将 Python 代码解析为 MIR。"""
-        import re
-        from src.mir import MIRProgram, MIRFunction, MIRCallInstr, MIRInstrType, MIRArithInstr, MIRConstInstr
+        from src.mir import MIRArithInstr, MIRCallInstr, MIRFunction, MIRInstrType, MIRProgram
 
         program = MIRProgram()
         func_pattern = re.compile(r'def\s+(\w+)\s*\(([^)]*)\):\s*\n((?:    .+\n)*)', re.MULTILINE)

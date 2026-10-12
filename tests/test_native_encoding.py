@@ -278,7 +278,7 @@ def test_data_section_does_not_overlap_text(nrec):
 def test_zero_filled_runtime_state_is_not_file_backed():
     """.data 尾部的恒零运行时状态不得写进文件（回归：exe 曾膨胀到 17MB）。
 
-    8MB 堆 free 区 + 64KB 异常栈 + 2×128KB GC 位图 + 8MB 标记栈共约 16.6MB 全是
+    1GB 堆 free 区 + 64KB 异常栈 + 2×16MB GC 位图 + 512MB 标记栈共约 1.6GB 全是
     零，此前作为已初始化数据落盘（`.text` 仅 29KB 而 exe 17.2MB）。现改为
     VirtualSize 覆盖全长、SizeOfRawData 截到首个尾零之前，由加载器零填充；
     RVA 布局必须逐字节不变，否则所有 RIP 相对引用都会失效。

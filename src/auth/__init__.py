@@ -15,19 +15,19 @@ Matha 认证模块。
     rbac.authorize(user.roles, "doc:read")  # OK
     rbac.authorize(user.roles, "doc:write") # raises AuthorizationError
 """
-from src.auth.models import User, Session
-from src.auth.jwt import encode_token, decode_token, encode_refresh_token, decode_refresh_token
-from src.auth.password import hash_password, verify_password, validate_password_strength
-from src.auth.service import SessionManager
-from src.auth.rbac import RBACMiddleware, Permission, get_rbac, reset_rbac
 from src.auth.api import PermissionChangeAPI
 from src.auth.exceptions import (
-    AuthError,
     AuthenticationError,
+    AuthError,
     AuthorizationError,
-    TokenError,
     RegistrationError,
+    TokenError,
 )
+from src.auth.jwt import decode_refresh_token, decode_token, encode_refresh_token, encode_token
+from src.auth.models import Session, User
+from src.auth.password import hash_password, validate_password_strength, verify_password
+from src.auth.rbac import Permission, RBACMiddleware, get_rbac, reset_rbac
+from src.auth.service import SessionManager
 
 __all__ = [
     # Models

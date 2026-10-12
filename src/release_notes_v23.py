@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """v2.3 Release Notes — 完整版
 
 Matha 自成长引擎 v2.3.0

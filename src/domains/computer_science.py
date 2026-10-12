@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 计算机科学领域模块：算法复杂度、数据结构、信息论、图论。
 
 覆盖：
@@ -10,8 +9,9 @@
 """
 
 from __future__ import annotations
+
 import math
-from typing import Any
+
 
 # ============================================================
 # 柯里化工具

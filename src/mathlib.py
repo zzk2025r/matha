@@ -22,9 +22,9 @@ Matha 代码可直接调用（如 sin(0)=0、sqrt(2)≈1.414）。
 """
 
 from __future__ import annotations
-import math
-from typing import Any
 
+import math
+import random
 
 # ============================================================
 # 数学常量

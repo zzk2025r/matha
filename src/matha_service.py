@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 集成服务层 — Trae 开发环境的统一 Matha 入口
 
 提供：
@@ -22,7 +21,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -129,6 +128,13 @@ def eval_expr(expr: str, debug: bool = False) -> dict[str, Any]:
     Returns:
         {"output": [...], "trace": [...], "error": None|str}
     """
+    # 输入规范化：list/tuple → 空格连接的字符串
+    if isinstance(expr, (list, tuple)):
+        expr = " ".join(str(x) for x in expr)
+    elif expr is not None and not isinstance(expr, str):
+        expr = str(expr)
+    if not expr:
+        return {"output": [], "trace": [], "error": "表达式为空"}
     interp_mod = _get_interp()
     wrapped = f"result = {expr}\n#1：[result]"
     try:
@@ -149,6 +155,13 @@ def run_file(file_path: str, debug: bool = False) -> dict[str, Any]:
     Returns:
         {"output": [...], "trace": [...], "error": None|str}
     """
+    # 输入规范化：list/tuple → 空格连接的字符串
+    if isinstance(file_path, (list, tuple)):
+        file_path = " ".join(str(x) for x in file_path)
+    elif file_path is not None and not isinstance(file_path, str):
+        file_path = str(file_path)
+    if not file_path:
+        return {"output": [], "trace": [], "error": "文件路径为空"}
     path = Path(file_path)
     if not path.exists():
         return {"output": [], "trace": [], "error": f"文件不存在: {file_path}"}
@@ -168,6 +181,13 @@ def run_source(source: str, debug: bool = False) -> dict[str, Any]:
     Returns:
         {"output": [...], "trace": [...], "error": None|str}
     """
+    # 输入规范化：list/tuple → 换行连接的字符串
+    if isinstance(source, (list, tuple)):
+        source = "\n".join(str(x) for x in source)
+    elif source is not None and not isinstance(source, str):
+        source = str(source)
+    if not source:
+        return {"output": [], "trace": [], "error": "源码为空"}
     interp_mod = _get_interp()
     try:
         out, trace = interp_mod.interpret(source, debug=debug)
@@ -176,7 +196,7 @@ def run_source(source: str, debug: bool = False) -> dict[str, Any]:
         return {"output": [], "trace": [], "error": str(e)}
 
 
-def compile_to_c(source: str, output: Optional[str] = None) -> dict[str, Any]:
+def compile_to_c(source: str, output: str | None = None) -> dict[str, Any]:
     """
     将 Matha 源码编译为 C 代码。
 
@@ -194,7 +214,7 @@ def compile_to_c(source: str, output: Optional[str] = None) -> dict[str, Any]:
         return {"output_path": "", "error": str(e)}
 
 
-def compile_to_llvm(source: str, output: Optional[str] = None) -> dict[str, Any]:
+def compile_to_llvm(source: str, output: str | None = None) -> dict[str, Any]:
     """
     将 Matha 源码生成 LLVM IR。
 
@@ -226,12 +246,19 @@ def generate_code(prompt: str, target_language: str = "matha") -> dict[str, Any]
     Returns:
         {"source": str, "language": str, "error": None|str}
     """
+    # 输入规范化：list/tuple → 空格连接的字符串
+    if isinstance(prompt, (list, tuple)):
+        prompt = " ".join(str(x) for x in prompt)
+    elif prompt is not None and not isinstance(prompt, str):
+        prompt = str(prompt)
+    if not prompt:
+        return {"source": "", "language": target_language, "parse_ok": False, "error": "提示为空"}
     from src.matha.growth import generate_from_natural_language
     try:
         source = generate_from_natural_language(prompt, target_language)
         # 验证生成的代码可以解析
         parser_mod = _get_parser()
-        parsed = parser_mod.parse(source)
+        parser_mod.parse(source)
         return {
             "source": source,
             "language": target_language,

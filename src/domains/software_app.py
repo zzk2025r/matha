@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 软件与应用程序开发领域模块（真实实现版）。
 
@@ -11,17 +10,16 @@ Matha 软件与应用程序开发领域模块（真实实现版）。
   6) 任务队列
 """
 from __future__ import annotations
+
+import base64
 import hashlib
 import hmac
 import json
-import sqlite3
-import time
 import os
-import base64
+import sqlite3
 import threading
-from typing import Any, Optional
-from collections import OrderedDict
-
+import time
+from typing import Any
 
 # ============================================================
 # 模拟 HTTP 客户端
@@ -54,19 +52,19 @@ class HTTPClient:
 _http_client = HTTPClient()
 
 
-def http_get(url: str, headers: Optional[dict] = None) -> dict:
+def http_get(url: str, headers: dict | None = None) -> dict:
     return _http_client.request("GET", url, headers=headers)
 
 
-def http_post(url: str, body: dict, headers: Optional[dict] = None) -> dict:
+def http_post(url: str, body: dict, headers: dict | None = None) -> dict:
     return _http_client.request("POST", url, body=json.dumps(body), headers=headers)
 
 
-def http_put(url: str, body: dict, headers: Optional[dict] = None) -> dict:
+def http_put(url: str, body: dict, headers: dict | None = None) -> dict:
     return _http_client.request("PUT", url, body=json.dumps(body), headers=headers)
 
 
-def http_delete(url: str, headers: Optional[dict] = None) -> dict:
+def http_delete(url: str, headers: dict | None = None) -> dict:
     return _http_client.request("DELETE", url, headers=headers)
 
 
@@ -105,8 +103,8 @@ def _get_db(name: str = "default", path: str = ":memory:") -> SQLiteDatabase:
     return _db_instances[name]
 
 
-def db_query(table: str, conditions: Optional[dict] = None,
-             columns: Optional[list[str]] = None, limit: int = 100) -> list[dict]:
+def db_query(table: str, conditions: dict | None = None,
+             columns: list[str] | None = None, limit: int = 100) -> list[dict]:
     """查询数据库表。"""
     cols = ", ".join(columns) if columns else "*"
     sql = f"SELECT {cols} FROM [{table}]"
@@ -172,7 +170,7 @@ def jwt_encode(payload: dict, secret: str = _JWT_SECRET, exp_hours: float = 24) 
     return f"{header}.{body}.{signature}"
 
 
-def jwt_decode(token: str, secret: str = _JWT_SECRET) -> Optional[dict]:
+def jwt_decode(token: str, secret: str = _JWT_SECRET) -> dict | None:
     """解码并验证 JWT。"""
     try:
         parts = token.split(".")
@@ -225,7 +223,7 @@ _cache_store: dict[str, tuple[Any, float]] = {}
 _cache_lock = threading.Lock()
 
 
-def cache_get(key: str) -> Optional[Any]:
+def cache_get(key: str) -> Any | None:
     with _cache_lock:
         if key in _cache_store:
             value, _ = _cache_store[key]
@@ -265,7 +263,7 @@ def queue_enqueue(item: Any) -> int:
         return len(_queue)
 
 
-def queue_dequeue() -> Optional[Any]:
+def queue_dequeue() -> Any | None:
     with _queue_lock:
         if _queue:
             return _queue.pop(0)

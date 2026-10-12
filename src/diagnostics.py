@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha IDE 诊断与错误提示系统。
 
 功能：
@@ -10,12 +9,11 @@
 """
 
 from __future__ import annotations
+
 import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Optional
-
 
 # ============================================================
 # 诊断等级
@@ -44,7 +42,7 @@ class Diagnostic:
     source: str = "matha"
     code: str = ""
     related_information: list[dict] = field(default_factory=list)
-    fix: Optional[str] = None  # 修复建议
+    fix: str | None = None  # 修复建议
 
     def to_lsp(self) -> dict:
         """转换为 LSP Diagnostic 格式。"""

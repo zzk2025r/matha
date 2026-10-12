@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 增强类型系统：约束求解 + 模式匹配 + 运行时检查。
 
 升级内容：
@@ -10,11 +9,10 @@
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Optional
-from enum import Enum, auto
-import re
 
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any
 
 # ============================================================
 # 类型系统核心
@@ -35,7 +33,7 @@ class TypeKind(Enum):
 class Type:
     kind: TypeKind
     name: str
-    args: tuple["Type", ...] = ()
+    args: tuple[Type, ...] = ()
     constraints: tuple[str, ...] = ()  # 类型约束
 
     def __str__(self) -> str:
@@ -47,54 +45,54 @@ class Type:
         return "".join(parts)
 
     @staticmethod
-    def int_type() -> "Type":
+    def int_type() -> Type:
         return Type(TypeKind.PRIMITIVE, "Int")
 
     @staticmethod
-    def float_type() -> "Type":
+    def float_type() -> Type:
         return Type(TypeKind.PRIMITIVE, "Float")
 
     @staticmethod
-    def string_type() -> "Type":
+    def string_type() -> Type:
         return Type(TypeKind.PRIMITIVE, "String")
 
     @staticmethod
-    def bool_type() -> "Type":
+    def bool_type() -> Type:
         return Type(TypeKind.PRIMITIVE, "Bool")
 
     @staticmethod
-    def void_type() -> "Type":
+    def void_type() -> Type:
         return Type(TypeKind.PRIMITIVE, "Void")
 
     @staticmethod
-    def any_type() -> "Type":
+    def any_type() -> Type:
         return Type(TypeKind.ANY, "Any")
 
     @staticmethod
-    def unknown_type() -> "Type":
+    def unknown_type() -> Type:
         return Type(TypeKind.UNKNOWN, "?")
 
     @staticmethod
-    def list_of(element: "Type") -> "Type":
+    def list_of(element: Type) -> Type:
         return Type(TypeKind.GENERIC, "List", (element,))
 
     @staticmethod
-    def dict_of(key: "Type", value: "Type") -> "Type":
+    def dict_of(key: Type, value: Type) -> Type:
         return Type(TypeKind.GENERIC, "Dict", (key, value))
 
     @staticmethod
-    def tuple_of(*types: "Type") -> "Type":
+    def tuple_of(*types: Type) -> Type:
         return Type(TypeKind.TUPLE, "Tuple", types)
 
     @staticmethod
-    def option_of(element: "Type") -> "Type":
+    def option_of(element: Type) -> Type:
         return Type(TypeKind.OPTION, "Option", (element,))
 
     @staticmethod
-    def function(params: tuple["Type", ...], ret: "Type") -> "Type":
+    def function(params: tuple[Type, ...], ret: Type) -> Type:
         return Type(TypeKind.FUNCTION, "Func", params + (ret,))
 
-    def with_constraints(self, *constraints: str) -> "Type":
+    def with_constraints(self, *constraints: str) -> Type:
         """为类型添加约束。"""
         return Type(self.kind, self.name, self.args, constraints)
 
@@ -107,7 +105,7 @@ class Type:
     def is_container(self) -> bool:
         return self.name in ("List", "Dict")
 
-    def element_type(self) -> Optional["Type"]:
+    def element_type(self) -> Type | None:
         return self.args[0] if self.args else None
 
     def has_constraint(self, constraint: str) -> bool:
@@ -191,7 +189,7 @@ class ConstraintSolver:
         if func_type.kind != TypeKind.FUNCTION:
             return {}
         params = func_type.args[:-1]
-        ret_type = func_type.args[-1]
+        func_type.args[-1]
         bindings: dict[str, Type] = {}
 
         for i, (param, arg) in enumerate(zip(params, arg_types)):
@@ -347,10 +345,10 @@ class TypeEnv:
     def set_constraint(self, name: str, constraints: list[str]) -> None:
         self.constraints[name] = constraints
 
-    def get_var(self, name: str) -> Optional[Type]:
+    def get_var(self, name: str) -> Type | None:
         return self.variables.get(name)
 
-    def get_func(self, name: str) -> Optional[Type]:
+    def get_func(self, name: str) -> Type | None:
         return self.functions.get(name)
 
     def resolve_generic(self, typ: Type) -> Type:
@@ -363,7 +361,7 @@ class TypeEnv:
             return Type(typ.kind, typ.name, resolved_args, typ.constraints)
         return typ
 
-    def copy(self) -> "TypeEnv":
+    def copy(self) -> TypeEnv:
         return TypeEnv(
             variables=dict(self.variables),
             functions=dict(self.functions),
@@ -538,7 +536,7 @@ class EnhancedTypeInferencer:
             return T_ANY  # 属性访问返回任意类型
 
         elif kind == "MatchStmt":
-            scrutinee_type = self._infer_expr(expr.scrutinee)
+            self._infer_expr(expr.scrutinee)
             branches = getattr(expr, "branches", [])
             branch_types = [self._infer_expr(b[2]) for b in branches]
             return self.pattern_infer._common_type(branch_types) if branch_types else T_ANY

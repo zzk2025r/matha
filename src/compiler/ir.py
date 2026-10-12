@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — 统一 IR 编译器接口
 
 将 Matha IR 编译到不同后端：
@@ -16,6 +15,7 @@
   result = compiler.compile(mir_code, target=CompileTarget(backend=IRBackend.LLVM))
 """
 from __future__ import annotations
+
 import abc
 import hashlib
 import json
@@ -23,9 +23,9 @@ import logging
 import subprocess
 import time
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +48,9 @@ class CompileTarget:
     backend: IRBackend = IRBackend.PYTHON
     optimize: bool = True
     cache_dir: str = ".matha_cache"
-    llvm_flags: List[str] = field(default_factory=lambda: ["-O2"])
-    c_flags: List[str] = field(default_factory=list)
-    extra_config: Dict[str, Any] = field(default_factory=dict)
+    llvm_flags: list[str] = field(default_factory=lambda: ["-O2"])
+    c_flags: list[str] = field(default_factory=list)
+    extra_config: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """初始化后处理。"""
@@ -64,7 +64,7 @@ class CompileResult:
     success: bool
     backend: IRBackend
     code: str = ""
-    executable: Optional[Any] = None
+    executable: Any | None = None
     output: Any = None
     error: str = ""
     compile_time_ms: float = 0.0
@@ -81,7 +81,7 @@ class CompileResult:
             raise RuntimeError(f"编译失败: {self.error}")
         return self.output
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """序列化为字典。"""
         return {
             "success": self.success,
@@ -106,7 +106,7 @@ class IRCompiler(abc.ABC):
 
     def __init__(self, backend: IRBackend):
         self.backend = backend
-        self._cache: Dict[str, CompileResult] = {}
+        self._cache: dict[str, CompileResult] = {}
 
     @abc.abstractmethod
     def compile(self, mir_code: str, target: CompileTarget) -> CompileResult:
@@ -126,12 +126,12 @@ class IRCompiler(abc.ABC):
         """生成缓存键。"""
         return hashlib.sha256(code.encode()).hexdigest()[:16]
 
-    def _get_cached(self, key: str, target: CompileTarget) -> Optional[CompileResult]:
+    def _get_cached(self, key: str, target: CompileTarget) -> CompileResult | None:
         """获取缓存结果。"""
         cache_file = target.cache_path / f"{self.backend.name}_{key}.json"
         if cache_file.exists():
             try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
+                with open(cache_file, encoding='utf-8') as f:
                     data = json.load(f)
                 return CompileResult(
                     success=True,
@@ -315,17 +315,17 @@ class LLVMCompiler(IRCompiler):
     def _mir_to_llvm(self, mir_code: str) -> str:
         """Matha IR → LLVM IR。"""
         # 简单的翻译（实际应使用完整的 LLVM IR 生成器）
-        llvm_ir = f"""
+        llvm_ir = """
 ; Matha IR → LLVM IR
-define double @main() {{
+define double @main() {
 entry:
   %result = fadd double 3.0, 5.0
   ret double %result
-}}
+}
 """
         return llvm_ir
 
-    def _compile_llvm(self, llvm_ir: str, cache_key: str, target: CompileTarget) -> Optional[str]:
+    def _compile_llvm(self, llvm_ir: str, cache_key: str, target: CompileTarget) -> str | None:
         """编译 LLVM IR 到机器码。"""
         src_file = target.cache_path / f"{cache_key}.ll"
         exe_file = target.cache_path / f"{cache_key}"
@@ -386,7 +386,7 @@ entry:
             logger.debug(traceback.format_exc())
             return None
 
-    def _execute(self, exe_path: str) -> Optional[str]:
+    def _execute(self, exe_path: str) -> str | None:
         """执行编译后的程序。"""
         try:
             result = subprocess.run(
@@ -479,7 +479,7 @@ int main() {{
 """
         return c_code
 
-    def _compile_c(self, c_code: str, cache_key: str, target: CompileTarget) -> Optional[str]:
+    def _compile_c(self, c_code: str, cache_key: str, target: CompileTarget) -> str | None:
         """编译 C 代码。"""
         src_file = target.cache_path / f"{cache_key}.c"
         exe_file = target.cache_path / f"{cache_key}"
@@ -521,7 +521,7 @@ int main() {{
             logger.debug(traceback.format_exc())
             return None
 
-    def _execute(self, exe_path: str) -> Optional[str]:
+    def _execute(self, exe_path: str) -> str | None:
         """执行 C 程序。"""
         try:
             result = subprocess.run(
@@ -543,7 +543,7 @@ int main() {{
 class CompilerFactory:
     """编译器工厂，根据后端类型创建对应的编译器。"""
 
-    _compilers: Dict[IRBackend, IRCompiler] = {}
+    _compilers: dict[IRBackend, IRCompiler] = {}
 
     @classmethod
     def get_compiler(cls, backend: IRBackend) -> IRCompiler:
@@ -560,7 +560,7 @@ class CompilerFactory:
         return cls._compilers[backend]
 
     @classmethod
-    def compile(cls, mir_code: str, target: Optional[CompileTarget] = None) -> CompileResult:
+    def compile(cls, mir_code: str, target: CompileTarget | None = None) -> CompileResult:
         """
         统一编译入口。
 

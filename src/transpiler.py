@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 多语言转译器：把 Matha 程序转译为其它编程语言源码。
 
 让其它语言能直接运行 Matha 编写的程序/应用/系统。
@@ -32,11 +31,10 @@
 """
 
 from __future__ import annotations
-from typing import Any
 
-from src.parser import Parser
 from src import ast_nodes as ast
-from src.transpiler_ts import TypeScriptTranspiler, MATHA_TO_TS, TYPE_MAP, TranspileError
+from src.parser import Parser
+from src.transpiler_ts import TypeScriptTranspiler
 
 
 class TranspileError(Exception):

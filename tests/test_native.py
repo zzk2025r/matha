@@ -11,7 +11,10 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.mbc import compile_source, run_module
 from src.mbc import opcodes as OP
+from src.mbc.compiler import Compiler
+from src.mbc.vm import VM
 from src.mbc.native import compile_to_exe, NativeNotSupported, MAX_NATIVE_ARITY
+from src.parser import parse
 
 
 def name_of(op_name: str):
@@ -474,9 +477,6 @@ _LIST_INDEX_CASES = [
     ("变量负下标端点", "let i = -3\n#1：[[10, 20, 30][i]]\n", "10"),
     ("负下标表达式", "#1：[[10, 20, 30][0 - 2]]\n", "20"),
     # 回归：此前 `[1,2][9]` 直接 `mov rax,[rax+rcx*8+16]`，读到相邻堆字节返回 0
-    ("越界返回 None", "#1：[[10, 20, 30][9]]\n", "None"),
-    ("负下标越界返回 None", "#1：[[10, 20, 30][-4]]\n", "None"),
-    ("空列表下标返回 None", "#1：[[][0]]\n", "None"),
     ("None 容器下标返回 None", "let z = None\n#1：[z[0]]\n", "None"),
 ]
 
@@ -493,6 +493,39 @@ def test_list_index_negative_agrees_with_vm():
            "for i in [0, 3, -1, -4] { 输出(xs[i]) }\n")
     rc, out = _run(src)
     assert (rc, out.split("\n")) == (0, _vm(src))
+
+
+def test_list_index_oob_raises_catchable():
+    """列表索引越界抛可捕获异常（对齐 VM 的 IndexError），不再静默返回 None。"""
+    for expr in ("[10, 20, 30][9]", "[10, 20, 30][-4]", "[][0]"):
+        src = ('try {\n  #1：[%s]\n} catch (e) {\n  输出("越界")\n}\n输出("后")\n'
+               % expr)
+        assert _run(src) == (0, "越界\n后"), expr
+
+
+def test_string_index_oob_raises_catchable():
+    """字符串索引越界抛可捕获异常（对齐 VM）。"""
+    src = 'try {\n  #1：["abc"[9]]\n} catch (e) {\n  输出("越界")\n}\n输出("后")\n'
+    assert _run(src) == (0, "越界\n后")
+
+
+def test_uncaught_index_oob_exits_one():
+    """未捕获的越界索引 → 非零退出，而非静默继续。"""
+    assert _run('输出("前")\n#1：[[1, 2][9]]\n') == (1, "前")
+
+
+def test_non_dict_attr_raises_catchable():
+    """非字典属性访问抛可捕获异常（对齐 VM 的 TypeError），不再返回 None。"""
+    for expr in ("3.z", "None.z"):
+        src = ('try {\n  #1：[%s]\n} catch (e) {\n  输出("属性")\n}\n输出("后")\n'
+               % expr)
+        assert _run(src) == (0, "属性\n后"), expr
+
+
+def test_dict_attr_semantics_unchanged():
+    """字典属性访问：命中取值、缺失仍返回 None（与 VM 的 obj.get 一致）。"""
+    assert _run('#1：[{"a": 1}.a]\n') == (0, "1")
+    assert _run('#1：[{"a": 1}.z]\n') == (0, "None")
 
 
 # ---------- 幂：负指数提升为浮点，0 的负幂抛错 ----------
@@ -569,6 +602,321 @@ def test_shift_ops(src, expected):
                          ids=[c[0] for c in _SHIFT_CASES])
 def test_shift_ops_match_vm(src, expected):
     assert _vm(src) == expected.split("\n")
+
+
+# ---------- 位运算 `&` `|` `⊕` `~` 与中缀次方 `^` ----------
+
+_BITWISE_CASES = [
+    ("位与", "输出(6 & 3)\n", "2"),
+    ("位或", "输出(6 | 3)\n", "7"),
+    ("异或", "输出(6 ⊕ 3)\n", "5"),
+    ("异或零", "输出(0 ⊕ 0)\n", "0"),
+    ("位与大数", "输出(255 & 15)\n", "15"),
+    ("位或复合", "输出((6 & 3) | (1 << 2))\n", "6"),
+    ("取反", "输出(~5)\n", "-6"),
+    ("取反零", "输出(~0)\n", "-1"),
+    ("次方", "输出(2 ^ 3)\n", "8"),
+    ("次方右结合", "输出(2 ^ 3 ^ 2)\n", "512"),
+    ("次方优先于乘", "输出(2 ^ 3 * 2)\n", "16"),
+    ("前缀开方", "输出(^9)\n", "3"),
+    ("函数内位与", "func f(a: Int, b: Int) -> Int = (a, b) => a & b\n"
+                "输出(f(12, 10))\n", "8"),
+]
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _BITWISE_CASES],
+                         ids=[c[0] for c in _BITWISE_CASES])
+def test_bitwise_ops(src, expected):
+    """位运算族须与 vm._BINOPS/_UNARYOPS 及解释器三方一致。
+
+    易错点：
+    1. 中缀 `^` 是**次方**（EBNF 2.1 <power>="^"，右结合、优先级高于 *），
+       异或的专用符号是 `⊕`；原生与 VM 都经编译器把 AST `^` 归约为 `**`。
+    2. 原生后端的整数是裸 int64，不是堆对象，故位运算必须用
+       「(ptr-heap_base) < HEAP_SIZE」判据拒绝容器，不能按类型标签解引用。
+    """
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _BITWISE_CASES],
+                         ids=[c[0] for c in _BITWISE_CASES])
+def test_bitwise_ops_match_vm(src, expected):
+    assert _vm(src) == expected.split("\n")
+
+
+_BITWISE_ERR_CASES = [
+    ("字符串位或", '输出("a" | 1)\n'),
+    ("字符串位与", '输出("a" & 1)\n'),
+    ("字符串异或", '输出("a" ⊕ 1)\n'),
+    ("列表位或", "输出([1,2] | 1)\n"),
+    ("浮点位与", "输出(1.5 & 1)\n"),
+    ("字符串取反", '输出(~"a")\n'),
+    ("列表取反", "输出(~[1,2])\n"),
+]
+
+
+# ---------- `<<` 角度前缀 ----------
+
+_ANGLE_CASES = [
+    ("角度 90", "输出(<<90)\n", "1.5707963267948966"),
+    ("角度 0", "输出(<<0)\n", "0.0"),
+    ("角度 180", "输出(<<180)\n", "3.141592653589793"),
+    ("角度负值", "输出(<<-90)\n", "-1.5707963267948966"),
+    ("角度浮点", "输出(<<30.0)\n", "0.5235987755982988"),
+    ("角度变量", "let a = 45\n输出(<<a)\n", "0.7853981633974483"),
+    ("角度喂 sin", "输出(sin(<<30))\n", "0.49999999999999994"),
+    ("角度喂 cos", "输出(cos(<<90))\n", "6.123233995736766e-17"),
+    ("角度括号", "输出(<<(30 + 15))\n", "0.7853981633974483"),
+    ("角度优先级", "输出(<<90 + 1)\n", "2.5707963267948966"),
+    ("角度吃紧操作数", "let a = 30\n输出(<<a * 2)\n", "1.0471975511965976"),
+    ("一元负号叠加", "输出(-<<90)\n", "-1.5707963267948966"),
+    ("中缀位移不受影响", "输出(5 << 2)\n", "20"),
+]
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _ANGLE_CASES],
+                         ids=[c[0] for c in _ANGLE_CASES])
+def test_angle_prefix(src, expected):
+    """`<<n` 把度数归一化成弧度，故结果可直接喂给只吃弧度的 sin/cos。
+
+    易错点（均为本次实际踩到的）：
+    1. f_deg 的 epilogue 必须 `mov rsp,rbp; pop rbp; ret`。写成 `pop rbp; ret`
+       在 box_float 返回后会让进程以 0xC0000005 崩掉——本文件其余 helper
+       （f_sqrt/f_neg/f_pow）一律用前者。
+    2. 判定「是否浮点对象」不能用 is_float：它把返回值放在 eax
+       （mov eax,1 / xor eax,eax），rax 会被整个清掉。
+    """
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _ANGLE_CASES],
+                         ids=[c[0] for c in _ANGLE_CASES])
+def test_angle_prefix_match_vm(src, expected):
+    assert _vm(src) == expected.split("\n")
+
+
+_ANGLE_ERR_CASES = [
+    ("bool 角度", "输出(<<真)\n"),
+    ("字符串角度", '输出(<<"90")\n'),
+    ("列表角度", "输出(<<[1,2])\n"),
+]
+
+
+@pytest.mark.parametrize("src", [c[1] for c in _ANGLE_ERR_CASES],
+                         ids=[c[0] for c in _ANGLE_ERR_CASES])
+def test_angle_rejects_non_numeric(src):
+    """非数值做角度必须抛错，不能静默返回 null（解释器/VM 都是 raise）。"""
+    rc, _ = _run(src)
+    assert rc != 0
+
+
+@pytest.mark.parametrize("src", [c[1] for c in _ANGLE_ERR_CASES],
+                         ids=[c[0] for c in _ANGLE_ERR_CASES])
+def test_angle_rejects_non_numeric_catchable(src):
+    body = src.strip()
+    wrapped = 'try { %s } catch (e) { 输出("已捕获") }\n' % body
+    assert _run(wrapped) == (0, "已捕获")
+
+
+# ---------- `？` 公式模式：登记为模式，不求值 ----------
+
+_SCHEMA_PROGRAMS = [
+    ("匿名槽模式", "#1：？+？=？\n", ""),
+    ("具名槽模式", "#2：？a + ？a = ？b\n", ""),
+    ("多槽嵌套", "#3：？x * ？y = ？z\n", ""),
+    ("模式与普通输出共存", "#1：？+？=？\n#1：[1 + 1]\n", "2"),
+    ("多个模式", "#1：？+？=？\n#2：？*？=？\n", ""),
+    # 命中模式的具体公式：编译器须**不发**求值代码，否则 VM `KeyError '单价'`、
+    # AOT 同样撞未定义全局。
+    ("命中匿名槽的具体公式", "#1：？+？=？\n#2：单价 + 运费 = 总价\n#1：[1 + 1]\n", "2"),
+    ("命中具名槽的具体公式", "#1：？a + ？a = ？b\n#2：面积 + 面积 = 周长\n#1：[9]\n", "9"),
+    ("多条公式命中同一模式", "#1：？+？=？\n#2：a + b = c\n#3：x + y = z\n#1：[5]\n", "5"),
+]
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _SCHEMA_PROGRAMS],
+                         ids=[c[0] for c in _SCHEMA_PROGRAMS])
+def test_formula_schema_is_noop_runtime(src, expected):
+    """`#：？公式` 是**规格登记**，不产生输出、不触碰栈。
+
+    槽（`？`）没有可求值的值，故不得走表达式求值路径——解释器/VM 登记进公式库，
+    原生后端发空实现，可观察行为（stdout）三者一致。此前 VM 会在查变量表时
+    `KeyError '？'`，AOT 直接抛 NativeNotSupported。
+    """
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _SCHEMA_PROGRAMS],
+                         ids=[c[0] for c in _SCHEMA_PROGRAMS])
+def test_formula_schema_no_output_match_vm(src, expected):
+    assert _vm(src) == ([expected] if expected else [])
+
+
+@pytest.mark.parametrize("src", ["#1：？+？=？\n#2：？a + ？a = ？b\n"])
+def test_formula_schema_registered_in_vm_library(src):
+    """VM 侧公式库应登记全部模式，且保留 `？` 前缀以区别于具体公式。"""
+    mod = compile_source(src)
+    vm = VM(mod)
+    vm.run()
+    assert [s.display for s in vm.formulas] == ["#1：？ + ？ = ？", "#2：？a + ？a = ？b"]
+
+
+def test_concrete_formula_matched_not_evaluated():
+    """命中模式的具体公式在**编译期**判定：不发求值代码。
+
+    此前 VM 把 `单价 + 运费 = 总价` 当表达式求值 → `KeyError '单价'`，
+    AOT 撞未定义全局。编译器与解释器**同源同序**地建同一套公式库，故静态
+    判定结果与解释器运行期判定一致，三端 stdout 一致。
+    """
+    c = Compiler()
+    c.compile_program(parse("#1：？+？=？\n#2：单价 + 运费 = 总价\n"))
+    assert len(c.formulas) == 1
+    assert c.formula_matches
+    assert "单价" in c.formula_matches[0]
+
+
+def test_unmatched_formula_compiles_as_expression():
+    """未命中（运算符不同）→ 仍走表达式求值，行为与改动前一致。"""
+    c = Compiler()
+    c.compile_program(parse("#1：？+？=？\n#2：单价 * 数量 = 总价\n"))
+    assert c.formula_matches == []
+
+
+# ---------- 运行期浮点取反 ----------
+
+_NEG_FLOAT_CASES = [
+    ("变量浮点", "let a = 1.5\n输出(-a)\n", "-1.5"),
+    ("表达式结果", "输出(-(2 + 0.5))\n", "-2.5"),
+    ("除法结果", "输出(-(90 / 1))\n", "-90.0"),
+    ("乘法结果", "输出(-(2.0 * 2.0))\n", "-4.0"),
+    ("内建返回值", "输出(-deg2rad(90))\n", "-1.5707963267948966"),
+]
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _NEG_FLOAT_CASES],
+                         ids=[c[0] for c in _NEG_FLOAT_CASES])
+def test_neg_runtime_float(src, expected):
+    """运行期浮点取反：原生端曾把 is_float 的返回值（走 eax）当成操作数，
+    于是 f_neg 收到 0/1，`-1.5` 被算成 -1.0。字面量 `-1.5` 因常量折叠看不出问题。
+    """
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _NEG_FLOAT_CASES],
+                         ids=[c[0] for c in _NEG_FLOAT_CASES])
+def test_neg_runtime_float_match_vm(src, expected):
+    assert _vm(src) == expected.split("\n")
+
+
+# ---------- 前缀自增自减 ----------
+
+_INCRDECR_CASES = [
+    ("自增整数字面量", "输出(++3)\n", "4"),
+    ("自减整数字面量", "输出(--3)\n", "2"),
+    ("自增浮点字面量", "输出(++2.5)\n", "3.5"),
+    ("自减浮点字面量", "输出(--2.5)\n", "1.5"),
+    ("自增整型变量", "let x = 5\n输出(++x)\n", "6"),
+    ("自减整型变量", "let x = 5\n输出(--x)\n", "4"),
+    ("自增运行期浮点", "let a = 2.5\n输出(++a)\n", "3.5"),
+    ("自减运行期浮点", "let a = 2.5\n输出(--a)\n", "1.5"),
+    ("自减表达式结果", "输出(--(2 + 0.5))\n", "1.5"),
+    ("自减除法结果", "输出(--(90 / 1))\n", "89.0"),
+    ("自减嵌套角度", "输出(--<<90)\n", "0.5707963267948966"),
+]
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _INCRDECR_CASES],
+                         ids=[c[0] for c in _INCRDECR_CASES])
+def test_prefix_incr_decr(src, expected):
+    """前缀 ++/-- 是**非原地**的 v±1。
+
+    浮点路径曾把 subsd 结果留在 xmm1，而 box_float 只读 xmm0，于是运行期
+    浮点自减恒为 1.0；SSE 标量指令的 ModRM.reg 是**目的**操作数，结果必须
+    回到 xmm0。
+    """
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _INCRDECR_CASES],
+                         ids=[c[0] for c in _INCRDECR_CASES])
+def test_prefix_incr_decr_match_vm(src, expected):
+    assert _vm(src) == expected.split("\n")
+
+
+@pytest.mark.parametrize("src", ['输出(++"a")\n', "输出(--[1,2])\n"])
+def test_prefix_incr_decr_rejects_non_numeric(src):
+    rc, _ = _run(src)
+    assert rc != 0
+
+
+@pytest.mark.parametrize("src", ['输出(--"x")\n'])
+def test_prefix_incr_decr_rejects_non_numeric_catchable(src):
+    body = src.strip()
+    assert _run('try { %s } catch (e) { 输出("已捕获") }\n' % body) == (0, "已捕获")
+
+
+# ---------- `？` 占位符等价于具名变量 ----------
+
+_PLACEHOLDER_CASES = [
+    ("绑定后读具名", "？sum = 0\n输出(sum)\n", "0"),
+    ("绑定后读占位名", "？sum = 0\n输出(？sum)\n", "0"),
+    ("读既有具名变量", "sum = 5\n输出(？sum)\n", "5"),
+    ("两个占位名运算", "？a = 1\n？b = 2\n输出(？a + ？b)\n", "3"),
+    ("占位名参与算术", "？a = 1\n输出(？a * 3)\n", "3"),
+]
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _PLACEHOLDER_CASES],
+                         ids=[c[0] for c in _PLACEHOLDER_CASES])
+def test_placeholder_equals_named_variable(src, expected):
+    """`？sum` 等价于 `sum`（docs/00 L135、docs/02 占位符条）。
+
+    解析器此前只让**绑定**位置遵守该规则，表达式位置把 `？sum` 读成「万能占位
+    符当作函数作用于 sum」，报「未定义函数 FuncApp(...)」。
+    """
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _PLACEHOLDER_CASES],
+                         ids=[c[0] for c in _PLACEHOLDER_CASES])
+def test_placeholder_equals_named_variable_match_vm(src, expected):
+    assert _vm(src) == expected.split("\n")
+
+
+_BOOL_NOT_CASES = [
+    ("取反真", "输出(~真)\n", "-2"),
+    ("取反假", "输出(~假)\n", "-1"),
+    ("取反布尔变量", "let b = 真\n输出(~b)\n", "-2"),
+]
+
+
+@pytest.mark.parametrize("src,expected", [c[1:] for c in _BOOL_NOT_CASES],
+                         ids=[c[0] for c in _BOOL_NOT_CASES])
+def test_bitnot_bool_value(src, expected):
+    """bool 在原生端是 bool_true/bool_false 的**指针**，取反须先按指针还原成
+    0/1；直接 `not rax` 会把堆地址当整数，输出 -(ptr+1)。
+    """
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src", [c[1] for c in _BITWISE_ERR_CASES],
+                         ids=[c[0] for c in _BITWISE_ERR_CASES])
+def test_bitwise_rejects_non_integer(src):
+    """非整数操作数必须抛可捕获异常，而不是按堆地址算出垃圾值。
+
+    原生端走 raise_rt（异常运行时），VM 侧抛 RuntimeError。
+    """
+    rc, _ = _run(src)
+    assert rc != 0
+
+
+@pytest.mark.parametrize("src", [c[1] for c in _BITWISE_ERR_CASES],
+                         ids=[c[0] for c in _BITWISE_ERR_CASES])
+def test_bitwise_rejects_non_integer_catchable(src):
+    """同一错误在 try/catch 内应被捕获，程序正常退出。"""
+    body = src.strip()
+    wrapped = 'try { %s } catch (e) { 输出("已捕获") }\n' % body
+    assert _run(wrapped) == (0, "已捕获")
 
 
 # ---------- 砖块 12：成员判断 in / ∈ ----------
@@ -655,6 +1003,66 @@ def test_arity_over_limit_rejected():
     with pytest.raises(NativeNotSupported):
         compile_to_exe(f"func f9({sig}) -> Int = ({params}) => a0\n"
                        f"#1：[f9({args})]")
+
+
+# ---------- 任意精度整数（BigInt 运行期） ----------
+
+@pytest.mark.parametrize("src,expected", [
+    ("a=2\nb=63\n输出(a**b)", "9223372036854775808"),
+    ("a=2\nb=64\n输出(a**b)", "18446744073709551616"),
+    ("a=2\nb=100\n输出(a**b)", str(2 ** 100)),
+    ("a=3\nb=40\n输出(a**b)", str(3 ** 40)),
+    ("a=10\nb=30\n输出(a**b)", str(10 ** 30)),
+    ("a=2\nb=100\n输出(-(a**b))", str(-(2 ** 100))),
+    ("a=2\nb=100\n输出(type_of(a**b))", "Int"),
+    ("a=2\nb=100\n输出(str(a**b))", str(2 ** 100)),
+    ("a=100000000000\nb=100000000000\n输出(a*b)", str(100000000000 ** 2)),
+    ("x=9223372036854775807\n输出(x + 1)", str(9223372036854775807 + 1)),
+    ("x=9223372036854775807\n输出(x * x)", str(9223372036854775807 ** 2)),
+    # 超出 int64 的**字面量常量**：静态 BigInt 对象，不能在编译期回绕。
+    ("a=12345678901234567890\nb=2\n输出(a+b)", str(12345678901234567890 + 2)),
+    ("a=10000000000000000000\nb=3\n输出(a-b)", str(10000000000000000000 - 3)),
+    ("a=2\nb=100\nc=2**100\n输出(a**b - c)", "0"),
+    ("a=2\nb=100\n输出(a**b - a**b + 1)", "1"),
+])
+def test_bigint_arithmetic(src, expected):
+    """超出 int64 的整数（常量或运行期溢出）以任意精度计算与打印。"""
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("src,expected", [
+    ("a=2\nb=100\n输出(a**b == a**b)", "True"),
+    ("a=2\nb=100\n输出(a**b != a**b)", "False"),
+    ("a=2\nb=100\n输出(a**b > a**b - 1)", "True"),
+    ("a=2\nb=100\n输出(a**b <= a**b)", "True"),
+    ("a=2\nb=100\n输出(a**b < 0)", "False"),
+    ("a=2\nb=100\n输出(a**b > 1)", "True"),
+    ("a=2\nb=100\n输出(1 < a**b)", "True"),
+    ("a=2\nb=100\n输出(a**b == 1)", "False"),
+    ("a=2\nb=100\n输出(a**b < 1)", "False"),
+])
+def test_bigint_comparisons(src, expected):
+    """BigInt 比较/相等：须用 setCC 操作码（0F 9x），误用 Jcc（0F 8x）会 AV/错值。"""
+    assert _run(src) == (0, expected)
+
+
+def test_bigint_in_containers_and_gc():
+    """容器内 BigInt 渲染 + for 循环反复分配触发 GC 不崩溃。"""
+    rc, out = _run("a=2\nb=100\n输出([a**b, 1, -(a**b)])")
+    assert rc == 0 and out == f"[{2 ** 100}, 1, {-(2 ** 100)}]"
+    rc, out = _run(
+        "r = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]\n"
+        "a=2\nb=64\ns=0\nfor i in r {\n  s = s + a**b - a**b\n}\n输出(s)")
+    assert rc == 0 and out == "0"
+
+
+def test_bigint_mod_shift_rejected():
+    """`// %` 位运算对 BigInt 仍走 int64 边界：显式抛 err_bigintop，不崩溃。"""
+    exe = os.path.join(tempfile.gettempdir(), "test_native.exe")
+    Path(exe).write_bytes(compile_to_exe("a=2\nb=100\nc=a**b\n输出(c % 10)"))
+    r = subprocess.run([exe], capture_output=True, timeout=30)
+    assert (r.returncode & 0xFFFFFFFF) == 1
+    assert "大整数" in r.stderr.decode("utf-8", "replace")
 
 
 # ---------- VM / AOT 定点一致 ----------
@@ -924,6 +1332,31 @@ _PARITY_CASES = {
         "输出(正态密度(0)(0)(1))\n输出(正态密度(1)(0)(1))\n"
         "输出(正态密度(0)(0)(0))\n"
     ),
+    # ---- 补齐的 native 内建：print 别名 / 去重 / 安全索引 / 安全取属性 ----
+    "new_builtins": (
+        'print("hi")\n'
+        '输出(去重([1, 2, 2, 3]))\n'
+        '输出(去重([]))\n'
+        '输出(去重([[1, 2], [1, 2], [3]]))\n'
+        '输出(安全索引([10, 20], 1))\n'
+        '输出(安全索引([10, 20], 9))\n'
+        '输出(安全索引([10, 20, 30], -1))\n'
+        '输出(安全索引("ab", 1))\n'
+        '输出(安全索引("ab", 5))\n'
+        '输出(安全索引(3, 0))\n'
+        '输出(安全索引(null, "z"))\n'
+        '输出(安全取属性({"a": 7}, "a"))\n'
+        '输出(安全取属性({"a": 7}, "z"))\n'
+        '输出(安全取属性(3, "z"))\n'
+        '输出(安全取属性(null, "z"))\n'
+    ),
+    # ---- 任意精度整数（BigInt 运行期；VM 用任意精度 Python int，须一致）----
+    "bigint_pow": "a=2\nb=100\n输出(a**b)\n输出(a**b - a**b)\n",
+    "bigint_literal": "a=12345678901234567890\nb=2\n输出(a+b)\n输出(a*b)\n",
+    "bigint_compare": "a=2\nb=100\n输出(a**b == a**b)\n输出(a**b > 1)\n"
+                      "输出(1 < a**b)\n输出(a**b == 1)\n输出(a**b < 1)\n",
+    "bigint_str_type": "a=2\nb=100\n输出(str(a**b))\n输出(type_of(a**b))\n",
+    "bigint_neg": "a=2\nb=100\n输出(-(a**b))\n",
 }
 
 
@@ -971,3 +1404,84 @@ def test_random_native_only():
     out2 = _aot("输出(均匀随机(0)(1))\n输出(均匀随机(0)(1))\n"
                 "输出(均匀随机(0)(1))\n")
     assert len(set(out2)) > 1
+
+
+def test_set_comprehension_native():
+    """集合理解生成子句/过滤/去重算法在原生端与 VM 一致（同一 MMB 字节码）。
+
+    去重按 val_eq 结构相等；原生 val_eq 已支持嵌套列表逐元素递归（见
+    test_native_deep_equality）。
+    """
+    assert _aot("输出({ x | x >> [1, 2, 3, 4] | x > 2 })\n") == ["[3, 4]"]
+    assert _aot("输出({ x * 10 | x >> [1, 2, 3] })\n") == ["[10, 20, 30]"]
+    assert _aot("输出({ x | x >> [1, 1, 2, 3, 3] })\n") == ["[1, 2, 3]"]
+    assert _aot("输出({ x * y | x >> [1, 2] | y >> [3, 4] | x < y })\n") == [
+        "[3, 4, 6, 8]"]
+
+
+def test_set_comprehension_bounded_and_mapping_native():
+    """原生端支持有界整数域推断与 `, 输出` 映射写法。"""
+    assert _aot("输出({ x | 1 <= x <= 5 })\n") == ["[1, 2, 3, 4, 5]"]
+    assert _aot("输出({ x | 1 <= x <= 5 | x % 2 == 0 })\n") == ["[2, 4]"]
+    assert _aot("输出({ n | n >> [1, 2, 3] , n + n })\n") == ["[2, 4, 6]"]
+
+
+def test_native_deep_equality():
+    """原生 val_eq 结构相等：列表/嵌套列表/字典/字符串逐元素递归。
+
+    回归：此前原生 `==` 对指针只按长度逐字节比（列表=元素个数），导致
+    `[1,3]==[1,4]` 误判为真、`[[1,3]]==[[1,3]]` 误判为假。
+    """
+    assert _aot("输出([1, 3] == [1, 4])\n") == ["False"]
+    assert _aot("输出([1, 3] == [1, 3])\n") == ["True"]
+    assert _aot("输出([[1, 3]] == [[1, 3]])\n") == ["True"]
+    assert _aot("输出([[1, 3]] == [[1, 4]])\n") == ["False"]
+    assert _aot("输出([1, 2] != [1, 3])\n") == ["True"]
+    assert _aot("输出([1, 2, 3] == [1, 2, 3, 4])\n") == ["False"]
+    assert _aot('输出("ab" == "ab")\n') == ["True"]
+    assert _aot('输出("ab" == "ac")\n') == ["False"]
+    assert _aot("输出({1: 2, 3: 4} == {1: 2, 3: 4})\n") == ["True"]
+    assert _aot("输出({1: 2} == {1: 3})\n") == ["False"]
+    # 跨类型数值：布尔=0/1、整数与浮点在元素级也按数值比较
+    assert _aot("输出(真 == 1)\n") == ["True"]
+    assert _aot("输出(假 == 0)\n") == ["True"]
+    assert _aot("输出(1.0 == 1)\n") == ["True"]
+    assert _aot("输出([1, 2.0] == [1, 2])\n") == ["True"]
+
+
+def test_native_nested_set_dedup():
+    """集合构造对嵌套列表按结构相等去重（此前只比首元素会误删）。"""
+    assert _aot('输出(构造集合("enumeration", [], [[10, 3], [10, 3], [10, 4]]))\n') \
+        == ["[[10, 3], [10, 4]]"]
+    assert _aot('输出(构造集合("enumeration", [], [[1, 2], [1, 2, 3], [1, 2]]))\n') \
+        == ["[[1, 2], [1, 2, 3]]"]
+
+
+def test_native_print_alias():
+    """print 是 输出 的别名（此前原生未实现，调用即访问违例崩溃）。"""
+    assert _run('print("hi")\nprint(1 + 2)\n') == (0, "hi\n3")
+
+
+def test_native_dedup_raises_on_non_list():
+    """去重(非列表) 抛可捕获异常（对齐 VM 的 RuntimeError），可被 try 捕获。"""
+    src = ('try {\n  去重(3)\n} catch (e) {\n  输出("需要列表")\n}\n输出("后")\n')
+    assert _run(src) == (0, "需要列表\n后")
+
+
+def test_native_safe_index_and_attr_never_raise():
+    """安全索引 / 安全取属性 越界、缺键、不可下标一律返回 None，不抛错。"""
+    assert _run('输出(安全索引([10, 20], 9))\n') == (0, "None")
+    assert _run('输出(安全索引("ab", 9))\n') == (0, "None")
+    assert _run('输出(安全索引(3, 0))\n') == (0, "None")
+    assert _run('输出(安全取属性(3, "z"))\n') == (0, "None")
+    assert _run('输出(安全取属性({"a": 7}, "a"))\n') == (0, "7")
+
+
+def test_native_optional_chaining():
+    """可选链 `?.` / `?.[]` 脱糖到 安全取属性/安全索引，原生端此前会崩溃。"""
+    assert _run('let d = {"a": {"b": 5}} in\n输出(d?.a?.b)\n') == (0, "5")
+    assert _run('let d = null in\n输出(d?.a)\n') == (0, "None")
+    assert _run('let d = {"a": 1} in\n输出(d?.z)\n') == (0, "None")
+    assert _run('let l = [10, 20] in\n输出(l?.[1])\n') == (0, "20")
+    assert _run('let l = [10, 20] in\n输出(l?.[9])\n') == (0, "None")
+    assert _run('let l = null in\n输出(l?.[0])\n') == (0, "None")

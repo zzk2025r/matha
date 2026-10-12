@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.0 — 硬件抽象层（HAL）
 
 设计原则：
@@ -11,18 +10,20 @@
   Matha 代码 → HAL API → 设备驱动 → 实体硬件
 """
 from __future__ import annotations
+
 import abc
-import json
 import logging
 import multiprocessing as mp
+import os
 import queue
-import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+
+logger = logging.getLogger("matha.hal")
 
 
 # ============================================================
@@ -52,7 +53,7 @@ class AsyncHALLogger:
     def __init__(self, name: str = "matha.hal", maxsize: int = 1000):
         self._logger = logging.getLogger(name)
         self._queue: queue.Queue = queue.Queue(maxsize=maxsize)
-        self._worker: Optional[threading.Thread] = None
+        self._worker: threading.Thread | None = None
         self._enabled = False
         self._dropped_count = 0
         self._overflow_event = threading.Event()
@@ -242,7 +243,7 @@ def _gpio_writer_worker(
     local_ops = MathaHardwareOps(local_hal)
     local_hal.register(GPIODevice(pin=pin))
 
-    latencies: List[float] = []
+    latencies: list[float] = []
     errors = 0
     start_time = time.perf_counter()
 
@@ -276,7 +277,7 @@ def _gpio_writer_worker(
 
 def _gpio_batch_writer_worker(
     worker_id: int,
-    pins: List[int],
+    pins: list[int],
     iterations: int,
     result_queue: mp.Queue,
 ):
@@ -286,7 +287,7 @@ def _gpio_batch_writer_worker(
     for p in pins:
         local_hal.register(GPIODevice(pin=p))
 
-    latencies: List[float] = []
+    latencies: list[float] = []
     errors = 0
     start_time = time.perf_counter()
 
@@ -325,8 +326,8 @@ def run_multiprocess_stress_test(
     iterations_per_worker: int = 5000,
     target_frequency: int = 100000,
     use_batch: bool = False,
-    batch_pins: Optional[List[int]] = None,
-) -> Dict[str, Any]:
+    batch_pins: list[int] | None = None,
+) -> dict[str, Any]:
     """
     运行 multiprocessing 压力测试（绕过 GIL）。
 
@@ -358,7 +359,7 @@ def run_multiprocess_stress_test(
         if p.is_alive():
             p.terminate()
 
-    results: List[Dict] = []
+    results: list[dict] = []
     while not result_queue.empty():
         results.append(result_queue.get())
 
@@ -417,8 +418,8 @@ class DeviceConfig:
     name: str
     device_type: DeviceType
     address: str = ""           # 设备地址（如 GPIO4, /dev/ttyUSB0）
-    config: Dict[str, Any] = field(default_factory=dict)
-    permissions: List[str] = field(default_factory=list)  # 操作权限
+    config: dict[str, Any] = field(default_factory=dict)
+    permissions: list[str] = field(default_factory=list)  # 操作权限
 
 
 class IODevice(abc.ABC):
@@ -431,8 +432,8 @@ class IODevice(abc.ABC):
     def __init__(self, config: DeviceConfig):
         self.config = config
         self.state = DeviceState.OFFLINE
-        self._read_fn: Optional[Callable[[], Any]] = None
-        self._write_fn: Optional[Callable[[Any], None]] = None
+        self._read_fn: Callable[[], Any] | None = None
+        self._write_fn: Callable[[Any], None] | None = None
         self._last_read: Any = None
         self._last_write: Any = None
         self._access_count: int = 0
@@ -452,7 +453,7 @@ class IODevice(abc.ABC):
                 self._last_read = self._read_fn()
                 self._access_count += 1
                 return self._last_read
-            except Exception as e:
+            except Exception:
                 self.state = DeviceState.ERROR
                 return None
         return None
@@ -473,7 +474,7 @@ class IODevice(abc.ABC):
                 self._last_write = value
                 self._access_count += 1
                 return True
-            except Exception as e:
+            except Exception:
                 self.state = DeviceState.ERROR
                 return False
         return False
@@ -565,12 +566,12 @@ class FileDevice(IODevice):
             address=base_path,
         ))
 
-    def read(self, path: str = "") -> Optional[str]:
+    def read(self, path: str = "") -> str | None:
         """读取文件内容。"""
         if not path:
             path = input("输入文件路径: ")
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 return f.read()
         except Exception:
             return None
@@ -597,7 +598,7 @@ class NetworkDevice(IODevice):
             address="localhost",
         ))
 
-    def http_get(self, url: str) -> Optional[str]:
+    def http_get(self, url: str) -> str | None:
         """HTTP GET 请求。"""
         try:
             import requests
@@ -606,7 +607,7 @@ class NetworkDevice(IODevice):
         except Exception:
             return None
 
-    def http_post(self, url: str, data: dict) -> Optional[str]:
+    def http_post(self, url: str, data: dict) -> str | None:
         """HTTP POST 请求。"""
         try:
             import requests
@@ -652,7 +653,7 @@ class SerialDevice(IODevice):
             self._serial = None
             self.state = DeviceState.OFFLINE
 
-    def read(self) -> Optional[str]:
+    def read(self) -> str | None:
         """从串口读取数据。"""
         logger.debug("串口[%s] 开始读取", self.address)
         if not self._serial:
@@ -707,7 +708,7 @@ class GPIODevice(IODevice):
         self._pin = pin
         self._value = False
 
-    def read(self) -> Optional[bool]:
+    def read(self) -> bool | None:
         """读取 GPIO 引脚状态。"""
         _hal_async_logger.debug("GPIO[%d] 开始读取", self._pin)
         try:
@@ -754,7 +755,7 @@ class I2CDevice(IODevice):
         ))
         self._address = address
 
-    def read(self) -> Optional[Dict[str, Any]]:
+    def read(self) -> dict[str, Any] | None:
         """从 I2C 设备读取数据。"""
         # 实际实现应调用 smbus2 或 i2c-tools
         return {"address": self._address, "data": [0, 0, 0]}
@@ -776,7 +777,7 @@ class HardwareAbstractionLayer:
     """
 
     def __init__(self):
-        self._devices: Dict[str, IODevice] = {}
+        self._devices: dict[str, IODevice] = {}
         self._register_builtin_devices()
 
     def _register_builtin_devices(self):
@@ -797,18 +798,18 @@ class HardwareAbstractionLayer:
             self._devices[name].offline()
             del self._devices[name]
 
-    def get(self, name: str) -> Optional[IODevice]:
+    def get(self, name: str) -> IODevice | None:
         """获取设备。"""
         return self._devices.get(name)
 
-    def get_by_address(self, address: str) -> Optional[IODevice]:
+    def get_by_address(self, address: str) -> IODevice | None:
         """按地址获取设备。"""
         for dev in self._devices.values():
             if dev.address == address:
                 return dev
         return None
 
-    def list_devices(self) -> List[Dict]:
+    def list_devices(self) -> list[dict]:
         """列出所有设备。"""
         return [
             {
@@ -821,7 +822,7 @@ class HardwareAbstractionLayer:
             for dev in self._devices.values()
         ]
 
-    def read(self, device_name: str) -> Optional[Any]:
+    def read(self, device_name: str) -> Any | None:
         """从设备读取数据。"""
         device = self._devices.get(device_name)
         if device:
@@ -835,7 +836,7 @@ class HardwareAbstractionLayer:
             return device.write(value)
         return False
 
-    def batch_write(self, operations: List[tuple]) -> List[bool]:
+    def batch_write(self, operations: list[tuple]) -> list[bool]:
         """
         批量写入多个设备。
 
@@ -870,7 +871,7 @@ class MathaHardwareOps:
     def __init__(self, hal: HardwareAbstractionLayer):
         self.hal = hal
 
-    def 读取(self, device_name: str, path: str = "") -> Optional[Any]:
+    def 读取(self, device_name: str, path: str = "") -> Any | None:
         """从设备读取数据。"""
         if device_name == "file" and path:
             device = self.hal.get("file")
@@ -886,7 +887,7 @@ class MathaHardwareOps:
                 return device.write(value, path=path)
         return self.hal.write(device_name, value)
 
-    def 批量写入(self, operations: List[tuple]) -> List[bool]:
+    def 批量写入(self, operations: list[tuple]) -> list[bool]:
         """
         批量写入多个设备。
 
@@ -909,7 +910,7 @@ class MathaHardwareOps:
             return device.offline()
         return False
 
-    def 列出设备(self) -> List[Dict]:
+    def 列出设备(self) -> list[dict]:
         """列出所有设备。"""
         return self.hal.list_devices()
 

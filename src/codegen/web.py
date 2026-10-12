@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """WebGenerator：把 Matha 规格编译为 HTML/CSS/JS 网页成品。
 
 输出文件：
@@ -12,8 +11,8 @@
 """
 
 from __future__ import annotations
-import os
-from src.codegen.base import Generator, CodegenResult
+
+from src.codegen.base import CodegenResult, Generator
 
 
 class WebGenerator(Generator):

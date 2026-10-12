@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """DesktopGenerator：把 Matha 规格编译为 Python Tkinter 桌面应用成品。
 
 输出文件：
@@ -39,7 +38,8 @@
 """
 
 from __future__ import annotations
-from src.codegen.base import Generator, CodegenResult, Element
+
+from src.codegen.base import CodegenResult, Element, Generator
 
 
 class DesktopGenerator(Generator):

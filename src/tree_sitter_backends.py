@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """matha-auth tree-sitter 后端（无需外部依赖的内联 AST 解析器）
 
 提供 Rust/Go/JavaScript/C 的内联正则解析器，作为 tree-sitter C 扩展的降级方案。
 """
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # 支持标记（tree-sitter C 扩展不可用时降级为内联解析器）
 _TS_AVAILABLE = True
@@ -18,10 +17,10 @@ class ASTNode:
     """AST 节点"""
     type: str
     value: str
-    children: List['ASTNode'] = field(default_factory=list)
-    fields: Dict[str, 'ASTNode'] = field(default_factory=dict)
+    children: list[ASTNode] = field(default_factory=list)
+    fields: dict[str, ASTNode] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": self.type,
             "value": self.value,

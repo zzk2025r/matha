@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 矩阵求逆与 SVD 性能对比测试
 
 本脚本对比测试矩阵求逆和 SVD 分解在不同场景下的性能：
@@ -13,12 +12,12 @@
   python src/benchmarks/benchmark_inverse_svd.py --sizes 10 50 100
   python src/benchmarks/benchmark_inverse_svd.py --parallel --workers 4
 """
-import time
-import sys
 import logging
 import statistics
-from pathlib import Path
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 # 添加项目根目录到路径
 _project_root = Path(__file__).parent.parent.parent
@@ -83,7 +82,7 @@ def benchmark_inverse_python(sizes: list):
         A = Matrix.random(n, n)
         A.data[0][0] += n  # 确保非奇异
 
-        def compute():
+        def compute(A=A):
             return matrix_inverse(A)
 
         result = benchmark(compute, iterations=10, warmup=3)
@@ -96,7 +95,6 @@ def benchmark_inverse_python(sizes: list):
 
 def benchmark_inverse_numpy(sizes: list):
     """NumPy 矩阵求逆性能测试。"""
-    from src.stdlib.linear_algebra import Matrix
 
     try:
         import numpy as np
@@ -121,7 +119,7 @@ def benchmark_inverse_numpy(sizes: list):
 
 def benchmark_inverse_cached(sizes: list):
     """缓存矩阵求逆性能测试。"""
-    from src.stdlib.linear_algebra import Matrix, matrix_inverse, _inverse_cache
+    from src.stdlib.linear_algebra import Matrix, matrix_inverse
 
     results = {}
     for n in sizes:
@@ -129,7 +127,7 @@ def benchmark_inverse_cached(sizes: list):
         A.data[0][0] += n  # 确保非奇异
 
         # 第一次计算（缓存未命中）
-        def first_compute():
+        def first_compute(A=A):
             return matrix_inverse(A)
 
         first_result = benchmark(first_compute, iterations=3, warmup=1)
@@ -137,7 +135,7 @@ def benchmark_inverse_cached(sizes: list):
         print(f"  {n}x{n} 矩阵求逆（首次，缓存未命中）: {first_result['mean']*1000:.2f} ms")
 
         # 第二次计算（缓存命中）
-        def cached_compute():
+        def cached_compute(A=A):
             return matrix_inverse(A)
 
         cached_result = benchmark(cached_compute, iterations=10, warmup=3)
@@ -161,7 +159,7 @@ def benchmark_svd_python(sizes: list):
     for n in sizes:
         A = Matrix.random(n, n)
 
-        def compute():
+        def compute(A=A):
             return svd_decompose(A)
 
         result = benchmark(compute, iterations=3, warmup=1)
@@ -196,14 +194,14 @@ def benchmark_svd_numpy(sizes: list):
 
 def benchmark_svd_cached(sizes: list):
     """缓存 SVD 性能测试。"""
-    from src.stdlib.linear_algebra import Matrix, svd_decompose, _svd_cache
+    from src.stdlib.linear_algebra import Matrix, svd_decompose
 
     results = {}
     for n in sizes:
         A = Matrix.random(n, n)
 
         # 第一次计算（缓存未命中）
-        def first_compute():
+        def first_compute(A=A):
             return svd_decompose(A)
 
         first_result = benchmark(first_compute, iterations=3, warmup=1)
@@ -211,7 +209,7 @@ def benchmark_svd_cached(sizes: list):
         print(f"  {n}x{n} SVD（首次，缓存未命中）: {first_result['mean']*1000:.2f} ms")
 
         # 第二次计算（缓存命中）
-        def cached_compute():
+        def cached_compute(A=A):
             return svd_decompose(A)
 
         cached_result = benchmark(cached_compute, iterations=10, warmup=3)
@@ -344,7 +342,7 @@ def main():
 
     # 检查 NumPy 可用性
     try:
-        import numpy as np
+        import numpy as np  # noqa: F401
         numpy_available = not args.no_numpy
     except ImportError:
         numpy_available = False

@@ -15,10 +15,8 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
-from src.auth.models import User
-from src.auth.rbac import RBACMiddleware, AuthorizationError
+from src.auth.rbac import AuthorizationError, RBACMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +47,7 @@ class PermissionChangeRequest:
     target_usernames: list[str]  # 目标用户列表
     change_type: ChangeType
     new_roles: list[str] = field(default_factory=list)
-    is_active: Optional[bool] = None
+    is_active: bool | None = None
     reason: str = ""
     timestamp: float = field(default_factory=time.time)
 

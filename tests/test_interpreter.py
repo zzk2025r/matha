@@ -72,6 +72,37 @@ def test_set_up_initialization():
     print("  ✓ @:位置=10; 新位置=位置+1 → 11")
 
 
+def test_set_up_paren_form():
+    """@(...) 括号式设定：`|` 是项分隔符，`)` 是结束符（两者此前均被吃掉）。
+
+    回归：
+      * `@(x=1)`      → 设定值消费完整性检查漏了 `)`，回退分支把 `)` 一并吞掉，
+                        随后 `期望 )` 报错——**整个括号形式此前无法解析**。
+      * `@(x=1|y=2)`  → `_parse_bit_expr` 把 `|` 当位或吞进第一项的值，
+                        结果只绑了 `x`、`y` 永远未定义（`未定义变量 'y'`）。
+    """
+    print("\n--- @() 括号式设定 ---")
+    out, _ = interpret("@(x=1)\n#1：[x]")
+    assert out == [1], out
+    out, _ = interpret("@(x=1|y=2)\n#1：[x + y]")
+    assert out == [3], out
+    out, _ = interpret("@1(x=3)\n#1：[x]")
+    assert out == [3], out
+    out, _ = interpret("@2(x=1|y=2)\n#2：[x * y]")
+    assert out == [2], out
+    print("  ✓ @(x=1) / @(x=1|y=2) / @1(x=3) / @2(x=1|y=2) 均可解析并绑定")
+
+
+def test_set_up_nested_pipe_stays_bitwise():
+    """`@()` 顶层 `|` 是分隔符；嵌套分组内的 `|` 仍是位或。"""
+    print("\n--- @() 内嵌 | 保留位或语义 ---")
+    out, _ = interpret("@(m=(6|1))\n#1：[m]")
+    assert out == [7], out
+    out, _ = interpret("@:n = 6|1\n#1：[n]")
+    assert out == [7], out
+    print("  ✓ @(m=(6|1)) → 7；@:n = 6|1 → 7")
+
+
 def test_command_chain_trace():
     """命令链追踪。"""
     print("\n--- 命令链追踪 ---")

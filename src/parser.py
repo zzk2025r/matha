@@ -15,19 +15,67 @@
 """
 
 from __future__ import annotations
+
 import logging
+import re
 import threading
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from src.tokens import Token, TokenType
-from src.lexer import Lexer
-from src import ast_nodes as ast
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import auto
-from typing import Any, Optional
+from typing import Any
+
+from src import ast_nodes as ast
+from src.lexer import Lexer
+from src.tokens import Token, TokenType
 
 logger = logging.getLogger(__name__)
 
 # 全局自定义运算符表：symbol → TokenType
 GLOBAL_CUSTOM_OPS: dict[str, Any] = {}
+
+# ============================================================
+#  #：全能前缀 — 外来语言行级签名（Matha 关键字 func/let 等不占用）
+# ============================================================
+# 标识符首字符：`[^\W\d]` 表示“任意字母（含中文）或下划线、非数字”，
+# 使 `#：def 求和(...)` 这类中文命名的外来代码也能正确路由。
+_IDENT_START = r"[^\W\d]"
+
+_FOREIGN_LANG_HINTS: list[tuple[str, re.Pattern]] = [
+    ("python", re.compile(r"^\s*(?:import|from)\s+" + _IDENT_START + r"[\w.]*")),
+    ("python", re.compile(r"^\s*def\s+" + _IDENT_START + r"\w*\s*\(")),
+    ("python", re.compile(r"^\s*class\s+" + _IDENT_START + r"\w*\s*[:\(]")),
+    ("python", re.compile(r"^\s*if\s+__name__\s*==")),
+    ("rust", re.compile(r"^\s*fn\s+\w+\s*\(")),
+    ("rust", re.compile(r"^\s*use\s+" + _IDENT_START + r"[\w:]*")),
+    ("go", re.compile(r"^\s*package\s+\w+")),
+    # 注意：go 的 `func` 签名与 Matha 关键字 func 冲突，由调用方先做
+    # “Matha 关键字优先”分流（KW_FUNC → 《数学语句》），此处仅兜底。
+    ("go", re.compile(r"^\s*func\s+" + _IDENT_START + r"\w*\s*\(")),
+    ("js", re.compile(r"^\s*function\s+\w*\s*\(")),
+    ("js", re.compile(r"^\s*const\s+" + _IDENT_START + r"\w*\s*=")),
+    ("js", re.compile(r"^\s*console\.log\s*\(")),
+    ("js", re.compile(r"^\s*require\s*\(")),
+    ("c", re.compile(r"^\s*#\s*(?:include|define|ifn?def|pragma)\b")),
+    ("ruby", re.compile(r"^\s*def\s+\w+")),
+    ("ruby", re.compile(r"^\s*puts\s+")),
+]
+
+
+def _detect_foreign_lang(code: str) -> str:
+    """按行级签名检测外来语言；无法识别返回 ''。"""
+    for lang, pat in _FOREIGN_LANG_HINTS:
+        if pat.match(code):
+            return lang
+    return ""
+
+
+def _strip_hash_colon(line: str) -> str:
+    """去除 `#：`/`#:` 前缀，返回行首代码（#N：保留段号，视为非外来）。"""
+    s = line.lstrip()
+    if s.startswith("#"):
+        s = s[1:]
+        if s.startswith(("：", ":")):
+            s = s[1:]
+    return s.strip()
 
 
 class ParseError(Exception):
@@ -57,6 +105,11 @@ class Parser:
         self._in_func_app = False      # True when parsing inside a function call args
         self._in_let_value = False     # True when parsing the value expression of a let statement
         self._if_depth: int = 0        # 当前 if 表达式嵌套深度
+        # 正在解析 @(a|b|c) 括号式设定：此语境 `|` 是**项分隔符**而非位或
+        self._in_setup_paren = False
+        # 正在解析集合理解 { 输出 | 生成 | 条件 }：此语境 `|` 是**子句分隔符**
+        # 而非位或，否则 `{x | x >> S | x > 1}` 的 `|` 会被 _parse_bit_expr 吞掉。
+        self._in_comp_head = False
         # 段内步骤追踪（用于 5 步固定顺序校验，M3.1/M3.2）
         self._current_seg: int | None = None
         self._seg_step: int = 0
@@ -262,14 +315,20 @@ class Parser:
         self._expect(TokenType.MATHA_AT, "@")
         # 可选段号 @N
         if self._check(TokenType.LIT_INTEGER):
-            seg_id = int(self._advance().value)
+            int(self._advance().value)
         items: list[ast.SetUpItem] = []
         if self._check(TokenType.PUNCT_LPAREN):
-            # @N(a|b|c) 或 @(a|b|c) 括号形式
+            # @N(a|b|c) 或 @(a|b|c) 括号形式：`|` 是**项分隔符**（EBNF §2.4），
+            # 此语境下不作位或，否则 `1|y` 会被吞进第一项的值里。
             self._advance()
-            items.append(self._parse_set_up_item())
-            while self._match(TokenType.OP_PIPE):
+            prev = self._in_setup_paren
+            self._in_setup_paren = True
+            try:
                 items.append(self._parse_set_up_item())
+                while self._match(TokenType.OP_PIPE):
+                    items.append(self._parse_set_up_item())
+            finally:
+                self._in_setup_paren = prev
             self._expect(TokenType.PUNCT_RPAREN, ")")
             return ast.SetUp(items=items, form="paren")
         # @:xxx，yyy 或 @N：xxx，yyy 前缀形式
@@ -322,8 +381,11 @@ class Parser:
             saved_pos = self.pos
             try:
                 value = self._parse_expr(stop_at_comma=True)
-                # 检查值是否消费完整：当前应为逗号/换行/EOF/|(分格)
-                if not (self._is_comma() or self._check(TokenType.NEWLINE, TokenType.EOF, TokenType.OP_PIPE)):
+                # 检查值是否消费完整：当前应为逗号/换行/EOF/|(分格)/右括号)
+                # （`@(...)` 括号形式以 `)` 收尾，漏掉它会让回退分支吞掉 `)`）
+                if not (self._is_comma() or self._check(
+                        TokenType.NEWLINE, TokenType.EOF,
+                        TokenType.OP_PIPE, TokenType.PUNCT_RPAREN)):
                     raise ParseError("设定值未消费完整，回退为文本", self._current())
                 # 裸标识符作为配置值（字符串），不当作变量引用
                 if isinstance(value, ast.Variable) and not value.is_placeholder:
@@ -331,7 +393,8 @@ class Parser:
             except ParseError:
                 self.pos = saved_pos
                 parts: list[str] = []
-                while not self._is_comma() and not self._check(TokenType.NEWLINE, TokenType.EOF):
+                while not self._is_comma() and not self._check(
+                        TokenType.NEWLINE, TokenType.EOF, TokenType.PUNCT_RPAREN):
                     parts.append(self._advance().value)
                 value = ast.StringLit(value="".join(parts))
         return ast.SetUpItem(target=target, annotation=annotation, value=value)
@@ -500,13 +563,22 @@ class Parser:
 
     def _parse_mech_unit(self) -> ast.MechUnit:
         """<mech_unit> = ( <generate> | <generate_seg> ) , ( <code_block> | <mech_stmt> | <mech_body> )
-
-        #：{ ... }  → generate + code_block
-        #1：【命令】 → generate + GenStmt(content=command)
-        #1：【命令】{ ... }  → generate + [GenStmt, CodeBlock]
-        #1：？公式   → generate + GenStmt(content=expr)
-        #1：[输出]   → generate + GenStmt(content=output_trail)
         """
+        # 通用前缀：# import/#
+        if self._check(TokenType.MATHA_HASH):
+            if self.pos + 1 < len(self.tokens):
+                t1 = self._peek(1)
+                is_gen = False
+                if t1.type == TokenType.LIT_INTEGER:
+                    if self.pos + 2 < len(self.tokens):
+                        t2 = self._peek(2)
+                        if t2.type == TokenType.OP_COLON or t2.value in (':','：'):
+                            is_gen = True
+                if t1.value in (':','：'):
+                    is_gen = True
+                if not is_gen:
+                    fd = self._parse_foreign_decl()
+                    return ast.MechUnit(generate=ast.Generate(seg_id=None), body=fd)
         generate = self._parse_generate()
         self._current_seg = generate.seg_id
         self._seg_step = 0
@@ -533,6 +605,12 @@ class Parser:
 
         内容后检查 >> 链式（M3.2：单条不够才启用）。
         """
+        # M3.2 分行循环后缀：#N：…（x/y）/ #N：……（x/y）
+        # 主输出行 [输出] 已在上方独立一行，本行仅循环+子文件+路径。
+        # 与 _parse_gen_or_file_marker 的同名分支一致（那条走 mech_stmt 路径）。
+        if self._check(TokenType.MATHA_ELLIPSIS, TokenType.MATHA_DOUBLE_ELLIPSIS):
+            return self._parse_loop_line(generate)
+
         # #N：【命令】或 #N：《命令》
         if self._check(TokenType.MATHA_CMD_OPEN, TokenType.MATHA_READ_OPEN):
             cmd = self._parse_command_literal()
@@ -549,15 +627,23 @@ class Parser:
                 return self._parse_chain(stmt)
             return stmt
 
-        # #N：go / if / while / for / match / switch / typeof 任务 → 并发 / 控制流语句
+        # #N：go / if / while / for / match / switch / typeof / func（Matha 关键字优先）
+        # → 并发 / 控制流 / 函数定义语句。func 必须先于外来路由（否则会撞 go 签名）。
         if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE,
                        TokenType.KW_FOR, TokenType.KW_MATCH,
-                       TokenType.KW_SWITCH, TokenType.KW_TYPEOF):
+                       TokenType.KW_SWITCH, TokenType.KW_TYPEOF,
+                       TokenType.KW_FUNC, TokenType.KW_FUNCTION):
             node = self._parse_statement()
             stmt = ast.GenStmt(generate=generate, content=node)
             if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
+
+        # #：全能前缀：一行外来源码按语言签名路由（无需互译，直接可用）
+        foreign = self._detect_foreign_code()
+        if foreign:
+            code, lang = foreign
+            return self._parse_gen_foreign_decl(code, lang)
 
         # #N：？公式 / #N：字母公式 → expr
         expr = self._parse_expr()
@@ -567,12 +653,23 @@ class Parser:
         return stmt
 
     def _parse_generate(self) -> ast.Generate:
-        """<generate> = #： 或 <generate_seg> = #N："""
+        """<generate> = #： 或 <generate_seg> = #N：
+
+        通用前缀：当 `#` 后既不是数字也不是冒号时，**不**当作 Matha 生成标记。
+        此时交由调用方识别为 ForeignDecl（`# import ...`、`# def ...` 等）。
+        """
+        # 若下一个不是冒号且也不是数字开头的段号，说明是通用前缀而非 #：
+        # 前瞻：peek(0)=HASH，需判断后续
+        # 但我们已在调用处消费过？此方法由 _parse_gen_or_file_marker 调用时，
+        # 当前 token 可能是 HASH。这里再做检查：若当前是 HASH，且后续既非冒号
+        # 也非数字，则返回一个「非生成」标记？但接口约定返回 Generate。
+        # 更干净的做法：在 _parse_gen_or_file_marker 先前瞻。
         self._expect(TokenType.MATHA_HASH, "#")
         seg_id = None
         if self._check(TokenType.LIT_INTEGER):
             seg_id = int(self._advance().value)
         if not self._is_colon():
+            # 既不是 #N：也不是 #： → 通用前缀
             raise ParseError("期望冒号 : 或 ：", self._current())
         self._advance()  # 消费冒号
         return ast.Generate(seg_id=seg_id)
@@ -613,8 +710,24 @@ class Parser:
                     | <gen_stmt> | <gen_stmt_seg>
                     | <file_marker> | <global_id_stmt> | <statement> | <chain_stmt>
         """
-        # #：... → gen_stmt / file_marker
+        # #：... → gen_stmt / file_marker；否则可能是通用前缀 # import/#
         if self._check(TokenType.MATHA_HASH):
+            # 前瞻：若后续不是数字+冒号，也不是冒号，视为通用前缀（ForeignDecl）
+            # 检查 peek(1)
+            if self.pos + 1 < len(self.tokens):
+                t1 = self._peek(1)
+                is_gen = False
+                if t1.type == TokenType.LIT_INTEGER:
+                    # 检查 peek(2) 是否是冒号
+                    if self.pos + 2 < len(self.tokens):
+                        t2 = self._peek(2)
+                        if t2.type == TokenType.OP_COLON or t2.value == ':' or t2.value == '：':
+                            is_gen = True
+                    # 也可能是其他？但按现有规则 #N 后必须接冒号
+                if t1.value == ':' or t1.value == '：':
+                    is_gen = True
+                if not is_gen:
+                    return self._parse_foreign_decl()
             return self._parse_gen_or_file_marker()
 
         # @define_op → 自定义运算符定义
@@ -694,14 +807,13 @@ class Parser:
         return ast.DefineOp(symbol=symbol, precedence=precedence, assoc=assoc, token_type=custom_type)
 
     def _parse_gen_or_file_marker(self):
-        """区分 #：命令/公式/输出 vs #：【文件】/【路径】
+        """区分 #：命令/公式/输出 vs #：【文件】/【路径】 vs #<foreign>（通用前缀）
 
-        #：【文件】     → FileMarker（结束标记，无段号）
-        #：【path】     → FileMarker（路径引用，无段号）
-        #N：【命令】    → GenStmt(command)（有段号）
-        #N：？公式      → GenStmt(expr)
-        #N：[输出]      → GenStmt(output_trail)
-        #N：…1（x/y）  → GenStmt(loop_line)（M3.2 分行）
+        通用前缀（用户提议）：`# import sys`、`# def ...`、`# { ... }`
+        —— 以 `#` 开头但**后面不是冒号也不是数字+冒号**时，将整段外语源码
+        按「行级前缀」收集，视为外来声明（ForeignDecl）。此举不破坏现有
+        `#：`/`#N：` 用例（先在 _parse_generate 中做最长匹配判断更干净，
+        但此处也可兜底；建议优先在 _parse_generate 改动）。
         """
         generate = self._parse_generate()
         self._current_seg = generate.seg_id
@@ -740,15 +852,23 @@ class Parser:
                 return self._parse_chain(stmt)
             return stmt
 
-        # #N：go / if / while / for / match / switch / typeof 任务 → 并发 / 控制流语句
+        # #N：go / if / while / for / match / switch / typeof / func（Matha 关键字优先）
+        # → 并发 / 控制流 / 函数定义语句。func 必须先于外来路由（否则会撞 go 签名）。
         if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE,
                        TokenType.KW_FOR, TokenType.KW_MATCH,
-                       TokenType.KW_SWITCH, TokenType.KW_TYPEOF):
+                       TokenType.KW_SWITCH, TokenType.KW_TYPEOF,
+                       TokenType.KW_FUNC, TokenType.KW_FUNCTION):
             node = self._parse_statement()
             stmt = ast.GenStmt(generate=generate, content=node)
             if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
                 return self._parse_chain(stmt)
             return stmt
+
+        # #：全能前缀：一行外来源码按语言签名路由（无需互译，直接可用）
+        foreign = self._detect_foreign_code()
+        if foreign:
+            code, lang = foreign
+            return self._parse_gen_foreign_decl(code, lang)
 
         # #N：？公式 / #N：字母公式 → expr
         expr = self._parse_expr()
@@ -756,6 +876,38 @@ class Parser:
         if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
             return self._parse_chain(stmt)
         return stmt
+
+    def _parse_foreign_decl(self, prefix: str = "#") -> ast.ForeignDecl:
+        """裸 `# ...`：整行惰性收集为外语源码（裸 # 是符号，无执行语义）。"""
+        self._expect(TokenType.MATHA_HASH, "#")
+        parts: list[str] = []
+        while not self._check(TokenType.NEWLINE, TokenType.EOF):
+            parts.append(self._advance().value)
+        text = ''.join(parts)
+        return ast.ForeignDecl(text=text, prefix=prefix, lang=_detect_foreign_lang(text))
+
+    def _raw_line_of(self, line_no: int) -> str:
+        """按行号取原文字源码行。"""
+        if 1 <= line_no <= len(self.source_lines):
+            return self.source_lines[line_no - 1].rstrip("\r\n")
+        return ""
+
+    def _detect_foreign_code(self) -> tuple[str, str] | None:
+        """检测当前 `#：` 行是否为外来语言代码；返回 (原始码, 语言)，否则 None。"""
+        prev = self.tokens[self.pos - 1] if self.pos > 0 else None
+        if prev is None or prev.type == TokenType.EOF:
+            return None
+        code = _strip_hash_colon(self._raw_line_of(prev.line))
+        lang = _detect_foreign_lang(code)
+        if not lang:
+            return None
+        return code, lang
+
+    def _parse_gen_foreign_decl(self, code: str, lang: str) -> ast.ForeignDecl:
+        """消费本行剩余 token，产出可执行外来声明（#：全能前缀，保原文空格）。"""
+        while not self._check(TokenType.NEWLINE, TokenType.EOF):
+            self._advance()
+        return ast.ForeignDecl(text=code, prefix="#：", lang=lang)
 
     def _parse_loop_line(self, generate: ast.Generate):
         """M3.2/M3.3 分行循环后缀：#N：…N（x/y）[【子文件|…】][全局编号][……（x/y）][【文件/路径】]
@@ -815,9 +967,16 @@ class Parser:
         if next_tok.type in (TokenType.PUNCT_COMMA, TokenType.OP_PIPE, TokenType.MATHA_COMMA) \
                 or (next_tok.type == TokenType.SYMBOL and next_tok.value in (",", "|", "，", "；")):
             return self._parse_set_construct()
-        # 整数字面量 / 浮点 / 布尔 → 集合枚举（如 {1, 2, 3}）
+        # 集合理解（头部可为元组/表达式，且含生成子句 `v >> S`）：如
+        # {(x,y) | x >> A | y >> B}、{x * 2 | x >> S}
+        if self._has_top_level_comprehension_pipe(skip):
+            return self._parse_set_construct()
+        # 整数字面量 / 浮点 / 布尔 → 集合枚举（如 {1, 2, 3}）；
+        # 若其后紧跟 ":" 则为字典字面量（如 {1: "一", 2: "二"}）
         if next_tok.type in (TokenType.LIT_INTEGER, TokenType.LIT_FLOAT,
                              TokenType.LIT_BOOL):
+            if self._peek(skip + 1).type == TokenType.OP_COLON:
+                return self._parse_dict_literal()
             return self._parse_set_construct()
         # 字符串 → 检查后一个 token：: 则字典，, 或 | 则集合
         if next_tok.type == TokenType.LIT_STRING:
@@ -839,29 +998,239 @@ class Parser:
         # 无分隔符 → 代码块（含 if 体、lambda 体等）
         return self._parse_code_block()
 
+    _COMP_SKIP = (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT)
+    # 有界整数域推断的跨度上限（{x | 1 <= x <= N} 会展开为 N 个元素的枚举迭代器）
+    _COMP_RANGE_CAP = 100000
+    # 判定「顶层 | 之后是过滤条件」所用的比较/逻辑运算符（`==` 词法为两个 OP_ASSIGN）
+    _COMP_COND_OPS = frozenset((
+        TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE,
+        TokenType.OP_NEQ, TokenType.OP_ASSIGN,
+        TokenType.KW_AND, TokenType.KW_OR, TokenType.OP_LAND, TokenType.OP_LOR,
+    ))
+
+    def _span_paren_close(self, i: int) -> int | None:
+        """从索引 i（应为 `(`）找到配对 `)` 之后的位置；失败返回 None。
+
+        同时跟踪 () 与 [] 的嵌套，遇 `}` 视为越界。
+        """
+        depth = 0
+        j = i
+        while True:
+            tt = self._peek(j).type
+            if tt in (TokenType.EOF, TokenType.PUNCT_RBRACE):
+                return None
+            if tt in (TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACKET):
+                depth += 1
+            elif tt in (TokenType.PUNCT_RPAREN, TokenType.PUNCT_RBRACKET):
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+            j += 1
+
+    def _is_comprehension_head(self) -> bool:
+        """判定当前是否处于集合理解头部（`变量/元组 | ...`）。
+
+        头部为标识符/占位符，或以 `(...)` 分组的元组；其后（跳过换行）为 `|`。
+        集合枚举 `{}` / `{1,2,3}` 不受影响。
+        """
+        i = 0
+        while self._peek(i).type in self._COMP_SKIP:
+            i += 1
+        t = self._peek(i)
+        if t.type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER):
+            j = i + 1
+        elif t.type == TokenType.PUNCT_LPAREN:
+            j = self._span_paren_close(i)
+            if j is None:
+                return False
+        else:
+            return False
+        while self._peek(j).type in self._COMP_SKIP:
+            j += 1
+        return self._peek(j).type == TokenType.OP_PIPE
+
+    def _has_top_level_comprehension_pipe(self, skip: int) -> bool:
+        """扫描 `{` 之后内容，判断是否应将整个花括号体按集合理解解析。
+
+        命中任一条件即返回 True：
+        1. 存在「顶层 `|` 且其后为生成子句 `v >> S`」（如 `{ x * 2 | x >> S }`）；
+        2. 首个顶层 `|` 之后出现顶层比较/逻辑运算符，说明其后是过滤条件
+           （如 `{ x * x | 1 <= x <= 5 }`）。
+
+        仅有 `|` 而无生成子句/条件（如代码块 `{ a | b }`、位或集合 `{ 1 | 2 }`）
+        不误判，仍走原有分支。
+        """
+        depth = 0
+        k = skip
+        tops: list = []  # (token_index, token_type) 深度为 0 的记号
+        while True:
+            tt = self._peek(k).type
+            if tt == TokenType.EOF:
+                break
+            if tt in (TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACE, TokenType.PUNCT_LBRACKET):
+                depth += 1
+            elif tt in (TokenType.PUNCT_RPAREN, TokenType.PUNCT_RBRACE, TokenType.PUNCT_RBRACKET):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0:
+                tops.append((k, tt))
+            k += 1
+        first_pipe = None
+        for i, (nk, ntt) in enumerate(tops):
+            if ntt != TokenType.OP_PIPE:
+                continue
+            if first_pipe is None:
+                first_pipe = i
+            # 条件 1：`|` 后紧跟生成子句 `v >> S`
+            if i + 1 < len(tops):
+                mk, mtt = tops[i + 1]
+                if (mtt in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER)
+                        and self._peek(mk + 1).type == TokenType.OP_BIT_RSHIFT):
+                    return True
+        if first_pipe is None:
+            return False
+        # 条件 2：首个 `|` 之后存在顶层比较/逻辑运算符（过滤条件）
+        for _, ttt in tops[first_pipe + 1:]:
+            if ttt in self._COMP_COND_OPS:
+                return True
+        return False
+
+    def _parse_comprehension_clause(self):
+        """解析一个理解子句，返回 ("gen", 变量名, 可迭代表达式) 或 ("cond", 表达式)。
+
+        生成子句形如 `x >> S`（`>>` 为"步进/属于"）。判定：当前为标识符且紧随
+        `>>`。其余一律按过滤条件表达式解析。
+        """
+        if (self._peek(0).type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER)
+                and self._peek(1).type == TokenType.OP_BIT_RSHIFT):
+            name = self._advance().value
+            self._advance()  # >>
+            iterable = self._parse_expr()
+            return ("gen", name, iterable)
+        return ("cond", self._parse_expr())
+
+    def _parse_set_comprehension(self) -> ast.SetConstruct:
+        """集合理解 `{ 输出 | 子句 | 子句 ... }`（`|` 分隔）。
+
+        例：`{ x | x >> S | x > 1 }`、`{ (x,y) | x >> A | y >> B | x < y }`、
+        `{ x * 2 | x >> S }`。生成子句 `v >> S` 绑定 v 迭代 S；其余子句为过滤
+        条件；输出表达式逐次求值构成集合（去重保序）。
+        """
+        prev = self._in_comp_head
+        self._in_comp_head = True
+        head_tok = self._peek(0)
+        try:
+            output = self._parse_expr()
+            self._expect(TokenType.OP_PIPE, "集合理解子句分隔符 |")
+            generators: list = []
+            conditions: list = []
+            while True:
+                clause = self._parse_comprehension_clause()
+                if clause[0] == "gen":
+                    generators.append((clause[1], clause[2]))
+                else:
+                    conditions.append(clause[1])
+                # 映射写法 `{ n | n >> S , n + n }`：`,` 后为输出映射（末子句）
+                if self._is_comma():
+                    self._advance()
+                    output = self._parse_expr()
+                    break
+                if self._check(TokenType.OP_PIPE):
+                    self._advance()
+                    continue
+                break
+            self._expect(TokenType.PUNCT_RBRACE, "集合构造闭括号 }")
+        finally:
+            self._in_comp_head = prev
+        if not generators:
+            inferred = self._infer_comprehension_generator(conditions)
+            if inferred is None:
+                raise ParseError(
+                    "集合理解需带生成子句 `v >> 集合`，或可由条件推断有界整数域"
+                    "（如 {x | 1 <= x <= 10}）；当前无法确定该 {x | 条件} 的定义域",
+                    head_tok)
+            generators = [inferred]
+        return ast.SetConstruct(form="comprehension", variables=generators,
+                                conditions=conditions, output=output)
+
+    def _flatten_conjuncts(self, node) -> list:
+        """把顶层 `and` 二叉树展开为合取子句列表（用于定义域推断）。"""
+        if isinstance(node, ast.BinaryOp) and node.op == "and":
+            return self._flatten_conjuncts(node.left) + self._flatten_conjuncts(node.right)
+        return [node]
+
+    def _const_int(self, node):
+        """若 node 为整数常量（含负号），返回其 int 值；否则 None。"""
+        if isinstance(node, ast.IntegerLit):
+            return int(node.value)
+        if isinstance(node, ast.UnaryOp) and node.op == "-":
+            inner = self._const_int(node.operand)
+            return None if inner is None else -inner
+        return None
+
+    def _record_int_bound(self, bounds: dict, var: str, op: str, const: int) -> None:
+        """记录变量 var 的整数上下界（含/不含端点，收紧取更强约束）。"""
+        b = bounds.setdefault(var, {})
+        if op in ("<", "<="):
+            inc = (op == "<=")
+            cur = b.get("hi")
+            if cur is None or const < cur[0] or (const == cur[0] and not inc):
+                b["hi"] = (const, inc)
+        elif op in (">", ">="):
+            inc = (op == ">=")
+            cur = b.get("lo")
+            if cur is None or const > cur[0] or (const == cur[0] and not inc):
+                b["lo"] = (const, inc)
+
+    def _infer_comprehension_generator(self, conditions: list):
+        """从条件推断单一自由变量的有界整数域，返回 (变量名, 列表字面量) 或 None。
+
+        支持 `1 <= x <= 10`（解析为 and(1<=x, x<=10)）或分开的 `1 <= x` / `x <= 10`，
+        仅接受整数常量边界；跨度上限 `_COMP_RANGE_CAP`，超限或无法唯一确定则返回 None。
+        """
+        bounds: dict = {}
+        for c in conditions:
+            for conj in self._flatten_conjuncts(c):
+                if not isinstance(conj, ast.BinaryOp) or conj.op not in ("<", "<=", ">", ">="):
+                    continue
+                lvar = conj.left.name if isinstance(conj.left, ast.Variable) else None
+                rvar = conj.right.name if isinstance(conj.right, ast.Variable) else None
+                rconst = self._const_int(conj.right)
+                lconst = self._const_int(conj.left)
+                if lvar is not None and rconst is not None:
+                    self._record_int_bound(bounds, lvar, conj.op, rconst)
+                elif rvar is not None and lconst is not None:
+                    mirror = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}[conj.op]
+                    self._record_int_bound(bounds, rvar, mirror, lconst)
+        cands = [(v, b) for v, b in bounds.items() if "lo" in b and "hi" in b]
+        if len(cands) != 1:
+            return None
+        var, b = cands[0]
+        lo = b["lo"][0] + (0 if b["lo"][1] else 1)
+        hi = b["hi"][0] - (0 if b["hi"][1] else 1)
+        if (hi - lo + 1) > self._COMP_RANGE_CAP:
+            return None
+        values = [ast.IntegerLit(value=i) for i in range(lo, hi + 1)]
+        return (var, ast.ListLiteral(elements=values))
+
     def _parse_set_construct(self) -> ast.SetConstruct:
         """<set_construct> = { <var_list> | <cond_list> } 或 { <literal_list> }
 
         枚举形式: {1, 2, 3}（逗号分隔）
-        理解形式: {x | cond | cond}（管道分隔）
+        理解形式: {x | x >> S | cond | cond}（管道分隔）
         """
         self._expect(TokenType.PUNCT_LBRACE, "集合构造开括号 {")
         # 空集合 {}
         if self._check(TokenType.PUNCT_RBRACE):
             self._advance()
             return ast.SetConstruct(form="enumeration", literals=[])
+        # 集合理解 { 输出 | 生成 | 条件 }：头部「变量后紧跟 |」，或含生成子句
+        # （头部可为元组/表达式）
+        if self._is_comprehension_head() or self._has_top_level_comprehension_pipe(0):
+            return self._parse_set_comprehension()
         # 解析第一个元素
         first = self._parse_expr()
-        # 理解形式: first | cond | cond（管道分隔）
-        if self._check(TokenType.OP_PIPE):
-            self._advance()
-            variables = [first]
-            conditions = [self._parse_expr()]
-            while self._check(TokenType.OP_PIPE):
-                self._advance()
-                conditions.append(self._parse_expr())
-            self._expect(TokenType.PUNCT_RBRACE, "集合构造闭括号 }")
-            return ast.SetConstruct(form="comprehension", variables=variables, conditions=conditions)
         # 枚举形式: first, expr, expr（逗号分隔，半/全角等价）
         literals = [first]
         while self._is_comma():
@@ -899,6 +1268,46 @@ class Parser:
         self._expect(TokenType.PUNCT_RBRACE, "字典字面量闭括号 }")
         return ast.DictLiteral(keys=keys, values=values)
 
+    def _scan_for_annot_before_newline(self) -> bool:
+        """本行（自 pos 起）是否在换行/EOF 之前出现标注起始 `*/`。"""
+        i = self.pos
+        n = len(self.tokens)
+        while i < n:
+            t = self.tokens[i].type
+            if t == TokenType.MATHA_ANNOT_START:
+                return True
+            if t in (TokenType.NEWLINE, TokenType.EOF):
+                return False
+            i += 1
+        return False
+
+    def _try_parse_annotated_binding(self):
+        """EBNF <binding> = ( <variable> | <path_expr> ) , [ <annotation> ] , "=" , <expr>
+
+        目标与 `=` 之间的标注（如 `x */米/* = 5`）无法经表达式路径解析——`*/`
+        不是运算符，_parse_expr 会在标注处报「期望表达式」。
+        先廉价扫描确认本行确有标注，再走「目标 + 标注 + = + 值」；任一步不成立
+        就回退原位交回表达式路径，保证未标注绑定的行为一字不变。
+        """
+        if not (self._check(TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER)
+                and self._scan_for_annot_before_newline()):
+            return None
+        saved = self.pos
+        try:
+            target = self._parse_variable_or_path()
+            if not self._check(TokenType.MATHA_ANNOT_START):
+                self.pos = saved
+                return None
+            annotation = self._parse_annotation()
+            if not self._match(TokenType.OP_ASSIGN):
+                self.pos = saved
+                return None
+            value = self._parse_expr()
+        except ParseError:
+            self.pos = saved
+            return None
+        return ast.Binding(target=target, annotation=annotation, value=value)
+
     def _parse_expr_or_binding(self):
         """表达式 / 绑定消解：variable = expr → binding；否则 → expr
 
@@ -913,6 +1322,12 @@ class Parser:
         作为等于比较，不转换为绑定。
         例：op = "+" ? left + right : 0  →  BinaryOp("=", op, IfExpr(...))
         """
+        # 标注式绑定：`x */米/* = 5`（EBNF <binding> 允许目标与 = 之间夹标注）。
+        # 表达式路径读不了标注（`*/` 不是运算符），故在语句层先单独识别。
+        annotated = self._try_parse_annotated_binding()
+        if annotated is not None:
+            return annotated
+
         self._in_bind_value = True
         try:
             expr = self._parse_expr()
@@ -1076,17 +1491,17 @@ class Parser:
         if not self._in_control_flow and self._check(TokenType.KW_IF):
             return self._parse_if_expr()
         exprs = [self._parse_or_expr()]
-        # 支持分号/全角逗号分隔的多表达式序列（如 p = 推进(p); 当前(p)）
-        # 注意：分号后若跨行则视为语句分隔符，不再继续解析表达式序列
+        # 全角逗号分隔的多表达式序列（如 @(...) 项语境 stop_at_comma=False 时）。
+        # 注意：ASCII `;` 不在此处分隔表达式——它是「语句分隔符」，
+        # 由语句级循环（代码块/顶层）在 _skip_semicolon 消费，保证
+        # `x = 1; y = 2` 解析为两条绑定而非「序列取末段」。分号序列取末段
+        # 语义属于 if/then/else 分支（_parse_semicolon_exprs）。
         _expr_start_line = self._current().line
         while True:
-            _is_sep = (
-                (self._check(TokenType.SYMBOL) and self._current().value == ";")
-                or (self._check(TokenType.IDENTIFIER) and self._current().value == ";")
-            )
+            _is_sep = False
             # 全角逗号仅在 stop_at_comma=False 时作为分隔符
             if not stop_at_comma:
-                _is_sep = _is_sep or self._check(TokenType.MATHA_COMMA)
+                _is_sep = self._check(TokenType.MATHA_COMMA)
             if not _is_sep:
                 break
             _sep_line = self._current().line
@@ -1141,7 +1556,7 @@ class Parser:
     def _parse_or_expr(self):
         """<or_expr> = <and_expr> , { "or" , <and_expr> }"""
         left = self._parse_and_expr()
-        while self._check(TokenType.KW_OR):
+        while self._check(TokenType.KW_OR, TokenType.OP_LOR):
             self._advance()
             self._skip_newlines()
             right = self._parse_and_expr()
@@ -1151,7 +1566,7 @@ class Parser:
     def _parse_and_expr(self):
         """<and_expr> = <null_coal_expr> , { "and" , <null_coal_expr> }"""
         left = self._parse_null_coal_expr()
-        while self._check(TokenType.KW_AND):
+        while self._check(TokenType.KW_AND, TokenType.OP_LAND):
             self._advance()
             self._skip_newlines()
             right = self._parse_null_coal_expr()
@@ -1211,7 +1626,22 @@ class Parser:
         if self._check(TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE):
             op = self._advance().value
             right = self._parse_set_expr()
-            return ast.BinaryOp(op=op, left=left, right=right)
+            first = ast.BinaryOp(op=op, left=left, right=right)
+            # 链式比较：`a <= b <= c` → `(a <= b) and (b <= c)`（中间项复用，
+            # 对纯表达式语义等价；Matha 的 and 在宿主不短路，两侧均求值）。
+            # 此前只解析一个关系运算符，`1 <= x <= 10` 会在第二个 <= 处报错。
+            chain = None
+            while self._check(TokenType.OP_LT, TokenType.OP_GT,
+                              TokenType.OP_LE, TokenType.OP_GE):
+                op2 = self._advance().value
+                right2 = self._parse_set_expr()
+                cmp2 = ast.BinaryOp(op=op2, left=right, right=right2)
+                chain = cmp2 if chain is None else ast.BinaryOp(
+                    op="and", left=chain, right=cmp2)
+                right = right2
+            if chain is not None:
+                return ast.BinaryOp(op="and", left=first, right=chain)
+            return first
         if self._check(TokenType.OP_ASSIGN, TokenType.OP_NEQ):
             op = self._advance().value
             # 处理连续等号：= = → ==（等于比较）
@@ -1272,14 +1702,32 @@ class Parser:
         return left
 
     def _parse_bit_expr(self):
-        """<bit_expr> = <mul_expr> , { (OP_BIT_AND|OP_PIPE|OP_BIT_XOR|OP_BIT_LSHIFT|OP_BIT_RSHIFT) , <mul_expr> }"""
+        """<bit_expr> = <mul_expr> , { (OP_BIT_AND|OP_PIPE|OP_BIT_LSHIFT|OP_BIT_RSHIFT) , <mul_expr> }"""
         left = self._parse_mul_expr()
-        while self._check(TokenType.OP_BIT_AND, TokenType.OP_PIPE, TokenType.OP_BIT_XOR,
-                          TokenType.OP_BIT_LSHIFT, TokenType.OP_BIT_RSHIFT):
+        # 注意 OP_BIT_XOR(^) 不在此层：按 docs/06 与 EBNF 2.1，中缀 ^ 是**次方**
+        # （右结合、优先级高于 *），故由 _parse_pow_expr 与 ** 同层处理。
+        # 异或用专用符号 ⊕（EBNF §16）。此前 ^ 留在本层导致两个语义错误：
+        #   2 ^ 3 ^ 2 → 64（应 512，左结合而非右结合）
+        #   2 ^ 3 * 2  → 64（应 16，* 反而绑得更紧）
+        while True:
+            # `@()` 括号式设定中 `|` 是项分隔符，不在本层作位或
+            # 集合理解 {输出 | 生成 | 条件} 中 `|` 是子句分隔符，同样不作位或
+            if self._in_setup_paren or self._in_comp_head:
+                if not self._check(TokenType.OP_BIT_AND, TokenType.OP_XOR,
+                                   TokenType.OP_BIT_LSHIFT, TokenType.OP_BIT_RSHIFT):
+                    break
+            elif not self._check(TokenType.OP_BIT_AND, TokenType.OP_PIPE, TokenType.OP_XOR,
+                                 TokenType.OP_BIT_LSHIFT, TokenType.OP_BIT_RSHIFT):
+                break
             tok = self._advance()
             # OP_PIPE 在表达式语境中作为位或（bitwise OR）
             if tok.type == TokenType.OP_PIPE:
                 op = "|"
+            elif tok.type == TokenType.OP_BIT_AND:
+                # 归一化位与：`&` 与全角 `＆` 语义相同，均用 "&"
+                op = "&"
+            elif tok.type == TokenType.OP_XOR:
+                op = "⊕"
             else:
                 op = tok.value
             right = self._parse_mul_expr()
@@ -1305,37 +1753,72 @@ class Parser:
         return left
 
     def _parse_pow_expr(self):
-        """<pow_expr> = <unary> , [ "**" , <pow_expr> ]（中缀次方，右结合）"""
+        """<pow_expr> = <unary> , [ ("**" | "^") , <pow_expr> ]（中缀次方，右结合）
+
+        EBNF §2.1 `<power> = "^"`，docs/06「^（中缀）| 次方（右结合）」，
+        故中缀 ^ 与 ** 同层同语义：右结合、优先级高于 * / /。异或用 ⊕。
+        """
         left = self._parse_unary()
-        if self._check(TokenType.OP_POWER):
+        if self._check(TokenType.OP_POWER, TokenType.OP_BIT_XOR):
             self._advance()
             right = self._parse_pow_expr()
             return ast.BinaryOp(op="**", left=left, right=right)
         return left
 
-    def _parse_unary(self):
-        """<unary> = [ "-" | "~" | "++" | "--" | "not" | "^" ] , <postfix>
+    def _parse_unary_operand(self):
+        """一元运算符的操作数：允许再接一层同族前缀，否则退回 <postfix>。
 
-        ^ 前缀语义为开方（EBNF §16 双语义消解：前有操作数→中缀次方，
-        前无操作数→前缀开方）。lexer 对 ^ 产出 OP_BIT_XOR（中缀经
-        _parse_bit_expr、编译器再归一为 **），故前缀位置同查该 token。
+        文档级 6 的 `<<`（角度前缀）比一元负（级 7）更紧，故 `-<<30` 应解析为
+        `-(<<30)`；反过来 `<<-90` 也应解析为 `<<(-90)>`。若各一元分支都直接调
+        _parse_postfix，遇到前缀符号会报「期望表达式」。这里统一递归本函数，
+        覆盖 `<<` / `-` / `~` / `^` 任意层组合，再不行才落到 <postfix>。
+        注意不能调 _parse_unary：那是本函数的上一级，会造成无限递归。
         """
+        if self._check(TokenType.OP_BIT_LSHIFT):
+            self._advance()
+            return ast.UnaryOp(op="angle", operand=self._parse_unary_operand())
         if self._check(TokenType.OP_BIT_XOR, TokenType.OP_POWER):
             self._advance()
-            operand = self._parse_postfix()
+            return ast.UnaryOp(op="sqrt", operand=self._parse_unary_operand())
+        if self._check(TokenType.OP_MINUS):
+            self._advance()
+            return ast.UnaryOp(op="-", operand=self._parse_unary_operand())
+        if self._check(TokenType.OP_BIT_NOT):
+            self._advance()
+            return ast.UnaryOp(op="~", operand=self._parse_unary_operand())
+        return self._parse_postfix()
+
+    def _parse_unary(self):
+        """<unary> = [ "-" | "~" | "++" | "--" | "not" | "^" | "<<" ] , <postfix>
+
+        ^ 前缀语义为开方（EBNF §16 双语义消解：前有操作数→中缀次方，
+        前无操作数→前缀开方）。lexer 对 ^ 产出 OP_BIT_XOR，故前缀位置同查该 token。
+
+        << 前缀语义为角度（docs/06 级 6、docs/17 §42 <angle> = "<<"）：
+        `<<90` 表示 90°。中缀 `<<` 仍是位移（_parse_bit_expr），此处只在
+        **操作数起始位置**遇到 << 时才当角度，故 `1 << 2` 不受影响——
+        二元位移的左操作数先被解析完，右操作数若以 << 开头则是新的一项。
+        """
+        if self._check(TokenType.OP_BIT_LSHIFT):
+            self._advance()
+            operand = self._parse_unary_operand()
+            return ast.UnaryOp(op="angle", operand=operand)
+        if self._check(TokenType.OP_BIT_XOR, TokenType.OP_POWER):
+            self._advance()
+            operand = self._parse_unary_operand()
             return ast.UnaryOp(op="sqrt", operand=operand)
         if self._check(TokenType.OP_MINUS):
             self._advance()
-            operand = self._parse_postfix()
+            operand = self._parse_unary_operand()
             return ast.UnaryOp(op="-", operand=operand)
         if self._check(TokenType.OP_BIT_NOT):
             self._advance()
-            operand = self._parse_postfix()
+            operand = self._parse_unary_operand()
             return ast.UnaryOp(op="~", operand=operand)
         # 前缀自增 / 自减
         if self._check(TokenType.OP_INCR, TokenType.OP_DECR):
             op = self._advance().value
-            operand = self._parse_postfix()
+            operand = self._parse_unary_operand()
             return ast.UnaryOp(op=op, operand=operand)
         # 前缀逻辑非：not <expr>
         if self._check(TokenType.IDENTIFIER) and self._current().value == "not":
@@ -1701,8 +2184,14 @@ class Parser:
             return ast.AngleExpr(expr=inner)
 
         # ( ... ) 分组 / lambda / 元组
+        # 进入嵌套分组后 `@()` 的 `|` 分隔语境失效——组内的 `|` 恢复为位或
         if tok.type == TokenType.PUNCT_LPAREN:
-            return self._parse_paren_dispatch()
+            prev_setup = self._in_setup_paren
+            self._in_setup_paren = False
+            try:
+                return self._parse_paren_dispatch()
+            finally:
+                self._in_setup_paren = prev_setup
 
         # [ ... ] 列表字面量 / 输出
         # 空列表 [] 始终解析为列表字面量；非空列表在函数应用语境中或独立使用时均解析为列表字面量
@@ -1730,6 +2219,8 @@ class Parser:
                 _prev_tok.type in (
                     TokenType.OP_PLUS, TokenType.OP_MINUS, TokenType.OP_STAR,
                     TokenType.OP_SLASH, TokenType.OP_MOD, TokenType.OP_BIT_XOR,
+                    TokenType.OP_XOR, TokenType.OP_BIT_AND,
+                    TokenType.OP_BIT_LSHIFT, TokenType.OP_BIT_RSHIFT,
                     TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE,
                     TokenType.OP_NEQ, TokenType.OP_ASSIGN, TokenType.OP_FATARROW,
                     TokenType.OP_PIPE, TokenType.OP_ARROW_FW,
@@ -1793,11 +2284,12 @@ class Parser:
         raise ParseError("期望表达式", tok)
 
     def _parse_paren_dispatch(self):
-        """( ... ) 消解：分组 / lambda / 元组（元组暂未实现）
+        """( ... ) 消解：分组 / lambda / 元组
 
         lambda 形式：(params) => body，params 为逗号分隔的参数名（可带 : Type）。
+        元组形式：(a, b, ...) → ast.TupleExpr（求值见 interp._eval TupleExpr）。
         通过「试探-回退」区分：先尝试解析参数列表，若紧随 => 则为 lambda，
-        否则回退为分组表达式。修复历史 TODO：此前独立 lambda 的 params 永远
+        否则回退为分组/元组表达式。修复历史 TODO：此前独立 lambda 的 params 永远
         为空，导致 lambda 无法作为一等值正确传递参数。
         """
         self._expect(TokenType.PUNCT_LPAREN, "(")
@@ -1833,7 +2325,6 @@ class Parser:
         # 在控制流语境中，跳过 lambda/元组试探，直接解析为分组表达式
         if not self._in_control_flow and self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER):
             saved = self.pos
-            is_lambda = False
             try:
                 params = [self._parse_lambda_param()]
                 while self._is_comma():
@@ -1994,8 +2485,8 @@ class Parser:
         """lambda 参数：name 或 name: Type（类型标注可选，仅消费不保留）。"""
         tok = self._current()
         if tok.type == TokenType.MATHA_PLACEHOLDER:
-            self._advance()
-            return ast.Variable(name=tok.value, is_placeholder=True)
+            # 与表达式位置同规则：`？sum` 即变量 sum。
+            return self._parse_placeholder_var()
         # 参数名可以是关键字（如 func、and、or）
         if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
                         TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
@@ -2168,12 +2659,32 @@ class Parser:
             result = ast.BinaryOp(op=op, left=result, right=right)
         return result
 
+    def _parse_placeholder_var(self) -> ast.Variable:
+        """`？` 或 `？name` → 占位变量。
+
+        docs/02-词法结构.md「占位符」条与 docs/00 L135 明确：`？` 是「此处为一个
+        变量」的通用占位，**可被任意字母替代**（`？ = a = g1 = c3 = m1 = Z`），
+        且 `？sum` **等价于**具名变量 `sum`。
+
+        绑定位置此前已按此实现（`？sum = 0` 绑定的是 `sum`），但表达式位置没
+        跟进：`输出(？sum)` 会把 `？sum` 读成「把万能占位符当作函数、作用于
+        sum」，报「未定义函数 FuncApp(...)」。这里让两条路径一致——`？` 后紧跟
+        标识符时，合成一个**以该名字为名**的占位变量（is_placeholder 仅作标记，
+        求值时仍按普通变量查表）。
+        """
+        tok = self._current()                     # MATHA_PLACEHOLDER
+        self._advance()
+        nxt = self._current()
+        if nxt.type == TokenType.IDENTIFIER:
+            self._advance()
+            return ast.Variable(name=nxt.value, is_placeholder=True)
+        return ast.Variable(name=tok.value, is_placeholder=True)
+
     def _parse_variable(self) -> ast.Variable:
         """<variable> = <placeholder> | <identifier> | <symbol>"""
         tok = self._current()
         if tok.type == TokenType.MATHA_PLACEHOLDER:
-            self._advance()
-            return ast.Variable(name=tok.value, is_placeholder=True)
+            return self._parse_placeholder_var()
         if tok.type == TokenType.IDENTIFIER:
             self._advance()
             return ast.Variable(name=tok.value, is_placeholder=False)
@@ -2349,6 +2860,7 @@ class Parser:
         if self._check(TokenType.IDENTIFIER) and self._current().value == "rec":
             is_rec = True
             self._advance()
+        name = None
         # 元组解构: let (a, b) = expr [in expr]
         # 注意：let rec calc(i: Int) -> Float = ... 是函数定义，不是元组解构
         # 通过 lookahead 区分：( 后跟 identifier: 为函数定义，identifier 后为 ,/) 为元组解构
@@ -2473,6 +2985,7 @@ class Parser:
                         # func_def.body 已是 Lambda，统一归约为 LetBinding
                         # （params 置空，避免解释器/编译器把 Lambda 再包一层）
                         body_expr = None
+                        self._skip_newlines()
                         if self._check(TokenType.KW_IN):
                             self._advance()
                             body_expr = self._parse_expr()
@@ -2488,6 +3001,7 @@ class Parser:
                             # 让位回外层语境（见 _parse_let 同处注释）
                             self._in_let_value = saved_lv
                             body_expr = None
+                            self._skip_newlines()
                             if self._check(TokenType.KW_IN):
                                 self._advance()
                                 body_expr = self._parse_expr()
@@ -2507,6 +3021,27 @@ class Parser:
                         return ast.LetBinding(name=name, value=func_def.body,
                                               is_recursive=False, params=params,
                                               body=body_expr)
+                else:
+                    # 简写函数定义（无返回类型标注）: let [rec] f(params) = body [in expr]
+                    # value 保留为裸体，params 交给解释器/编译器包装为 Lambda。
+                    if name is None:
+                        raise ParseError("函数简写缺少名字", self._current())
+                    self._expect(TokenType.OP_ASSIGN, "=")
+                    saved_lv = self._in_let_value
+                    self._in_let_value = True
+                    try:
+                        value = self._parse_expr()
+                        self._in_let_value = saved_lv
+                        body_expr = None
+                        self._skip_newlines()
+                        if self._check(TokenType.KW_IN):
+                            self._advance()
+                            body_expr = self._parse_expr()
+                    finally:
+                        self._in_let_value = saved_lv
+                    return ast.LetBinding(name=name, value=value,
+                                          is_recursive=is_rec, params=params,
+                                          body=body_expr)
             except ParseError:
                 # 回退到普通 let 绑定（恢复名字消费前的位置）
                 self.pos = saved
@@ -2526,6 +3061,7 @@ class Parser:
             self._in_let_value = saved_lv
             # 可选 in
             body = None
+            self._skip_newlines()
             if self._check(TokenType.KW_IN):
                 self._advance()
                 body = self._parse_expr()
@@ -2549,6 +3085,7 @@ class Parser:
             # 让位回外层语境（见 _parse_let 同处注释）
             self._in_let_value = saved_lv
             body = None
+            self._skip_newlines()
             if self._check(TokenType.KW_IN):
                 self._advance()
                 body = self._parse_expr()
@@ -2652,7 +3189,6 @@ class Parser:
         self._advance()  # consume 'then'
         then_exprs = self._parse_semicolon_exprs()
         self._skip_newlines()
-        else_expr = None
         if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
             # 前瞻：如果 else 分支后还有 else，说明当前 else 属于外层三元，回退
             saved = self.pos
@@ -2723,9 +3259,7 @@ class Parser:
                     elif_cond = self._parse_expr()
                     self._skip_newlines()
                     # 支持 elif then ... 和 elif: ... 两种形式
-                    if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
-                        self._advance()
-                    elif self._check(TokenType.OP_COLON):
+                    if self._check(TokenType.IDENTIFIER) and self._current().value == "then" or self._check(TokenType.OP_COLON):
                         self._advance()
                     self._skip_newlines()
                     elif_then = self._parse_expr()
@@ -3516,7 +4050,7 @@ def parse(source: str) -> ast.Program:
 
 def parse_file(path: str) -> ast.Program:
     """从文件读取并解析。"""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return parse(f.read())
 
 
@@ -3539,9 +4073,10 @@ def parse_file(path: str) -> ast.Program:
 # ============================================================
 
 _parse_pool_lock = threading.Lock()
-_parse_pool: Optional[ThreadPoolExecutor] = None
+_parse_pool: ThreadPoolExecutor | None = None
 # 自适应：根据设备 CPU 核心数决定线程数（可通过 MATHA_THREAD_WORKERS 环境变量覆盖）
 from src.device_config import get_config as _get_device_config
+
 _MAX_WORKERS = _get_device_config().thread_workers
 
 
@@ -3568,7 +4103,7 @@ def parse_batch(
 
     executor = _get_or_create_pool(max_workers)
     futures = {executor.submit(_parse_worker, src): i for i, src in enumerate(sources)}
-    results: list[Optional[ast.Program]] = [None] * len(sources)
+    results: list[ast.Program | None] = [None] * len(sources)
 
     for future in as_completed(futures, timeout=60):
         idx = futures[future]

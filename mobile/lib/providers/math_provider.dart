@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../database/math_database.dart';
+import '../pyodide/math_executor.dart';
+import '../sync/offline_sync_manager.dart';
 import '../widgets/result_panel.dart';
 import '../widgets/history_panel.dart';
 
@@ -45,8 +48,9 @@ class MathProvider extends ChangeNotifier {
     try {
       final dir = await getApplicationDocumentsDirectory();
       _dbPath = '${dir.path}/matha.db';
-      // TODO: 初始化 SQLite 数据库
-      debugPrint('数据库路径: $_dbPath');
+      // 初始化 SQLite 数据库（建表与索引）
+      await MathDatabase.database;
+      debugPrint('数据库已初始化: $_dbPath');
     } catch (e) {
       debugPrint('初始化数据库失败: $e');
     }
@@ -97,15 +101,16 @@ class MathProvider extends ChangeNotifier {
     final startTime = DateTime.now().millisecondsSinceEpoch;
 
     try {
-      // TODO: 集成 Pyodide 执行 Python 代码
-      // 目前先模拟执行
-      final output = await _simulateExecution(code);
+      // 集成 Pyodide 执行 Python 代码（Web 端）
+      final execResult = await _execute(code);
+      final output = execResult.output;
+      final isSuccess = execResult.isSuccess;
       final duration = DateTime.now().millisecondsSinceEpoch - startTime;
 
       final result = ResultItem(
         code: code,
         output: output,
-        isSuccess: true,
+        isSuccess: isSuccess,
         duration: duration / 1000,
       );
 
@@ -113,7 +118,7 @@ class MathProvider extends ChangeNotifier {
         code: code,
         output: output,
         timestamp: DateTime.now(),
-        isSuccess: true,
+        isSuccess: isSuccess,
       );
 
       _results.add(result);
@@ -143,32 +148,29 @@ class MathProvider extends ChangeNotifier {
     }
   }
 
+  // 执行代码（离线时使用本地模拟，联网时调用平台执行器）
+  Future<MathExecuteResult> _execute(String code) {
+    if (_isOffline) {
+      return Future.value(MathExecuteResult(output: simulateOutput(code), isSuccess: true));
+    }
+    return executeMathCode(code);
+  }
+
   // 保存到离线存储
   Future<void> _saveToOfflineStorage(HistoryItem item) async {
     try {
-      // TODO: 集成 SQLite 存储
-      debugPrint('保存历史记录: ${item.code}');
+      // 集成 SQLite 存储
+      await MathDatabase().saveHistory(
+        code: item.code,
+        output: item.output,
+        timestamp: item.timestamp.millisecondsSinceEpoch,
+        isSuccess: item.isSuccess,
+        mode: _mode,
+      );
+      debugPrint('历史记录已保存到 SQLite: ${item.code}');
     } catch (e) {
       debugPrint('保存历史记录失败: $e');
     }
-  }
-
-  // 模拟执行（实际应调用 Pyodide）
-  Future<String> _simulateExecution(String code) async {
-    // 模拟延迟
-    await Future.delayed(const Duration(milliseconds: 100));
-
-    // 简单的模拟逻辑
-    if (code.contains('matrix') || code.contains('multiply')) {
-      return 'Matrix([[5, 8], [11, 14]])';
-    }
-    if (code.contains('mean') || code.contains('平均')) {
-      return '42.5';
-    }
-    if (code.contains('sum') || code.contains('求和')) {
-      return '100';
-    }
-    return '执行完成';
   }
 
   // 清空结果
@@ -258,9 +260,10 @@ class MathProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // TODO: 实现与云端的数据同步
-      await Future.delayed(const Duration(seconds: 1));
-      _syncStatus = '同步完成';
+      // 实现与云端的数据同步
+      final manager = OfflineSyncManager();
+      await manager.performSync();
+      _syncStatus = manager.syncStatus;
     } catch (e) {
       _syncStatus = '同步失败';
     } finally {
@@ -272,10 +275,15 @@ class MathProvider extends ChangeNotifier {
   // 清除本地缓存
   Future<void> clearLocalCache() async {
     try {
-      // TODO: 清除本地缓存
+      // 清除 SQLite 数据库缓存
+      final db = MathDatabase();
+      await db.clearHistory();
+      await db.cleanExpiredHistory(maxAgeDays: 0);
+      await db.cleanExpiredCache(maxAgeDays: 0);
       _history.clear();
       _results.clear();
       notifyListeners();
+      debugPrint('本地缓存已清除');
     } catch (e) {
       debugPrint('清除缓存失败: $e');
     }

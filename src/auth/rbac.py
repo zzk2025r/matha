@@ -28,8 +28,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Collection
 from functools import wraps
-from typing import Callable, Collection, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +237,7 @@ class RBACMiddleware:
 # 全局单例
 # ----------------------------------------------------------------------
 
-_default_rbac: Optional[RBACMiddleware] = None
+_default_rbac: RBACMiddleware | None = None
 
 
 def get_rbac() -> RBACMiddleware:

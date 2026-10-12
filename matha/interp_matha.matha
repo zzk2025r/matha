@@ -127,7 +127,9 @@ module 解释器 {
       let params = f[1] in
       let body = f[2] in
       let captured = f[3] in
-      let new_env = 绑定环境(captured, params[0], arg) in
+      (* 参数名：支持字符串或 Variable AST（{"类型":"变量","名":...}）两种形态 *)
+      let 参数名 = if type_of(params[0]) = "Dict" then (if params[0]["类型"] = "变量" then params[0]["名"] else params[0]) else params[0] in
+      let new_env = 绑定环境(captured, 参数名, arg) in
       let result = 求值(body, new_env) in
       if 标准库.len(params) > 1 then
         let remaining_params = params[1:] in

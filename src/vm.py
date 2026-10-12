@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 MathaVM：MIR 级原生解释器
 
@@ -13,12 +12,12 @@ MathaVM：MIR 级原生解释器
   4. 性能基准测试
 """
 from __future__ import annotations
-import math
-import logging
-from dataclasses import dataclass, field
-from typing import Any, Optional
-from enum import Enum
 
+import logging
+import math
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
 
 # ============================================================
 # 日志配置
@@ -73,7 +72,7 @@ class VMState:
     globals: dict[str, float] = field(default_factory=dict)
     outputs: list[Any] = field(default_factory=list)
     trace: list[str] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     max_iterations: int = 1_000_000
     _iterations: int = 0
 
@@ -141,7 +140,7 @@ class MathaVM:
 
         return self._state.outputs, self._state.trace
 
-    def run_func(self, func_name: str, args: Optional[list[float]] = None) -> float:
+    def run_func(self, func_name: str, args: list[float] | None = None) -> float:
         """运行指定函数，返回结果。"""
         self._state = VMState(max_iterations=self._state.max_iterations)
         args = args or []
@@ -183,10 +182,7 @@ class MathaVM:
                 break
             elif result == VMResult.RETURN:
                 return
-            elif result == VMResult.JUMP:
-                # pc 由 instruction handler 设置
-                pass
-            elif result == VMResult.BRANCH_TRUE or result == VMResult.BRANCH_FALSE:
+            elif result == VMResult.JUMP or result == VMResult.BRANCH_TRUE or result == VMResult.BRANCH_FALSE:
                 # pc 由 instruction handler 设置
                 pass
             elif result == VMResult.LABEL:
@@ -252,11 +248,45 @@ class MathaVM:
 
         # Store/Load
         if hasattr(instr, "instr_type"):
-            from src.mir import MIRInstrType
             if instr.instr_type.name == "STORE":
                 return self._execute_store(frame, instr, operands)
             elif instr.instr_type.name == "LOAD":
                 return self._execute_load(frame, instr, operands, result_var)
+            # 新增指令类型处理
+            elif instr.instr_type.name == "FREE":
+                return self._execute_free(frame, instr, operands)
+            elif instr.instr_type.name == "MEMCPY":
+                return self._execute_memcpy(frame, instr, operands)
+            elif instr.instr_type.name == "MEMSET":
+                return self._execute_memset(frame, instr, operands)
+            elif instr.instr_type.name in ("VLOAD", "VSTORE"):
+                return self._execute_vector_load_store(frame, instr, operands, result_var)
+            elif instr.instr_type.name in ("VADD", "VSUB", "VMUL", "VDIV"):
+                return self._execute_vector_arith(frame, instr, operands, result_var)
+            elif instr.instr_type.name == "VDOT":
+                return self._execute_vector_dot(frame, instr, operands, result_var)
+            elif instr.instr_type.name == "VMATMUL":
+                return self._execute_vector_matmul(frame, instr, operands, result_var)
+            elif instr.instr_type.name == "VTRANSPOSE":
+                return self._execute_vector_transpose(frame, instr, operands, result_var)
+            elif instr.instr_type.name.startswith("VREDUCE"):
+                return self._execute_vector_reduce(frame, instr, operands, result_var)
+            elif instr.instr_type.name == "VSLICE":
+                return self._execute_vector_slice(frame, instr, operands, result_var)
+            elif instr.instr_type.name == "VCONCAT":
+                return self._execute_vector_concat(frame, instr, operands, result_var)
+            elif instr.instr_type.name == "VRESHAPE":
+                return self._execute_vector_reshape(frame, instr, operands, result_var)
+            elif instr.instr_type.name in ("TRY", "CATCH", "THROW", "FINALLY", "LANDINGPAD"):
+                return self._execute_exception(frame, instr, operands, result_var, pc)
+            elif instr.instr_type.name in ("SPAWN", "SEND", "RECV", "SELECT", "YIELD"):
+                return self._execute_coroutine(frame, instr, operands, result_var, pc)
+            elif instr.instr_type.name in ("CHANNEL_CREATE", "CHANNEL_CLOSE"):
+                return self._execute_channel(frame, instr, operands, result_var)
+            elif instr.instr_type.name in ("MUTEX_LOCK", "MUTEX_UNLOCK", "COND_WAIT", "COND_SIGNAL", "COND_BROADCAST"):
+                return self._execute_sync(frame, instr, operands, result_var)
+            elif instr.instr_type.name in ("TRACE", "PROBE", "SAMPLE", "BREAKPOINT"):
+                return self._execute_debug(frame, instr, operands, result_var)
 
         if self._debug:
             self._state.trace.append(f"  [{pc}] skip {type(instr).__name__}")
@@ -355,7 +385,7 @@ class MathaVM:
         """执行函数调用。"""
         c_func = getattr(instr, "c_func", "") or metadata.get("c_func", "")
         func_name = getattr(instr, "func_name", "") or metadata.get("func_name", "")
-        lib = getattr(instr, "lib", "") or metadata.get("lib", "")
+        getattr(instr, "lib", "") or metadata.get("lib", "")
 
         # 解析操作数
         resolved = [self._resolve_operand(frame, op) for op in operands]
@@ -437,6 +467,342 @@ class MathaVM:
             frame.locals[result_var.lstrip("%")] = val
         return VMResult.OK
 
+    # ---------- 新增指令执行 ----------
+
+    def _execute_free(self, frame: VMFrame, instr: Any, operands: list) -> VMResult:
+        """执行 free 指令（标记内存可回收，实际由 Python GC 处理）。"""
+        target = getattr(instr, "target", "")
+        if target:
+            frame.locals.pop(target, None)
+        return VMResult.OK
+
+    def _execute_memcpy(self, frame: VMFrame, instr: Any, operands: list) -> VMResult:
+        """执行 memcpy 指令。"""
+        dest = getattr(instr, "dest", "")
+        src = getattr(instr, "src", "")
+        getattr(instr, "size", 0)
+        if src in frame.locals:
+            frame.locals[dest] = frame.locals[src]
+        return VMResult.OK
+
+    def _execute_memset(self, frame: VMFrame, instr: Any, operands: list) -> VMResult:
+        """执行 memset 指令。"""
+        target = getattr(instr, "target", "")
+        value = getattr(instr, "value", 0)
+        getattr(instr, "size", 0)
+        frame.locals[target] = float(value)
+        return VMResult.OK
+
+    # 向量操作
+    def _resolve_vector(self, frame: VMFrame, operand: Any) -> list:
+        """解析向量操作数。"""
+        if isinstance(operand, list):
+            return [float(x) for x in operand]
+        if isinstance(operand, str):
+            return frame.locals.get(operand.lstrip("%"), [])
+        return []
+
+    def _execute_vector_load_store(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """向量加载/存储。"""
+        if hasattr(instr, "instr_type"):
+            if instr.instr_type.name == "VLOAD":
+                source = operands[0] if operands else ""
+                vec = frame.locals.get(source.lstrip("%"), [])
+                if result_var:
+                    frame.locals[result_var.lstrip("%")] = vec
+            elif instr.instr_type.name == "VSTORE":
+                target = getattr(instr, "target", "")
+                vec = self._resolve_vector(frame, operands[0]) if operands else []
+                frame.locals[target] = vec
+        return VMResult.OK
+
+    def _execute_vector_arith(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """向量四则运算。"""
+        op = getattr(instr, "op", "")
+        left = self._resolve_vector(frame, operands[0]) if operands else []
+        right = self._resolve_vector(frame, operands[1]) if len(operands) > 1 else []
+
+        if len(left) != len(right):
+            self._state.trace.append(f"; ERROR: 向量长度不匹配 {len(left)} vs {len(right)}")
+            return VMResult.ERROR
+
+        try:
+            if op == "add":
+                result = [a + b for a, b in zip(left, right)]
+            elif op == "sub":
+                result = [a - b for a, b in zip(left, right)]
+            elif op == "mul":
+                result = [a * b for a, b in zip(left, right)]
+            elif op == "div":
+                result = [a / b if b != 0 else float("inf") for a, b in zip(left, right)]
+            else:
+                result = []
+
+            if result_var:
+                frame.locals[result_var.lstrip("%")] = result
+            return VMResult.OK
+        except Exception as e:
+            self._state.trace.append(f"; ERROR: 向量运算 {e}")
+            return VMResult.ERROR
+
+    def _execute_vector_dot(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """向量点积。"""
+        left = self._resolve_vector(frame, operands[0]) if operands else []
+        right = self._resolve_vector(frame, operands[1]) if len(operands) > 1 else []
+
+        if len(left) != len(right):
+            return VMResult.ERROR
+
+        result = sum(a * b for a, b in zip(left, right))
+        if result_var:
+            frame.locals[result_var.lstrip("%")] = result
+        return VMResult.OK
+
+    def _execute_vector_matmul(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """矩阵乘法（简化版：仅支持 1D 向量外积）。"""
+        left = self._resolve_vector(frame, operands[0]) if operands else []
+        right = self._resolve_vector(frame, operands[1]) if len(operands) > 1 else []
+
+        # 简化：向量外积
+        result = [[a * b for b in right] for a in left]
+        if result_var:
+            frame.locals[result_var.lstrip("%")] = result
+        return VMResult.OK
+
+    def _execute_vector_transpose(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """矩阵转置。"""
+        matrix = self._resolve_vector(frame, operands[0]) if operands else []
+        # 简化：假设是 2D 列表
+        if matrix and isinstance(matrix[0], list):
+            result = list(map(list, zip(*matrix)))
+        else:
+            result = matrix
+        if result_var:
+            frame.locals[result_var.lstrip("%")] = result
+        return VMResult.OK
+
+    def _execute_vector_reduce(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """向量归约。"""
+        vec = self._resolve_vector(frame, operands[0]) if operands else []
+        if not vec:
+            return VMResult.OK
+
+        reduce_op = getattr(instr, "reduce_op", "sum")
+        try:
+            if reduce_op == "sum":
+                result = sum(vec)
+            elif reduce_op == "max":
+                result = max(vec)
+            elif reduce_op == "min":
+                result = min(vec)
+            elif reduce_op == "mean":
+                result = sum(vec) / len(vec)
+            else:
+                result = 0.0
+
+            if result_var:
+                frame.locals[result_var.lstrip("%")] = result
+            return VMResult.OK
+        except Exception:
+            return VMResult.ERROR
+
+    def _execute_vector_slice(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """向量切片。"""
+        vec = self._resolve_vector(frame, operands[0]) if operands else []
+        start = getattr(instr, "start", (0,))
+        end = getattr(instr, "end", (len(vec),))
+
+        # 简化：1D 切片
+        s = start[0] if start else 0
+        e = end[0] if end else len(vec)
+        result = vec[s:e]
+
+        if result_var:
+            frame.locals[result_var.lstrip("%")] = result
+        return VMResult.OK
+
+    def _execute_vector_concat(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """向量拼接。"""
+        axis = getattr(instr, "axis", 0)
+        vectors = [self._resolve_vector(frame, op) for op in operands]
+        if not vectors:
+            return VMResult.OK
+
+        if axis == 0:
+            result = []
+            for v in vectors:
+                result.extend(v)
+        else:
+            # 简化：仅 axis=0
+            result = vectors[0]
+
+        if result_var:
+            frame.locals[result_var.lstrip("%")] = result
+        return VMResult.OK
+
+    def _execute_vector_reshape(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """向量重塑。"""
+        vec = self._resolve_vector(frame, operands[0]) if operands else []
+        getattr(instr, "new_shape", tuple())
+        # 简化：仅展平/重塑 1D
+        if result_var:
+            frame.locals[result_var.lstrip("%")] = vec
+        return VMResult.OK
+
+    # 异常处理
+    def _execute_exception(self, frame: VMFrame, instr: Any, operands: list, result_var: str, pc: int) -> VMResult:
+        """异常处理指令。"""
+        instr_type = instr.instr_type.name
+
+        if instr_type == "THROW":
+            exc = operands[0] if operands else "unknown"
+            frame.locals["__exception__"] = exc
+            self._state.trace.append(f"  [{pc}] throw {exc}")
+            # 查找最近的 catch
+            return VMResult.BRANCH_TRUE  # 触发异常分支
+
+        elif instr_type == "TRY":
+            # 记录 catch/finally 标签，实际跳转由异常触发
+            return VMResult.OK
+
+        elif instr_type == "CATCH":
+            # 检查是否有异常
+            exc = frame.locals.get("__exception__")
+            if exc:
+                exc_type = getattr(instr, "exception_type", "")
+                exc_var = getattr(instr, "exception_var", "")
+                if not exc_type or exc_type == exc:
+                    if exc_var:
+                        frame.locals[exc_var] = exc
+                    frame.locals.pop("__exception__", None)
+                    return VMResult.BRANCH_TRUE
+            return VMResult.BRANCH_FALSE
+
+        elif instr_type == "FINALLY":
+            # finally 块总是执行
+            return VMResult.OK
+
+        return VMResult.OK
+
+    # 协程/并发
+    def _execute_coroutine(self, frame: VMFrame, instr: Any, operands: list, result_var: str, pc: int) -> VMResult:
+        """协程指令。"""
+        instr_type = instr.instr_type.name
+
+        if instr_type == "SPAWN":
+            func_name = getattr(instr, "func_name", "")
+            # 简化：标记为后台任务
+            frame.locals["__spawned__"] = frame.locals.get("__spawned__", []) + [func_name]
+            return VMResult.OK
+
+        elif instr_type == "SEND":
+            channel = getattr(instr, "channel", "")
+            value = self._resolve_operand(frame, operands[0]) if operands else 0.0
+            if "__channels__" not in frame.locals:
+                frame.locals["__channels__"] = {}
+            if channel not in frame.locals["__channels__"]:
+                frame.locals["__channels__"][channel] = []
+            frame.locals["__channels__"][channel].append(value)
+            return VMResult.OK
+
+        elif instr_type == "RECV":
+            channel = getattr(instr, "channel", "")
+            channels = frame.locals.get("__channels__", {})
+            if channel in channels and channels[channel]:
+                value = channels[channel].pop(0)
+                if result_var:
+                    frame.locals[result_var.lstrip("%")] = value
+                return VMResult.OK
+            # 通道为空，挂起（简化：返回 0）
+            if result_var:
+                frame.locals[result_var.lstrip("%")] = 0.0
+            return VMResult.OK
+
+        elif instr_type == "SELECT":
+            cases = getattr(instr, "cases", [])
+            default_label = getattr(instr, "default_label", "")
+            channels = frame.locals.get("__channels__", {})
+            for ch, label in cases:
+                if ch in channels and channels[ch]:
+                    # 有数据，跳转到对应 label
+                    frame.pc = frame.labels.get(label, pc)
+                    return VMResult.JUMP
+            if default_label:
+                frame.pc = frame.labels.get(default_label, pc)
+                return VMResult.JUMP
+            return VMResult.OK
+
+        elif instr_type == "YIELD":
+            # 协程让出，简化为 no-op
+            return VMResult.OK
+
+        return VMResult.OK
+
+    def _execute_channel(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """通道操作。"""
+        instr_type = instr.instr_type.name
+
+        if instr_type == "CHANNEL_CREATE":
+            getattr(instr, "elem_type", "double")
+            getattr(instr, "capacity", 0)
+            chan_id = f"chan_{len(frame.locals.get('__channels__', {}))}"
+            if "__channels__" not in frame.locals:
+                frame.locals["__channels__"] = {}
+            frame.locals["__channels__"][chan_id] = []
+            if result_var:
+                frame.locals[result_var.lstrip("%")] = chan_id
+            return VMResult.OK
+
+        elif instr_type == "CHANNEL_CLOSE":
+            channel = getattr(instr, "channel", "")
+            if "__channels__" in frame.locals:
+                frame.locals["__channels__"].pop(channel, None)
+            return VMResult.OK
+
+        return VMResult.OK
+
+    def _execute_sync(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """同步原语。"""
+        instr_type = instr.instr_type.name
+
+        if instr_type == "MUTEX_LOCK":
+            mutex = getattr(instr, "mutex", "")
+            locks = frame.locals.get("__mutexes__", {})
+            locks[mutex] = True
+            frame.locals["__mutexes__"] = locks
+            return VMResult.OK
+
+        elif instr_type == "MUTEX_UNLOCK":
+            mutex = getattr(instr, "mutex", "")
+            locks = frame.locals.get("__mutexes__", {})
+            locks[mutex] = False
+            frame.locals["__mutexes__"] = locks
+            return VMResult.OK
+
+        elif instr_type in ("COND_WAIT", "COND_SIGNAL", "COND_BROADCAST"):
+            # 简化：标记条件变量状态
+            return VMResult.OK
+
+        return VMResult.OK
+
+    def _execute_debug(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:
+        """调试/画像指令。"""
+        instr_type = instr.instr_type.name
+
+        if instr_type == "TRACE":
+            msg = getattr(instr, "message", "")
+            self._state.trace.append(f"  [TRACE] {msg}")
+        elif instr_type == "PROBE":
+            probe_id = getattr(instr, "probe_id", "")
+            self._state.trace.append(f"  [PROBE] {probe_id}")
+        elif instr_type == "SAMPLE":
+            sample_name = getattr(instr, "sample_name", "")
+            self._state.trace.append(f"  [SAMPLE] {sample_name}")
+        elif instr_type == "BREAKPOINT":
+            self._state.trace.append("  [BREAKPOINT]")
+
+        return VMResult.OK
+
     # ---------- 帮助方法 ----------
 
     def _resolve_operand(self, frame: VMFrame, op: Any) -> float:
@@ -497,9 +863,9 @@ class CrossVerifier:
 
     def verify(self, source: str) -> dict:
         """验证源码在两个解释器中产生相同结果。"""
-        from src.parser import parse
         from src.interp import Interpreter
         from src.mir import MIRGenerator
+        from src.parser import parse
 
         result = {
             "source": source[:100],
@@ -535,12 +901,12 @@ class CrossVerifier:
             if interp_outputs == vm_outputs:
                 result["match"] = True
                 if self._verbose:
-                    print(f"  ✓ 输出匹配")
+                    print("  ✓ 输出匹配")
             else:
                 result["match"] = False
                 result["errors"].append(f"输出不匹配: interp={interp_outputs}, vm={vm_outputs}")
                 if self._verbose:
-                    print(f"  ✗ 输出不匹配")
+                    print("  ✗ 输出不匹配")
 
         except Exception as e:
             result["errors"].append(f"执行错误: {type(e).__name__}: {e}")
@@ -584,10 +950,11 @@ class CrossVerifier:
 def benchmark(interpreter_source: str, iterations: int = 1000) -> dict:
     """性能基准测试。"""
     import time
-    from src.parser import parse
+
     from src.interp import Interpreter
     from src.mir import MIRGenerator
     from src.mir_opt import MathaOptimizationPipeline
+    from src.parser import parse
 
     ast_program = parse(interpreter_source)
 

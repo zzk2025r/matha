@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 空间元数据领域模块：空间索引、元数据管理、地理编码、坐标变换。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -107,7 +107,7 @@ def _spatial_meta_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "空间索引效率", "元数据查询延迟", "地理编码精度",
-    "坐标变换误差", "边界框交集", "缓冲区分析",
+    "_空间索引效率", "_元数据查询延迟", "_地理编码精度",
+    "_坐标变换误差", "_边界框交集", "_缓冲区分析",
     "_register_spatial_meta", "_spatial_meta_symtab_names",
 ]

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 三进制编译器 v2 — 支持函数定义与递归
 ==========================================
@@ -8,11 +7,13 @@ Matha 三进制编译器 v2 — 支持函数定义与递归
   M3V VM 在加载时注册所有函数，调用时查找执行
 """
 
-import sys
-import os
 
-from base3_matha import Base3, Base2, Base10, char_to_trinary
-from lexer_matha import MathaLexer, Token
+try:
+    from src.base3_matha import Base3
+    from src.lexer_matha import MathaLexer
+except ImportError:
+    from base3_matha import Base3
+    from lexer_matha import MathaLexer
 
 
 # ============================================================
@@ -279,9 +280,7 @@ class MathaCompiler:
             tok = self._tokens[pos]
             if tok.type == 'PUNCT' and tok.value == ')':
                 break  # 停在 ')' 位置，不推进
-            if tok.type == 'ID':
-                pos += 1
-            elif tok.type == 'COMMA':
+            if tok.type == 'ID' or tok.type == 'COMMA':
                 pos += 1
             else:
                 return False
@@ -513,7 +512,7 @@ class MathaCompiler:
 
     def _parse_let_expr(self):
         self._consume()  # let
-        name_tok = self._expect('ID')
+        self._expect('ID')
         self._expect('OP')  # =
         value = self._parse_or()
         self._expect_kw('in')

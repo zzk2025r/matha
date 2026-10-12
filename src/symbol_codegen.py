@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 代码生成引擎 v1.3.0
 ===========================
@@ -19,12 +18,11 @@ Matha 代码生成引擎 v1.3.0
   • generate_library — 生成可导入的库文件
 """
 from __future__ import annotations
-import sys
-import os
-import re
+
 import logging
-from typing import Any, Dict, List, Optional
+import re
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger("matha.codegen")
 
@@ -38,7 +36,7 @@ class CodeGenerator:
     def __init__(self, lang: str, indent: str = "  "):
         self.lang = lang
         self.indent = indent
-        self._lines: List[str] = []
+        self._lines: list[str] = []
         self._level = 0
 
     def emit(self, line: str = ""):
@@ -63,7 +61,7 @@ class CodeGenerator:
 class PythonGenerator(CodeGenerator):
     """生成 Python 代码。"""
 
-    def __init__(self, func_name: str = "compute", imports: List[str] = None):
+    def __init__(self, func_name: str = "compute", imports: list[str] = None):
         super().__init__("python")
         self.func_name = func_name
         self.imports = imports or []
@@ -230,7 +228,7 @@ class DriverSpec:
     math_func: str          # 数学函数描述
     io_type: str            # input / output / both
     precision: str = "float"
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 class DriverGenerator:
@@ -254,9 +252,9 @@ class DriverGenerator:
         logger.info(f"  [CodeGen] 生成驱动: {spec.name} ({spec.language})")
         return code
 
-    def generate_library(self, functions: List[Dict[str, str]], lang: str = "python") -> str:
+    def generate_library(self, functions: list[dict[str, str]], lang: str = "python") -> str:
         """生成可导入库文件。"""
-        gen_cls = self.TARGETS.get(lang, PythonGenerator)
+        self.TARGETS.get(lang, PythonGenerator)
         if lang == "python":
             lines = ["# Auto-generated library by Matha CodeGen", ""]
             for func in functions:
@@ -288,7 +286,7 @@ class MathaCodeGen:
         self.drivers = DriverGenerator()
 
     def python(self, expr: str, func_name: str = "compute",
-               imports: List[str] = None) -> str:
+               imports: list[str] = None) -> str:
         """生成 Python 代码。"""
         gen = PythonGenerator(func_name, imports)
         gen.add_expression(expr)
@@ -318,7 +316,7 @@ class MathaCodeGen:
         """生成硬件驱动代码。"""
         return self.drivers.generate(spec)
 
-    def generate_library(self, functions: List[Dict[str, str]], lang: str = "python") -> str:
+    def generate_library(self, functions: list[dict[str, str]], lang: str = "python") -> str:
         """生成可导入库。"""
         return self.drivers.generate_library(functions, lang)
 
@@ -327,7 +325,7 @@ class MathaCodeGen:
 #  单例
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_codegen_instance: Optional[MathaCodeGen] = None
+_codegen_instance: MathaCodeGen | None = None
 
 
 def get_codegen() -> MathaCodeGen:

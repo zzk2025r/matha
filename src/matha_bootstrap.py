@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 自举桥接层 — 纯 Matha 主路径
 
 架构：
@@ -10,10 +9,10 @@ lexer/parser/stdlib/interp_matha 注册到解释器中。
 用户源码的解析和执行完全由 Matha 自举解释器完成。
 """
 from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 # ============================================================
 # 路径配置
@@ -52,10 +51,15 @@ def _load_matha_modules(interp) -> bool:
     """
     try:
         from src.parser import parse as _python_parse
+        from src import ast_nodes as _ast
 
         for mod_name in ("运行时引擎", "lexer", "parser", "stdlib", "interp_matha", "bootstrap_matha"):
             src = _load_matha_source(mod_name)
             prog = _python_parse(src)
+            # 只执行模块声明，跳过顶层 #：{ } 自测块（MechUnit）——
+            # 与 VM 自举（test_mbc_bootstrap）一致：模块加载不等于运行自测。
+            # 自测块会递归运行自举解释器，宿主加载时既无必要也不安全。
+            prog = _ast.Program([d for d in prog.decls if isinstance(d, _ast.ModuleDecl)])
             interp.run(prog)
 
         return True
@@ -64,7 +68,7 @@ def _load_matha_modules(interp) -> bool:
         return False
 
 
-def _get_interp(debug: Optional[bool] = None):
+def _get_interp(debug: bool | None = None):
     """创建 Interpreter 并加载 Matha 核心模块（懒加载）。"""
     from src.interp import Interpreter
     interp = Interpreter(debug=debug)
@@ -81,7 +85,7 @@ def _get_interp(debug: Optional[bool] = None):
 _USE_BOOTSTRAP = os.environ.get("MATHA_USE_BOOTSTRAP", "1") == "1"
 
 
-def interpret(source: str, debug: Optional[bool] = None) -> tuple[list, list[str]]:
+def interpret(source: str, debug: bool | None = None) -> tuple[list, list[str]]:
     """Matha 源码解释入口（Matha 自举优先，Python 降级）。
 
     流程：
@@ -115,7 +119,9 @@ def interpret(source: str, debug: Optional[bool] = None) -> tuple[list, list[str
         run_ast = interp.modules.get("自举加载器", {}).get("run_ast")
         if run_ast is None:
             raise RuntimeError("自举加载器.run_ast 未找到，请重新加载核心模块")
-        result, _ = run_ast(ast)
+        # run_ast 是 Matha 闭包元组（("__closure__", params, body, captured)），
+        # 宿主须经 _call_func_or_closure 应用，不能直接调用（tuple 不可调用）。
+        result, _ = interp._call_func_or_closure(run_ast, [ast])
         return ([result], [])
     except Exception:
         # 降级到 Python 解释器

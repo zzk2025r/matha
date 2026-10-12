@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M3V 字节码二进制工件（.mbc）读写。
 
 文件布局：
@@ -11,7 +10,7 @@ from __future__ import annotations
 import marshal
 import struct
 
-from src.mbc.compiler import MModule, MFunction
+from src.mbc.compiler import MFunction, MModule
 
 MAGIC = b"MBC1"
 

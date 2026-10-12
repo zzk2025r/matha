@@ -223,9 +223,38 @@ python scripts/build_exe.py
 
 | 项目 | 值 |
 |------|-----|
-| 版本 | v4.4 |
+| 版本 | v4.5 |
 | Python 要求 | >= 3.10 |
 | 许可证 | BSD-2-Clause |
 | GitHub | https://github.com/zzk2025r/matha |
 | 独立可执行文件 | ✅ 支持（无需 Python 环境） |
+| 领域模块 | 46+ |
+| 综合评分 | 9.0/10 |
+| 测试 | 21/21 通过 ✅ |
+
+---
+
+## 社区
+
+我们欢迎所有贡献者！
+
+### 参与方式
+
+- **报告问题** - [GitHub Issues](https://github.com/zzk2025r/matha/issues)
+- **提交 PR** - Fork 并创建 Pull Request
+- **文档改进** - 修复错别字、添加示例、翻译
+- **领域模块** - 添加新的领域模块
+- **测试贡献** - 添加测试用例
+
+### 贡献指南
+
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)
+
+### 行为准则
+
+详见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+---
+
+*生成时间：2026-09-26 | 版本：v4.5*
 | 离线部署 | ✅ 支持（完整功能离线可用） |

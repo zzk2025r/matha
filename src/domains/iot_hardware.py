@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha IoT硬件领域模块：MQTT通信、传感器网络、边缘计算、设备管理。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -106,7 +106,7 @@ def _iot_hardware_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "MQTT消息大小估算", "传感器覆盖半径", "边缘延迟计算",
-    "设备在线率", "数据聚合效率", "功耗预算",
+    "_MQTT消息大小估算", "_传感器覆盖半径", "_边缘延迟计算",
+    "_设备在线率", "_数据聚合效率", "_功耗预算",
     "_register_iot_hardware", "_iot_hardware_symtab_names",
 ]

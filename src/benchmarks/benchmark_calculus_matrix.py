@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 符号微积分与矩阵运算性能基准测试
 
 本脚本测试符号微积分和矩阵运算模块的性能。
@@ -14,11 +13,11 @@
   python src/benchmarks/benchmark_calculus_matrix.py
   python src/benchmarks/benchmark_calculus_matrix.py --verbose
 """
-import time
-import sys
+import importlib
 import logging
 import statistics
-import importlib
+import sys
+import time
 from pathlib import Path
 
 # 添加项目根目录到路径

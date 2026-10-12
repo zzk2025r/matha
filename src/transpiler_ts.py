@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 TypeScript 转译器 — 将 Matha AST 转译为 TypeScript 源码
 
@@ -12,10 +11,9 @@ TypeScript 是 Python 的超集，额外支持类型注解和接口定义。
   - 类型映射（float → number, bool → boolean, string → string）
 """
 from __future__ import annotations
-from typing import Any
 
-from src.parser import Parser
 from src import ast_nodes as ast
+from src.parser import Parser
 
 
 class TranspileError(Exception):
@@ -246,7 +244,7 @@ class TypeScriptTranspiler:
                     value = self._transpile_expr(s.value) if s.value else "null"
                     parts.append(f"{target} = {value}")
             return "; ".join(parts) if parts else "null"
-        return "null /* 未转译: {} */".format(type(expr).__name__)
+        return f"null /* 未转译: {type(expr).__name__} */"
 
     def _infer_type(self, expr) -> str | None:
         """推断表达式的 TypeScript 类型。"""

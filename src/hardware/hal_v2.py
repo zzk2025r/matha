@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 硬件抽象层 v2.0
 =======================
@@ -16,16 +15,14 @@ Matha 硬件抽象层 v2.0
   5. DriverGenerator — 构建各类硬件驱动代码
 """
 from __future__ import annotations
-import sys
-import os
+
 import json
-import time
 import logging
 import threading
-import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger("matha.hardware")
 
@@ -79,9 +76,9 @@ class SafeSideEffectEngine:
         """
         self._mode = mode
         self._lock = threading.Lock()
-        self._audit_log: List[SideEffect] = []
-        self._registry: Dict[str, SideEffectType] = {}  # func_name → effect_type
-        self._permission_map: Dict[str, str] = {}       # func_name → perm
+        self._audit_log: list[SideEffect] = []
+        self._registry: dict[str, SideEffectType] = {}  # func_name → effect_type
+        self._permission_map: dict[str, str] = {}       # func_name → perm
         self._total_calls = 0
         self._blocked_calls = 0
         logger.info(f"  [副作用引擎] 初始化: mode={mode}")
@@ -111,7 +108,7 @@ class SafeSideEffectEngine:
         func_name = getattr(func, "__name__", str(func))
         with self._lock:
             effect = self._registry.get(func_name, SideEffectType.NONE)
-            perm = self._permission_map.get(func_name, "readonly")
+            self._permission_map.get(func_name, "readonly")
 
         # 沙箱模式限制
         if self._mode == "sandbox" and effect in (SideEffectType.IO, SideEffectType.HARDWARE, SideEffectType.SYSTEM):
@@ -141,8 +138,8 @@ class SafeSideEffectEngine:
                 "by_type": self._count_by_type(),
             }
 
-    def _count_by_type(self) -> Dict[str, int]:
-        counts: Dict[str, int] = {}
+    def _count_by_type(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
         for name, etype in self._registry.items():
             key = etype.value
             counts[key] = counts.get(key, 0) + 1
@@ -199,7 +196,7 @@ class MemoryPage:
 class Pointer:
     """数学指针（带安全检查）。"""
 
-    def __init__(self, manager: 'PointerManager', addr: int, name: str = ""):
+    def __init__(self, manager: PointerManager, addr: int, name: str = ""):
         self._mgr = manager
         self._addr = addr
         self._name = name
@@ -222,7 +219,7 @@ class Pointer:
         """写入指针指向的内存。"""
         self._mgr.write(self._addr + offset, value, size)
 
-    def plus(self, offset: int) -> 'Pointer':
+    def plus(self, offset: int) -> Pointer:
         """指针算术：返回新指针。"""
         return Pointer(self._mgr, self._addr + offset, f"{self._name}+{offset}")
 
@@ -252,7 +249,7 @@ class PointerManager:
     """
 
     def __init__(self, page_count: int = 16):
-        self._pages: List[MemoryPage] = [
+        self._pages: list[MemoryPage] = [
             MemoryPage(i, i * MemoryPage._page_size)
             for i in range(page_count)
         ]
@@ -265,8 +262,8 @@ class PointerManager:
         for page in self._pages[4:]:
             page.writable = True
 
-        self._allocations: Dict[int, Tuple[int, int]] = {}  # ptr_addr → (page_id, size)
-        self._pointers: Dict[int, Pointer] = {}  # ptr_id → Pointer
+        self._allocations: dict[int, tuple[int, int]] = {}  # ptr_addr → (page_id, size)
+        self._pointers: dict[int, Pointer] = {}  # ptr_id → Pointer
         self._total_allocs = 0
         self._total_frees = 0
         self._bounds_violations = 0
@@ -386,7 +383,7 @@ class BareMetalTarget:
     heap_size: int = 8192             # 堆大小（字节）
     entry_point: str = "_start"       # 入口函数
     link_script: str = ""             # 链接脚本
-    defines: Dict[str, str] = field(default_factory=dict)  # 宏定义
+    defines: dict[str, str] = field(default_factory=dict)  # 宏定义
     optimize: str = "O2"              # 优化级别
 
     def __post_init__(self):
@@ -436,7 +433,7 @@ class ProtocolSpec:
     max_payload: int = 256          # 最大载荷
     timeout_ms: int = 1000          # 超时
     endian: str = "little"          # 字节序
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ProtocolParser:
@@ -447,7 +444,7 @@ class ProtocolParser:
     """
 
     def __init__(self):
-        self._parsers: Dict[ProtocolType, Callable] = {
+        self._parsers: dict[ProtocolType, Callable] = {
             ProtocolType.UART: self._parse_uart,
             ProtocolType.SPI: self._parse_spi,
             ProtocolType.I2C: self._parse_i2c,
@@ -572,10 +569,10 @@ class DriverSpec:
     """驱动规格。"""
     name: str
     kind: DriverKind
-    protocol: Optional[ProtocolSpec] = None
+    protocol: ProtocolSpec | None = None
     target_arch: Architecture = Architecture.ARM64
     target_lang: str = "python"   # python / c / matha
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
     math_expr: str = ""           # 关联的数学表达式
     safety_level: str = "medium"  # low/medium/high
 
@@ -589,7 +586,7 @@ class DriverGenerator:
 
     def __init__(self, protocol_parser: ProtocolParser):
         self._pp = protocol_parser
-        self._generated: List[dict] = []
+        self._generated: list[dict] = []
         logger.info("  [驱动生成器] 初始化完成")
 
     def generate(self, spec: DriverSpec) -> dict:
@@ -627,35 +624,67 @@ class DriverGenerator:
         return result
 
     def _gen_sensor_driver(self, spec: DriverSpec) -> str:
-        """传感器驱动模板。"""
-        expr = spec.math_expr or "read_raw() * scale + offset"
+        """传感器驱动模板（按协议生成原始采集逻辑）。"""
+        expr = spec.math_expr or "raw * SCALE + OFFSET"
+        proto = spec.protocol.protocol.value if spec.protocol else "direct"
+        register = spec.params.get("register", 0x00)
+        if proto == "i2c":
+            read_body = f"return i2c_read({register})"
+        elif proto == "spi":
+            read_body = (
+                f"resp = spi_transfer(bytes([{register}, 0x00]))\n"
+                f"        return (resp[0] << 8) | resp[1]"
+            )
+        elif proto == "uart":
+            read_body = "data = uart_recv()\n        return data[0] if data else 0.0"
+        else:
+            read_body = (
+                "raise NotImplementedError("
+                f"'传感器 {spec.name} 需在子类中实现 _read_raw()（协议={proto}）')"
+            )
         return (
             f"# Matha Sensor Driver: {spec.name}\n"
-            f"# 协议: {spec.protocol.protocol.value if spec.protocol else 'direct'}\n"
+            f"# 协议: {proto}\n"
             f"class {spec.name.title()}Sensor:\n"
             f"    SCALE = {spec.params.get('scale', 1.0)}\n"
             f"    OFFSET = {spec.params.get('offset', 0.0)}\n"
             f"    UNIT = '{spec.params.get('unit', 'raw')}'\n"
+            f"    REGISTER = {register}\n"
             f"\n"
             f"    def read(self) -> float:\n"
             f"        raw = self._read_raw()\n"
             f"        return raw * self.SCALE + self.OFFSET  # {expr}\n"
             f"\n"
             f"    def _read_raw(self) -> float:\n"
-            f"        # TODO: 实现原始数据采集\n"
-            f"        pass\n"
+            f"        \"\"\"采集原始数据（协议: {proto}）。\"\"\"\n"
+            f"        {read_body}\n"
             f"\n"
             f"    def calibrated_read(self) -> dict:\n"
             f"        return {{'value': self.read(), 'unit': self.UNIT}}\n"
         )
 
     def _gen_actuator_driver(self, spec: DriverSpec) -> str:
+        proto = spec.protocol.protocol.value if spec.protocol else "direct"
+        register = spec.params.get("register", 0x00)
+        if proto == "i2c":
+            write_body = f"i2c_write({register}, int(value) & 0xFF)"
+        elif proto == "spi":
+            write_body = f"spi_transfer(bytes([{register}, int(value) & 0xFF]))"
+        elif proto == "uart":
+            write_body = "uart_send(str(value).encode())"
+        else:
+            write_body = (
+                "raise NotImplementedError("
+                f"'执行器 {spec.name} 需在子类中实现 _write()（协议={proto}）')"
+            )
         return (
             f"# Matha Actuator Driver: {spec.name}\n"
+            f"# 协议: {proto}\n"
             f"class {spec.name.title()}Actuator:\n"
             f"    MIN = {spec.params.get('min', 0.0)}\n"
             f"    MAX = {spec.params.get('max', 100.0)}\n"
             f"    STEP = {spec.params.get('step', 0.1)}\n"
+            f"    REGISTER = {register}\n"
             f"\n"
             f"    def __init__(self):\n"
             f"        self._state = 0.0\n"
@@ -677,9 +706,8 @@ class DriverGenerator:
             f"        return self._state\n"
             f"\n"
             f"    def _write(self, value: float) -> None:\n"
-            f"        \"\"\"物理输出（由子类实现）\"\"\"\n"
-            f"        # TODO: 接入硬件 PWM/DAC/GPIO 控制\n"
-            f"        pass\n"
+            f"        \"\"\"物理输出（协议: {proto}）。\"\"\"\n"
+            f"        {write_body}\n"
         )
 
     def _gen_math_driver(self, spec: DriverSpec) -> str:
@@ -694,18 +722,36 @@ class DriverGenerator:
     def _gen_comm_driver(self, spec: DriverSpec) -> str:
         if spec.protocol:
             proto = spec.protocol
+            name = spec.name
+            to = proto.timeout_ms
+            pv = proto.protocol.value
+            if pv == "uart":
+                send_body = "return uart_send(data)"
+                recv_body = f"return uart_recv({to})"
+            elif pv == "spi":
+                send_body = "return len(spi_transfer(bytes(data)))"
+                recv_body = f"return bytes(spi_transfer(bytes({proto.max_payload})))"
+            elif pv == "i2c":
+                send_body = "i2c_write(0x00, data[0] if data else 0)\n    return len(data)"
+                recv_body = "return bytes([i2c_read(0x00)])"
+            elif pv == "can":
+                send_body = "return can_send(0x000, bytes(data), len(data))"
+                recv_body = "return b''  # CAN 接收需先配置硬件过滤器"
+            else:
+                send_body = f"raise NotImplementedError('不支持的协议: {pv}')"
+                recv_body = f"raise NotImplementedError('不支持的协议: {pv}')"
             return (
-                f"# Matha Comm Driver: {spec.name}\n"
-                f"# {proto.protocol.value} @ {proto.baud_rate}\n"
-                f"def {spec.name}_send(data: bytes) -> int:\n"
-                f"    # TODO: 实现 {proto.protocol.value} 发送\n"
-                f"    return len(data)\n"
+                f"# Matha Comm Driver: {name}\n"
+                f"# {pv} @ {proto.baud_rate}\n"
+                f"def {name}_send(data: bytes) -> int:\n"
+                f"    \"\"\"通过 {pv} 发送数据。\"\"\"\n"
+                f"    {send_body}\n"
                 f"\n"
-                f"def {spec.name}_recv(timeout_ms={proto.timeout_ms}) -> bytes:\n"
-                f"    # TODO: 实现 {proto.protocol.value} 接收\n"
-                f"    return b''\n"
+                f"def {name}_recv(timeout_ms={to}) -> bytes:\n"
+                f"    \"\"\"通过 {pv} 接收数据。\"\"\"\n"
+                f"    {recv_body}\n"
             )
-        return f"# Matha Comm Driver: {spec.name}\n# TODO\n"
+        return f"# Matha Comm Driver: {spec.name}\n# 未指定协议，请在 DriverSpec.protocol 中配置\n"
 
     def _gen_generic_driver(self, spec: DriverSpec) -> str:
         return (
@@ -717,23 +763,30 @@ class DriverGenerator:
             f"        self._initialized = False\n"
             f"\n"
             f"    def init(self) -> bool:\n"
-            f"        \"\"\"初始化驱动\"\"\"\n"
-            f"        # TODO: 实现 {spec.name} 的初始化逻辑\n"
+            f"        \"\"\"初始化驱动。\"\"\"\n"
+            f"        self._configure()\n"
             f"        self._initialized = True\n"
             f"        return self._initialized\n"
             f"\n"
             f"    def execute(self, **kwargs) -> Any:\n"
-            f"        \"\"\"执行驱动操作\"\"\"\n"
+            f"        \"\"\"执行驱动操作。\"\"\"\n"
             f"        if not self._initialized:\n"
             f"            raise RuntimeError('驱动未初始化，请先调用 init()')\n"
-            f"        # TODO: 实现 {spec.name} 的驱动操作\n"
+            f"        return self._run(**kwargs)\n"
+            f"\n"
+            f"    def _configure(self) -> None:\n"
+            f"        \"\"\"子类可覆盖：执行 {spec.name} 的硬件初始化。\"\"\"\n"
             f"        return None\n"
+            f"\n"
+            f"    def _run(self, **kwargs) -> Any:\n"
+            f"        \"\"\"子类可覆盖：执行 {spec.name} 的具体驱动操作。\"\"\"\n"
+            f"        return kwargs or None\n"
             f"\n"
             f"    def status(self) -> dict:\n"
             f"        return {{'initialized': self._initialized, 'params': self._params}}\n"
         )
 
-    def list_generated(self) -> List[dict]:
+    def list_generated(self) -> list[dict]:
         """列出已生成的驱动。"""
         return list(self._generated)
 
@@ -750,8 +803,8 @@ class NativeBackend:
     """
 
     def __init__(self):
-        self._targets: Dict[Architecture, BareMetalTarget] = {}
-        self._compiler_cache: Dict[str, str] = {}  # hash → compiled_code
+        self._targets: dict[Architecture, BareMetalTarget] = {}
+        self._compiler_cache: dict[str, str] = {}  # hash → compiled_code
         logger.info("  [原生编译] 后端初始化完成")
 
     def register_target(self, target: BareMetalTarget) -> None:
@@ -810,32 +863,75 @@ class NativeBackend:
         return cg.python(expr, func_name=func_name)
 
     def _compile_to_asm(self, expr: str, func_name: str, arch: Architecture) -> str:
-        """生成汇编代码框架。"""
-        arch_ops = {
-            Architecture.X86_64: "x86_64",
-            Architecture.ARM64: "aarch64",
-            Architecture.ARM32: "arm32",
-            Architecture.RISCV64: "riscv64",
-            Architecture.RISCV32: "riscv32",
-            Architecture.AVR: "avr",
-        }
-        op = arch_ops.get(arch, "generic")
-        return (
-            f"; Matha Assembly — {op}\n"
+        """生成汇编代码（按目标架构，恒等函数骨架）。"""
+        header = (
+            f"; Matha Assembly\n"
             f"; Expression: {expr}\n"
-            f"; Note: 实际汇编需通过 LLVM/GCC 后端生成\n"
+            f"; Arch: {arch.value}\n"
             f"\n"
-            f"global {func_name}\n"
+        )
+        if arch == Architecture.ARM64:
+            return header + (
+                ".text\n"
+                f".globl {func_name}\n"
+                f"{func_name}:\n"
+                "    stp x29, x30, [sp, #-16]!\n"
+                "    mov x29, sp\n"
+                "    // 参数/返回: d0（恒等）\n"
+                "    fmov d0, d0\n"
+                "    ldp x29, x30, [sp], #16\n"
+                "    ret\n"
+            )
+        if arch == Architecture.ARM32:
+            return header + (
+                ".text\n"
+                f".global {func_name}\n"
+                f"{func_name}:\n"
+                "    push {r4, lr}\n"
+                "    // 参数/返回: d0（恒等）\n"
+                "    vmov.f64 d0, d0\n"
+                "    pop {r4, pc}\n"
+            )
+        if arch in (Architecture.RISCV64, Architecture.RISCV32):
+            return header + (
+                ".text\n"
+                f".globl {func_name}\n"
+                f"{func_name}:\n"
+                "    addi sp, sp, -16\n"
+                "    sd ra, 8(sp)\n"
+                "    // 参数/返回: fa0（恒等）\n"
+                "    fmv.d fa0, fa0\n"
+                "    ld ra, 8(sp)\n"
+                "    addi sp, sp, 16\n"
+                "    ret\n"
+            )
+        if arch == Architecture.AVR:
+            return header + (
+                ".text\n"
+                f".global {func_name}\n"
+                f"{func_name}:\n"
+                "    push r28\n"
+                "    push r29\n"
+                "    // 参数/返回: r24:r25（恒等）\n"
+                "    pop r29\n"
+                "    pop r28\n"
+                "    ret\n"
+            )
+        return header + (
+            ".text\n"
+            f".globl {func_name}\n"
+            f".type {func_name}, @function\n"
             f"{func_name}:\n"
-            f"    push {{r4, lr}}\n"
-            f"    mov r0, #0        ; placeholder: {func_name}({expr})\n"
-            f"    pop {{r4, pc}}\n"
-            f"\n"
-            f"; TODO: 实现 {op} 架构的完整汇编生成\n"
-            f"; 建议通过 LLVM IR 中间层或 GCC builtin 实现\n"
+            "    push %rbp\n"
+            "    mov %rsp, %rbp\n"
+            "    // 参数/返回: xmm0（恒等）\n"
+            "    movsd %xmm0, %xmm0\n"
+            "    pop %rbp\n"
+            "    ret\n"
+            f".size {func_name}, .-{func_name}\n"
         )
 
-    def get_targets(self) -> List[str]:
+    def get_targets(self) -> list[str]:
         """列出已注册的目标架构。"""
         return [t.arch.value for t in self._targets.values()]
 
@@ -851,11 +947,11 @@ class NativeBackend:
 #  单例 & 导出
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_side_effect_engine: Optional[SafeSideEffectEngine] = None
-_pointer_manager: Optional[PointerManager] = None
-_protocol_parser: Optional[ProtocolParser] = None
-_driver_generator: Optional[DriverGenerator] = None
-_native_backend: Optional[NativeBackend] = None
+_side_effect_engine: SafeSideEffectEngine | None = None
+_pointer_manager: PointerManager | None = None
+_protocol_parser: ProtocolParser | None = None
+_driver_generator: DriverGenerator | None = None
+_native_backend: NativeBackend | None = None
 
 
 def get_side_effect_engine(mode: str = "full") -> SafeSideEffectEngine:

@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../database/math_database.dart';
+import 'remote_transport.dart';
 
 class OfflineSyncManager extends ChangeNotifier {
   // 单例
@@ -12,6 +13,21 @@ class OfflineSyncManager extends ChangeNotifier {
   OfflineSyncManager._internal();
 
   final MathDatabase _db = MathDatabase();
+
+  // 远程同步端点（后端 API 基地址；未配置时跳过远程调用）
+  String? _remoteBaseUrl;
+
+  /// 配置远程同步端点
+  void setRemoteEndpoint(String baseUrl) {
+    final trimmed = baseUrl.trim();
+    _remoteBaseUrl = trimmed.endsWith('/')
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
+    debugPrint('[Sync] 远程端点已配置: $_remoteBaseUrl');
+    notifyListeners();
+  }
+
+  String? get remoteBaseUrl => _remoteBaseUrl;
 
   // 状态
   bool _isOffline = false;
@@ -184,20 +200,77 @@ class OfflineSyncManager extends ChangeNotifier {
     return records.map((row) => SyncTask.fromMap(row)).toList();
   }
 
-  // 获取远程数据（占位实现）
+  // 获取远程数据
   Future<Map<String, dynamic>?> _fetchRemoteData(String recordType, String recordId) async {
-    // TODO: 实现远程 API 调用
-    return null;
+    final base = _remoteBaseUrl;
+    if (base == null || base.isEmpty) {
+      debugPrint('[Sync] 未配置远程端点，跳过远程拉取: $recordType/$recordId');
+      return null;
+    }
+    return remoteGet(base, recordType, recordId);
   }
 
-  // 保存到远程（占位实现）
+  // 保存到远程
   Future<void> _saveToRemote(String recordType, String recordId, Map<String, dynamic> data) async {
-    // TODO: 实现远程数据保存
+    final base = _remoteBaseUrl;
+    if (base == null || base.isEmpty) {
+      debugPrint('[Sync] 未配置远程端点，跳过远程保存: $recordType/$recordId');
+      return;
+    }
+    final ok = await remotePut(base, recordType, recordId, data);
+    if (ok) {
+      _addLog(recordType, '远程保存成功: $recordId', 'info');
+    } else {
+      _addLog(recordType, '远程保存失败: $recordId', 'error');
+      _failedCount++;
+    }
   }
 
   // 保存到本地
   Future<void> _saveToLocal(String recordType, String recordId, Map<String, dynamic> data) async {
-    // TODO: 实现本地数据保存
+    try {
+      switch (recordType) {
+        case 'history':
+          await _db.saveHistory(
+            code: data['code'] as String? ?? recordId,
+            output: data['output'] as String?,
+            timestamp: (data['timestamp'] as num?)?.toInt() ??
+                DateTime.now().millisecondsSinceEpoch,
+            isSuccess: data['isSuccess'] as bool? ?? true,
+            mode: data['mode'] as String? ?? 'expr',
+            durationMs: (data['durationMs'] as num?)?.toInt(),
+            documentId: data['documentId'] as String?,
+          );
+          break;
+        case 'comment':
+          await _db.addComment(
+            commentId: recordId,
+            documentId: data['documentId'] as String? ?? '',
+            userId: data['userId'] as String? ?? '',
+            userName: data['userName'] as String? ?? '',
+            content: data['content'] as String? ?? '',
+            position: data['position'] as String?,
+          );
+          break;
+        case 'preference':
+          await _db.savePreference(
+            data['key'] as String? ?? recordId,
+            data['value'] as String? ?? '',
+          );
+          break;
+        case 'result':
+          await _db.cacheResult(
+            data['inputCode'] as String? ?? recordId,
+            data['result'] as String? ?? '',
+          );
+          break;
+        default:
+          debugPrint('[Sync] 未知记录类型，跳过本地保存: $recordType');
+      }
+      debugPrint('[Sync] ✓ 本地数据已保存: $recordType/$recordId');
+    } catch (e) {
+      debugPrint('[Sync] ✗ 本地数据保存失败: $recordType/$recordId ($e)');
+    }
   }
 
   // 添加日志

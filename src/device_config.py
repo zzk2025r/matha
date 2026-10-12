@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """设备性能检测与自适应线程配置。
 
 根据本机 CPU 核心数、内存大小、平台类型，自动计算合适的
@@ -42,7 +41,7 @@ class DeviceConfig:
     max_workers: int          # 综合最大工作数
 
     @staticmethod
-    def detect() -> "DeviceConfig":
+    def detect() -> DeviceConfig:
         """自动检测设备性能并计算推荐配置。"""
         cpu_cores = max(1, os.cpu_count() or 1)
 

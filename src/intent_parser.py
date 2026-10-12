@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 意图识别解析器 — v2.2
 
 将自然语言输入转换为计算意图描述，
@@ -8,11 +7,10 @@
   自然语言 → 意图分类 → 参数提取 → 目标语言选择 → 代码生成
 """
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
 from enum import Enum, auto
-
 
 # ============================================================
 # 意图类型
@@ -176,7 +174,7 @@ class ParamExtractor:
         vars_found = self._VAR_PATTERN.findall(text)
         return [v for v in vars_found if v.lower() not in keywords]
 
-    def extract_range(self, text: str) -> Optional[tuple[int, int]]:
+    def extract_range(self, text: str) -> tuple[int, int] | None:
         """提取范围 (start, end)。"""
         m = self._RANGE_PATTERN.search(text)
         if m:

@@ -44,13 +44,17 @@
 """
 
 from __future__ import annotations
+
+import json
 import logging
 import math
 import os
 import sys
 from pathlib import Path
 from typing import Any
+
 from src import ast_nodes as ast
+from src import formula_schema as _fs
 from src import text_encoding as _te
 
 logger = logging.getLogger("matha.interp")
@@ -182,6 +186,12 @@ def _env_debug_flag() -> bool:
     return v in ("1", "true", "yes", "on")
 
 
+def _env_auto_heal_flag() -> bool:
+    """读取 MATHA_AUTO_HEAL 环境变量，显式开启全局自动定义/自动注册。"""
+    v = os.environ.get("MATHA_AUTO_HEAL", "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 class MathaRuntimeError(Exception):
     """运行时错误，携带代码位置信息（行/列）。"""
     __slots__ = ("line", "col")
@@ -256,6 +266,15 @@ def builtin_throw(msg: str) -> None:
     raise MathaRuntimeError(msg)
 
 
+def builtin_matha_runtime_error(msg: str) -> None:
+    """Matha 自举层异常构造：'raise MathaRuntimeError(msg)'（interp_matha.matha:44）。
+
+    自举解释器用 `raise MathaRuntimeError(msg)` 抛错（异常以消息字符串跨越
+    宿主/自举边界），宿主解释器注册同名内建以对齐该语义。
+    """
+    raise MathaRuntimeError(msg)
+
+
 class _BreakException(Exception):
     """break 中断循环的内部异常。"""
     pass
@@ -298,6 +317,81 @@ class _RecPlaceholder:
                 _, lambda_node, captured = actual
             return self._interp._call_lambda(lambda_node, captured, [arg])
         return actual(arg)
+
+
+class VirtualSymbol:
+    """未定义标识符的自愈占位符（自动定义功能）。
+
+    当解释器遇到从未定义的变量/函数，且虚拟代码引擎已接入时，不再直接
+    抛错，而是实例化本对象并登记到 ``VirtualCodeRegistry``。本对象是
+    *宽容* 的：可调用、可参与任意运算、可属性/下标访问，任何操作都
+    返回新的 ``VirtualSymbol``，从而让程序继续运行而不崩溃。
+    """
+
+    __slots__ = ("name", "kind", "registry")
+
+    def __init__(self, name: str, kind: str = "变量", registry=None):
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "registry", registry)
+
+    def __call__(self, *args, **kwargs):
+        return VirtualSymbol(f"{self.name}(…)", "调用", self.registry)
+
+    def _op(self, op: str, other):
+        return VirtualSymbol(f"({self.name}{op}{_virtual_repr(other)})", "值", self.registry)
+
+    def __add__(self, other): return self._op("+", other)
+    def __radd__(self, other): return self._op("+", other)
+    def __sub__(self, other): return self._op("-", other)
+    def __rsub__(self, other): return self._op("-", other)
+    def __mul__(self, other): return self._op("*", other)
+    def __rmul__(self, other): return self._op("*", other)
+    def __truediv__(self, other): return self._op("/", other)
+    def __rtruediv__(self, other): return self._op("/", other)
+    def __floordiv__(self, other): return self._op("//", other)
+    def __rfloordiv__(self, other): return self._op("//", other)
+    def __mod__(self, other): return self._op("%", other)
+    def __rmod__(self, other): return self._op("%", other)
+    def __pow__(self, other): return self._op("**", other)
+
+    def __getattr__(self, item):
+        if item.startswith("__"):
+            raise AttributeError(item)
+        return VirtualSymbol(f"{self.name}.{item}", "字段", self.registry)
+
+    def __getitem__(self, item):
+        return VirtualSymbol(f"{self.name}[{_virtual_repr(item)}]", "元素", self.registry)
+
+    def __bool__(self): return False
+    def __int__(self): return 0
+    def __float__(self): return 0.0
+    def __index__(self): return 0
+    def __len__(self): return 0
+
+    def __eq__(self, other):
+        return isinstance(other, VirtualSymbol) and other.name == self.name
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((self.name, self.kind))
+
+    def __repr__(self):
+        return f"<虚拟{self.kind}:{self.name}>"
+
+    __str__ = __repr__
+
+
+def _virtual_repr(v: object) -> str:
+    """VirtualSymbol 运算中的安全表示，避免递归 repr。"""
+    if isinstance(v, VirtualSymbol):
+        return v.name
+    try:
+        return repr(v)
+    except Exception:
+        return "?"
 
 
 # ============================================================
@@ -343,9 +437,9 @@ def builtin_slice(seq):
     def start_closure(start: int):
         def end_closure(end: int):
             if not isinstance(seq, (str, list)):
-                raise MathaRuntimeError(f"slice() 需要字符串或列表")
+                raise MathaRuntimeError("slice() 需要字符串或列表")
             if not isinstance(start, int) or not isinstance(end, int):
-                raise MathaRuntimeError(f"slice() 参数需整数")
+                raise MathaRuntimeError("slice() 参数需整数")
             return seq[start:end]
         return end_closure
     return start_closure
@@ -451,7 +545,7 @@ def builtin_parse_json(text: str):
 def builtin_read_file(path: str) -> str:
     """读文件(path) → 文件内容字符串。"""
     try:
-        with open(str(path), "r", encoding="utf-8") as f:
+        with open(str(path), encoding="utf-8") as f:
             return f.read()
     except Exception as e:
         raise MathaRuntimeError(f"读文件失败: {e}")
@@ -479,7 +573,7 @@ def builtin_parse_json_file(path: str):
     """读JSON文件(path) → 嵌套列表/字典。"""
     import json
     try:
-        with open(str(path), "r", encoding="utf-8") as f:
+        with open(str(path), encoding="utf-8") as f:
             return json.loads(f.read())
     except Exception as e:
         raise MathaRuntimeError(f"读JSON文件失败: {e}")
@@ -701,6 +795,9 @@ def builtin_make_set(form, variables, elements):
 
 
 BUILTINS: dict[str, object] = {
+    # 空值常量：Matha 源码常用英文别名 None 引用 null
+    "None": None,
+    "Null": None,
     "ord": builtin_ord,
     "chr": builtin_chr,
     "len": builtin_len,
@@ -717,6 +814,10 @@ BUILTINS: dict[str, object] = {
     "int": int,
     "str": str,
     "bool": bool,
+    # 与 VM/原生后端对齐的数值转换原语（自举 stdlib 增强版 int/float 分派到此）
+    "_to_int": int,
+    "_to_float": float,
+    "_to_str": str,
     # 文件 I/O
     "读文件": builtin_read_file,
     "写文件": _curry_module(2, lambda path, content: builtin_write_file(path, content)),
@@ -750,6 +851,7 @@ BUILTINS: dict[str, object] = {
     # 异常控制
     "抛出错误": builtin_throw,
     "错误": builtin_throw,
+    "MathaRuntimeError": builtin_matha_runtime_error,
     # ---------- 与 VM 后端对齐的原语（src/mbc/vm.py::_default_builtins） ----------
     # 空字典常量：{} 在 Matha 语法中是空集合构造，故空字典须由宿主提供。
     "_empty_dict": {},
@@ -780,7 +882,7 @@ class _MathaExecWrapper:
     对于 执行语句/执行声明，第一个参数是 stmt/decl，第二个是 env。
     本包装器直接将调用转发到对应的 Python 方法。
     """
-    def __init__(self, interp: "Interpreter", method_name: str):
+    def __init__(self, interp: Interpreter, method_name: str):
         self._interp = interp
         self._method = getattr(interp, method_name)
 
@@ -795,16 +897,27 @@ class _MathaExecWrapper:
 class Interpreter:
     """Matha 树走式解释器。"""
 
-    def __init__(self, debug: bool | None = None):
+    def __init__(self, debug: bool | None = None, *, foreign_routing: bool = True):
         self.env: dict[str, object] = {}
         self.funcs: dict[str, ast.FuncDef] = {}
         self.constructors: set[str] = set()
         self.outputs: list = []
         self.trace: list[str] = []
+        # #：全能前缀：是否把外来源码（#：import/def/...）路由到外部解释器执行
+        self.foreign_routing: bool = foreign_routing
+        # ？公式模式库：#：？公式 登记模式，具体公式与之合一（公式模式库）
+        self.formulas = _fs.FormulaLibrary()
         self.builtins: dict[str, object] = dict(BUILTINS)  # 可继承覆写
         # 模块系统：module_name → {name → bound_value}
         self.modules: dict[str, dict] = {}
         self._matha_loaded: bool = False
+        # 虚拟代码引擎（自动定义/自动注册）：由 MathaEngine/MathaSystem 接入
+        self._virtual_registry = None
+        # 自动自愈：None → 仅在接入虚拟注册表或 MATHA_AUTO_HEAL 时启用
+        self.auto_heal: bool = _env_auto_heal_flag()
+        # 自愈/自动注册审计记录
+        self.auto_defined: list[dict] = []
+        self.auto_registered: list[dict] = []
         # debug=None → 服从 MATHA_DEBUG 环境变量；显式 True/False 优先
         self.debug = _env_debug_flag() if debug is None else bool(debug)
         # 递归深度缩进，让 _eval / _exec_stmt / _call_lambda 嵌套可读
@@ -990,11 +1103,79 @@ class Interpreter:
         # _lookup 兼容层：用于自举加载器的向后兼容
         if name == '_lookup':
             return self._lookup
+        # 自动定义功能：未定义函数 → 虚拟代码引擎注册宽容函数
+        if not name.startswith("_") and "." not in name and self._heal_enabled():
+            self._log(logging.INFO,
+                      f"未定义函数 '{name}' → 自动定义（虚拟代码引擎）")
+            self._auto_define_function(name)
+            return self.call(name, *args)
         raise MathaRuntimeError(f"未定义函数 '{name}'")
 
     def _lookup(self, name: str) -> object:
         """向后兼容的 _lookup 方法，用于自举加载器。"""
         return self.builtins.get(name) or self.funcs.get(name)
+
+    # ---------- 虚拟代码引擎：自动定义 / 自动注册 ----------
+
+    def attach_virtual_registry(self, registry) -> object:
+        """接入虚拟代码引擎注册表并启用自动定义/自动注册。"""
+        self._virtual_registry = registry
+        self.auto_heal = True
+        return registry
+
+    def _heal_enabled(self) -> bool:
+        """是否启用自动自愈（接入注册表、显式开关或环境变量任一即可）。"""
+        return (self._virtual_registry is not None) or bool(self.auto_heal)
+
+    def _get_virtual_registry(self):
+        vr = self._virtual_registry
+        if vr is None:
+            try:
+                from src.virtual_code import get_virtual_registry
+                vr = get_virtual_registry()
+                self._virtual_registry = vr
+            except Exception:
+                return None
+        return vr
+
+    def _register_virtual(self, name: str, kind: str,
+                          source: str = "auto_heal"):
+        """把标识符登记进虚拟注册表（自动注册功能的单一入口）。"""
+        vr = self._get_virtual_registry()
+        if vr is None:
+            return None
+        try:
+            return vr.register_any(name, kind, source)
+        except Exception:
+            try:
+                return vr.absorb(source, name)
+            except Exception:
+                return None
+
+    def _auto_define_variable(self, name: str) -> VirtualSymbol:
+        """未定义变量：自动赋予定义并绑定，返回宽容占位值。"""
+        value = VirtualSymbol(name, "变量", self._get_virtual_registry())
+        self.env[name] = value
+        self._register_virtual(name, "变量")
+        self.auto_defined.append({"name": name, "kind": "变量", "value": value})
+        self._log(logging.INFO, f"自动定义变量 '{name}'（虚拟代码引擎）")
+        return value
+
+    def _auto_define_function(self, name: str) -> VirtualSymbol:
+        """未定义函数：自动注册并返回可调用占位值。"""
+        sym = VirtualSymbol(name, "函数", self._get_virtual_registry())
+        self.builtins[name] = sym
+        self._register_virtual(name, "函数")
+        self.auto_defined.append({"name": name, "kind": "函数", "value": sym})
+        self._log(logging.INFO, f"自动定义函数 '{name}'（虚拟代码引擎）")
+        return sym
+
+    def _auto_register(self, name: str, kind: str, value: object = None) -> None:
+        """新定义出现时自动注册到虚拟代码引擎（注册功能）。"""
+        if not name or not self._heal_enabled():
+            return
+        self._register_virtual(name, kind, source=f"def:{name}")
+        self.auto_registered.append({"name": name, "kind": kind, "value": value})
 
     def load_matha_module(self, module_name: str, matha_dir: Path | None = None) -> bool:
         """从文件系统加载 .matha 模块并注册到解释器。
@@ -1031,15 +1212,19 @@ class Interpreter:
         if isinstance(decl, ast.FuncDef):
             self.funcs[decl.name] = decl
             self._log(logging.INFO, f"register func '{decl.name}'")
+            # 注册功能：从未出现的定义自动登记到虚拟代码引擎
+            self._auto_register(decl.name, "函数", decl)
             if decl.else_body is not None:
                 self._exec_stmt(decl.else_body)
         elif isinstance(decl, ast.EnumDef):
             self.constructors.update(decl.ctors)
             self._log(logging.INFO,
                       f"register enum '{decl.name}' ctors={decl.ctors}")
+            self._auto_register(decl.name, "枚举", decl)
         elif isinstance(decl, ast.ModuleDecl):
             self._log(logging.INFO,
                       f"register module '{decl.name}' ({len(decl.decls)} decls)")
+            self._auto_register(decl.name, "模块", decl)
             if decl.name not in self.modules:
                 for inner in decl.decls:
                     self._register(inner)
@@ -1084,11 +1269,7 @@ class Interpreter:
                                    list(self.env.items()))
                         self.env[inner.name] = closure
                         _register_local(inner.name)
-                    elif isinstance(inner, ast.LetBinding):
-                        _register_local(inner.name)
-                    elif isinstance(inner, ast.EnumDef):
-                        _register_local(inner.name)
-                    elif isinstance(inner, ast.StructDef):
+                    elif isinstance(inner, ast.LetBinding) or isinstance(inner, ast.EnumDef) or isinstance(inner, ast.StructDef):
                         _register_local(inner.name)
                     elif isinstance(inner, ast.Binding):
                         # 顶层绑定 target 一般是 Variable
@@ -1107,17 +1288,20 @@ class Interpreter:
         elif isinstance(decl, ast.Binding):
             # 顶层绑定（如 inc = (x) => x + 1）写入全局 env，
             # 使 lambda 变量在各段内可见，与 func 定义行为一致。
-            self._log(logging.INFO, f"exec top-level Binding")
+            self._log(logging.INFO, "exec top-level Binding")
             self._exec_stmt(decl)
         elif isinstance(decl, ast.Output):
-            self._log(logging.INFO, f"exec top-level Output")
+            self._log(logging.INFO, "exec top-level Output")
             self._exec_stmt(decl)
         elif isinstance(decl, ast.LetBinding):
             self._log(logging.INFO, f"exec top-level LetBinding '{decl.name}'")
             self._exec_stmt(decl)
+        elif isinstance(decl, ast.FileMarker):
+            # 顶层文件尾标记 `#：【文件】`：结构性标记 → 空操作。
+            self._log(logging.DEBUG, "exec top-level FileMarker (忽略)")
         elif isinstance(decl, ast.BinaryOp):
             # 顶层裸表达式（如 1 === 1）：计算并输出
-            self._log(logging.INFO, f"exec top-level BinaryOp")
+            self._log(logging.INFO, "exec top-level BinaryOp")
             val = self._eval(decl)
             self.outputs.append(val)
         elif isinstance(decl, ast.UnaryOp):
@@ -1127,7 +1311,7 @@ class Interpreter:
             self.outputs.append(val)
         elif isinstance(decl, ast.FuncApp):
             # 顶层函数调用：执行并丢弃返回值
-            self._log(logging.DEBUG, f"exec top-level FuncApp")
+            self._log(logging.DEBUG, "exec top-level FuncApp")
             self._eval(decl)
         elif isinstance(decl, ast.WhileStmt):
             self._exec_while_stmt(decl)
@@ -1166,7 +1350,7 @@ class Interpreter:
                 if len(args) < len(field_names):
                     # 柯里化：参数不足时返回等待剩余参数的部分函数
                     # 支持嵌套 FuncApp 的逐个参数应用
-                    remaining = field_names[len(args):]
+                    field_names[len(args):]
                     def _partial(*more_args):
                         all_args = list(args) + list(more_args)
                         if len(all_args) != len(field_names):
@@ -1185,6 +1369,7 @@ class Interpreter:
                         )
                 return _StructInstance(decl.name, field_names, list(args))
             self.env[decl.name] = _struct_factory
+            self._auto_register(decl.name, "结构", _struct_factory)
             self._log(logging.INFO,
                       f"register struct '{decl.name}' fields={field_names}")
         else:
@@ -1273,6 +1458,53 @@ class Interpreter:
                 self.env.pop(name, None)
         self._log_exit("for")
 
+    def _eval_set_comprehension(self, expr: ast.SetConstruct) -> list:
+        """求值集合理解：`{ 输出 | 生成子句... | 条件... }`。
+
+        语义与枚举形式一致：结果按 == 去重且保序。生成子句 `v >> S` 依次绑定 v；
+        多个生成子句为笛卡尔积（自左向右嵌套）；全部条件为真时求值输出表达式。
+        """
+        gen_specs: list = []
+        for name, iterable_expr in (expr.variables or []):
+            it = self._eval(iterable_expr)
+            if isinstance(it, dict):
+                it = list(it.items())
+            elif isinstance(it, set):
+                it = list(it)
+            if not isinstance(it, (list, tuple, str)):
+                raise MathaRuntimeError(
+                    "集合理解生成子句需迭代列表/元组/字符串/字典/集合，"
+                    f"实际 {type(it).__name__}")
+            gen_specs.append((name, list(it)))
+        conditions = expr.conditions or []
+        results: list = []
+
+        def recurse(i: int) -> None:
+            if i == len(gen_specs):
+                for c in conditions:
+                    if not self._eval(c):
+                        return
+                results.append(self._eval(expr.output))
+                return
+            name, values = gen_specs[i]
+            had = name in self.env
+            saved = self.env.get(name)
+            try:
+                for v in values:
+                    self.env[name] = v
+                    recurse(i + 1)
+            finally:
+                if had:
+                    self.env[name] = saved
+                else:
+                    self.env.pop(name, None)
+
+        if gen_specs:
+            recurse(0)
+        elif all(self._eval(c) for c in conditions):
+            results.append(self._eval(expr.output))
+        return _dedup_ordered(results)
+
     def _exec_break(self) -> None:
         """break：中断循环，抛特殊异常让外层捕获。"""
         raise _BreakException()
@@ -1316,7 +1548,7 @@ class Interpreter:
             if stmt.finally_block is not None:
                 try:
                     self._exec_codeblock_or_stmt(stmt.finally_block)
-                except (_BreakException, _ContinueException, _ReturnException) as fe:
+                except (_BreakException, _ContinueException, _ReturnException):
                     # finally 内的控制流异常不应替换原始传播异常
                     if _propagating is not None:
                         raise _propagating
@@ -1501,15 +1733,43 @@ class Interpreter:
             self._log_enter(f"bind {target}")
             val = self._eval(stmt.value)
             self.env[target] = val
+            self._auto_register(target, "绑定", val)
             self._log_exit(f"bind {target}", val)
             self._log(logging.DEBUG, f"env[{target!r}] = {self._fmt(val)}")
         elif isinstance(stmt, ast.LetBinding):
             # 语句级 let：绑定并执行 body，变量留在 env 中
             # 预注册绑定名（支持递归自引用）
             _saved = self.env.get(stmt.name)
-            self.env.setdefault(stmt.name, None)
-            val = self._eval(stmt.value)
+            _ph = None
+            if stmt.is_recursive:
+                _ph = _RecPlaceholder(stmt.name)
+                _ph._interp = self
+                self.env[stmt.name] = _ph
+                _me = getattr(self, '_matha_env', None)
+                if isinstance(_me, list):
+                    _me.append((stmt.name, _ph))
+            else:
+                self.env.setdefault(stmt.name, None)
+            # 函数式绑定 let f(args) = body：包装为 Lambda（与 _eval 路径一致）
+            _lb_params = getattr(stmt, 'params', None)
+            if _lb_params:
+                _param_vars = []
+                for _p in _lb_params:
+                    _pv = _p[0] if isinstance(_p, tuple) else _p
+                    if not isinstance(_pv, ast.Variable):
+                        _pv = ast.Variable(name=str(_pv))
+                    _param_vars.append(_pv)
+                val = self._eval(ast.Lambda(params=_param_vars, body=stmt.value))
+            else:
+                val = self._eval(stmt.value)
+            if _ph is not None:
+                _ph._ref[0] = val
+            elif getattr(stmt, 'params', None):
+                _me2 = getattr(self, '_matha_env', None)
+                if isinstance(_me2, list):
+                    _me2.append((stmt.name, val))
             self.env[stmt.name] = val
+            self._auto_register(stmt.name, "let", val)
             self._log(logging.DEBUG, f"stmt LetBinding '{stmt.name}' = {self._fmt(val)}")
             if stmt.body is not None:
                 self._exec_stmt_or_expr(stmt.body)
@@ -1565,6 +1825,10 @@ class Interpreter:
                 self._exec_stmt(link)
         elif isinstance(stmt, ast.MechUnit):
             self._exec_stmt(stmt.body)
+        elif isinstance(stmt, ast.FileMarker):
+            # 文件尾标记 `#：【文件】`：结构性标记，表示当前文件这段代码到此结束，
+            # 无运行时语义 → 空操作（不作为表达式求值，避免「暂不支持求值」）。
+            self._log(logging.DEBUG, "FileMarker (文件尾标记，忽略)")
         elif isinstance(stmt, ast.IfStmt):
             self._exec_if_stmt(stmt)
         elif isinstance(stmt, ast.WhileStmt):
@@ -1588,6 +1852,7 @@ class Interpreter:
             # 同时创建 closure tuple 存入 env，使递归函数能在闭包中查找自身
             closure = ("__closure__", stmt.body.params, stmt.body.body, list(self.env.items()))
             self.env[stmt.name] = closure
+            self._auto_register(stmt.name, "函数", closure)
             self._log(logging.INFO, f"exec func '{stmt.name}' in block")
         elif isinstance(stmt, ast.GlobalIdStmt):
             # 全局编号语句：跨文件绑定标记
@@ -1607,11 +1872,52 @@ class Interpreter:
             self._exec_switch_stmt(stmt)
         elif isinstance(stmt, ast.IfElseStmt):
             self._exec_if_else_stmt(stmt)
+        elif isinstance(stmt, ast.ForeignDecl):
+            if stmt.prefix == "#：" and self.foreign_routing and stmt.lang:
+                # #：全能前缀：外来语言源码 → 可执行路由
+                self._exec_foreign(stmt)
+            else:
+                # 裸 #：符号语义（惰性防呆，不执行）
+                self.trace.append(f"# {stmt.text}")
+                self._log(logging.DEBUG, f"ForeignDecl: #{stmt.text}")
         elif isinstance(stmt, dict):
             self._exec_dict_stmt(stmt)
         else:
             self._log(logging.DEBUG, f"expr-stmt fallback eval {kind}")
             self._eval(stmt)
+
+    def _exec_foreign(self, decl) -> None:
+        """#：全能前缀 — 执行外来语言代码（通用语言的运行时路由）。
+
+        python/js/ruby：ForeignRunner 执行（宿主内嵌 / subprocess）。
+        rust/go/c：LanguageBridge 直译；含控制流时给出『无中生有』骨架。
+        任何失败都不致命：记录到 trace，Matha 程序继续运行。
+        """
+        lang = decl.lang or ""
+        from src.foreign import ForeignRunner
+        self._log_enter("foreign", f"{lang}: {decl.text}")
+        try:
+            if lang in ("rust", "go", "c"):
+                from src.matha.language_bridge import LanguageBridge
+                body = LanguageBridge()._body_to_expr(decl.text)
+                if body:
+                    self.trace.append(f"#[{lang}] {decl.text} → 转译 {body}")
+                    self._log(logging.INFO, f"[foreign] {lang} 转译 → {body}")
+                else:
+                    self.trace.append(f"#[{lang}] {decl.text} → 骨架（含控制流，待语言桥补全）")
+                return
+            client = {"javascript": "node", "js": "node"}.get(lang, lang)
+            val = ForeignRunner().eval(client, decl.text)
+            if val is not None:
+                self.trace.append(f"#[{lang}] {decl.text} → {self._fmt(val)}")
+                self._log(logging.INFO, f"[foreign] {lang} 结果 {self._fmt(val)}")
+            else:
+                self.trace.append(f"#[{lang}] {decl.text}")
+        except Exception as ex:
+            self.trace.append(f"#[{lang}] 执行失败: {ex}")
+            self._log(logging.WARNING, f"[foreign] {lang} 执行失败: {ex}")
+        finally:
+            self._log_exit("foreign")
 
     def _exec_stmt_or_expr(self, node) -> None:
         """执行语句或表达式：语句走 _exec_stmt，表达式走 _eval。"""
@@ -1640,10 +1946,30 @@ class Interpreter:
             self._log(logging.INFO, f"[trace] += {prefix}{content.text}")
         elif isinstance(content, ast.OutputTrail):
             self._exec_stmt(content.output)
-        elif isinstance(content, ast.Output):
+        elif isinstance(content, ast.Output) or isinstance(content, ast.GoStmt):
             self._exec_stmt(content)
-        elif isinstance(content, ast.GoStmt):
+        elif isinstance(content, ast.FuncDef):
+            # #：func ... —— Matha 关键字优先：函数定义（而非外来 go 路由）
             self._exec_stmt(content)
+        elif _fs.has_slot(content):
+            # `#：？公式` —— **登记为模式**，不可执行。`？` 是「此处为一个变量」的
+            # 槽，槽没有可求值的值；它的意义是与同形（格式相同）的具体公式统一。
+            # 同形模式归并为一条，故「？+？=？」与「？*？=？」是两条。
+            schema = self.formulas.register(content, seg)
+            # trace 记**本段自己声明**的形式：同形重复登记会归并到先前那条
+            # （其段号可能是别的段），若照抄 schema.seg_id 会把 `#2：` 显示成 `#1：`。
+            declared = _fs.FormulaSchema(expr=content, seg_id=seg,
+                                         shape=schema.shape, slots=schema.slots)
+            self.trace.append(declared.display)
+            self._log(logging.INFO, "[公式] 登记模式 %s 形状=%s 槽=%s%s" % (
+                declared.display, schema.shape,
+                [s.display for s in schema.slots],
+                "（同形归并）" if schema.seg_id != seg else ""))
+        elif self.formulas.match(content):
+            # 具体公式命中模式：按格式统一（多公式一用途意图）。
+            for u in self.formulas.match(content):
+                self.trace.append(u.concrete)
+                self._log(logging.INFO, "[公式] %s" % u.describe())
         else:
             self._eval(content)
 
@@ -1727,10 +2053,22 @@ class Interpreter:
                 r = not v
                 self._log_exit("eval Unary", r)
                 return r
+            if expr.op == "angle":
+                # << 角度前缀（docs/06 级 6、docs/17 §42 <angle> = "<<"）：
+                # <<n 把 n 解释为度数并归一化为弧度。本语言的三角函数
+                # （std/stdlib/arithmetic.py sin/cos/tan）一律吃弧度，所以
+                # 归一化后 sin(<<30) == 0.5 成立，符合文档示例。
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    raise MathaRuntimeError(f"<< 角度仅适用于数值，实际 {type(v).__name__}")
+                r = math.radians(v)
+                self._log_exit("eval Unary", r)
+                return r
             if expr.op == "~":
-                # 位取反
+                # 位取反。bool 是 int 子类：Matha 显式按 int(True)==1 处理，
+                # 不用 `~True` —— Python 3.14 起该写法 DeprecationWarning，
+                # 3.16 将直接移除，必须写 ~int(v) 才稳定。
                 if isinstance(v, int):
-                    r = ~v
+                    r = ~int(v)
                     self._log_exit("eval Unary", r)
                     return r
                 raise MathaRuntimeError(f"~ 仅适用于整数，实际 {type(v).__name__}")
@@ -1841,7 +2179,7 @@ class Interpreter:
                 # Python set 无序，且会让 len()/索引/去重() 等内建全部失效。
                 return _dedup_ordered(self._eval(e) for e in (expr.literals or []))
             elif expr.form == "comprehension":
-                raise MathaRuntimeError("集合理解形式暂不支持")
+                return self._eval_set_comprehension(expr)
         if isinstance(expr, ast.LetTupleBinding):
             # let (a, b) = tuple_val in body
             val = self._eval(expr.value)
@@ -1909,9 +2247,14 @@ class Interpreter:
                 return container[index]
             if isinstance(container, _StructInstance) and isinstance(index, str):
                 return container[index]
-            # dict 字符串索引：支持 Matha 自举代码中 dict["键"] 形式
-            if isinstance(container, dict) and isinstance(index, str):
-                return container.get(index)
+            # dict 索引：字符串键兼容既有 None 语义；同时支持整数/浮点/布尔/元组
+            # 等任意可哈希键（配合 {1: "一"} 形式的字典字面量）。
+            if isinstance(container, dict):
+                try:
+                    return container.get(index)
+                except TypeError:
+                    raise MathaRuntimeError(
+                        f"索引操作不支持: dict[{index}]（不可哈希的键）")
             raise MathaRuntimeError(f"索引操作不支持: {type(container).__name__}[{index}]")
         if isinstance(expr, ast.SliceExpr):
             container = self._eval(expr.container)
@@ -2195,6 +2538,15 @@ class Interpreter:
         if name in self.constructors:
             self._log(logging.DEBUG, f"eval Var '{name}' → ctor '{name}'")
             return name
+        # _lookup 兼容层：用于自举加载器的向后兼容
+        if name == "_lookup":
+            self._log(logging.DEBUG, "eval Var '_lookup' → compat")
+            return self._lookup
+        # 自动定义功能：未定义变量 → 虚拟代码引擎赋予宽容定义
+        if not name.startswith("_") and self._heal_enabled():
+            self._log(logging.INFO,
+                      f"未定义变量 '{name}' → 自动定义（虚拟代码引擎）")
+            return self._auto_define_variable(name)
         raise MathaRuntimeError(f"未定义变量 '{name}'")
 
     @staticmethod
@@ -2230,6 +2582,14 @@ class Interpreter:
             return result
         l = self._eval(node.left)
         r = self._eval(node.right)
+        # 自动定义功能：宽容值参与运算 → 继续产生宽容值，不崩溃
+        if isinstance(l, VirtualSymbol) or isinstance(r, VirtualSymbol):
+            base = l if isinstance(l, VirtualSymbol) else r
+            result = VirtualSymbol(
+                f"({_virtual_repr(l)}{op}{_virtual_repr(r)})", "值", base.registry)
+            self._log(logging.DEBUG, f"  VirtualSymbol 运算 '{op}' → {result!r}")
+            self._log_exit("eval Binary", result)
+            return result
         try:
             if op == "+":
                 if l is None or r is None:
@@ -2249,14 +2609,10 @@ class Interpreter:
                 self._log(logging.DEBUG, f"  + 结果: {self._fmt(result)}")
             elif op == "-":
                 if isinstance(l, (str, list)) or isinstance(r, (str, list)):
-                    raise MathaRuntimeError(f"- 不适用于字符串/列表")
+                    raise MathaRuntimeError("- 不适用于字符串/列表")
                 result = l - r
             elif op == "*":
-                if isinstance(l, (int, float)) and isinstance(r, (int, float)):
-                    result = l * r
-                elif isinstance(l, str) and isinstance(r, int):
-                    result = l * r
-                elif isinstance(l, int) and isinstance(r, str):
+                if isinstance(l, (int, float)) and isinstance(r, (int, float)) or isinstance(l, str) and isinstance(r, int) or isinstance(l, int) and isinstance(r, str):
                     result = l * r
                 else:
                     raise MathaRuntimeError(f"* 操作数类型不支持: left={l!r}({type(l).__name__}), right={r!r}({type(r).__name__})")
@@ -2268,7 +2624,7 @@ class Interpreter:
                 self._log(logging.DEBUG, f"  / 结果: {result!r}")
             elif op == "**":
                 if l is None or r is None:
-                    raise MathaRuntimeError(f"** 操作数含 None")
+                    raise MathaRuntimeError("** 操作数含 None")
                 result = l ** r
             elif op == "%":
                 if r == 0:
@@ -2289,10 +2645,7 @@ class Interpreter:
             elif op == ">=":
                 result = l >= r
                 self._log(logging.DEBUG, f"  >= 结果: {result!r}")
-            elif op == "=":
-                result = l == r
-                self._log(logging.DEBUG, f"  == 结果: {result!r}")
-            elif op == "==":
+            elif op == "=" or op == "==":
                 result = l == r
                 self._log(logging.DEBUG, f"  == 结果: {result!r}")
             elif op == "!=":
@@ -2329,11 +2682,11 @@ class Interpreter:
                 self._log(logging.DEBUG, f"  || 结果: {self._fmt(result)}")
                 return result
             elif op == "===":
-                result = (l is r) and type(l) == type(r)
+                result = (l is r) and type(l) is type(r)
                 self._log(logging.DEBUG, f"  === 结果: {result!r}")
                 return result
             elif op == "!==":
-                result = not ((l is r) and type(l) == type(r))
+                result = not ((l is r) and type(l) is type(r))
                 self._log(logging.DEBUG, f"  !== 结果: {result!r}")
                 return result
             elif op == "//":
@@ -2343,7 +2696,7 @@ class Interpreter:
                 self._log(logging.DEBUG, f"  // 结果: {result!r}")
             elif op == "**":
                 if l is None or r is None:
-                    raise MathaRuntimeError(f"** 操作数含 None")
+                    raise MathaRuntimeError("** 操作数含 None")
                 result = l ** r
                 self._log(logging.DEBUG, f"  ** 结果: {result!r}")
             elif op == "is":
@@ -2351,7 +2704,7 @@ class Interpreter:
                 self._log(logging.DEBUG, f"  is 结果: {result!r}")
             elif op == "→":
                 if l is None:
-                    raise MathaRuntimeError(f"→ 左操作数含 None")
+                    raise MathaRuntimeError("→ 左操作数含 None")
                 if callable(l):
                     result = l(r)
                 elif isinstance(l, tuple) and l and l[0] == "__closure__":
@@ -2384,10 +2737,15 @@ class Interpreter:
                 else:
                     raise MathaRuntimeError(f"| 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
             elif op == "^":
-                if isinstance(l, int) and isinstance(r, int):
-                    result = l ^ r
-                else:
-                    raise MathaRuntimeError(f"^ 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
+                # 中缀 ^ 是**次方**（docs/06「^（中缀）| 次方（右结合）」、
+                # EBNF 2.1 `<power> = "^"`）。此前本处按位异或处理，与
+                # src/mbc/compiler.py::_BIN_OPS 的 `"^": "**"` 相矛盾：
+                # 同一段 `2 ^ 3` 在解释器得 1、在 VM/原生得 8。
+                # 异或的专用符号是 `⊕`（见下），`^` 统一为次方。
+                if l is None or r is None:
+                    raise MathaRuntimeError("^ 操作数含 None")
+                result = l ** r
+                self._log(logging.DEBUG, f"  ^ 结果: {result!r}")
             elif op == "⊕":
                 if isinstance(l, int) and isinstance(r, int):
                     result = l ^ r
@@ -2439,8 +2797,19 @@ class Interpreter:
         self._log_exit("eval Binary", result)
         return result
 
+    def _is_undefined(self, name: str) -> bool:
+        """标识符在当前作用域内是否完全未定义。"""
+        return (name not in self.env and name not in self.funcs
+                and name not in self.builtins and name not in self.constructors)
+
     def _eval_func_app(self, node: ast.FuncApp) -> object:
         self._log_enter("eval FuncApp")
+        # 自动定义功能：未定义函数 → 虚拟代码引擎注册为「函数」再调用
+        fnode = node.func
+        if (isinstance(fnode, ast.Variable) and "." not in fnode.name
+                and not fnode.name.startswith("_") and self._heal_enabled()
+                and self._is_undefined(fnode.name)):
+            self._auto_define_function(fnode.name)
         try:
             func = self._eval(node.func)
         except MathaRuntimeError as e:
@@ -3009,10 +3378,12 @@ class Interpreter:
         格式："json" | "typescript" | "markdown" | "python"
         让其它语言知道 Matha 提供了哪些函数。
         """
-        from src.symtab_exporter import (export_symtab_json,
-                                          export_symtab_d_ts,
-                                          export_symtab_markdown,
-                                          export_symtab_python)
+        from src.symtab_exporter import (
+            export_symtab_d_ts,
+            export_symtab_json,
+            export_symtab_markdown,
+            export_symtab_python,
+        )
         fmt = str(fmt).lower()
         if fmt in ("json", "JSON"):
             return export_symtab_json(self)

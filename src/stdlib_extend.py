@@ -1,20 +1,15 @@
-# -*- coding: utf-8 -*-
 """Matha 标准库补全：re/hashlib/sqlite3/pathlib/asyncio/csv/logging等。"""
 
 from __future__ import annotations
-import collections
+
 import csv
 import hashlib
-import io
 import json
 import logging
 import os
-import pathlib
 import re
 import sqlite3
-import sys
 import time
-from typing import Any, Optional
 
 
 def _register_standard_library(builtins: dict) -> None:
@@ -61,7 +56,7 @@ def _register_standard_library(builtins: dict) -> None:
     # ---- CSV ----
     def _csv_read(path: str, delimiter: str = ",") -> list:
         try:
-            with open(str(path), "r", encoding="utf-8", newline="") as f:
+            with open(str(path), encoding="utf-8", newline="") as f:
                 return list(csv.reader(f, delimiter=delimiter))
         except Exception as e:
             return [[f"error: {e}"]]

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """性能分析器火焰图可视化组件
 
 提供交互式火焰图（Flame Graph）渲染，
@@ -13,13 +12,11 @@
   renderer.render(profiler_data, output_path="docs/flame_graph.html")
 """
 from __future__ import annotations
+
 import json
-import math
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 from pathlib import Path
-
 
 # ============================================================
 # 数据结构
@@ -31,7 +28,7 @@ class CallFrame:
     name: str
     duration_ms: float
     depth: int
-    children: List["CallFrame"] = field(default_factory=list)
+    children: list[CallFrame] = field(default_factory=list)
     color: str = ""
     start_x: float = 0.0
     width_pct: float = 0.0
@@ -53,9 +50,9 @@ class FlameGraphData:
     """火焰图数据。"""
     title: str = "性能火焰图"
     total_duration_ms: float = 0.0
-    root_frame: Optional[CallFrame] = None
-    frames: List[CallFrame] = field(default_factory=list)
-    metadata: Dict = field(default_factory=dict)
+    root_frame: CallFrame | None = None
+    frames: list[CallFrame] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
 
 
 # ============================================================
@@ -98,7 +95,7 @@ class FlameGraphBuilder:
         self.palette = palette
         self.max_depth = max_depth
 
-    def build(self, call_stack: List[Tuple[str, float]], total_duration: float) -> FlameGraphData:
+    def build(self, call_stack: list[tuple[str, float]], total_duration: float) -> FlameGraphData:
         """
         从线性调用栈构建火焰图树。
 
@@ -110,7 +107,7 @@ class FlameGraphBuilder:
             FlameGraphData
         """
         root = CallFrame(name="__main__", duration_ms=total_duration, depth=0)
-        stack: List[CallFrame] = [root]
+        stack: list[CallFrame] = [root]
 
         for name, duration in call_stack:
             frame = CallFrame(name=name, duration_ms=duration, depth=len(stack) - 1)
@@ -139,7 +136,6 @@ class FlameGraphBuilder:
 
         current = start
         for child in frame.children:
-            child_start = current
             child_width = (child.duration_ms / frame.duration_ms) * (end - start)
             self._layout(child, current, current + child_width)
             current += child_width
@@ -147,7 +143,7 @@ class FlameGraphBuilder:
         frame.start_x = start
         frame.width_pct = end - start
 
-    def _flatten(self, frame: CallFrame) -> List[CallFrame]:
+    def _flatten(self, frame: CallFrame) -> list[CallFrame]:
         """将树展平为列表（用于渲染）。"""
         result = [frame]
         for child in frame.children:
@@ -492,7 +488,7 @@ def build_flame_data_from_profiler(profiler_data: dict) -> FlameGraphData:
     return builder.build(call_stack, total_ms)
 
 
-def build_flame_data_from_trace(trace: List[dict]) -> FlameGraphData:
+def build_flame_data_from_trace(trace: list[dict]) -> FlameGraphData:
     """从原始调用跟踪列表构建火焰图数据。
 
     trace 格式：

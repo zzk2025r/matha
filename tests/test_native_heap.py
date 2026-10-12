@@ -164,9 +164,10 @@ def test_dict_missing_index_returns_none():
     assert _aot('d = {"a": 1}\n#1：[d["zz"]]') == ["None"]
 
 
-def test_non_dict_attr_returns_none():
-    """非字典属性访问不崩，返回 None（VM 抛 TypeError——显式偏差）。"""
-    assert _aot('#1：[3.z]') == ["None"]
+def test_non_dict_attr_raises_catchable():
+    """非字典属性访问抛可捕获异常（对齐 VM 的 TypeError），不再返回 None。"""
+    src = 'try {\n  #1：[3.z]\n} catch (e) {\n  输出("属性")\n}\n输出("后")\n'
+    assert _aot(src) == ["属性", "后"]
 
 
 def test_natural_language_output():
@@ -351,7 +352,7 @@ def test_vm_aot_parity_heap(case):
 # ---------- 砖块 18：堆 GC（保守式 mark-sweep）----------
 
 def test_gc_string_churn():
-    """40 万次非恒定分配（约 12MB > 8MB 堆）触发多轮 GC 后仍正确。"""
+    """40 万次非恒定分配（约 12MB；堆为 1GB，故本用例不必然触发 GC）后仍正确。"""
     assert _aot(
         'let s = ""\n'
         'for i in range(0, 400000) {\n  s = "n" + str(i)\n}\n'
@@ -411,7 +412,7 @@ def test_gc_coalesces_adjacent_free_blocks(tmp_path):
 
     空闲对象们合计约 6.4MB（1.6MB 列表 + 200000×24B 字符串）。请求 3.2MB 的
     range 列表大于任何单个回收对象（最大 1.6MB），只有把连续空闲块合并后才能
-    在堆内复用；否则 bump 越过 8MB 上限、破坏 GC 位图，随后 churn 触发的 GC 即
+    在堆内复用；否则 bump 越过堆上限、破坏 GC 位图，随后 churn 触发的 GC 即
     崩溃（此用例覆盖该回归）。"""
     p = _blob(tmp_path)
     assert _aot(
@@ -464,9 +465,47 @@ def _aot_run(src: str):
 
 
 def test_gc_oom_aborts_deterministically():
-    """存活集超过 8MB 堆时必须确定性终止（stderr 诊断 + 非零退出码），
-    而非越过 heap_limit 覆写 GC 位图造成静默损坏/后续崩溃。"""
-    r = _aot_run("let big = range(0, 2000000)\n输出(len(big))\n")
+    """存活集超过「1GB 固定区 + 16GB 动态竞技场」总跨度时必须确定性终止
+    （stderr 诊断 + 非零退出码），而非越过已提交区覆写 GC 位图造成静默损坏。"""
+    r = _aot_run("let big = range(0, 2500000000)\n输出(len(big))\n")
     assert r.returncode != 0
     assert r.stdout == b""
     assert "内存不足".encode("utf-8") in r.stderr
+
+
+def test_single_allocation_beyond_1gb_uses_dynamic_arena():
+    """回归：单个存活分配可越过 1GB 固定区，由启动期预留的动态竞技场继续提交。
+    约 1.12GB（1.4 亿个 8 字节元素）的列表此前确定性 OOM，现应正常。"""
+    assert _aot(
+        "let big = range(0, 140000000)\n"
+        "输出(len(big))\n输出(big[139999999])\n"
+    ) == ["140000000", "139999999"]
+
+
+def test_multiple_allocations_span_fixed_and_dynamic_regions():
+    """连续两个各约 1.2GB 的存活列表（合计 >2GB）横跨固定区与动态竞技场，
+    地址连续、len/索引均正确。"""
+    assert _aot(
+        "let a = range(0, 150000000)\n"
+        "let b = range(0, 150000000)\n"
+        "输出(len(a))\n输出(len(b))\n"
+        "输出(a[149999999])\n输出(b[0])\n输出(b[149999999])\n"
+    ) == ["150000000", "150000000", "149999999", "0", "149999999"]
+
+
+
+def test_heap_grows_beyond_old_8mb_limit():
+    """回归：堆以前固定 8MB，存活集略超 8MB 即 OOM。现为 1GB 固定堆，单个
+    约 16MB 的存活列表应正常分配（页由加载器按需提交）。"""
+    assert _aot("let big = range(0, 2000000)\n输出(len(big))\n输出(big[1999999])\n") \
+        == ["2000000", "1999999"]
+
+
+def test_gc_collects_cumulative_allocation_over_1gb():
+    """堆扩到 1GB 后 GC 仍必须工作：反复分配并丢弃约 800KB 的列表，累计
+    超过 1GB 只能靠 GC 回收（存活集始终很小）。若无 GC 则确定性 OOM。"""
+    assert _aot(
+        'let last = 0\n'
+        'for i in range(0, 1400) {\n  last = range(0, 100000)\n}\n'
+        '输出(len(last))\n输出(last[99999])\n'
+    ) == ["100000", "99999"]

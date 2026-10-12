@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """v2.3 异常处理集成到 REPL — 增强版
 
 改动点：
@@ -8,30 +7,29 @@
   4. 提供 "recover" 命令尝试自动恢复
 """
 from __future__ import annotations
-import sys
-import os
+
 import logging
+import os
+import sys
 import threading
-from typing import Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.parser import Parser
-from src import ast_nodes as ast
-from src.interp import interpret
 from src.enhanced_intent import (
     EnhancedIntentParser,
-    IntentParseContext,
     ErrorAggregator,
     explain_intent_safe,
-    execute_intent,
 )
 from src.errors import (
-    MathaError, ErrorStage, ErrorSeverity,
-    CompositeError, RecoveryStrategy,
+    ExecError,
+    MathaError,
+    RecoveryStrategy,
 )
-from src.result import Ok, Err
+from src.interp import interpret
+from src.parser import Parser
+
 # KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载
 # from src.stdlib.core import register_core_builtins  ← 已移除，按需调用
 
@@ -48,7 +46,7 @@ class REPLState:
     """REPL 运行时状态（v2.3 增强，线程安全）。"""
     variables: dict[str, Any] = field(default_factory=dict)
     history: list[str] = field(default_factory=list)
-    intent_parser: Optional[EnhancedIntentParser] = None
+    intent_parser: EnhancedIntentParser | None = None
     error_log: list[MathaError] = field(default_factory=list)
     _error_lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
     mode: str = "matha"
@@ -166,7 +164,7 @@ class MathaREPL:
     def _process_matha_expr(self, line: str) -> None:
         try:
             p = Parser(line)
-            program = p.parse()
+            p.parse()
             outputs, trace = interpret(line)
             self.state.success_count += 1
             for i, out in enumerate(outputs):
@@ -239,11 +237,11 @@ class MathaREPL:
             print(f"  阶段: {error.stage.name}")
             print(f"  严重度: {error.severity.name}")
             if error.suggestions:
-                print(f"\n  建议:")
+                print("\n  建议:")
                 for s in error.suggestions:
                     print(f"    • {s}")
             if error.cause:
-                print(f"\n  原因:")
+                print("\n  原因:")
                 print(f"    {error.cause.message}")
         print("  " + "=" * 40)
         print()

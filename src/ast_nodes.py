@@ -5,9 +5,9 @@
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Optional
 
+from dataclasses import dataclass, field
+from typing import Any
 
 # ============================================================
 # 顶层结构（EBNF §1）
@@ -27,7 +27,7 @@ class Program:
 class Annotation:
     """<annotation> = "*/" , <annot_text> , [ "*" , <expr> ] , "/*" """
     text: str
-    formula: Optional[Any] = None  # <expr>，可选
+    formula: Any | None = None  # <expr>，可选
 
 
 @dataclass
@@ -41,8 +41,8 @@ class CommandLiteral:
 class SetUpItem:
     """<set_up_item> = ( <variable> | <path_expr> ) , [ <annotation> ] , [ "=" , <expr> ]"""
     target: Any               # Variable | PathExpr
-    annotation: Optional[Annotation] = None
-    value: Optional[Any] = None   # <expr>
+    annotation: Annotation | None = None
+    value: Any | None = None   # <expr>
 
 
 @dataclass
@@ -62,14 +62,14 @@ class LoopFraction:
 @dataclass
 class SegLoopSuffix:
     """<seg_loop_suffix> = … , [ <seg_id> ] , <loop_fraction>（单省略号，段级）"""
-    seg_id: Optional[int] = None
-    fraction: Optional[LoopFraction] = None
+    seg_id: int | None = None
+    fraction: LoopFraction | None = None
 
 
 @dataclass
 class GlobalLoopSuffix:
     """<global_loop_suffix> = …… , <loop_fraction>（双省略号，全局）"""
-    fraction: Optional[LoopFraction] = None
+    fraction: LoopFraction | None = None
 
 
 @dataclass
@@ -83,11 +83,11 @@ class OutputTrail:
                          ]
                        ]"""
     output: Any                          # Output
-    seg_loop: Optional[SegLoopSuffix] = None
-    subfiles: Optional[list[str]] = None  # 段循环后的子文件引用（下位文件，补充/扩充），| 分隔
-    global_code_id: Optional[str] = None
-    global_loop: Optional[GlobalLoopSuffix] = None
-    file_ref: Optional[str] = None       # 全局循环后的文件路径（当前文件被分割成多文件）
+    seg_loop: SegLoopSuffix | None = None
+    subfiles: list[str] | None = None  # 段循环后的子文件引用（下位文件，补充/扩充），| 分隔
+    global_code_id: str | None = None
+    global_loop: GlobalLoopSuffix | None = None
+    file_ref: str | None = None       # 全局循环后的文件路径（当前文件被分割成多文件）
 
 
 @dataclass
@@ -119,7 +119,7 @@ class MechUnit:
 @dataclass
 class Generate:
     """<generate> = #："""
-    seg_id: Optional[int] = None  # None = 无段号；int = 段号
+    seg_id: int | None = None  # None = 无段号；int = 段号
 
 
 @dataclass
@@ -133,7 +133,7 @@ class GenStmt:
 class Binding:
     """<binding> = ( <variable> | <path_expr> ) , [ <annotation> ] , "=" , <expr>"""
     target: Any
-    annotation: Optional[Annotation] = None
+    annotation: Annotation | None = None
     value: Any = None  # <expr>
 
 
@@ -154,11 +154,19 @@ class SafePathExpr:
 
 @dataclass
 class SetConstruct:
-    """<set_construct> = { <var_list> | <cond_list> } 或 { <literal_list> }"""
+    """<set_construct> = { <var_list> | <cond_list> } 或 { <literal_list> }
+
+    理解形式 `{ 输出 | 生成子句 | 条件子句 ... }`：
+      - variables：生成子句列表，每项为 ``(变量名, 可迭代表达式)`` 元组，
+        `x >> S` 表示 x 依次取 S 的每个元素（多生成子句为笛卡尔积）。
+      - conditions：过滤条件表达式列表（全部为真才产出）。
+      - output：输出表达式（求值结果构成集合元素）。
+    枚举形式 `{1, 2, 3}` 只用 literals。"""
     form: str  # "comprehension"（理解形式）或 "enumeration"（枚举形式）
-    variables: Optional[list[Any]] = None   # var_list
-    conditions: Optional[list[Any]] = None   # cond_list
-    literals: Optional[list[Any]] = None     # literal_list
+    variables: list[Any] | None = None   # 理解：[(name, iterable_expr), ...]
+    conditions: list[Any] | None = None  # 理解：过滤条件
+    literals: list[Any] | None = None     # 枚举：元素列表
+    output: Any = None                    # 理解：输出表达式
 
 
 @dataclass
@@ -274,7 +282,7 @@ class Belongs:
 @dataclass
 class Output:
     """<output> = [ , [ <expr> ] , ]"""
-    expr: Optional[Any] = None
+    expr: Any | None = None
     target: str = "printf"  # 输出目标: printf / print / log 等
 
 
@@ -349,7 +357,7 @@ class IfStmt:
     """<if_stmt> = <expr> <block> [ 否则 ... ]（草案）"""
     cond: Any
     then_block: Any
-    else_block: Optional[Any] = None
+    else_block: Any | None = None
 
 
 @dataclass
@@ -436,7 +444,7 @@ class AnnotatedType:
 class FuncDef:
     """<func_def> = <identifier> [ <annotation> ] : <func_type> = <lambda>"""
     name: str
-    annotation: Optional[Annotation] = None
+    annotation: Annotation | None = None
     func_type: Any = None
     body: Any = None  # Lambda
     else_body: Any = None  # 后续语句（如 let rec f = lambda; f(args) 中的 f(args)）
@@ -446,7 +454,7 @@ class FuncDef:
 class StructDef:
     name: str
     type_params: list[str] = field(default_factory=list)
-    annotation: Optional[Annotation] = None
+    annotation: Annotation | None = None
     fields: list[Any] = field(default_factory=list)
 
 
@@ -454,7 +462,7 @@ class StructDef:
 class EnumDef:
     name: str
     type_params: list[str] = field(default_factory=list)
-    annotation: Optional[Annotation] = None
+    annotation: Annotation | None = None
     ctors: list[Any] = field(default_factory=list)
 
 
@@ -468,15 +476,15 @@ class AliasDef:
 @dataclass
 class ModuleDecl:
     name: str
-    annotation: Optional[Annotation] = None
+    annotation: Annotation | None = None
     decls: list[Any] = field(default_factory=list)
 
 
 @dataclass
 class ImportDecl:
     module_name: str
-    import_list: Optional[list[str]] = None
-    alias: Optional[str] = None
+    import_list: list[str] | None = None
+    alias: str | None = None
 
 
 @dataclass
@@ -487,7 +495,7 @@ class GoStmt:
 @dataclass
 class ChanExpr:
     elem_type: Any
-    buffer_size: Optional[int] = None
+    buffer_size: int | None = None
 
 
 @dataclass
@@ -551,7 +559,7 @@ class RaiseExpr:
 class TryStmt:
     """try { block } catch (<var>) { block } [ finally { block }]"""
     try_block: Any
-    catch_var: Optional[str] = None
+    catch_var: str | None = None
     catch_block: Any = None
     finally_block: Any = None
 
@@ -574,7 +582,7 @@ class IfElseStmt:
     """if/elif/else 链式语句"""
     conditions: list[Any] = field(default_factory=list)
     blocks: list[Any] = field(default_factory=list)
-    else_block: Optional[Any] = None
+    else_block: Any | None = None
 
 
 @dataclass
@@ -583,3 +591,11 @@ class SwitchStmt:
     value: Any
     cases: list[tuple[Any, Any]] = field(default_factory=list)
     default_block: Any = None
+
+
+@dataclass
+class ForeignDecl:
+    """通用前缀声明：`# ...`（惰性/符号）或 `#：<外来源码>`（全能前缀，可执行路由）。"""
+    text: str = ''
+    prefix: str = '#'          # "#"（裸 #，惰性）或 "#："（可执行）
+    lang: str = ''             # 检测到的外部语言（python/js/rust/go/c/ruby/''）

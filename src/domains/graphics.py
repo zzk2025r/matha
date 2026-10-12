@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 图形学领域模块：图形变换、渲染管线、几何计算、颜色空间。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -116,7 +116,7 @@ def _graphics_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "齐次变换矩阵", "投影变换", "裁剪区域",
-    "光栅化点数", "颜色空间转换", "抗锯齿系数",
+    "_齐次变换矩阵", "_投影变换", "_裁剪区域",
+    "_光栅化点数", "_颜色空间转换", "_抗锯齿系数",
     "_register_graphics", "_graphics_symtab_names",
 ]

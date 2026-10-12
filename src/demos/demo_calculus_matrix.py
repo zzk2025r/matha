@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 符号微积分与矩阵运算整合演示
 
 本脚本演示如何同时使用符号微积分和矩阵运算模块。
@@ -20,11 +19,11 @@
   python src/demos/demo_calculus_matrix.py --expr "x**2"            # 自定义表达式
   python src/demos/demo_calculus_matrix.py --parallel               # 并行计算
 """
+import logging
 import math
 import sys
-import logging
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 # 添加项目根目录到路径
 _project_root = Path(__file__).parent.parent.parent  # src/demos -> src -> project root
@@ -111,7 +110,7 @@ def demo1_derivative_matrix(expr: str = "x**3 + 2*x**2 + 3*x + 1"):
     f_x = x**3 + 2*x**2 + 3*x + 1
     f_prime_x = 3*x**2 + 4*x + 3
     logger.debug(f"[求导] 验证求值: x={x}, f(x)={f_x}, f'(x)={f_prime_x}")
-    print(f"\n  验证:")
+    print("\n  验证:")
     print(f"    f(2) = {f_x}")
     print(f"    f'(2) = {f_prime_x}")
 
@@ -124,7 +123,7 @@ def demo2_integral_verification(expr: str = "x**2"):
     """演示2：符号积分与数值验证。"""
     print_section("2. 符号积分 + 数值验证")
 
-    from src.stdlib.calculus_symbolic import symbolic_integral, definite_integral
+    from src.stdlib.calculus_symbolic import definite_integral, symbolic_integral
 
     # 符号积分
     logger.debug(f"[积分] 开始符号积分: expr={expr}")
@@ -187,7 +186,7 @@ def demo3_taylor_matrix():
 
     # 用 Vandermonde 矩阵验证在特定点的值
     x_vals = [0.0, 0.5, 1.0]
-    print(f"\n  数值验证:")
+    print("\n  数值验证:")
     for x in x_vals:
         # 泰勒近似
         taylor_val = sum(c * x**i for i, c in enumerate(coeffs))
@@ -245,7 +244,6 @@ def demo5_ode_matrix():
     print_section("5. 微分方程 + 矩阵求解")
 
     from src.stdlib.calculus_symbolic import symbolic_derivative
-    from src.stdlib.linear_algebra import Matrix, matrix_inverse
 
     # 微分方程: y' = 2x, y(0) = 0
     # 解析解: y = x²
@@ -262,10 +260,11 @@ def demo5_ode_matrix():
     # 用矩阵方法验证：将微分方程离散化
     # 在 x = [0, 0.1, 0.2, ..., 1.0] 处验证
     x_vals = [i * 0.1 for i in range(11)]
-    y_vals = [x**2 for x in x_vals]
+    [x**2 for x in x_vals]
 
-    print(f"\n  数值验证:")
-    print(f"    {'x':>6s} | {'y=x²':>10s} | {'y\'=2x':>10s}")
+    yprime_label = "y'=2x"
+    print("\n  数值验证:")
+    print(f"    {'x':>6s} | {'y=x²':>10s} | {yprime_label:>10s}")
     print(f"    {'-'*6}-+{'-'*10}-+{'-'*10}")
     for x in x_vals:
         y = x**2
@@ -282,7 +281,7 @@ def demo6_matrix_calculus(use_numpy: bool = True, parallel: bool = False, n_work
     """演示6：矩阵微积分综合应用。"""
     print_section("6. 矩阵微积分综合应用")
 
-    from src.stdlib.calculus_symbolic import symbolic_derivative, symbolic_integral
+    from src.stdlib.calculus_symbolic import symbolic_derivative
     from src.stdlib.linear_algebra import Matrix, matrix_determinant, matrix_trace, svd_decompose
 
     # 矩阵函数求导
@@ -313,7 +312,7 @@ def demo6_matrix_calculus(use_numpy: bool = True, parallel: bool = False, n_work
     print(f"  tr(A) = {tr_A}")
 
     # 符号微积分与矩阵结合：矩阵元素的函数求导
-    print(f"\n  矩阵函数 f(A) = A² 的导数:")
+    print("\n  矩阵函数 f(A) = A² 的导数:")
     A2 = A * A
     logger.debug(f"[矩阵] A² =\n{A2}")
     print(f"    A² =\n{A2}")
@@ -324,14 +323,14 @@ def demo6_matrix_calculus(use_numpy: bool = True, parallel: bool = False, n_work
     print(f"\n  符号验证: d/dx(x²) = {derivative}")
 
     # SVD 分解（优先使用 NumPy）
-    print(f"\n  SVD 分解:")
+    print("\n  SVD 分解:")
     if use_numpy:
         try:
             import numpy as np
             A_np = np.array(A.data, dtype=float)
             U_np, s_np, Vt_np = np.linalg.svd(A_np)
             logger.info(f"[SVD] NumPy SVD: U={U_np.shape}, s={s_np.shape}, Vt={Vt_np.shape}")
-            print(f"    NumPy SVD:")
+            print("    NumPy SVD:")
             print(f"      奇异值: {s_np}")
             print(f"      U =\n{U_np}")
             print(f"      Vt =\n{Vt_np}")
@@ -339,21 +338,21 @@ def demo6_matrix_calculus(use_numpy: bool = True, parallel: bool = False, n_work
             logger.warning("NumPy 未安装，使用 Matha SVD")
             U, S, Vt = svd_decompose(A)
             logger.info(f"[SVD] Matha SVD 完成: {A.shape}")
-            print(f"    Matha SVD:")
+            print("    Matha SVD:")
             print(f"      S =\n{S}")
             print(f"      U =\n{U}")
             print(f"      Vt =\n{Vt}")
     else:
         U, S, Vt = svd_decompose(A)
         logger.info(f"[SVD] Matha SVD 完成: {A.shape}")
-        print(f"    Matha SVD:")
+        print("    Matha SVD:")
         print(f"      S =\n{S}")
         print(f"      U =\n{U}")
         print(f"      Vt =\n{Vt}")
 
     # 并行计算演示：大规模矩阵运算
     if parallel:
-        print(f"\n  并行计算演示:")
+        print("\n  并行计算演示:")
         matrices = [Matrix.random(50, 50) for _ in range(8)]
         logger.debug(f"[并行] 创建 {len(matrices)} 个 50x50 随机矩阵")
 
@@ -388,7 +387,7 @@ def demo6_matrix_calculus(use_numpy: bool = True, parallel: bool = False, n_work
 
     # 稀疏矩阵 SVD 演示
     if use_sparse:
-        print(f"\n  稀疏矩阵 SVD 演示:")
+        print("\n  稀疏矩阵 SVD 演示:")
         import random
         random.seed(42)
 
@@ -421,7 +420,7 @@ def demo6_matrix_calculus(use_numpy: bool = True, parallel: bool = False, n_work
 
         # 并行稀疏 SVD 演示
         if parallel:
-            print(f"\n  并行稀疏 SVD 演示:")
+            print("\n  并行稀疏 SVD 演示:")
             sparse_matrices_batch = []
             for k in range(4):
                 random.seed(42 + k)
@@ -449,7 +448,7 @@ def demo6_matrix_calculus(use_numpy: bool = True, parallel: bool = False, n_work
                 results = [f.result() for f in as_completed(futures)]
 
             logger.info(f"[并行稀疏] 并行稀疏 SVD 完成: {len(results)} 个矩阵")
-            print(f"    并行稀疏 SVD 结果:")
+            print("    并行稀疏 SVD 结果:")
             for i, (sigma, mat_type) in enumerate(results):
                 print(f"      矩阵 {i+1}: σ₁={sigma:.6f} ({mat_type})")
 
@@ -486,7 +485,7 @@ def main():
 
     # 检查 NumPy 可用性
     try:
-        import numpy as np
+        import numpy as np  # noqa: F401
         numpy_available = not args.no_numpy
     except ImportError:
         numpy_available = False

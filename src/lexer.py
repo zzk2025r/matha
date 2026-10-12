@@ -10,8 +10,7 @@
     - 标注 */文字/* 或 */文字*公式/*：*/ 起始，/* 结束
 """
 
-from src.tokens import Token, TokenType, KEYWORDS, MULTI_CHAR_OPS
-
+from src.tokens import KEYWORDS, MULTI_CHAR_OPS, Token, TokenType
 
 # ── 单字符 Token 映射表（模块级常量，避免每次调用重建 dict）────────────────
 _SINGLE_CHAR_MAP: dict[str, TokenType] = {
@@ -46,7 +45,6 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     ".": TokenType.PUNCT_DOT,
     "_": TokenType.PUNCT_UNDERSCORE,
     # ---------- Matha 专属符号 ----------
-    "？": TokenType.MATHA_PLACEHOLDER,
     "【": TokenType.MATHA_READ_OPEN,
     "】": TokenType.MATHA_READ_CLOSE,
     "〔": TokenType.MATHA_READ_OPEN2,
@@ -54,12 +52,10 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "《": TokenType.MATHA_CMD_OPEN,
     "》": TokenType.MATHA_CMD_CLOSE,
     "#": TokenType.MATHA_HASH,
-    "：": TokenType.MATHA_COLON_FW,
     "@": TokenType.MATHA_AT,
     "、": TokenType.MATHA_COMMA,
     # ---------- CJK 标点 (U+3000-303F) ----------
     "。": TokenType.PUNCT_DOT,
-    "；": TokenType.MATHA_COLON_FW,
     "！": TokenType.OP_QUESTION,
     "「": TokenType.MATHA_READ_OPEN,
     "」": TokenType.MATHA_READ_CLOSE,
@@ -76,7 +72,7 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "〝": TokenType.MATHA_READ_OPEN,
     "〞": TokenType.MATHA_READ_CLOSE,
     # ---------- 全角 Latin (U+FF00-FFEF) ----------
-    "＆": TokenType.OP_PIPE,
+    "＆": TokenType.OP_BIT_AND,
     "＄": TokenType.OP_SET_PROD,
     "％": TokenType.OP_MOD,
     "＊": TokenType.OP_STAR,
@@ -124,8 +120,8 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "∅": TokenType.SYMBOL,
     "∝": TokenType.SYMBOL,
     "∠": TokenType.SYMBOL,
-    "∧": TokenType.OP_PIPE,
-    "∨": TokenType.OP_PIPE,
+    "∧": TokenType.OP_LAND,
+    "∨": TokenType.OP_LOR,
     "∩": TokenType.OP_SET_INTER,
     "∪": TokenType.OP_SET_UNION,
     "∫": TokenType.SYMBOL,
@@ -133,7 +129,7 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "∀": TokenType.SYMBOL,
     "∃": TokenType.SYMBOL,
     "¬": TokenType.OP_SET_COMP,
-    "⊕": TokenType.OP_BIT_XOR,
+    "⊕": TokenType.OP_XOR,
     "⊗": TokenType.SYMBOL,
     "⊥": TokenType.SYMBOL,
     "∥": TokenType.SYMBOL,
@@ -415,18 +411,11 @@ class Lexer:
                 self._advance()
                 continue
 
-            # 跳过注释 (* ... *)  —— EBNF 风格注释
+            # 跳过注释 (* ... *)  —— EBNF 风格注释（Matha 唯一注释形式）
+            # 裸 `#` 一律是 MATHA_HASH 符号（不再是行注释）；唯一可执行前缀为 `#：`
             if ch == "(" and self._peek(1) == "*":
                 self._skip_comment()
                 continue
-
-            # 跳过 # 行注释（# 后跟非数字非冒号字符时视为注释）
-            if ch == "#":
-                peek = self._peek(1)
-                if peek and peek not in ("：", ":", "") and not (peek and peek.isdigit()):
-                    while self.pos < self.n and self.src[self.pos] != "\n":
-                        self._advance()
-                    continue
 
             # 多字符运算符（最长匹配）
             matched = False
@@ -701,9 +690,8 @@ class Lexer:
         parts = []
         while self.pos < self.n:
             ch = self.src[self.pos]
-            if is_unicode_id_continue(ch):
+            if is_unicode_id_continue(ch) or is_unicode_letter(ch):
                 parts.append(self._advance())
-            elif is_unicode_letter(ch):                parts.append(self._advance())
             elif ch in ("、", "—"):
                 # 顿号/长破折号：仅作为首字符，不纳入标识符
                 break

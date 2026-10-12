@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Kernel Math: 操作系统内核数学模型与计算公式。
 
 覆盖：系统调用表、PCB 内存布局、页表开销、中断延迟、进程调度内核开销。
@@ -6,7 +5,6 @@
 """
 
 from __future__ import annotations
-
 
 # ============================================================
 # 系统调用（syscall）相关
@@ -283,7 +281,7 @@ def kernel_mem_layout(
     bss_start = data_end
     bss_end = bss_start + bss_size
     stack_start = bss_end
-    stack_end = stack_start + stack_size
+    stack_start + stack_size
 
     return {
         "text":  (text_start, text_size),

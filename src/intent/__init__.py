@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — 意图解析模块统一入口
 
 统一导入所有意图解析组件。
@@ -9,21 +8,29 @@
 """
 from __future__ import annotations
 
-# LLM 意图解析器
-from src.intent.llm_parser import (
-    LLMIntentParser, Intent, IntentType,
-    parse_intent, explain_intent,
-)
-
 # 意图分解引擎
 from src.intent.intent_decomposer import (
-    IntentDecomposer, IntentNode, IntentNodeType,
+    IntentDecomposer,
+    IntentNode,
+    IntentNodeType,
+)
+
+# LLM 意图解析器
+from src.intent.llm_parser import (
+    Intent,
+    IntentType,
+    LLMIntentParser,
+    explain_intent,
+    parse_intent,
 )
 
 # MIR 代码生成器
 from src.intent.mir_generator import (
-    MIRGenerator, MIRNode, MIRNodeKind,
-    generate_mir, explain_mir,
+    MIRGenerator,
+    MIRNode,
+    MIRNodeKind,
+    explain_mir,
+    generate_mir,
 )
 
 __all__ = [

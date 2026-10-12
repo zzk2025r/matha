@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 创意编程与艺术表达领域模块。
 
@@ -11,10 +10,9 @@ Matha 创意编程与艺术表达领域模块。
   6) 音频可视化
 """
 from __future__ import annotations
+
 import math
 import random
-from typing import Optional
-
 
 # ============================================================
 # Perlin 噪声

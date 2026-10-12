@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 领域公式注册系统（Domain Formula Registry）
 
@@ -9,15 +8,14 @@ Matha 领域公式注册系统（Domain Formula Registry）
   4. 公式 → MIR 自动编译
 """
 from __future__ import annotations
+
 import importlib
 import inspect
 import logging
-import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
 
-from src.symbolic import Expr, Var, Num, Mul, Div, Add, Sub, Pow, Neg, FuncCall, symbol_expr
 from src.formula_system import Formula, FormulaRegistry
+from src.symbolic import symbol_expr
 
 logger = logging.getLogger("matha.domain_formula")
 
@@ -333,7 +331,6 @@ class CrossDomainFormulaEngine:
 
 def get_domain_formula_registry() -> DomainFormulaRegistry:
     """获取领域公式注册表（单例）。"""
-    from src.formula_system import _formula_registry as main_reg
     reg = DomainFormulaRegistry()
     # 同步到全局注册表
     for domain in reg._DOMAIN_FORMULAS:

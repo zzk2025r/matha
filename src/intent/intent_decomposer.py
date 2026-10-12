@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.0 — 意图分解引擎（IDE）核心实现
 
 设计原则：
@@ -11,18 +10,18 @@
   自然语言 → IDE 分解 → 意图树 → 数学映射 → 可执行代码
 """
 from __future__ import annotations
+
 import json
 import re
-import time
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Callable
 from pathlib import Path
 
 sys.path.insert(0, r"D:\trae")
 from src.intent_parser import IntentType
-
 
 # ============================================================
 # 意图树节点
@@ -44,10 +43,10 @@ class IntentNode:
     node_type: IntentNodeType
     text: str
     math_expr: str = ""
-    sub_intents: List['IntentNode'] = field(default_factory=list)
-    constraints: List[str] = field(default_factory=list)
+    sub_intents: list[IntentNode] = field(default_factory=list)
+    constraints: list[str] = field(default_factory=list)
     confidence: float = 1.0
-    follow_up: List[str] = field(default_factory=list)
+    follow_up: list[str] = field(default_factory=list)
     parse_time_ms: float = 0.0
 
     def is_complete(self) -> bool:
@@ -69,7 +68,7 @@ class IntentNode:
             return "\n".join(lines)
         return f"# 无法映射: {self.text}"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """序列化为字典。"""
         return {
             "type": self.node_type.name,
@@ -83,7 +82,7 @@ class IntentNode:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'IntentNode':
+    def from_dict(cls, data: dict) -> IntentNode:
         """从字典反序列化。"""
         node = cls(
             node_type=IntentNodeType[data["type"]],
@@ -114,7 +113,7 @@ class IntentDecomposer:
     # 短文本快速规则（≤20 字）
     # ============================================================
 
-    SHORT_RULES: List[tuple] = [
+    SHORT_RULES: list[tuple] = [
         # 算术表达式
         (r'[\d.]+\s*[+\-*/^]\s*[\d.]+', IntentType.ARITHMETIC, 'ARITHMETIC_EXPR'),
         (r'计算\s*[\d.]+\s*[加减乘除]\s*[\d.]+', IntentType.ARITHMETIC, 'ARITHMETIC_EXPR'),
@@ -137,7 +136,7 @@ class IntentDecomposer:
     # 中文本规则（20-100 字）
     # ============================================================
 
-    MEDIUM_RULES: List[tuple] = [
+    MEDIUM_RULES: list[tuple] = [
         (r'并且|同时|以及|还有', 'COMPLEX_MERGE'),
         (r'如果|假如|当.*时', 'CONDITIONAL'),
         (r'排序.*对|过滤.*在|映射.*到', 'ARRAY_OP_CHAIN'),
@@ -148,7 +147,7 @@ class IntentDecomposer:
     # 内置数学映射函数
     # ============================================================
 
-    MATH_MAPPINGS: Dict[str, Callable[[str], str]] = {
+    MATH_MAPPINGS: dict[str, Callable[[str], str]] = {
         'ARITHMETIC_EXPR': lambda t: _extract_arithmetic(t),
         'MATH_FUNC': lambda t: _extract_math_func(t),
         'COMPARISON': lambda t: _extract_comparison(t),
@@ -177,7 +176,8 @@ class IntentDecomposer:
         2. 中文本（20-100字）→ 标点拆分 + 子意图合并
         3. 长文本（>100字）→ LLM 辅助分解（如启用）
         """
-        text = text.strip()
+        # 归一化 text：list/tuple 拼接为字符串，避免 'list' object has no attribute 'strip'
+        text = (" ".join(str(x) for x in text) if isinstance(text, (list, tuple)) else str(text)).strip()
         start = time.perf_counter()
 
         if len(text) <= 20:
@@ -209,7 +209,6 @@ class IntentDecomposer:
             return self._llm_decompose(text)
 
         # KNP-008: 动态计算降级置信度（基于文本长度和规则匹配数）
-        import re
         rule_matches = sum(1 for kw in text if any(k in text.lower() for k in ["加", "减", "乘", "除", "算", "求", "多少"]))
         dynamic_confidence = min(0.9, 0.3 + rule_matches * 0.1 + len(text) * 0.005)
 
@@ -338,7 +337,7 @@ class IntentDecomposer:
     # 辅助方法
     # ============================================================
 
-    def _split_by_punctuation(self, text: str) -> List[str]:
+    def _split_by_punctuation(self, text: str) -> list[str]:
         """按中文/英文标点拆分文本。"""
         # 匹配中文标点和英文标点
         parts = re.split(r'[，,。.;;、|]+', text)
@@ -403,7 +402,6 @@ class IntentDecomposer:
         if not sub_intents:
             # 无法分解 → 返回单节点
             # KNP-008: 动态置信度
-            import re
             rule_matches = sum(1 for kw in text if any(k in text.lower() for k in ["加", "减", "乘", "除", "算", "求", "多少"]))
             dynamic_confidence = min(0.9, 0.3 + rule_matches * 0.1 + len(text) * 0.005)
             return IntentNode(
@@ -442,7 +440,7 @@ class IntentDecomposer:
         template_file = self._template_dir / "templates.json"
         templates = {}
         if template_file.exists():
-            with open(template_file, 'r', encoding='utf-8') as f:
+            with open(template_file, encoding='utf-8') as f:
                 templates = json.load(f)
 
         template_hash = hash(pattern) % 100000
@@ -451,11 +449,11 @@ class IntentDecomposer:
         with open(template_file, 'w', encoding='utf-8') as f:
             json.dump(templates, f, ensure_ascii=False, indent=2)
 
-    def _load_templates(self) -> Dict:
+    def _load_templates(self) -> dict:
         """加载已存储的模板。"""
         template_file = self._template_dir / "templates.json"
         if template_file.exists():
-            with open(template_file, 'r', encoding='utf-8') as f:
+            with open(template_file, encoding='utf-8') as f:
                 return json.load(f)
         return {}
 
@@ -635,7 +633,7 @@ if __name__ == "__main__":
                 if sub.follow_up:
                     print(f"      追问: {sub.follow_up}")
 
-        print(f"\n完整数学代码:")
+        print("\n完整数学代码:")
         print(root.to_math_code())
 
     print("\n" + "=" * 70)

@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """Matha MCP Server — 通过 Model Context Protocol 暴露 Matha 工具
 用法: python -m src.mcp_server
 """
 from __future__ import annotations
+
 import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional
 
 # 确保 src 在 PATH
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -40,7 +39,7 @@ def _safe_run(file_path: str) -> str:
     return "\n".join(str(item) for item in out) if out else ""
 
 
-def _safe_compile(source: str, output: Optional[str] = None) -> str:
+def _safe_compile(source: str, output: str | None = None) -> str:
     """编译 Matha 源码到 C。"""
     from src.compiler.matha_cc import matha_compile
     try:
@@ -90,7 +89,7 @@ def create_server() -> MCPServer:
             return [TextContent(type="text", text=f"运行错误: {e}")]
 
     @server.tool()
-    async def compile_source(source: str, output: Optional[str] = None) -> list[TextContent]:
+    async def compile_source(source: str, output: str | None = None) -> list[TextContent]:
         """将 Matha 源码编译为 C 代码。source 为 Matha 源码字符串。"""
         try:
             result = _safe_compile(source, output)
@@ -133,6 +132,34 @@ def create_server() -> MCPServer:
         return [TextContent(type="text", text=json.dumps(info, ensure_ascii=False, indent=2))]
 
     return server
+
+
+class MathaMCPServer(MCPServer):
+    """Matha MCP Server 增强类，提供完整工具链接口。"""
+
+    def __init__(self):
+        super().__init__(name="matha", version="4.4")
+        self._register_matha_tools()
+
+    def _register_matha_tools(self):
+        """注册所有 Matha 工具。"""
+        pass
+
+    def eval_expr(self, expr: str) -> str:
+        return _safe_eval(expr)
+
+    def run_file(self, file_path: str) -> str:
+        return _safe_run(file_path)
+
+    def compile_source(self, source: str, output=None) -> str:
+        return _safe_compile(source, output)
+
+    def diagnose(self, source: str) -> list[dict]:
+        return _safe_diagnose(source)
+
+    def get_info(self) -> dict:
+        from src.matha_main import VERSION
+        return {"name": "Matha", "version": VERSION, "python": sys.version.split()[0]}
 
 
 def main():

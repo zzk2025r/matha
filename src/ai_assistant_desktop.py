@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Electron 主进程 — Matha AI Assistant 桌面应用
 
@@ -7,21 +6,20 @@ Electron 主进程 — Matha AI Assistant 桌面应用
   electron-builder --mac --win --linux
 """
 from __future__ import annotations
-import sys
+
 import os
+import sys
 
 # 确保 src 在路径中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.ai_assistant import MathaAIAssistant
-from src.interp import Interpreter
 
 
 def launch_desktop():
     """启动桌面应用（通过 webview 嵌入）。"""
-    import webbrowser
     import threading
     import time
+    import webbrowser
 
     # 启动后端服务
     from src.ai_assistant_server import APIHandler, HTTPServer

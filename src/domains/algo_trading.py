@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 算法交易领域模块：量化策略、回测引擎、风险管控、执行算法。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -113,7 +113,7 @@ def _algo_trading_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "策略夏普比率", "最大回撤估算", "订单执行成本",
-    "滑点估算", "波动率预测", "相关性矩阵",
+    "_策略夏普比率", "_最大回撤估算", "_订单执行成本",
+    "_滑点估算", "_波动率预测", "_相关性矩阵",
     "_register_algo_trading", "_algo_trading_symtab_names",
 ]

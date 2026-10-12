@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
 """Matha 增强诊断系统：代码高亮 + 修复建议 + 上下文分析 + 历史追踪。"""
 
 from __future__ import annotations
+
 import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any, Optional
-
+from enum import Enum
 
 # ============================================================
 # 诊断等级
@@ -36,7 +34,7 @@ class Diagnostic:
     end_col: int = 0
     source: str = "matha"
     code: str = ""
-    fix: Optional[str] = None
+    fix: str | None = None
     related: list[dict] = field(default_factory=list)
     context_lines: list[str] = field(default_factory=list)
 

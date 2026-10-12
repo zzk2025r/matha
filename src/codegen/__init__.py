@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 代码生成子系统：把 Matha 数据规格编译成成品软件产物。
 
 设计哲学（独立生态原则）：
@@ -37,17 +36,17 @@
 自主构建：SoftwareBuilder（src/autonomous.py）从需求描述生成规格 → codegen → 沙箱验证 → 输出。
 """
 
+from src.codegen.backend import BackendGenerator
 from src.codegen.base import (
     CodegenError,
     CodegenResult,
-    parse_app_spec,
     codegen,
+    parse_app_spec,
 )
-from src.codegen.web import WebGenerator
 from src.codegen.desktop import DesktopGenerator
-from src.codegen.backend import BackendGenerator
-from src.codegen.system import SystemGenerator
 from src.codegen.kernel import KernelGenerator
+from src.codegen.system import SystemGenerator
+from src.codegen.web import WebGenerator
 
 __all__ = [
     "CodegenError",

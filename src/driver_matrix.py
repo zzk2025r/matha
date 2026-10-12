@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 驱动矩阵系统 — 完整的驱动/引擎类型覆盖
 
@@ -34,22 +33,21 @@ Matha 驱动矩阵系统 — 完整的驱动/引擎类型覆盖
   29. 创造驱动 (Creative/AI生成/程序化生成)
 """
 from __future__ import annotations
-import sys
-import os
+
 import json
-import time
-from enum import Enum
+import os
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Callable
+from enum import Enum
+from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from hardware.hal_v2 import (
-    DriverKind, Architecture, ProtocolType, ProtocolSpec,
-    DriverGenerator, ProtocolParser,
+    Architecture,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  1. 驱动类型枚举
@@ -257,8 +255,8 @@ class DriverSpec:
     description: str
     architecture: Architecture = Architecture.ARM64
     target_lang: str = "python"  # python / c / matha / java
-    protocol: Optional[str] = None
-    params: Dict[str, Any] = field(default_factory=dict)
+    protocol: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
     is_core: bool = False  # 是否为核心驱动
     safety_level: str = "medium"
 
@@ -293,9 +291,9 @@ class MathaDriverMatrix:
     """
 
     def __init__(self):
-        self._drivers: Dict[str, DriverSpec] = {}
-        self._registry: Dict[str, Callable] = {}
-        self._generated: List[dict] = []
+        self._drivers: dict[str, DriverSpec] = {}
+        self._registry: dict[str, Callable] = {}
+        self._generated: list[dict] = []
         self._stats = {
             "total": 0,
             "by_category": {},
@@ -860,23 +858,23 @@ class MathaDriverMatrix:
     #  公开 API
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def list_all(self) -> List[dict]:
+    def list_all(self) -> list[dict]:
         """列出所有驱动。"""
         return [d.to_dict() for d in self._drivers.values()]
 
-    def list_by_category(self, category: DriverCategory) -> List[dict]:
+    def list_by_category(self, category: DriverCategory) -> list[dict]:
         """按类别列出驱动。"""
         return [d.to_dict() for d in self._drivers.values() if d.category == category]
 
-    def list_by_architecture(self, arch: Architecture) -> List[dict]:
+    def list_by_architecture(self, arch: Architecture) -> list[dict]:
         """按架构列出驱动。"""
         return [d.to_dict() for d in self._drivers.values() if d.architecture == arch]
 
-    def get_core_drivers(self) -> List[dict]:
+    def get_core_drivers(self) -> list[dict]:
         """获取核心驱动。"""
         return [d.to_dict() for d in self._drivers.values() if d.is_core]
 
-    def get(self, category: DriverCategory, sub_type: DriverSubType) -> Optional[dict]:
+    def get(self, category: DriverCategory, sub_type: DriverSubType) -> dict | None:
         """获取单个驱动规格。"""
         key = f"{category.value}_{sub_type.value}"
         spec = self._drivers.get(key)
@@ -1094,7 +1092,7 @@ int main(void) {{
         ]
         return '\n'.join(lines) + '\n'
 
-    def generate_all_python(self) -> List[dict]:
+    def generate_all_python(self) -> list[dict]:
         """生成所有驱动的 Python 代码。"""
         results = []
         for spec in self._drivers.values():
@@ -1103,7 +1101,7 @@ int main(void) {{
             results.append(result)
         return results
 
-    def generate_all_c(self) -> List[dict]:
+    def generate_all_c(self) -> list[dict]:
         """生成所有驱动的 C 代码 (RISC-V 裸机)。"""
         results = []
         for spec in self._drivers.values():

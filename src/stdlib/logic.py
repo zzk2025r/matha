@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — 逻辑与证明标准库
 
 提供数理逻辑核心功能：
@@ -18,10 +17,8 @@
   )
 """
 from __future__ import annotations
-import math
-from typing import List, Optional, Set, Tuple
-from dataclasses import dataclass
 
+from dataclasses import dataclass
 
 # ============================================================
 # 命题逻辑运算
@@ -74,7 +71,7 @@ def NOR(p: bool, q: bool) -> bool:
 def truth_table(
     num_vars: int,
     expr_fn: callable
-) -> List[dict]:
+) -> list[dict]:
     """
     生成真值表。
 
@@ -96,7 +93,7 @@ def truth_table(
     return rows
 
 
-def print_truth_table(num_vars: int, expr_fn: callable, var_names: List[str] = None):
+def print_truth_table(num_vars: int, expr_fn: callable, var_names: list[str] = None):
     """打印可读的真值表。"""
     if var_names is None:
         var_names = [f"P{i+1}" for i in range(num_vars)]
@@ -118,37 +115,37 @@ def print_truth_table(num_vars: int, expr_fn: callable, var_names: List[str] = N
 # 集合运算
 # ============================================================
 
-def set_union(a: Set, b: Set) -> Set:
+def set_union(a: set, b: set) -> set:
     """集合并：A ∪ B"""
     return a | b
 
 
-def set_intersection(a: Set, b: Set) -> Set:
+def set_intersection(a: set, b: set) -> set:
     """集合交：A ∩ B"""
     return a & b
 
 
-def set_difference(a: Set, b: Set) -> Set:
+def set_difference(a: set, b: set) -> set:
     """集合差：A \\ B"""
     return a - b
 
 
-def set_complement(a: Set, universe: Set) -> Set:
+def set_complement(a: set, universe: set) -> set:
     """集合补：A' = U \\ A"""
     return universe - a
 
 
-def set_symmetric_difference(a: Set, b: Set) -> Set:
+def set_symmetric_difference(a: set, b: set) -> set:
     """对称差：A △ B = (A \\ B) ∪ (B \\ A)"""
     return a ^ b
 
 
-def is_subset(a: Set, b: Set) -> bool:
+def is_subset(a: set, b: set) -> bool:
     """子集判断：A ⊆ B"""
     return a.issubset(b)
 
 
-def is_proper_subset(a: Set, b: Set) -> bool:
+def is_proper_subset(a: set, b: set) -> bool:
     """真子集判断：A ⊂ B"""
     return a.issubset(b) and a != b
 
@@ -220,7 +217,7 @@ def check_contradiction(num_vars: int, expr_fn: callable) -> bool:
 class Predicate:
     """谓词：定义在有限域上的命题函数。"""
     name: str
-    domain: List
+    domain: list
     fn: callable
 
     def evaluate(self, element) -> bool:
@@ -256,7 +253,7 @@ class InferenceEngine:
     """
 
     @staticmethod
-    def modus_ponens(p_implies_q: bool, p: bool) -> Optional[bool]:
+    def modus_ponens(p_implies_q: bool, p: bool) -> bool | None:
         """
         Modus Ponens: (P → Q) ∧ P ⊢ Q
 
@@ -268,7 +265,7 @@ class InferenceEngine:
         return p_implies_q and p  # 实际是 Q
 
     @staticmethod
-    def modus_tollens(p_implies_q: bool, not_q: bool) -> Optional[bool]:
+    def modus_tollens(p_implies_q: bool, not_q: bool) -> bool | None:
         """
         Modus Tollens: (P → Q) ∧ ¬Q ⊢ ¬P
         """
@@ -277,7 +274,7 @@ class InferenceEngine:
         return not_q  # 返回 ¬P
 
     @staticmethod
-    def hypothetical_syllogism(p_implies_q: bool, q_implies_r: bool) -> Optional[bool]:
+    def hypothetical_syllogism(p_implies_q: bool, q_implies_r: bool) -> bool | None:
         """
         Hypothetical Syllogism: (P → Q) ∧ (Q → R) ⊢ (P → R)
         """
@@ -286,7 +283,7 @@ class InferenceEngine:
         return IMPLIES(p_implies_q, q_implies_r)  # 简化表示
 
     @staticmethod
-    def disjunctive_syllogism(p_or_q: bool, not_p: bool) -> Optional[bool]:
+    def disjunctive_syllogism(p_or_q: bool, not_p: bool) -> bool | None:
         """
         Disjunctive Syllogism: (P ∨ Q) ∧ ¬P ⊢ Q
         """

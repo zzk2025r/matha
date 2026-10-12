@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 三进制虚拟机 (M3V)
 =========================
@@ -9,11 +8,8 @@ Matha 三进制虚拟机 (M3V)
   - 支持：数值/字符串/函数/递归/闭包
 """
 
-import sys
-import os
 
-from base3_matha import Base3, Base2, Base10, char_to_trinary
-
+from base3_matha import Base2, Base3
 
 # ============================================================
 # M3V 操作码（与编译器一致）
@@ -374,11 +370,7 @@ class M3VM:
     def _exec(self, op, operands):
         if op == M3VOpcodes.HALT:
             return False
-        elif op == M3VOpcodes.PUSH_NUM:
-            self._push(self.constants[operands[0]])
-        elif op == M3VOpcodes.PUSH_STR:
-            self._push(self.constants[operands[0]])
-        elif op == M3VOpcodes.PUSH_TR:
+        elif op == M3VOpcodes.PUSH_NUM or op == M3VOpcodes.PUSH_STR or op == M3VOpcodes.PUSH_TR:
             self._push(self.constants[operands[0]])
         elif op == M3VOpcodes.PUSH_GLOBAL:
             self._push(self._get_var(operands[0]))
@@ -437,16 +429,7 @@ class M3VM:
             val = self._pop()
             if float(val) != 0:
                 self.pc = operands[0]
-        elif op == M3VOpcodes.CALL:
-            nargs = operands[0]
-            args = []
-            for _ in range(nargs):
-                args.append(self._pop())
-            args.reverse()
-            func_ref = self._pop()
-            result = self._call_func(func_ref, args)
-            self._push(result)
-        elif op == M3VOpcodes.FUNC_CALL:
+        elif op == M3VOpcodes.CALL or op == M3VOpcodes.FUNC_CALL:
             nargs = operands[0]
             args = []
             for _ in range(nargs):

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha JIT 编译器与优化器（v4.2 增强版）
 
 支持：
@@ -18,18 +17,16 @@
 """
 
 from __future__ import annotations
+
 import ast as pyast
-import dis
 import hashlib
 import inspect
 import json
-import os
 import re
-import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
-
+from typing import Any
 
 # ============================================================
 # 常量折叠优化
@@ -39,7 +36,7 @@ class ConstantFolder:
     """常量折叠优化器。"""
 
     def __init__(self) -> None:
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
 
     def fold(self, expr_str: str, env: dict = None) -> Any:
         """对表达式进行常量折叠。"""
@@ -86,7 +83,7 @@ class MathaJITCompiler:
     """
 
     def __init__(self, cache_dir: str = ".matha_cache"):
-        self._compiled_cache: Dict[str, Callable] = {}
+        self._compiled_cache: dict[str, Callable] = {}
         self._compile_count = 0
         self._fold = ConstantFolder()
         self._stats = {"hits": 0, "misses": 0, "errors": 0}
@@ -168,6 +165,13 @@ class MathaJITCompiler:
 
     def _matha_to_python(self, expr: str) -> str:
         """Matha 语法 → Python 语法转换。"""
+        # 输入规范化：list/tuple → 空格连接的字符串
+        if isinstance(expr, (list, tuple)):
+            expr = " ".join(str(x) for x in expr)
+        elif expr is not None and not isinstance(expr, str):
+            expr = str(expr)
+        if not expr:
+            return ""
         # 移除多余空格
         expr = expr.strip()
 
@@ -222,14 +226,14 @@ class MathaJITCompiler:
         except Exception:
             pass  # 缓存失败不影响功能
 
-    def _load_from_cache(self, expr: str) -> Optional[Callable]:
+    def _load_from_cache(self, expr: str) -> Callable | None:
         """从文件缓存加载编译结果。"""
         try:
             key = self._cache_key(expr)
             cache_file = self._cache_file(key)
             if cache_file.exists():
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                with open(cache_file, encoding='utf-8') as f:
+                    json.load(f)
                 # 缓存文件只记录元数据，实际缓存仍在内存中
                 return None
         except Exception:
@@ -244,7 +248,7 @@ class MathaJITCompiler:
         for f in self._cache_dir.glob("jit_*.json"):
             f.unlink()
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """获取编译统计。"""
         total = self._stats["hits"] + self._stats["misses"]
         hit_rate = self._stats["hits"] / max(total, 1) * 100
@@ -262,7 +266,7 @@ class MathaJITCompiler:
     # ============================================================
 
     def compile_func(self, func: Callable, auto_memoize: bool = True,
-                     pattern: Optional[str] = None) -> Callable:
+                     pattern: str | None = None) -> Callable:
         """
         函数级 JIT 编译：将 Python/Matha 函数编译为优化版本。
 
@@ -318,7 +322,7 @@ class MathaJITCompiler:
         except (OSError, TypeError):
             return ""
 
-    def _detect_recursion(self, source: str, func_name: str) -> Optional[str]:
+    def _detect_recursion(self, source: str, func_name: str) -> str | None:
         """检测函数中的递归模式。"""
         if not source:
             return None
@@ -360,7 +364,7 @@ class MathaJITCompiler:
         try:
             # 获取函数源码并编译为字节码
             code = compile(source, f"<jit_{func.__name__}>", "exec")
-            namespace: Dict[str, Any] = {}
+            namespace: dict[str, Any] = {}
             exec(code, namespace)  # noqa: S102
             compiled_fn = namespace.get(func.__name__, func)
             if callable(compiled_fn):
@@ -369,7 +373,7 @@ class MathaJITCompiler:
             pass
         return func
 
-    def get_func_stats(self, func_name: str) -> Dict:
+    def get_func_stats(self, func_name: str) -> dict:
         """获取指定函数的编译统计。"""
         cache_key = f"func:{func_name}"
         if cache_key in self._compiled_cache:
@@ -386,7 +390,7 @@ class MathaJITCompiler:
 # ============================================================
 
 def jit_func(func: Callable, auto_memoize: bool = True,
-             pattern: Optional[str] = None) -> Callable:
+             pattern: str | None = None) -> Callable:
     """装饰器：JIT 编译函数并自动 memoize 递归函数。
 
     用法：
@@ -407,7 +411,7 @@ def jit_func(func: Callable, auto_memoize: bool = True,
 # 便捷函数
 # ============================================================
 
-_jit_instance: Optional[MathaJITCompiler] = None
+_jit_instance: MathaJITCompiler | None = None
 
 def get_jit_compiler(cache_dir: str = ".matha_cache") -> MathaJITCompiler:
     """获取全局 JIT 编译器实例。"""
@@ -422,7 +426,7 @@ def jit_compile(expr: str, cache_dir: str = ".matha_cache") -> Callable:
     return get_jit_compiler(cache_dir).compile_expr(expr)
 
 
-def jit_stats() -> Dict:
+def jit_stats() -> dict:
     """获取 JIT 编译器统计。"""
     return get_jit_compiler().get_stats()
 
@@ -454,7 +458,7 @@ if __name__ == "__main__":
         print(f"  {status} {expr}({args}) = {result} (期望 {expected})")
 
     # 统计
-    print(f"\n【编译统计】")
+    print("\n【编译统计】")
     stats = compiler.get_stats()
     print(f"  编译次数: {stats['compile_count']}")
     print(f"  缓存命中: {stats['cache_hits']}")

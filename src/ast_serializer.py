@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha AST 序列化器：把 Matha 程序的 AST 导出为 JSON。
 
 让任何编程语言（Python/JavaScript/Rust/Go/Java...）都能识别解读 Matha 程序结构。
@@ -36,12 +35,12 @@ JSON 格式规范：
 """
 
 from __future__ import annotations
+
 import json
-from dataclasses import asdict, is_dataclass, fields
+from dataclasses import fields, is_dataclass
 from typing import Any
 
 from src.parser import Parser
-from src import ast_nodes as ast
 
 
 def _node_to_dict(node: Any) -> Any:

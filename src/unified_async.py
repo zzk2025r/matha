@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha Async Runtime 统一层（Unified Async Runtime）
 
@@ -13,17 +12,17 @@ from __future__ import annotations
 # ── 从 async_runtime_v2 导入增强实现 ────────────────────────────────────────
 try:
     from src.async_runtime_v2 import (  # noqa: F401
-        GState,
+        Actor,
+        AsyncRuntime,
+        AsyncSyntax,
+        Channel,
         Goroutine,
         GoroutineScheduler,
-        Channel,
-        Actor,
-        AsyncSyntax,
-        AsyncRuntime,
+        GState,
         async_spawn,
         async_wait,
-        new_channel,
         create_actor,
+        new_channel,
     )
 except ImportError:
     GState = None
@@ -41,14 +40,14 @@ except ImportError:
 # ── 从 async_runtime 导入基础实现（向后兼容）────────────────────────────────
 try:
     from src.async_runtime import (  # noqa: F401
-        ThreadPool,
+        AsyncSupport,
+        Condition,
         EventLoop,
         Mutex,
         Semaphore,
-        Condition,
-        AsyncSupport,
-        get_thread_pool,
+        ThreadPool,
         get_event_loop,
+        get_thread_pool,
     )
 except ImportError:
     ThreadPool = None

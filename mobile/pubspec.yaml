@@ -36,3 +36,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # 本地 WASM 产物构建完成后启用（见 assets/pyodide/build_wasm.sh）：
+  # assets:
+  #   - assets/pyodide/

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """KernelGenerator：把 Matha 规格编译为 x86 操作系统内核汇编代码。
 
 输出文件（NASM 汇编，可用 nasm + ld 构建为 ISO/磁盘镜像）：
@@ -17,9 +16,11 @@ Matha 规格示例：
 """
 
 from __future__ import annotations
+
 import logging
 import os
-from src.codegen.base import Generator, CodegenResult
+
+from src.codegen.base import CodegenResult, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -532,8 +533,7 @@ def generate_kernel(spec, out_dir=None):
     spec: Matha 列表规格（同 AppSpec 格式）
     out_dir: 输出目录（默认: D:/trae/matha/output/内核/<名称>/）
     """
-    from src.codegen.base import parse_app_spec, OUTPUT_ROOT
-    import os
+    from src.codegen.base import OUTPUT_ROOT, parse_app_spec
     app = parse_app_spec(spec)
     if out_dir is None:
         out_dir = os.path.join(OUTPUT_ROOT, "内核", app.name)

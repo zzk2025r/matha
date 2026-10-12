@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 性能日志增强模块
 
 本模块为线性代数核心函数添加详细的日志输出，方便调试和性能分析。
 """
 import logging
 import time
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

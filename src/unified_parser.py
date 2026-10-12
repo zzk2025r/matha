@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha Lexer/Parser 统一层（Unified Lexer/Parser）
 
@@ -12,9 +11,11 @@ Matha Lexer/Parser 统一层（Unified Lexer/Parser）
 """
 from __future__ import annotations
 
+from typing import Any
+
 # ── 主实现 ──────────────────────────────────────────────────────────────────
 from src.lexer import Lexer, TokenType  # noqa: F401
-from src.parser import Parser, parse, ParseError  # noqa: F401
+from src.parser import ParseError, Parser, parse  # noqa: F401
 
 # ── matha_cc 兼容性层 ───────────────────────────────────────────────────────
 # 让 from src.compiler.matha_cc import MathaLexer, MathaParser 仍然有效
@@ -49,11 +50,15 @@ class MathaFrontend:
     """matha_cc 兼容前端。"""
 
     def __init__(self):
-        pass
+        self._parser: Parser | None = None
+        self._last_ast: Any = None
+        self._ctx: dict[str, Any] = {}
+        self._modules: dict[str, Any] = {}
 
     def compile(self, source: str):
         """源码 → AST。"""
-        return parse(source)
+        self._last_ast = parse(source)
+        return self._last_ast
 
     def run(self, source: str):
         """源码 → 执行。"""
@@ -67,7 +72,10 @@ class MathaLLVMGenerator:
     """matha_cc 兼容 LLVM 生成器（占位）。"""
 
     def __init__(self):
-        pass
+        self._modules: list[Any] = []
+        self._symbols: dict[str, Any] = {}
+        self._ir_stack: list[str] = []
+        self._llvm_available = False
 
     def generate(self, ast):
         return "# LLVM generation not yet integrated"

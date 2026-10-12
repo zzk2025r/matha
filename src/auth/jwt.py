@@ -6,9 +6,6 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Optional
-
-from src.auth.exceptions import TokenError
 
 _JWT_SECRET = "matha-auth-jwt-secret-key-2024-v2"
 
@@ -43,7 +40,7 @@ def encode_token(payload: dict, secret: str = _JWT_SECRET, exp_hours: float = 1.
     return f"{header}.{body}.{signature}"
 
 
-def decode_token(token: str, secret: str = _JWT_SECRET) -> Optional[dict]:
+def decode_token(token: str, secret: str = _JWT_SECRET) -> dict | None:
     """验证并解码 JWT。过期或签名不符返回 None。"""
     try:
         parts = token.split(".")
@@ -68,12 +65,12 @@ def encode_refresh_token(payload: dict, secret: str = _JWT_SECRET, exp_days: flo
     return encode_token(payload, secret, exp_hours=exp_days * 24)
 
 
-def decode_refresh_token(token: str, secret: str = _JWT_SECRET) -> Optional[dict]:
+def decode_refresh_token(token: str, secret: str = _JWT_SECRET) -> dict | None:
     """验证 refresh token。"""
     return decode_token(token, secret)
 
 
-def get_token_expiry(token: str, secret: str = _JWT_SECRET) -> Optional[float]:
+def get_token_expiry(token: str, secret: str = _JWT_SECRET) -> float | None:
     """获取 token 剩余有效时间（秒），无效时返回 None。"""
     payload = decode_token(token, secret)
     if payload is None:

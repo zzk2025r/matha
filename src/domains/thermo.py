@@ -52,8 +52,8 @@
 """
 
 from __future__ import annotations
-import math
 
+import math
 
 # ============================================================
 # 柯里化工具
@@ -101,6 +101,7 @@ def _curry5(func):
 
 # 物理常量（统一来源）
 from src.stdlib.physics_constants import C as _P
+
 # 普适气体常数 R = 8.314 J/(mol·K)
 R_GAS = _P.R_gas
 # 斯特藩-玻尔兹曼常数 σ = 5.67e-8 W/(m²·K⁴)

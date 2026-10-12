@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 移动端兼容性实现
 
 本模块提供 Matha 在移动端（平板/手机）的兼容性支持：
@@ -7,8 +6,8 @@
 - 简洁 API
 """
 from __future__ import annotations
+
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class MobileCompatibility:
     def _detect_dependencies(self):
         """检测可用依赖"""
         try:
-            from src.numpy_compat import array, zeros, ones, eye, svd_decompose
+            from src.numpy_compat import array, eye, ones, svd_decompose, zeros  # noqa: F401
             self._numpy_available = True
             logger.info("Matha NumPy 兼容层已加载")
         except ImportError:
@@ -59,8 +58,8 @@ class MobileCompatibility:
         if self._is_mobile_cached is not None:
             return self._is_mobile_cached
 
-        import sys
         import os
+        import sys
 
         # 多种检测方式
         mobile_indicators = [
@@ -106,10 +105,16 @@ class MobileCompatibility:
         """
         if self._numpy_available:
             from src.numpy_compat import (
-                array, zeros, ones, eye,
-                matrix_multiply, matrix_inverse,
-                matrix_determinant, svd_decompose,
-                trace, norm
+                array,
+                eye,
+                matrix_determinant,
+                matrix_inverse,
+                matrix_multiply,
+                norm,
+                ones,
+                svd_decompose,
+                trace,
+                zeros,
             )
             return {
                 'array': array,
@@ -126,8 +131,13 @@ class MobileCompatibility:
         else:
             # 降级到 stdlib
             from src.stdlib.linear_algebra import (
-                Matrix, matrix_multiply, matrix_inverse,
-                matrix_determinant, svd_decompose, matrix_trace, matrix_norm
+                Matrix,
+                matrix_determinant,
+                matrix_inverse,
+                matrix_multiply,
+                matrix_norm,
+                matrix_trace,
+                svd_decompose,
             )
             return {
                 'Matrix': Matrix,

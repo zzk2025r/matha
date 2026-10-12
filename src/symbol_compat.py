@@ -14,7 +14,7 @@
     set_symbol_mode("native")      # 仅 Matha 原生符号
 """
 
-from enum import Enum, auto
+from enum import Enum
 
 
 class SymbolMode(str, Enum):
@@ -119,8 +119,7 @@ _PYTHON_SYMBOLS: set[str] = {
     "@", "...",
     "<<", ">>", "&", "|", "^", "~",
     "+=", "-=", "*=", "/=", "%=", "**=", "//=",
-    "and", "or", "not",
-    "is", "in",
+    "in",
     # 运算符别名
     "isinstance", "type", "len", "range",
 }

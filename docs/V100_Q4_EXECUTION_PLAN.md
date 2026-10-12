@@ -27,29 +27,31 @@
 
 ## 二、剩余待办清单
 
+> 2026-10-07：以下 9 项已全部完成（见各状态列）。
+
 ### P0 — 必须修复
 
-| # | 问题 | 文件 | 预计工作量 |
-|---|---|---|---|
-| 1 | `matha_treesitter` C 扩展源码路径需验证 | `packages/matha_treesitter/src/cext/` | 30min |
+| # | 问题 | 文件 | 预计工作量 | 状态 |
+|---|---|---|---|---|
+| 1 | `matha_treesitter` C 扩展源码路径需验证 | `packages/matha_treesitter/src/cext/` | 30min | ✅ cext 3 个 `.c` 源文件存在；`RustParser` 导入与 CLI 均可运行 |
 
 ### P1 — 重要优化（10月15日前）
 
-| # | 问题 | 文件 | 预计工作量 |
-|---|---|---|---|
-| 2 | `PerformanceOptimizer.optimize_memoize` 硬编码参数 `[5]` → 记录采样实际参数 | `src/autonomous.py:88` | 2h |
-| 3 | 集成测试补全：端到端验证 AutoDebugger 在完整 Matha 程序中的表现 | `tests/test_integration/` | 4h |
-| 4 | 压力测试扩展：1000 → 10000 算法一致性验证 | `tests/test_performance.py` | 3h |
+| # | 问题 | 文件 | 预计工作量 | 状态 |
+|---|---|---|---|---|
+| 2 | `PerformanceOptimizer.optimize_memoize` 硬编码参数 `[5]` → 记录采样实际参数 | `src/autonomous.py:88` | 2h | ✅ 已用 `sample.args` 采样参数；集成测试 5/5 |
+| 3 | 集成测试补全：端到端验证 AutoDebugger 在完整 Matha 程序中的表现 | `tests/test_integration/` | 4h | ✅ 9/9（新增完整程序/嵌套函数/多变量） |
+| 4 | 压力测试扩展：1000 → 10000 算法一致性验证 | `tests/test_performance.py` | 3h | ✅ 新建 5 条压力用例，一致性 ≥ 99.9% |
 
 ### P2 — 改进项（11月15日前）
 
-| # | 问题 | 文件 | 预计工作量 |
-|---|---|---|---|
-| 5 | `SelfGrower.learn_from_file` 编码错误处理 | `src/autonomous.py:393` | 1h |
-| 6 | `matha_growth.py` P4 三角恒等式规则实现 | `src/matha_growth.py` | 4h |
-| 7 | `docs/20-自我升级子系统.md` 补全 AutoDebugger 细节 | `docs/20-自我升级子系统.md` | 2h |
-| 8 | `test_defects.py` 修复 `ImportError: MathaPackageManager` | `tests/test_defects.py` | 1h |
-| 9 | `matha_treesitter` CLI 帮助文档完善 | `packages/matha_treesitter/README.md` | 1h |
+| # | 问题 | 文件 | 预计工作量 | 状态 |
+|---|---|---|---|---|
+| 5 | `SelfGrower.learn_from_file` 编码错误处理 | `src/autonomous.py:393` | 1h | ✅ BOM 显式识别 UTF-16/32（修复 UTF-16 被 UTF-8 误读的 bug）+ GBK/UTF-16/二进制边界测试 9/9 |
+| 6 | `matha_growth.py` P4 三角恒等式规则实现 | `src/matha_growth.py` | 4h | ✅ 5 组规则已在管线中；新增 `tests/test_matha_growth_engine.py` 15 条验证全通过 |
+| 7 | `docs/20-自我升级子系统.md` 补全 AutoDebugger 细节 | `docs/20-自我升级子系统.md` | 2h | ✅ AutoDebugger 章节（7.1-7.3）+ 编码容错更新 |
+| 8 | `test_defects.py` 修复 `ImportError: MathaPackageManager` | `tests/test_defects.py` | 1h | ✅ 已过时（`tests/test_defects.py` 已不存在）；`from src.pkg_manager_v2 import MathaPackageManager` 导入正常 |
+| 9 | `matha_treesitter` CLI 帮助文档完善 | `packages/matha_treesitter/README.md` | 1h | ✅ CLI 章节含 `--version`/`-o`/stdin 用法；`python -m packages.matha_treesitter --help` 正常 |
 
 ---
 
@@ -112,9 +114,10 @@
 | 2026-08-27 | P0 修复完成 | matha-treesitter CLI 可用 |
 | 2026-09-15 | P1 优化完成 | 性能提升 2-5x，集成测试通过 |
 | 2026-10-15 | v1.1.0 预发布 | 全量回归 + 性能基准 |
+| 2026-10-07 | Q4 待办清单完成 | 9 项剩余项全部 ✅（见第二节） |
 | 2026-11-15 | 功能扩展完成 | 三角恒等式 + 编码容错 |
 | 2026-12-15 | Q4 总结 | v1.2.0 发布 |
 
 ---
 
-**结论：Q4 路线图清晰，风险可控。建议按里程碑推进，v1.0.0 已具备发布条件。**
+**结论：Q4 待办清单 9 项剩余项已于 2026-10-07 全部完成（补充压力测试、三角恒等式测试、GBK/UTF-16 编码容错修复与边界测试、AutoDebugger 完整程序端到端用例）。路线图清晰，风险可控，等待全量回归验收后进入 v1.1.0 预发布。**

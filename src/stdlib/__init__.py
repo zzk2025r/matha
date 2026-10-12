@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — 标准库统一入口
 
 统一导入所有标准库模块。
@@ -13,50 +12,98 @@
 """
 from __future__ import annotations
 
-# 算术运算
-from src.stdlib.arithmetic import (
-    PI, E, PHI,
-    add, subtract, multiply, divide,
-    power, sqrt, abs_value,
-    floor, ceil, round_value, trunc,
-    gcd, lcm, factorial, is_prime,
-    prime_factors, sieve_of_eratosthenes,
-    sin, cos, tan, asin, acos, atan, atan2,
-    log, log2, log10,
-    combination, permutation,
-)
-
 # 代数
 from src.stdlib.algebra import (
     Polynomial,
-    solve_linear, solve_quadratic, solve_system_linear,
-    factor_integer, factor_polynomial_simple,
-    simplify_expression, expand_expression,
-    poly_add, poly_mul, poly_div,
-    poly_derivative, poly_integral,
+    expand_expression,
+    factor_integer,
+    factor_polynomial_simple,
+    poly_add,
+    poly_derivative,
+    poly_div,
+    poly_integral,
+    poly_mul,
+    simplify_expression,
+    solve_linear,
+    solve_quadratic,
+    solve_system_linear,
+)
+
+# 算术运算
+from src.stdlib.arithmetic import (
+    PHI,
+    PI,
+    E,
+    abs_value,
+    acos,
+    add,
+    asin,
+    atan,
+    atan2,
+    ceil,
+    combination,
+    cos,
+    divide,
+    factorial,
+    floor,
+    gcd,
+    is_prime,
+    lcm,
+    log,
+    log2,
+    log10,
+    multiply,
+    permutation,
+    power,
+    prime_factors,
+    round_value,
+    sieve_of_eratosthenes,
+    sin,
+    sqrt,
+    subtract,
+    tan,
+    trunc,
 )
 
 # 微积分
 from src.stdlib.calculus import (
-    derivative, second_derivative,
-    integral, numerical_integral_trapezoid,
-    limit_forward, limit_two_sided,
-    taylor_series, infinite_sum,
+    beta,
+    derivative,
+    gamma,
+    infinite_sum,
+    integral,
+    limit_forward,
+    limit_two_sided,
     newton_method,
-    gamma, beta,
+    numerical_integral_trapezoid,
+    second_derivative,
+    taylor_series,
 )
 
 # 逻辑与证明
 from src.stdlib.logic import (
-    AND, OR, NOT, IMPLIES, IFF, XOR, NAND, NOR,
-    truth_table, print_truth_table,
-    set_union, set_intersection, set_difference,
-    set_complement, set_symmetric_difference,
-    is_subset, is_proper_subset,
-    prove_by_contradiction,
-    check_tautology, check_contradiction,
-    Predicate,
+    AND,
+    IFF,
+    IMPLIES,
+    NAND,
+    NOR,
+    NOT,
+    OR,
+    XOR,
     InferenceEngine,
+    Predicate,
+    check_contradiction,
+    check_tautology,
+    is_proper_subset,
+    is_subset,
+    print_truth_table,
+    prove_by_contradiction,
+    set_complement,
+    set_difference,
+    set_intersection,
+    set_symmetric_difference,
+    set_union,
+    truth_table,
 )
 
 __all__ = [

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M3V 字节码编译器：Matha AST → MModule（函数表 + 常量池 + 顶层码）。
 
 作用域在编译期解析为 (depth, slot)：
@@ -11,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src import ast_nodes as ast
+from src import formula_schema as _fs
 from src.mbc import opcodes as OP
 
 
@@ -38,7 +38,7 @@ class _Scope:
     所有绑定/临时槽一律落全局（STORE_GLOBAL/LOAD_GLOBAL）。"""
     __slots__ = ("parent", "names", "nslots", "is_main")
 
-    def __init__(self, parent: "_Scope | None", is_main: bool = False):
+    def __init__(self, parent: _Scope | None, is_main: bool = False):
         self.parent = parent
         self.names: dict[str, tuple[int, bool]] = {}
         self.nslots = 0
@@ -74,9 +74,22 @@ _BIN_OPS = {
     # 位移：解释器后端早已支持（tests/test_new_features.py 断言 1 << 3 == 8、
     # 16 >> 2 == 4），MBC 后端此前缺表项 → 「不支持的二元运算符 '<<'」。
     "<<": "<<", ">>": ">>",
+    # 位运算：解释器 src/interp.py:2376-2405 已实现并强制整数操作数，
+    # MBC 后端此前整族缺失 → 「不支持的二元运算符 '&' / '|' / '⊕'」。
+    # 注意 `^` 按 docs/06 与 EBNF 2.1 是**次方**（`<power> = "^"`），
+    # 异或的专用符号是 `⊕`，故此处不把 `^` 归入位运算。
+    "&": "&", "|": "|", "⊕": "⊕",
 }
 _UNARY_OPS = {"-": "neg", "not": "not", "非": "not",
-              "sqrt": "sqrt", "^": "sqrt", "√": "sqrt"}
+              "sqrt": "sqrt", "^": "sqrt", "√": "sqrt",
+              # 位取反：解释器 src/interp.py:1730 已实现（仅整数），MBC 此前缺失。
+              "~": "~",
+              # << 前缀角度（docs/06 级 6）：度数 → 弧度，三端语义一致。
+              "angle": "angle",
+              # 前缀自增/自减：解释器 src/interp.py:1708-1720 已实现，
+              # MBC 此前缺失 → 「不支持的一元运算符 '++' / '--'」。
+              # 语义是**非原地**的 v+1 / v-1（不改绑定的值），照抄解释器。
+              "++": "++", "--": "--"}
 
 _NO_FOLD = object()
 
@@ -105,6 +118,10 @@ def _fold_unary(op: str, operand):
                 return _NO_FOLD
             r = v ** 0.5
             return int(r) if isinstance(v, int) and r == int(r) else r
+        if op == "++":
+            return v + 1
+        if op == "--":
+            return v - 1
     except (ArithmeticError, ValueError, TypeError):
         return _NO_FOLD
     return _NO_FOLD
@@ -180,6 +197,9 @@ class Compiler:
         # 顶层 FuncDef 的 name -> arity 预扫描结果（与声明顺序无关），
         # 供多参调用融合成单条 CALL N 使用
         self._fn_arities: dict[str, int] = {}
+        # `？` 公式模式库 + 已命中的具体公式（供诊断）
+        self.formulas = _fs.FormulaLibrary()
+        self.formula_matches: list = []
 
     # ---- 常量池 ----
     def const(self, value) -> int:
@@ -192,10 +212,19 @@ class Compiler:
     # ---- 入口 ----
     def compile_program(self, program: ast.Program) -> MModule:
         self._fn_arities = _scan_fn_arities(program)
+        # `？` 公式模式库：与解释器**同源同序**，故编译期的「是否命中模式」
+        # 判定与解释器运行期判定结果一致。
+        self.formulas = _fs.FormulaLibrary()
+        self.formula_matches: list = []
         for decl in program.decls:
             self._compile_top_decl(decl, self.mod.main_code)
         self.mod.main_code.append((OP.HALT,))
         return self.mod
+
+    def _log_formula_match(self, expr) -> None:
+        """具体公式命中模式时记一笔（仅供诊断；不产生任何字节码）。"""
+        for u in self.formulas.match(expr):
+            self.formula_matches.append(u.describe())
 
     def _compile_top_decl(self, decl, code: list) -> None:
         if isinstance(decl, ast.ModuleDecl):
@@ -281,7 +310,23 @@ class Compiler:
             # 不受支持的节点会在 _emit_expr 抛出明确错误而非无声消失。
             self._compile_stmt(decl, code)
 
-    def _compile_stmt(self, node, code: list, scope: "_Scope | None" = None) -> None:
+    def _emit_formula_schema(self, node, code: list) -> None:
+        """`#N：？公式` → FORMULA_SCHEMA（登记模式，不求值）。
+
+        槽不可求值，所以不能走 `_emit_expr`（VM 会在查变量表时 KeyError）。
+        模式本身是**静态元数据**（段号、文本、归一化形状、槽位表），故整条
+        常量化后一次登记，三个后端行为一致。
+        """
+        expr = node.content
+        # 同时登记进**编译期**公式库：后续具体公式要拿它做命中判定。
+        self.formulas.register(expr, node.generate.seg_id if node.generate is not None else None)
+        meta = (node.generate.seg_id if node.generate is not None else None,
+                _fs.render(expr),
+                _fs.shape(expr),
+                tuple((s.ordinal, s.name, s.display) for s in _fs.collect_slots(expr)))
+        code.append((OP.FORMULA_SCHEMA, self.const(meta)))
+
+    def _compile_stmt(self, node, code: list, scope: _Scope | None = None) -> None:
         """编译语句链（MechUnit/GenStmt/OutputTrail/Output/CodeBlock/控制流）。
 
         scope=None 表示模块顶层（绑定写全局）；否则绑定声明为当前帧局部槽位。
@@ -294,7 +339,18 @@ class Compiler:
         if isinstance(node, ast.MechUnit):
             self._compile_stmt(node.body, code, scope)
         elif isinstance(node, ast.GenStmt):
-            self._compile_stmt(node.content, code, scope)
+            # `#：？公式` 含槽 → 登记为模式（不可求值），走静态元数据指令。
+            if node.content is not None and _fs.has_slot(node.content):
+                self._emit_formula_schema(node, code)
+            elif (node.content is not None
+                    and self.formulas.match(node.content)):
+                # 具体公式**命中已登记模式**：按格式统一，不再求值。
+                # 解释器在这里只记录合一、同样不求值，故两端可观察行为一致；
+                # 由编译期在**同源同序**的公式库上判定，原生后端无需运行期
+                # 匹配、也无需跳转指令。
+                self._log_formula_match(node.content)
+            else:
+                self._compile_stmt(node.content, code, scope)
         elif isinstance(node, ast.OutputTrail):
             self._compile_stmt(node.output, code, scope)
         elif isinstance(node, ast.Output):
@@ -386,7 +442,7 @@ class Compiler:
         ast.DefineOp, ast.AliasDef, ast.GlobalLoopSuffix,
         ast.SegLoopSuffix, ast.LoopFraction, ast.SetUpItem,
         ast.BasicType, ast.SetType, ast.FuncType, ast.TupleType,
-        ast.AnnotatedType,
+        ast.AnnotatedType, ast.ForeignDecl,
     )
 
     _STMT_NODES = (ast.MechUnit, ast.GenStmt, ast.OutputTrail, ast.Output,
@@ -742,6 +798,81 @@ class Compiler:
         return name
 
     # ---- M1 新增发射器 ----
+
+    def _emit_comprehension(self, node: ast.SetConstruct,
+                            scope: _Scope, code: list) -> None:
+        """集合理解 `{ 输出 | v >> S | 条件... }`：嵌套循环 + 过滤 + append，
+        末尾 `构造集合("enumeration", [], acc)` 去重保序（留一个值于栈上）。
+
+        仅用既有操作码（BUILD_LIST / LOAD-STOR_LOCAL / JMP / JZ / CALL / BINOP），
+        故字节码 VM 与原生后端（src/mbc/native.py 消费同一 MMB 字节码）共享本实现。
+        """
+        gens = list(node.variables or [])
+        conditions = list(node.conditions or [])
+        output = node.output
+        code.append((OP.BUILD_LIST, 0))
+        acc_t = self._alloc_temp(scope, "comp_acc")
+        self._store_temp(code, acc_t)
+        self._emit_comp_level(gens, 0, conditions, output, acc_t, scope, code)
+        code.append((OP.LOAD_GLOBAL, self.sconst("构造集合")))
+        code.append((OP.PUSH_CONST, self.const("enumeration")))
+        code.append((OP.BUILD_LIST, 0))
+        self._load_temp(code, acc_t)
+        code.append((OP.CALL, 3))
+
+    def _emit_comp_level(self, gens: list, idx: int, conditions: list,
+                         output, acc_t, scope: _Scope, code: list) -> None:
+        """递归发射理解的第 idx 个生成子句（嵌套循环）；到底后发射过滤 + 追加。"""
+        if idx == len(gens):
+            skips = []
+            for c in conditions:
+                self._emit_expr(c, scope, code)
+                j = len(code)
+                code.append((OP.JZ, 0))
+                skips.append(j)
+            # acc = append(acc)(输出)
+            code.append((OP.LOAD_GLOBAL, self.sconst("append")))
+            self._load_temp(code, acc_t)
+            code.append((OP.CALL, 1))
+            self._emit_expr(output, scope, code)
+            code.append((OP.CALL, 1))
+            self._store_temp(code, acc_t)
+            for j in skips:
+                code[j] = (OP.JZ, len(code))
+            return
+        name, iterable = gens[idx]
+        self._emit_expr(iterable, scope, code)
+        xs_t = self._alloc_temp(scope, "comp_xs")
+        i_t = self._alloc_temp(scope, "comp_i")
+        if scope.is_main:
+            var_t = ("g", name)
+        else:
+            var_t = ("l", self._declare_slot(scope, name))
+        self._store_temp(code, xs_t)
+        code.append((OP.PUSH_CONST, self.const(0)))
+        self._store_temp(code, i_t)
+        top = len(code)
+        self._load_temp(code, i_t)
+        code.append((OP.LOAD_GLOBAL, self.sconst("len")))
+        self._load_temp(code, xs_t)
+        code.append((OP.CALL, 1))
+        code.append((OP.BINOP, self.const("<")))
+        jz = len(code)
+        code.append((OP.JZ, 0))
+        # 变量 = get(xs)(i)
+        code.append((OP.LOAD_GLOBAL, self.sconst("get")))
+        self._load_temp(code, xs_t)
+        code.append((OP.CALL, 1))
+        self._load_temp(code, i_t)
+        code.append((OP.CALL, 1))
+        self._store_temp(code, var_t)
+        self._emit_comp_level(gens, idx + 1, conditions, output, acc_t, scope, code)
+        self._load_temp(code, i_t)
+        code.append((OP.PUSH_CONST, self.const(1)))
+        code.append((OP.BINOP, self.const("+")))
+        self._store_temp(code, i_t)
+        code.append((OP.JMP, top))
+        code[jz] = (OP.JZ, len(code))
 
     def _emit_set_construct_args(self, node: ast.SetConstruct,
                                  scope: _Scope, code: list) -> None:
@@ -1207,9 +1338,12 @@ class Compiler:
             code.append((OP.PUSH_TRUE,))
 
         elif isinstance(node, ast.SetConstruct):
-            code.append((OP.LOAD_GLOBAL, self.sconst("构造集合")))
-            self._emit_set_construct_args(node, scope, code)
-            code.append((OP.CALL, 3))
+            if node.form == "comprehension":
+                self._emit_comprehension(node, scope, code)
+            else:
+                code.append((OP.LOAD_GLOBAL, self.sconst("构造集合")))
+                self._emit_set_construct_args(node, scope, code)
+                code.append((OP.CALL, 3))
 
         elif isinstance(node, ast.IndexExpr):
             self._emit_expr(node.container, scope, code)

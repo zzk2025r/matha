@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 公式编译器集成（Formula Compiler Integration）
 
@@ -9,14 +8,13 @@ Matha 公式编译器集成（Formula Compiler Integration）
   4. 公式生长结果自动编译为可执行代码
 """
 from __future__ import annotations
-import logging
-import re
-from dataclasses import dataclass, field
-from typing import Any, Optional
 
-from src.symbolic import Expr, Var, Num, Mul, Div, Add, Sub, Pow, Neg, FuncCall, symbol_expr
+import logging
+from dataclasses import dataclass, field
+
 from src.formula_system import Formula, FormulaRegistry
-from src.matha.growth import FormulaGrowthEngine, GrowthRecord
+from src.matha.growth import FormulaGrowthEngine
+from src.symbolic import Add, Div, Expr, FuncCall, Mul, Neg, Num, Pow, Sub, Var
 
 logger = logging.getLogger("matha.formula_compiler")
 
@@ -144,7 +142,7 @@ class FormulaCompileResult:
     """公式编译结果。"""
     success: bool
     formula_name: str
-    mir_code: Optional[dict]
+    mir_code: dict | None
     python_code: str = ""
     c_code: str = ""
     error: str = ""

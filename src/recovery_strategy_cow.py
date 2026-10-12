@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """v2.5 Copy-on-Write 策略缓存 — 无锁读操作
 
 设计目标：
@@ -22,17 +21,15 @@
   - 旧快照由 GC 回收，无内存泄漏
 """
 from __future__ import annotations
+
 import copy
-import threading
-from typing import Optional
-from enum import Enum, auto
-
-
 import sys
+import threading
+
 sys.path.insert(0, r"D:\trae")
 
 # 前置导入（避免循环依赖）
-from src.errors import MathaError, ErrorStage  # noqa: E402
+from src.errors import ErrorStage, MathaError  # noqa: E402
 
 
 class CopyOnWriteRecoveryStrategy:
@@ -94,7 +91,7 @@ class CopyOnWriteRecoveryStrategy:
     # ── 恢复（读操作，无锁）─────────────────────────────────
 
     @classmethod
-    def try_recover(cls, error: MathaError) -> Optional[MathaError]:
+    def try_recover(cls, error: MathaError) -> MathaError | None:
         """尝试所有注册的恢复策略（无锁读 + 建议锁写）。
 
         读操作流程：
@@ -205,7 +202,6 @@ def benchmark_cow_vs_rwlock():
 def benchmark_register_cost():
     """测量 v2.6 按需深拷贝 vs 旧版全量深拷贝的注册开销。"""
     import time
-    import copy
 
     # 准备快照（9 个 stage，每个 5 个策略）
     stages = [s for s in ErrorStage if s != ErrorStage.UNKNOWN]
@@ -238,7 +234,7 @@ def benchmark_register_cost():
         snapshot = new_register(snapshot, test_stage, lambda e: None)
     new_time = (time.perf_counter() - t0) * 1000
 
-    print(f"\n注册开销对比（1000 次，9 stage × 5 策略）：")
+    print("\n注册开销对比（1000 次，9 stage × 5 策略）：")
     print(f"  旧版全量深拷贝: {old_time:.1f}ms ({old_time/n:.4f}ms/次)")
     print(f"  新版按需深拷贝: {new_time:.1f}ms ({new_time/n:.4f}ms/次)")
     print(f"  加速比:         {old_time/max(new_time, 0.001):.1f}x")

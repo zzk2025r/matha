@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha Jupyter 集成
 
 提供：
@@ -14,9 +13,9 @@
   求解方程 x^2 - 3x + 2 = 0
 """
 from __future__ import annotations
+
 import sys
-import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 # 确保项目路径在 sys.path 中
 sys.path.insert(0, '.')
@@ -32,7 +31,12 @@ class MathaMagics:
     def _init_magics(self):
         """注册 IPython 魔法命令（可选导入，未安装时静默跳过）。"""
         try:
-            from IPython.core.magic import register_line_magic, register_cell_magic, Magics, magics_class
+            from IPython.core.magic import (
+                Magics,
+                magics_class,
+                register_cell_magic,
+                register_line_magic,
+            )
 
             @magics_class
             class MathaMagicsClass(Magics):
@@ -42,7 +46,7 @@ class MathaMagics:
                     return self._execute_matha(line)
 
                 @register_cell_magic
-                def matha(self, line: str, cell: str) -> Any:
+                def matha(self, line: str, cell: str) -> Any:  # noqa: F811
                     """多行 Matha 代码：%%matha\n计算 100 以内所有素数"""
                     return self._execute_matha(cell.strip())
 
@@ -55,7 +59,7 @@ class MathaMagics:
 
                         # 1. 意图分解
                         ide = IntentDecomposer()
-                        root = ide.decompose(code)
+                        ide.decompose(code)
 
                         # 2. LLM 解析（可选）
                         parser = LLMIntentParser()
@@ -91,7 +95,7 @@ class MathaMagics:
 
                 def _display_result(self, code: str, intent, mir_code, result: Any):
                     """显示执行结果。"""
-                    from IPython.display import Markdown, HTML, display
+                    from IPython.display import Markdown, display
 
                     # 意图摘要
                     intent_md = f"""
@@ -118,7 +122,7 @@ class MathaMagics:
 
 def load_ipython_extension(ipython):
     """IPython 扩展加载入口。"""
-    magics = MathaMagics(ipython)
+    MathaMagics(ipython)
     print("[Matha] Jupyter 扩展已加载")
     print("  %matha <表达式>     — 执行单行 Matha 代码")
     print("  %%matha             — 执行多行 Matha 代码")

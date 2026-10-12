@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha MIR → C/Python 代码生成器
 
@@ -14,9 +13,9 @@ Matha MIR → C/Python 代码生成器
 """
 
 from __future__ import annotations
+
 import math
 import re
-from typing import Optional
 
 
 class MIRToCGenerator:
@@ -138,7 +137,7 @@ class MIRToCGenerator:
                 lines.append(code)
         return lines
 
-    def _generate_instr_code(self, instr: any) -> Optional[str]:
+    def _generate_instr_code(self, instr: any) -> str | None:
         """生成单条指令的 C 代码。"""
         result = getattr(instr, "result", "").lstrip("%")
 
@@ -347,7 +346,8 @@ class MathaCodeGenerator:
         """编译并运行生成的代码。"""
         code = self.generate(mir_program)
         if self._target == "c":
-            import tempfile, subprocess
+            import subprocess
+            import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.c', delete=False, encoding='utf-8') as f:
                 f.write(code)
                 c_file = f.name

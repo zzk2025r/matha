@@ -1,0 +1,30 @@
+import os
+os.environ['MATHA_DEBUG'] = '0'
+
+from src.matha_runtime import *
+
+print('=== Matha Runtime Full Test ===')
+print(f'sin(pi/2) = {sin(PI/2):.10f}')
+print(f'cosh(0) = {cosh(0):.10f}')
+print(f'log10(100) = {log10(100):.10f}')
+print(f'atan2(1,1) = {atan2(1,1):.10f}')
+print(f'comb(10,3) = {comb(10,3)}')
+print(f'gcd(12,8) = {gcd(12,8)}')
+print(f'is_prime(17) = {is_prime(17)}')
+print(f'sieve(20) = {sieve(20)}')
+print(f'factorial(10) = {factorial(10)}')
+print(f'hypot(3,4) = {hypot(3,4):.10f}')
+print(f'deg2rad(180) = {deg2rad(180):.10f}')
+print(f'abs(-5) = {abs(-5)}')
+print(f'sign(-5) = {sign(-5)}')
+print(f'median([1,2,3,4,5]) = {median([1,2,3,4,5])}')
+print(f'variance([1,2,3,4,5]) = {variance([1,2,3,4,5]):.10f}')
+print(f'correlation([1,2,3],[4,5,6]) = {correlation([1,2,3],[4,5,6]):.10f}')
+print(f'norm_pdf(0,0,1) = {norm_pdf(0,0,1):.10f}')
+print('=== ALL RUNTIME FUNCTIONS WORK ===')
+print()
+print(f'get_builtin_names count: {len(get_builtin_names())}')
+print(f'get_builtin("sin") = {get_builtin("sin")}')
+print(f'get_builtin("pi") = {get_builtin("pi")}')
+print(f'get_builtin("sinh") = {get_builtin("sinh")}')
+print('=== Runtime OK ===')

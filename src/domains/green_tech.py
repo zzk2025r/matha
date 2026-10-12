@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 绿色技术领域模块：碳足迹、能效优化、可再生能源。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -85,7 +85,7 @@ def _green_tech_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "碳足迹估算", "能源效率", "太阳能转化率",
-    "风力发电系数", "电池循环寿命", "减排量计算",
+    "_碳足迹估算", "_能源效率", "_太阳能转化率",
+    "_风力发电系数", "_电池循环寿命", "_减排量计算",
     "_register_green_tech", "_green_tech_symtab_names",
 ]

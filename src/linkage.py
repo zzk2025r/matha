@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 联动引擎（LinkageEngine）
 
 职责：
@@ -15,11 +14,11 @@
   - 提供统一的跨模块调用入口
 """
 from __future__ import annotations
-import logging
+
 import importlib
 import inspect
+import logging
 from dataclasses import dataclass, field
-from typing import Optional, Any, Callable, Dict, List, Set
 
 logger = logging.getLogger("matha.linkage")
 
@@ -31,10 +30,10 @@ class ModuleInfo:
     path: str
     category: str = "unknown"
     status: str = "unknown"           # "ok" | "error" | "deprecated"
-    functions: List[str] = field(default_factory=list)
-    formulas: List[str] = field(default_factory=list)
-    dependencies: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    functions: list[str] = field(default_factory=list)
+    formulas: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -42,18 +41,18 @@ class LinkageResult:
     """联动检测结果。"""
     success: bool
     message: str
-    modules: Dict[str, ModuleInfo] = field(default_factory=dict)
-    issues: List[str] = field(default_factory=list)
-    suggestions: List[str] = field(default_factory=list)
+    modules: dict[str, ModuleInfo] = field(default_factory=dict)
+    issues: list[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)
 
 
 class LinkageEngine:
     """联动引擎：检测、协调、连接所有 Matha 功能模块。"""
 
     def __init__(self):
-        self._modules: Dict[str, ModuleInfo] = {}
+        self._modules: dict[str, ModuleInfo] = {}
         self._formula_registry = None
-        self._domain_builtins: Dict[str, dict] = {}
+        self._domain_builtins: dict[str, dict] = {}
 
     def _get_registry(self):
         """延迟获取公式注册表。"""
@@ -64,7 +63,7 @@ class LinkageEngine:
 
     # ── 模块发现 ──────────────────────────────────────────
 
-    def discover_modules(self, paths: List[str] | None = None) -> Dict[str, ModuleInfo]:
+    def discover_modules(self, paths: list[str] | None = None) -> dict[str, ModuleInfo]:
         """发现所有已加载的模块并生成信息。"""
         modules = {}
 
@@ -158,7 +157,7 @@ class LinkageEngine:
         return self._get_registry().derive(relationship, source, target)
 
     def verify_equivalence(self, formula_a: str, formula_b: str,
-                           bindings: Optional[dict[str, float]] = None):
+                           bindings: dict[str, float] | None = None):
         """跨模块验证公式等价。"""
         return self._get_registry().verify_equivalence(formula_a, formula_b, bindings)
 
@@ -197,8 +196,8 @@ class LinkageEngine:
 
         # 4. 检查物理常量一致性
         try:
-            from src.stdlib.physics_constants import C as PC
             from src.formula_system import get_formula_resolver
+            from src.stdlib.physics_constants import C as PC
             resolver = get_formula_resolver()
             # 检查 formula_system 的常量是否与物理常量库一致
             for const_name, expected in [
@@ -283,7 +282,7 @@ class LinkageEngine:
         fs = self._modules.get("formula_system")
         if fs:
             reg = self._get_registry()
-            lines.append(f"\n公式系统:")
+            lines.append("\n公式系统:")
             lines.append(f"  ✓ formula_system — {len(reg._formulas)} 个公式")
 
         lines.append("")
@@ -291,13 +290,12 @@ class LinkageEngine:
 
     # ── 辅助升级 ─────────────────────────────────────────
 
-    def suggest_upgrades(self) -> List[str]:
+    def suggest_upgrades(self) -> list[str]:
         """生成升级建议。"""
         suggestions = []
 
         # 检查缺失的物理常量
         from src.stdlib.physics_constants import C as PC
-        missing_in_formula = []
         for attr_name in dir(PC):
             if attr_name.startswith("_"):
                 continue
@@ -355,7 +353,7 @@ class LinkageEngine:
 
 
 # 全局单例
-_linkage_engine: Optional[LinkageEngine] = None
+_linkage_engine: LinkageEngine | None = None
 
 
 def get_linkage_engine() -> LinkageEngine:

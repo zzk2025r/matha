@@ -81,8 +81,8 @@
 """
 
 from __future__ import annotations
-import math
 
+import math
 
 # ========== 柯里化工具 ==========
 

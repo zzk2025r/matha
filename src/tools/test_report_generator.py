@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 测试报告生成器
 
 生成详细的测试报告，包括：
@@ -8,12 +7,12 @@
   - 覆盖率分析
 """
 from __future__ import annotations
-import sys
-import unittest
+
 import json
 import time
+import unittest
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 
 
 class TestReportGenerator:
@@ -29,7 +28,7 @@ class TestReportGenerator:
         self.results = test_results
         self.start_time = time.time()
 
-    def generate_summary(self) -> Dict[str, Any]:
+    def generate_summary(self) -> dict[str, Any]:
         """
         生成测试摘要
 
@@ -134,7 +133,7 @@ class TestReportGenerator:
         return content
 
 
-def run_tests_and_generate_report(test_paths: List[str], report_dir: str = 'docs') -> Dict[str, Any]:
+def run_tests_and_generate_report(test_paths: list[str], report_dir: str = 'docs') -> dict[str, Any]:
     """
     运行测试并生成报告
 

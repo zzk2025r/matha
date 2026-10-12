@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 稀疏 SVD 性能预测与可视化
 
 本脚本基于现有性能数据，预测 1000x1000 规模矩阵的 SVD 耗时，
@@ -9,11 +8,10 @@
   python src/benchmarks/svd_performance_prediction.py --verbose
   python src/benchmarks/svd_performance_prediction.py --sizes 10 50 100 500 1000
 """
-import sys
 import logging
 import math
+import sys
 from pathlib import Path
-from typing import List, Dict, Optional
 
 # 添加项目根目录到路径
 _project_root = Path(__file__).parent.parent.parent
@@ -52,7 +50,7 @@ class SVDPerformancePredictor:
         self.baseline_numpy_times = [d[2] for d in self.BASELINE_DATA]
         self.baseline_sparse_times = [d[3] for d in self.BASELINE_DATA]
 
-    def fit_power_law(self, sizes: List[int], times: List[float]) -> Dict:
+    def fit_power_law(self, sizes: list[int], times: list[float]) -> dict:
         """
         拟合幂律模型: time = a * n^b
 
@@ -130,7 +128,7 @@ class SVDPerformancePredictor:
 
         return max(predicted, 0.001)  # 避免零或负值
 
-    def predict_all(self, target_sizes: List[int]) -> Dict:
+    def predict_all(self, target_sizes: list[int]) -> dict:
         """
         预测多个规模的耗时。
 
@@ -177,7 +175,7 @@ class SVDPerformancePredictor:
 
         return results
 
-    def generate_chart(self, results: Dict, output_path: Optional[str] = None) -> str:
+    def generate_chart(self, results: dict, output_path: str | None = None) -> str:
         """
         生成 ASCII 性能图表。
 
@@ -278,7 +276,7 @@ class SVDPerformancePredictor:
 
         return chart_text
 
-    def generate_csv_report(self, results: Dict, output_path: str):
+    def generate_csv_report(self, results: dict, output_path: str):
         """生成 CSV 报告。"""
         import csv
 
@@ -337,18 +335,18 @@ def main():
     # 关键发现
     print("\n  【关键发现】")
     if results['python']:
-        n_1000 = results['python'][0]['size'] if results['python'][0]['size'] == 1000 else args.sizes[-1]
+        results['python'][0]['size'] if results['python'][0]['size'] == 1000 else args.sizes[-1]
         idx = next((i for i, r in enumerate(results['python']) if r['size'] == 1000), None)
         if idx is not None:
             pt = results['python'][idx]['time_sec']
             nt = results['numpy'][idx]['time_sec']
             st = results['sparse_95'][idx]['time_sec']
 
-            print(f"\n  1000x1000 矩阵 SVD 预测耗时:")
+            print("\n  1000x1000 矩阵 SVD 预测耗时:")
             print(f"    - 纯 Python:  {pt:.1f} 秒 ({pt/60:.1f} 分钟)")
             print(f"    - NumPy:      {nt:.3f} 秒 ({nt*1000:.1f} 毫秒)")
             print(f"    - 稀疏 SVD:   {st:.1f} 秒 ({st/60:.1f} 分钟)")
-            print(f"\n  加速比:")
+            print("\n  加速比:")
             print(f"    - NumPy vs 纯 Python: {pt/nt:.0f}x")
             print(f"    - 稀疏 SVD vs 纯 Python: {pt/st:.1f}x")
 

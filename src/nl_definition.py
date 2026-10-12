@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 自然语言定义构建器（Definition Builder）
 
@@ -13,11 +12,10 @@ Matha 自然语言定义构建器（Definition Builder）
   NL输入 → 语义提取 → 条目列明 → 定义赋予 → 输出DefinitionList
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
+
+from dataclasses import dataclass
 
 from src.nl_semantic import NLDictionary, SemanticEntry
-
 
 # ============================================================
 #  定义条目
@@ -87,7 +85,7 @@ class DefinitionBuilder:
         "逻辑": "{word}：描述概念的精确界定",
     }
 
-    def __init__(self, dictionary: Optional[NLDictionary] = None):
+    def __init__(self, dictionary: NLDictionary | None = None):
         self.dict = dictionary or NLDictionary()
 
     # ── 第1步：提取 ──────────────────────────────────────────────
@@ -133,7 +131,7 @@ class DefinitionBuilder:
             for entry in sorted(all_eras, key=lambda e: self._era_order(e.era)):
                 line = f"  · [{entry.era}] {entry.meaning}（{entry.math_expr}）"
                 era_desc_lines.append(line)
-            era_description = "\n".join(era_desc_lines)
+            "\n".join(era_desc_lines)
 
             # 消歧说明
             disambiguation_note = ""
@@ -295,7 +293,7 @@ class DefinitionBuilder:
         """
         lines = []
         lines.append("╔══════════════════════════════════════════════════════╗")
-        lines.append(f"│ 自然语言定义构建结果                                  │")
+        lines.append("│ 自然语言定义构建结果                                  │")
         lines.append("╠══════════════════════════════════════════════════════╣")
         lines.append(f"│ 原文：{result.original_text:<44}│")
         lines.append(f"│ 时代：{result.era:<46}│")
@@ -304,9 +302,9 @@ class DefinitionBuilder:
         lines.append("│ 条目列表：                                            │")
 
         for i, item in enumerate(result.items, 1):
-            lines.append(f"│ ───────────────────────────────────────────────────  │")
+            lines.append("│ ───────────────────────────────────────────────────  │")
             lines.append(f"│ [{i}] {item.raw_word}{' ★歧义' if item.is_ambiguous else ''}{' '*max(0,28-len(item.raw_word)-4)}│")
-            lines.append(f"│   ├─ 各时代语义：")
+            lines.append("│   ├─ 各时代语义：")
             for entry in sorted(item.era_semantics, key=lambda e: self._era_order(e.era)):
                 marker = " ← 选定" if entry == item.current_entry else ""
                 lines.append(f"│   │   [{entry.era:4s}] {entry.meaning}{marker}")
@@ -315,7 +313,7 @@ class DefinitionBuilder:
             lines.append(f"│   └─ 公式：{item.math_expr}")
 
         if result.unknown_words:
-            lines.append(f"│ ───────────────────────────────────────────────────  │")
+            lines.append("│ ───────────────────────────────────────────────────  │")
             lines.append(f"│ 未识别词：{', '.join(result.unknown_words)}{' '*max(0,20-len(str(result.unknown_words)))}│")
 
         lines.append("╚══════════════════════════════════════════════════════╝")

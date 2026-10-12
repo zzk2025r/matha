@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 增强意图解析器 — v2.3
 
 在 v2.2 基础上集成结构化异常系统，支持：
@@ -9,20 +8,24 @@
   5. Result 类型错误传播（? 运算符语义）
 """
 from __future__ import annotations
-import re
-from dataclasses import dataclass, field
-from typing import Any, Optional
-from src.intent_parser import IntentParser as IntentParserBase, Intent, IntentType
+
 from src.errors import (
-    MathaError, ErrorStage, ErrorSeverity,
-    ParseError, ClassifyError, ParamExtractError,
-    CodeGenError, ExecError, CompositeError,
-    RecoveryStrategy, err_with_stage, map_errors,
-    classify_error, parse_error, param_error,
-    codegen_error, exec_error, composite_error,
-    ok_with_context,
+    CompositeError,
+    ErrorSeverity,
+    ErrorStage,
+    ExecError,
+    MathaError,
+    RecoveryStrategy,
+    classify_error,
+    codegen_error,
+    composite_error,
+    map_errors,
+    param_error,
 )
-from src.result import Ok, Err
+from src.intent_parser import Intent, IntentType
+from src.intent_parser import IntentParser as IntentParserBase
+from src.result import Err, Ok
+
 Result = type
 
 
@@ -35,6 +38,8 @@ class EnhancedIntentParser(IntentParserBase):
 
     def parse(self, text: str, target_lang: str = "python") -> Result:
         """解析自然语言，返回 Result[Intent, MathaError]。"""
+        # 归一化 text：list/tuple 拼接为字符串，避免 'list' object has no attribute 'strip'
+        text = (" ".join(str(x) for x in text) if isinstance(text, (list, tuple)) else str(text))
         if not text or not text.strip():
             return Err(classify_error("输入为空", ["请提供非空文本"]))
 
@@ -218,11 +223,11 @@ class ErrorAggregator:
     def __init__(self):
         self.errors: list[MathaError] = []
 
-    def add(self, error: MathaError) -> "ErrorAggregator":
+    def add(self, error: MathaError) -> ErrorAggregator:
         self.errors.append(error)
         return self
 
-    def add_result(self, result: Result) -> "ErrorAggregator":
+    def add_result(self, result: Result) -> ErrorAggregator:
         """从 Result 中提取错误并添加。"""
         if result.is_err():
             self.add(result.err())
@@ -232,7 +237,7 @@ class ErrorAggregator:
         """聚合所有错误为 CompositeError。"""
         if not self.errors:
             return composite_error("无错误")
-        messages = [e.message for e in self.errors]
+        [e.message for e in self.errors]
         return composite_error(
             f"解析过程中发生 {len(self.errors)} 个错误",
             errors=self.errors
@@ -277,7 +282,7 @@ class IntentParseContext:
                 self.errors.append(error)
         return result
 
-    def recover(self) -> Optional[MathaError]:
+    def recover(self) -> MathaError | None:
         """尝试自动恢复。"""
         if self.errors:
             first = self.errors[0]

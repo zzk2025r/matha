@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 专属 IR (MIR - Matha Intermediate Representation)
 
@@ -10,11 +9,10 @@ MIR 设计原则：
 """
 
 from __future__ import annotations
-import re
+
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Callable, Optional
-
+from typing import Any
 
 # ============================================================
 # MIR 类型系统
@@ -72,12 +70,60 @@ class MIRInstrType(Enum):
     LOAD = auto()
     STORE = auto()
     ALLOC = auto()
+    FREE = auto()
+    MEMCPY = auto()
+    MEMSET = auto()
+
+    # 向量/矩阵运算
+    VLOAD = auto()
+    VSTORE = auto()
+    VADD = auto()
+    VSUB = auto()
+    VMUL = auto()
+    VDIV = auto()
+    VDOT = auto()
+    VMATMUL = auto()
+    VTRANSPOSE = auto()
+    VREDUCE_SUM = auto()
+    VREDUCE_MAX = auto()
+    VREDUCE_MIN = auto()
+    VREDUCE_MEAN = auto()
+    VSLICE = auto()
+    VCONCAT = auto()
+    VRESHAPE = auto()
 
     # 控制流
     BRANCH = auto()
     COND_BRANCH = auto()
     LABEL = auto()
     RETURN = auto()
+
+    # 异常处理
+    TRY = auto()
+    CATCH = auto()
+    THROW = auto()
+    FINALLY = auto()
+    LANDINGPAD = auto()
+
+    # 协程/并发
+    SPAWN = auto()
+    SEND = auto()
+    RECV = auto()
+    SELECT = auto()
+    YIELD = auto()
+    CHANNEL_CREATE = auto()
+    CHANNEL_CLOSE = auto()
+    MUTEX_LOCK = auto()
+    MUTEX_UNLOCK = auto()
+    COND_WAIT = auto()
+    COND_SIGNAL = auto()
+    COND_BROADCAST = auto()
+
+    # 调试/画像
+    TRACE = auto()
+    PROBE = auto()
+    SAMPLE = auto()
+    BREAKPOINT = auto()
 
     # 数学常量
     PI = auto()
@@ -138,7 +184,11 @@ class MIRInstr:
         return self.format()
 
     def format(self) -> str:
-        raise NotImplementedError
+        op = self.instr_type.name
+        operands = ", ".join(str(o) for o in self.operands)
+        folded = f"  # folded={self.value}" if self.value is not None else ""
+        head = f"{self.result} = " if self.result else ""
+        return f"{head}{op}({operands}){folded}"
 
 
 @dataclass
@@ -272,6 +322,355 @@ class MIRConstInstr(MIRInstr):
 
     def format(self) -> str:
         return f"{self.result} = const double {self.value}"
+
+
+# ============================================================
+# 扩展指令类 (Layer 1.2)
+# ============================================================
+
+@dataclass
+class MIRFreeInstr(MIRInstr):
+    """内存释放指令。"""
+    target: str = ""
+
+    def format(self) -> str:
+        return f"free {self.target}"
+
+
+@dataclass
+class MIRMemcpyInstr(MIRInstr):
+    """内存复制指令。"""
+    dest: str = ""
+    src: str = ""
+    size: int = 0
+
+    def format(self) -> str:
+        return f"memcpy {self.dest}, {self.src}, {self.size}"
+
+
+@dataclass
+class MIRMemsetInstr(MIRInstr):
+    """内存设置指令。"""
+    target: str = ""
+    value: int = 0
+    size: int = 0
+
+    def format(self) -> str:
+        return f"memset {self.target}, {self.value}, {self.size}"
+
+
+# 向量/矩阵指令
+
+@dataclass
+class MIRVectorInstr(MIRInstr):
+    """向量运算基类。"""
+    vec_type: str = "float64"  # float32/float64/int32/int64
+    shape: tuple = field(default_factory=tuple)
+
+    def format(self) -> str:
+        op = self.instr_type.name
+        operands = ", ".join(str(o) for o in self.operands)
+        head = f"{self.result} = " if self.result else ""
+        vec = f"<{self.vec_type}x{''.join(str(s) for s in self.shape)}>"
+        return f"{head}{op} {vec}({operands})"
+
+
+@dataclass
+class MIRVLoadInstr(MIRVectorInstr):
+    """向量加载指令。"""
+    source: str = ""
+
+    def format(self) -> str:
+        return f"{self.result} = vload {self.source} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVStoreInstr(MIRVectorInstr):
+    """向量存储指令。"""
+    target: str = ""
+
+    def format(self) -> str:
+        return f"vstore {self.operands[0]}, {self.target} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVArithInstr(MIRVectorInstr):
+    """向量算术运算。"""
+    op: str = ""
+
+    def format(self) -> str:
+        op = self.op or (self.metadata.get('op', '') if self.metadata else '')
+        return f"{self.result} = v{op} {self.operands[0]}, {self.operands[1]} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVDotInstr(MIRVectorInstr):
+    """向量点积。"""
+
+    def format(self) -> str:
+        return f"{self.result} = vdot {self.operands[0]}, {self.operands[1]} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVMatMulInstr(MIRVectorInstr):
+    """矩阵乘法。"""
+
+    def format(self) -> str:
+        return f"{self.result} = vmatmul {self.operands[0]}, {self.operands[1]} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVTransposeInstr(MIRVectorInstr):
+    """矩阵转置。"""
+
+    def format(self) -> str:
+        return f"{self.result} = vtranspose {self.operands[0]} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVReduceInstr(MIRVectorInstr):
+    """向量归约。"""
+    reduce_op: str = ""  # sum/max/min/mean
+
+    def format(self) -> str:
+        op = self.reduce_op
+        if not op and hasattr(self, 'instr_type'):
+            # 从指令类型推断
+            t = self.instr_type.name
+            if t.startswith("VREDUCE_"):
+                op = t[8:].lower()
+        return f"{self.result} = vreduce.{op} {self.operands[0]} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVSliceInstr(MIRVectorInstr):
+    """向量切片。"""
+    start: tuple = field(default_factory=tuple)
+    end: tuple = field(default_factory=tuple)
+
+    def format(self) -> str:
+        return f"{self.result} = vslice {self.operands[0]}, {self.start}, {self.end} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVConcatInstr(MIRVectorInstr):
+    """向量拼接。"""
+    axis: int = 0
+
+    def format(self) -> str:
+        return f"{self.result} = vconcat {', '.join(self.operands)}, axis={self.axis} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+@dataclass
+class MIRVReshapeInstr(MIRVectorInstr):
+    """向量重塑。"""
+    new_shape: tuple = field(default_factory=tuple)
+
+    def format(self) -> str:
+        return f"{self.result} = vreshape {self.operands[0]}, {self.new_shape} : {self.vec_type}[{','.join(map(str,self.shape))}]"
+
+
+# 异常处理指令
+
+@dataclass
+class MIRTryInstr(MIRInstr):
+    """try 块开始。"""
+    catch_label: str = ""
+    finally_label: str = ""
+
+    def format(self) -> str:
+        return f"try label %{self.catch_label}, finally label %{self.finally_label}"
+
+
+@dataclass
+class MIRCatchInstr(MIRInstr):
+    """catch 块。"""
+    exception_type: str = ""
+    exception_var: str = ""
+
+    def format(self) -> str:
+        return f"catch {self.exception_type} as {self.exception_var}"
+
+
+@dataclass
+class MIRThrowInstr(MIRInstr):
+    """抛出异常。"""
+    exception: str = ""
+
+    def format(self) -> str:
+        return f"throw {self.exception}"
+
+
+@dataclass
+class MIRFinallyInstr(MIRInstr):
+    """finally 块。"""
+
+    def format(self) -> str:
+        return "finally"
+
+
+@dataclass
+class MIRLandingPadInstr(MIRInstr):
+    """异常着陆点（用于栈展开）。"""
+    personality: str = ""
+
+    def format(self) -> str:
+        return f"landingpad {self.personality}"
+
+
+# 协程/并发指令
+
+@dataclass
+class MIRSpawnInstr(MIRInstr):
+    """生成协程。"""
+    func_name: str = ""
+
+    def format(self) -> str:
+        args = ", ".join(self.operands) if self.operands else ""
+        return f"{self.result} = spawn {self.func_name}({args})"
+
+
+@dataclass
+class MIRSendInstr(MIRInstr):
+    """通道发送。"""
+    channel: str = ""
+
+    def format(self) -> str:
+        return f"send {self.channel}, {self.operands[0]}"
+
+
+@dataclass
+class MIRRecvInstr(MIRInstr):
+    """通道接收。"""
+    channel: str = ""
+
+    def format(self) -> str:
+        return f"{self.result} = recv {self.channel}"
+
+
+@dataclass
+class MIRSelectInstr(MIRInstr):
+    """多路选择。"""
+    cases: list = field(default_factory=list)  # [(channel, label), ...]
+    default_label: str = ""
+
+    def format(self) -> str:
+        case_strs = [f"case {c} => label %{l}" for c, l in self.cases]
+        if self.default_label:
+            case_strs.append(f"default => label %{self.default_label}")
+        return f"select {{\n  {chr(10).join('  ' + s for s in case_strs)}\n}}"
+
+
+@dataclass
+class MIRYieldInstr(MIRInstr):
+    """协程让出。"""
+
+    def format(self) -> str:
+        return "yield"
+
+
+@dataclass
+class MIRChannelCreateInstr(MIRInstr):
+    """创建通道。"""
+    elem_type: str = "double"
+    capacity: int = 0  # 0 = 无缓冲
+
+    def format(self) -> str:
+        return f"{self.result} = make_chan {self.elem_type}, {self.capacity}"
+
+
+@dataclass
+class MIRChannelCloseInstr(MIRInstr):
+    """关闭通道。"""
+    channel: str = ""
+
+    def format(self) -> str:
+        return f"close {self.channel}"
+
+
+# 同步原语
+
+@dataclass
+class MIRMutexLockInstr(MIRInstr):
+    """互斥锁加锁。"""
+    mutex: str = ""
+
+    def format(self) -> str:
+        return f"lock {self.mutex}"
+
+
+@dataclass
+class MIRMutexUnlockInstr(MIRInstr):
+    """互斥锁解锁。"""
+    mutex: str = ""
+
+    def format(self) -> str:
+        return f"unlock {self.mutex}"
+
+
+@dataclass
+class MIRCondWaitInstr(MIRInstr):
+    """条件变量等待。"""
+    cond: str = ""
+    mutex: str = ""
+
+    def format(self) -> str:
+        return f"cond_wait {self.cond}, {self.mutex}"
+
+
+@dataclass
+class MIRCondSignalInstr(MIRInstr):
+    """条件变量通知单个。"""
+    cond: str = ""
+
+    def format(self) -> str:
+        return f"cond_signal {self.cond}"
+
+
+@dataclass
+class MIRCondBroadcastInstr(MIRInstr):
+    """条件变量广播。"""
+    cond: str = ""
+
+    def format(self) -> str:
+        return f"cond_broadcast {self.cond}"
+
+
+# 调试/画像指令
+
+@dataclass
+class MIRTraceInstr(MIRInstr):
+    """执行跟踪。"""
+    message: str = ""
+
+    def format(self) -> str:
+        return f'trace "{self.message}"'
+
+
+@dataclass
+class MIRProbeInstr(MIRInstr):
+    """探针点（用于性能分析）。"""
+    probe_id: str = ""
+
+    def format(self) -> str:
+        return f"probe {self.probe_id}"
+
+
+@dataclass
+class MIRSampleInstr(MIRInstr):
+    """采样点。"""
+    sample_name: str = ""
+
+    def format(self) -> str:
+        return f"sample {self.sample_name}"
+
+
+@dataclass
+class MIRBreakpointInstr(MIRInstr):
+    """断点。"""
+
+    def format(self) -> str:
+        return "breakpoint"
 
 
 # ============================================================
@@ -438,9 +837,7 @@ class MIRGenerator:
         handler = self._COMPILE_EXPR_DISPATCH.get(expr_type)
         if handler is None:
             kind = expr_type.__name__
-            if kind == "Literal":
-                handler = self._compile_literal
-            elif kind in ("FloatLit", "IntegerLit", "StringLit", "BoolLit"):
+            if kind == "Literal" or kind in ("FloatLit", "IntegerLit", "StringLit", "BoolLit"):
                 handler = self._compile_literal
             elif kind == "Variable":
                 handler = self._compile_variable
@@ -645,6 +1042,11 @@ class MIRGenerator:
 
     def _compile_set(self, set_node: Any) -> str:
         """编译集合构造表达式。"""
+        if getattr(set_node, "form", None) == "comprehension":
+            raise ValueError(
+                "遗留 MIR/C 代码生成路径不支持集合理解 {输出 | 生成 | 条件}（该路径无循环构造）；"
+                "宿主解释器与 PE64 原生后端（src/mbc/native.py）均已支持。"
+                "如确需走本路径，请改用集合枚举 {1,2,3}")
         result = self._new_temp()
         literals = [self._compile_expr(l) for l in getattr(set_node, "literals", [])]
         self._program.functions["main"].instructions.append(

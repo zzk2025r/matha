@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 资源库管理器：保护隔离 + 读取 + 自主成长扩展。
 
 资源库架构：
@@ -31,14 +30,12 @@
 """
 
 from __future__ import annotations
+
 import os
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
 
 from src.interp import Interpreter
 from src.selfupgrade import Sandbox
-from src.autonomous import SelfGrower
-
 
 # 资源库根目录
 LIBRARY_ROOT = os.path.join(
@@ -77,10 +74,10 @@ class LibraryEntry:
 class GrowResult:
     """资源库自主成长结果。"""
     成功: bool
-    新资源: Optional[str] = None
-    学科: Optional[str] = None
-    内容: Optional[str] = None
-    错误: Optional[str] = None
+    新资源: str | None = None
+    学科: str | None = None
+    内容: str | None = None
+    错误: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -154,12 +151,12 @@ class Library:
         """资源是否存在。"""
         return path in self._cache
 
-    def read(self, path: str) -> Optional[str]:
+    def read(self, path: str) -> str | None:
         """读取资源内容（只读，保护隔离）。"""
         entry = self._cache.get(path)
         return entry.content if entry else None
 
-    def get_entry(self, path: str) -> Optional[LibraryEntry]:
+    def get_entry(self, path: str) -> LibraryEntry | None:
         """获取资源条目。"""
         return self._cache.get(path)
 
@@ -270,14 +267,14 @@ class Library:
                           学科=discipline, 内容=candidate)
 
     def _generate_candidate(self, requirement: str,
-                            discipline: str, name: str) -> Optional[str]:
+                            discipline: str, name: str) -> str | None:
         """根据需求描述生成候选 Matha 公式代码。
 
         基于学科模板生成基础公式框架。
         """
         # 简单的模板化生成（实际可扩展为更智能的生成）
         header = f"(* 资源库：{discipline} — {requirement} *)\n"
-        header += f"(* 自主成长生成：保护隔离 *)\n\n"
+        header += "(* 自主成长生成：保护隔离 *)\n\n"
 
         # 根据需求关键词匹配公式模板
         req = requirement.lower()
@@ -325,7 +322,7 @@ class Library:
 
 
 # 全局单例
-_library: Optional[Library] = None
+_library: Library | None = None
 
 
 def get_library() -> Library:

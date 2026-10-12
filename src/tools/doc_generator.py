@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 文档生成器
 
 从 Matha 源代码自动提取文档信息，生成 API 参考文档。
@@ -14,15 +13,15 @@
   generator.generate_markdown('docs/api.md')
 """
 from __future__ import annotations
+
 import inspect
-import os
-import sys
 import json
-import re
 import logging
+import re
+import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +32,9 @@ class FunctionDoc:
     name: str
     module: str
     description: str
-    parameters: List[Dict[str, str]]
-    returns: Optional[str]
-    examples: List[str]
+    parameters: list[dict[str, str]]
+    returns: str | None
+    examples: list[str]
     source_file: str
     source_line: int
 
@@ -46,8 +45,8 @@ class ClassDoc:
     name: str
     module: str
     description: str
-    attributes: List[Dict[str, str]]
-    methods: List[FunctionDoc]
+    attributes: list[dict[str, str]]
+    methods: list[FunctionDoc]
     source_file: str
     source_line: int
 
@@ -58,9 +57,9 @@ class ModuleDoc:
     name: str
     file_path: str
     description: str
-    classes: List[ClassDoc]
-    functions: List[FunctionDoc]
-    submodules: List[str]
+    classes: list[ClassDoc]
+    functions: list[FunctionDoc]
+    submodules: list[str]
 
 
 class MathaDocGenerator:
@@ -81,7 +80,7 @@ class MathaDocGenerator:
         '示例': [],
     }
 
-    def __init__(self, source_dirs: List[str], exclude_patterns: Optional[List[str]] = None):
+    def __init__(self, source_dirs: list[str], exclude_patterns: list[str] | None = None):
         """
         初始化文档生成器
 
@@ -91,9 +90,9 @@ class MathaDocGenerator:
         """
         self.source_dirs = [Path(d) for d in source_dirs]
         self.exclude_patterns = exclude_patterns or ['__pycache__', '.pyc', 'test_']
-        self._modules: Dict[str, ModuleDoc] = {}
+        self._modules: dict[str, ModuleDoc] = {}
 
-    def discover_modules(self) -> List[Path]:
+    def discover_modules(self) -> list[Path]:
         """
         发现所有 Python 模块文件
 
@@ -105,8 +104,9 @@ class MathaDocGenerator:
             if not src_dir.exists():
                 continue
             for py_file in src_dir.rglob('*.py'):
-                # 排除测试文件
-                if any(pat in str(py_file) for pat in self.exclude_patterns):
+                # 排除测试文件（仅匹配文件名与相对路径，避免绝对路径中的目录名误伤）
+                rel_parts = py_file.relative_to(src_dir).parts
+                if any(pat in py_file.name or any(pat in p for p in rel_parts) for pat in self.exclude_patterns):
                     continue
                 # 排除 __init__.py
                 if py_file.name == '__init__.py':
@@ -127,7 +127,7 @@ class MathaDocGenerator:
         doc = inspect.getdoc(obj) or ""
         return doc.strip()
 
-    def parse_docstring(self, docstring: str) -> Dict[str, Any]:
+    def parse_docstring(self, docstring: str) -> dict[str, Any]:
         """
         解析 docstring，提取结构化信息
 
@@ -223,7 +223,7 @@ class MathaDocGenerator:
 
         return result
 
-    def inspect_function(self, func) -> Optional[FunctionDoc]:
+    def inspect_function(self, func) -> FunctionDoc | None:
         """
         检查函数对象，提取文档信息
 
@@ -338,7 +338,7 @@ class MathaDocGenerator:
         except Exception:
             return str(annotation)
 
-    def inspect_class(self, cls) -> Optional[ClassDoc]:
+    def inspect_class(self, cls) -> ClassDoc | None:
         """
         检查类对象，提取文档信息
 
@@ -394,7 +394,7 @@ class MathaDocGenerator:
             logger.warning(f"无法检查类 {cls}: {e}")
             return None
 
-    def process_module(self, module_path: Path) -> Optional[ModuleDoc]:
+    def process_module(self, module_path: Path) -> ModuleDoc | None:
         """
         处理单个模块文件
 
@@ -474,7 +474,7 @@ class MathaDocGenerator:
             logger.warning(f"无法处理模块 {module_path}: {e}")
             return None
 
-    def generate(self) -> Dict[str, ModuleDoc]:
+    def generate(self) -> dict[str, ModuleDoc]:
         """
         生成所有模块文档
 
@@ -490,6 +490,95 @@ class MathaDocGenerator:
                 self._modules[module_doc.name] = module_doc
 
         return self._modules
+
+    def _api_items(self, docs: dict[str, ModuleDoc]) -> dict[tuple, dict[str, Any]]:
+        """提取 API 指纹表：{(module, kind, name): 指纹}"""
+        items: dict[tuple, dict[str, Any]] = {}
+        for module, doc in docs.items():
+            for fn in doc.functions:
+                items[(module, "function", fn.name)] = {
+                    "params": sorted(p.get("name", "") for p in fn.parameters),
+                    "returns": fn.returns,
+                    "line": fn.source_line,
+                }
+            for cls in doc.classes:
+                items[(module, "class", cls.name)] = {
+                    "attrs": sorted(a.get("name", "") for a in cls.attributes),
+                    "methods": sorted(m.name for m in cls.methods),
+                    "line": cls.source_line,
+                }
+                for m in cls.methods:
+                    items[(module, "method", f"{cls.name}.{m.name}")] = {
+                        "params": sorted(p.get("name", "") for p in m.parameters),
+                        "returns": m.returns,
+                        "line": m.source_line,
+                    }
+        return items
+
+    def compare_docs(
+        self,
+        base: dict[str, ModuleDoc] | None = None,
+        target: dict[str, ModuleDoc] | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        API 变更检测：比较两个版本生成的文档，列出新增/删除/修改的 API。
+
+        Args:
+            base: 旧版本文档（不传则使用当前已生成内容）
+            target: 新版本文档（不传则重新 scan 当前源码）
+
+        Returns:
+            变更记录列表：[{module, kind, name, change, detail, base_line, target_line}]
+        """
+        base = base if base is not None else dict(self._modules)
+        if target is None:
+            target = self.generate()
+
+        base_items = self._api_items(base)
+        target_items = self._api_items(target)
+        changes: list[dict[str, Any]] = []
+
+        for key in sorted(set(target_items) | set(base_items)):
+            module, kind, name = key
+            if key not in base_items:
+                changes.append({
+                    "module": module, "kind": kind, "name": name,
+                    "change": "added",
+                    "detail": "新增 API",
+                    "base_line": None,
+                    "target_line": target_items[key]["line"],
+                })
+            elif key not in target_items:
+                changes.append({
+                    "module": module, "kind": kind, "name": name,
+                    "change": "removed",
+                    "detail": "API 已移除",
+                    "base_line": base_items[key]["line"],
+                    "target_line": None,
+                })
+            else:
+                old, new = base_items[key], target_items[key]
+                detail = []
+                if kind == "class":
+                    if old["attrs"] != new["attrs"]:
+                        detail.append(f"属性变化: {old['attrs']} -> {new['attrs']}")
+                    if old["methods"] != new["methods"]:
+                        detail.append(f"方法列表变化: {old['methods']} -> {new['methods']}")
+                else:
+                    if old["params"] != new["params"]:
+                        detail.append(f"参数变化: {old['params']} -> {new['params']}")
+                    if old["returns"] != new["returns"]:
+                        detail.append(f"返回类型变化: {old['returns']} -> {new['returns']}")
+                if detail:
+                    changes.append({
+                        "module": module, "kind": kind, "name": name,
+                        "change": "modified",
+                        "detail": "; ".join(detail),
+                        "base_line": old["line"],
+                        "target_line": new["line"],
+                    })
+
+        return changes
 
     def generate_markdown(self, output_path: str) -> str:
         """

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 原生虚拟机 (MathaVM)
 ==========================
@@ -324,6 +323,30 @@ class MathaOpcode:
     FACTORIAL = 0x7E
     LEN     = 0x7F
 
+    # 扩展数学函数 (0xB0-0xBF)
+    ATAN2    = 0xB0  # atan2(y, x)
+    LOG10    = 0xB1  # log10(x)
+    LOG2     = 0xB2  # log2(x)
+    SIGN     = 0xB3  # sign(x)
+    HYPOT    = 0xB4  # hypot(a, b)
+    DEG2RAD  = 0xB5  # deg2rad(d)
+    RAD2DEG  = 0xB6  # rad2deg(r)
+    COMB     = 0xB7  # comb(n, r)
+    GCD      = 0xB8  # gcd(a, b)
+    IS_PRIME = 0xB9  # is_prime(n)
+    SIEVE    = 0xBA  # sieve(n)
+    MEDIAN   = 0xBB  # median(lst)
+    VARIANCE = 0xBC  # variance(lst)
+    COVARIANCE = 0xBD # covariance(x, y)
+    CORRELATION = 0xBE # correlation(x, y)
+    NORM_PDF = 0xBF  # norm_pdf(x, mu, sigma)
+    SUM      = 0xC0  # sum(lst)
+    SINH     = 0xC1  # sinh(x)
+    COSH     = 0xC2  # cosh(x)
+    TANH     = 0xC3  # tanh(x)
+    MIN      = 0xC4  # min(*args)
+    MAX      = 0xC5  # max(*args)
+
     # 控制流
     JMP      = 0x80  # 无条件跳转
     JZ       = 0x81  # 零值跳转
@@ -477,17 +500,37 @@ class MathaVM:
             'asin': self._builtin_asin,
             'acos': self._builtin_acos,
             'atan': self._builtin_atan,
+            'atan2': self._builtin_atan2,
             'exp': self._builtin_exp,
             'log': self._builtin_log,
+            'log10': self._builtin_log10,
+            'log2': self._builtin_log2,
             'sqrt': self._builtin_sqrt,
+            'pow': self._builtin_pow,
             'floor': self._builtin_floor,
             'ceil': self._builtin_ceil,
             'trunc': self._builtin_trunc,
             'round': self._builtin_round,
             'factorial': self._builtin_factorial,
-            'pow': self._builtin_pow,
-            'min': self._builtin_min,
+            'comb': self._builtin_comb,
+            'gcd': self._builtin_gcd,
+            'is_prime': self._builtin_is_prime,
+            'sieve': self._builtin_sieve,
+            'sign': self._builtin_sign,
+            'hypot': self._builtin_hypot,
+            'deg2rad': self._builtin_deg2rad,
+            'rad2deg': self._builtin_rad2deg,
+            'median': self._builtin_median,
+            'variance': self._builtin_variance,
+            'covariance': self._builtin_covariance,
+            'correlation': self._builtin_correlation,
+            'norm_pdf': self._builtin_norm_pdf,
             'max': self._builtin_max,
+            'min': self._builtin_min,
+            'sum': self._builtin_sum,
+            'sinh': self._builtin_sinh,
+            'cosh': self._builtin_cosh,
+            'tanh': self._builtin_tanh,
             # Matha 原生数制转换
             'to_base2': self._builtin_to_base2,
             'to_base3': self._builtin_to_base3,
@@ -589,6 +632,118 @@ class MathaVM:
 
     def _builtin_from_base3(self, b):
         return int(self._resolve(b))
+
+    # ===== 新增内建函数 =====
+
+    def _builtin_atan2(self, y, x):
+        if x > 0: return self._builtin_atan(y / x)
+        elif x < 0 and y >= 0: return self._builtin_atan(y / x) + self._PI
+        elif x < 0 and y < 0: return self._builtin_atan(y / x) - self._PI
+        elif x == 0 and y > 0: return self._PI / 2.0
+        elif x == 0 and y < 0: return -self._PI / 2.0
+        return 0.0
+
+    def _builtin_log10(self, x):
+        return self._builtin_log(x) / self._builtin_log(10.0)
+
+    def _builtin_log2(self, x):
+        return self._builtin_log(x) / self._builtin_log(2.0)
+
+    def _builtin_sign(self, x):
+        x = self._to_float(x)
+        if x > 0: return 1
+        if x < 0: return -1
+        return 0
+
+    def _builtin_hypot(self, a, b):
+        return self._newton_sqrt(a*a + b*b)
+
+    def _builtin_deg2rad(self, d):
+        return d * self._PI / 180.0
+
+    def _builtin_rad2deg(self, r):
+        return r * 180.0 / self._PI
+
+    def _builtin_comb(self, n, r):
+        n, r = int(n), int(r)
+        if r > n or r < 0: return 0
+        r = min(r, n - r)
+        result = 1
+        for i in range(r):
+            result = result * (n - i) // (i + 1)
+        return float(result)
+
+    def _builtin_gcd(self, a, b):
+        a, b = abs(int(a)), abs(int(b))
+        while b:
+            a, b = b, a % b
+        return float(a)
+
+    def _builtin_is_prime(self, n):
+        n = int(n)
+        if n < 2: return False
+        if n == 2: return True
+        if n % 2 == 0: return False
+        for i in range(3, int(self._newton_sqrt(n)) + 1, 2):
+            if n % i == 0: return False
+        return True
+
+    def _builtin_sieve(self, n):
+        n = int(n)
+        if n < 2: return []
+        sieve_list = [True] * (n + 1)
+        sieve_list[0] = sieve_list[1] = False
+        for i in range(2, int(self._newton_sqrt(n)) + 1):
+            if sieve_list[i]:
+                for j in range(i * i, n + 1, i):
+                    sieve_list[j] = False
+        return [float(i) for i, v in enumerate(sieve_list) if v]
+
+    def _builtin_median(self, lst):
+        if not lst: return 0.0
+        s = sorted(lst)
+        n = len(s)
+        mid = n // 2
+        if n % 2 == 0: return (s[mid-1] + s[mid]) / 2.0
+        return float(s[mid])
+
+    def _builtin_variance(self, lst):
+        if not lst: return 0.0
+        mean = sum(lst) / len(lst)
+        return sum((x - mean) ** 2 for x in lst) / len(lst)
+
+    def _builtin_covariance(self, x, y):
+        if len(x) != len(y) or not x: return 0.0
+        mx = sum(x) / len(x)
+        my = sum(y) / len(y)
+        return sum((xi - mx) * (yi - my) for xi, yi in zip(x, y)) / len(x)
+
+    def _builtin_correlation(self, x, y):
+        cx = self._builtin_covariance(x, y)
+        sx = self._builtin_sqrt(self._builtin_variance(x))
+        sy = self._builtin_sqrt(self._builtin_variance(y))
+        if sx == 0 or sy == 0: return 0.0
+        return cx / (sx * sy)
+
+    def _builtin_norm_pdf(self, x, mu, sigma):
+        if sigma <= 0: return 0.0
+        return (1.0 / (sigma * self._newton_sqrt(2.0 * self._PI))) * self._builtin_exp(-((x - mu) ** 2) / (2.0 * sigma ** 2))
+
+    def _builtin_sum(self, lst):
+        return sum(lst) if lst else 0.0
+
+    def _builtin_sinh(self, x):
+        e = self._builtin_exp(x)
+        return (e - self._builtin_exp(-x)) / 2.0
+
+    def _builtin_cosh(self, x):
+        e = self._builtin_exp(x)
+        return (e + self._builtin_exp(-x)) / 2.0
+
+    def _builtin_tanh(self, x):
+        ex = self._builtin_exp(x)
+        exn = self._builtin_exp(-x)
+        return (ex - exn) / (ex + exn)
 
     # ===== 纯数学实现（Taylor 级数，无 import math）=====
 
@@ -814,6 +969,29 @@ class MathaVM:
             MathaOpcode.ROUND:    lambda: self._unary(self._builtin_round),
             MathaOpcode.FACTORIAL: lambda: self._unary(self._builtin_factorial),
             MathaOpcode.LEN:      lambda: self._unary(self._builtin_len),
+            # 扩展数学函数
+            MathaOpcode.ATAN2:    lambda: self._call_builtin(self._builtin_atan2, 2),
+            MathaOpcode.LOG10:    lambda: self._unary(self._builtin_log10),
+            MathaOpcode.LOG2:     lambda: self._unary(self._builtin_log2),
+            MathaOpcode.SIGN:     lambda: self._unary(self._builtin_sign),
+            MathaOpcode.HYPOT:    lambda: self._call_builtin(self._builtin_hypot, 2),
+            MathaOpcode.DEG2RAD:  lambda: self._unary(self._builtin_deg2rad),
+            MathaOpcode.RAD2DEG:  lambda: self._unary(self._builtin_rad2deg),
+            MathaOpcode.COMB:     lambda: self._call_builtin(self._builtin_comb, 2),
+            MathaOpcode.GCD:      lambda: self._call_builtin(self._builtin_gcd, 2),
+            MathaOpcode.IS_PRIME: lambda: self._unary(self._builtin_is_prime),
+            MathaOpcode.SIEVE:    lambda: self._unary(self._builtin_sieve),
+            MathaOpcode.MEDIAN:   lambda: self._unary(self._builtin_median),
+            MathaOpcode.VARIANCE: lambda: self._unary(self._builtin_variance),
+            MathaOpcode.COVARIANCE: lambda: self._call_builtin(self._builtin_covariance, 2),
+            MathaOpcode.CORRELATION: lambda: self._call_builtin(self._builtin_correlation, 2),
+            MathaOpcode.NORM_PDF: lambda: self._call_builtin(self._builtin_norm_pdf, 3),
+            MathaOpcode.SUM:      lambda: self._unary(self._builtin_sum),
+            MathaOpcode.SINH:     lambda: self._unary(self._builtin_sinh),
+            MathaOpcode.COSH:     lambda: self._unary(self._builtin_cosh),
+            MathaOpcode.TANH:     lambda: self._unary(self._builtin_tanh),
+            MathaOpcode.MIN:      lambda: self._call_varargs(self._builtin_min),
+            MathaOpcode.MAX:      lambda: self._call_varargs(self._builtin_max),
             # 列表
             MathaOpcode.LIST_NEW:  lambda: self.stack.append([]),
             MathaOpcode.LIST_PUSH: lambda: self._list_push(),
@@ -895,6 +1073,22 @@ class MathaVM:
         a = self.stack.pop()
         self.stack.append(1 if fn(self._resolve(a), self._resolve(b)) else 0)
 
+    def _call_builtin(self, fn, arg_count):
+        """调用多参内建函数"""
+        args = [self.stack.pop() for _ in range(arg_count)]
+        args.reverse()
+        result = fn(*args)
+        self.stack.append(result)
+
+    def _call_varargs(self, fn):
+        """调用可变参内建函数"""
+        # 从栈中收集所有参数直到遇到非数字
+        args = []
+        while self.stack and isinstance(self.stack[-1], (int, float)):
+            args.insert(0, self.stack.pop())
+        result = fn(*args)
+        self.stack.append(result)
+
     def _list_push(self):
         val = self.stack.pop()
         lst = self.stack.pop()
@@ -958,7 +1152,7 @@ class MathaVM:
         self.running = False
 
     def _return(self, operands):
-        result = self.stack[-1] if self.stack else None
+        self.stack[-1] if self.stack else None
         self._ret()
 
     def _print(self, operands):

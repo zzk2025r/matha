@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """代码生成器基类：规格树解析 + 分发。
 
 规格树是 Matha 列表（Python list）的嵌套结构。本模块提供：
@@ -8,9 +7,10 @@
 """
 
 from __future__ import annotations
+
 import os
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 class CodegenError(Exception):
@@ -27,7 +27,7 @@ class Element:
     tag: str
     text: str = ""
     attrs: list[tuple[str, str]] = field(default_factory=list)
-    children: list["Element"] = field(default_factory=list)
+    children: list[Element] = field(default_factory=list)
 
     def is_void(self) -> bool:
         """HTML 自闭合标签（无子元素）。"""
@@ -148,9 +148,7 @@ def _parse_item(item: Any, app: AppSpec) -> None:
         for pair in item[2]:
             if isinstance(pair, (list, tuple)) and len(pair) >= 2:
                 attrs.append((str(pair[0]), str(pair[1])))
-            elif isinstance(pair, (list, tuple)) and len(pair) == 1:
-                attrs.append((str(pair[0]), str(pair[0])))
-            elif isinstance(pair, (list, tuple)) and len(pair) == 1:
+            elif isinstance(pair, (list, tuple)) and len(pair) == 1 or isinstance(pair, (list, tuple)) and len(pair) == 1:
                 attrs.append((str(pair[0]), str(pair[0])))
     children: list[Element] = []
     if len(item) > 3 and isinstance(item[3], (list, tuple)):
@@ -161,7 +159,7 @@ def _parse_item(item: Any, app: AppSpec) -> None:
     app.elements.append(Element(tag=tag, text=text, attrs=attrs, children=children))
 
 
-def _parse_element(item: Any) -> Optional[Element]:
+def _parse_element(item: Any) -> Element | None:
     """递归解析子元素。"""
     if not isinstance(item, (list, tuple)) or len(item) == 0:
         return None
@@ -192,7 +190,7 @@ class CodegenResult:
     类型: str = ""            # 网页/桌面/服务/系统
     名称: str = ""
     文件: list[str] = field(default_factory=list)  # 写出的文件绝对路径
-    错误: Optional[str] = None
+    错误: str | None = None
     入口: str = ""            # 主入口文件（可双击/运行）
 
     def as_dict(self) -> dict:
@@ -233,13 +231,20 @@ def codegen(spec: Any, out_dir: str = None) -> CodegenResult:
     os.makedirs(out_dir, exist_ok=True)
 
     # 延迟导入：避免循环依赖
-    from src.codegen.web import WebGenerator
-    from src.codegen.desktop import DesktopGenerator
     from src.codegen.backend import BackendGenerator
-    from src.codegen.system import SystemGenerator
+    from src.codegen.c_backend import CGenerator
+    from src.codegen.cpp_backend import CppGenerator
+    from src.codegen.desktop import DesktopGenerator
     from src.codegen.game import GameGenerator
-    from src.codegen.model3d import Model3DGenerator
+    from src.codegen.go_backend import GoGenerator
+    from src.codegen.java_backend import JavaGenerator
+    from src.codegen.js_backend import JSGenerator
     from src.codegen.kernel import KernelGenerator
+    from src.codegen.model3d import Model3DGenerator
+    from src.codegen.python_backend import PythonGenerator
+    from src.codegen.rust_backend import RustGenerator
+    from src.codegen.system import SystemGenerator
+    from src.codegen.web import WebGenerator
 
     generators = {
         "网页": WebGenerator,
@@ -249,6 +254,15 @@ def codegen(spec: Any, out_dir: str = None) -> CodegenResult:
         "内核": KernelGenerator,
         "游戏": GameGenerator,
         "建模": Model3DGenerator,
+        "C": CGenerator,
+        "Rust": RustGenerator,
+        "JavaScript": JSGenerator,
+        "TypeScript": JSGenerator,
+        "Python": PythonGenerator,
+        "Go": GoGenerator,
+        "C++": CppGenerator,
+        "Cpp": CppGenerator,
+        "Java": JavaGenerator,
     }
     gen_cls = generators.get(app.kind)
     if gen_cls is None:
@@ -272,7 +286,23 @@ class Generator:
         self.out_dir = out_dir
 
     def generate(self) -> CodegenResult:
-        raise NotImplementedError
+        """默认生成：序列化应用规格为 manifest.json 兜底（子类可覆盖）。"""
+        import json as _json
+        manifest = {
+            "name": getattr(self.app, "name", ""),
+            "kind": getattr(self.app, "kind", ""),
+            "out_dir": self.out_dir,
+        }
+        path = self._write(
+            "manifest.json",
+            _json.dumps(manifest, ensure_ascii=False, indent=2),
+        )
+        return CodegenResult(
+            成功=True,
+            类型=getattr(self.app, "kind", ""),
+            名称=getattr(self.app, "name", ""),
+            文件=[path],
+        )
 
     # ---- 文件写出 ----
 

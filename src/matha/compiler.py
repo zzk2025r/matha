@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 源码编译器（Matha Source Compiler）
 
@@ -24,12 +23,11 @@ Matha 源码语法：
     3. compile_and_register(src, reg) → int  (已注册公式数)
 """
 from __future__ import annotations
+
 import re
-from typing import Optional
 
-from src.symbolic import Expr, Var, Num, Mul, Div, Add, Sub, Pow, Neg, FuncCall, symbol_expr
-from src.formula_system import Formula, FormulaRegistry, get_capability_registry
-
+from src.formula_system import Formula, FormulaRegistry
+from src.symbolic import Expr, Num, symbol_expr
 
 # ============================================================
 #  公式源码行解析
@@ -161,7 +159,7 @@ def formula_from_parsed(parsed: dict) -> Formula:
 
     # 从表达式自动提取参数
     if not params:
-        params = list(sorted(expr.free_vars()))
+        params = sorted(expr.free_vars())
 
     notes = description
     if unit:
@@ -218,7 +216,7 @@ def compile_and_register(src: str, registry: FormulaRegistry) -> int:
 
 def compile_file(path: str, registry: FormulaRegistry) -> int:
     """编译 Matha 源文件。"""
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         src = f.read()
     return compile_and_register(src, registry)
 

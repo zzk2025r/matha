@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 性能 Profiler — 火焰图 + 调用统计
 
 解决 Matha 性能瓶颈可观测性不足的问题。
@@ -28,19 +27,16 @@
   prof.save_flamegraph("fib_flamegraph.html")
 """
 from __future__ import annotations
+
 import cProfile
 import functools
 import json
 import pstats
-import sys
 import time
-import traceback
-from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
-
 
 # ============================================================
 # 调用统计
@@ -56,9 +52,9 @@ class CallStats:
     total_time_ms: float = 0.0
     cumulative_time_ms: float = 0.0
     args_signature: str = ""
-    children: Dict[str, 'CallStats'] = field(default_factory=dict)
+    children: dict[str, CallStats] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "func_name": self.func_name,
             "file": self.file,
@@ -89,13 +85,13 @@ class MathaProfiler:
     def __init__(self, sort_by: str = "cumulative", top_n: int = 50):
         self._sort_by = sort_by
         self._top_n = top_n
-        self._profiler: Optional[cProfile.Profile] = None
-        self._call_tree: Dict[str, CallStats] = {}
+        self._profiler: cProfile.Profile | None = None
+        self._call_tree: dict[str, CallStats] = {}
         self._start_time = 0.0
         self._end_time = 0.0
         self._active = False
 
-    def __enter__(self) -> 'MathaProfiler':
+    def __enter__(self) -> MathaProfiler:
         self.start()
         return self
 
@@ -324,7 +320,7 @@ class MathaProfiler:
 
         return str(output_path)
 
-    def get_call_tree(self) -> Dict[str, CallStats]:
+    def get_call_tree(self) -> dict[str, CallStats]:
         """获取调用树。"""
         return dict(self._call_tree)
 
@@ -341,9 +337,9 @@ class MathaProfiler:
 # 装饰器
 # ============================================================
 
-_profiled_functions: Dict[str, MathaProfiler] = {}
+_profiled_functions: dict[str, MathaProfiler] = {}
 
-def profile(func: Optional[Callable] = None, *, name: Optional[str] = None,
+def profile(func: Callable | None = None, *, name: str | None = None,
             sort_by: str = "cumulative", top_n: int = 20) -> Callable:
     """
     函数级 Profiler 装饰器。
@@ -381,12 +377,12 @@ def get_profile_report(func_name: str) -> str:
     if func_name in _profiled_functions:
         profiler = _profiled_functions[func_name]
         if profiler._call_tree:
-            total_time = (profiler._end_time - profiler._start_time) * 1000
+            (profiler._end_time - profiler._start_time) * 1000
             return profiler.report("markdown")
     return f"函数 '{func_name}' 无 profiling 数据。请先调用该函数。"
 
 
-def all_reports() -> Dict[str, str]:
+def all_reports() -> dict[str, str]:
     """获取所有已 profiled 函数的报告。"""
     return {
         name: p.report("markdown")

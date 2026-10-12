@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 原生编译层 v2.0
 ======================
@@ -15,17 +14,26 @@ Matha 原生编译层 v2.0
   4. 与 hal_v2.py 无缝集成
 """
 from __future__ import annotations
-import json
+
 import logging
-import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 
 from src.hardware.hal_v2 import (
-    Architecture, BareMetalTarget, DriverGenerator, DriverKind,
-    get_driver_generator, get_native_backend, get_pointer_manager,
-    get_protocol_parser, get_side_effect_engine, Pointer, ProtocolParser,
-    ProtocolSpec, ProtocolType, SafeSideEffectEngine, SideEffectType,
+    Architecture,
+    DriverGenerator,
+    DriverKind,
+    DriverSpec,
+    NativeBackend,
+    PointerManager,
+    ProtocolParser,
+    ProtocolSpec,
+    ProtocolType,
+    SafeSideEffectEngine,
+    SideEffectType,
+    get_driver_generator,
+    get_native_backend,
+    get_pointer_manager,
+    get_protocol_parser,
+    get_side_effect_engine,
 )
 
 logger = logging.getLogger("matha.native_compiler")
@@ -45,7 +53,7 @@ class ProtocolInterpreter:
 
     def __init__(self, parser: ProtocolParser):
         self._parser = parser
-        self._active_protocols: Dict[str, dict] = {}  # name → parsed spec
+        self._active_protocols: dict[str, dict] = {}  # name → parsed spec
         self._call_count = 0
         logger.info("  [协议解释器] 初始化完成")
 
@@ -65,19 +73,18 @@ class ProtocolInterpreter:
         logger.info(f"  [协议] 解释: {spec.name} ({spec.protocol.value})")
         return result
 
-    def get_code(self, name: str, lang: str = "python") -> Optional[str]:
+    def get_code(self, name: str, lang: str = "python") -> str | None:
         """获取已解释协议的指定语言代码。"""
         proto = self._active_protocols.get(name)
         if proto is None:
             return None
-        key = f"code_{lang}"
         # 查找匹配的语言代码
         for k, v in proto.get("code", {}).items():
             if isinstance(v, str):
                 return v
         return None
 
-    def list_protocols(self) -> List[str]:
+    def list_protocols(self) -> list[str]:
         """列出所有已解释的协议。"""
         return list(self._active_protocols.keys())
 
@@ -102,7 +109,7 @@ class DriverBuilder:
 
     def __init__(self, generator: DriverGenerator):
         self._gen = generator
-        self._built_drivers: Dict[str, dict] = {}
+        self._built_drivers: dict[str, dict] = {}
         self._total_builds = 0
         logger.info("  [驱动构建器] 初始化完成")
 
@@ -116,7 +123,7 @@ class DriverBuilder:
 
     def build_sensor(self, name: str, math_expr: str, scale: float = 1.0,
                      offset: float = 0.0, unit: str = "raw",
-                     protocol: Optional[ProtocolSpec] = None,
+                     protocol: ProtocolSpec | None = None,
                      arch: Architecture = Architecture.ARM64) -> dict:
         """便捷方法：构建传感器驱动。"""
         spec = DriverSpec(
@@ -129,7 +136,7 @@ class DriverBuilder:
         return self.build(spec)
 
     def build_actuator(self, name: str, min_val: float = 0.0, max_val: float = 100.0,
-                       step: float = 0.1, protocol: Optional[ProtocolSpec] = None,
+                       step: float = 0.1, protocol: ProtocolSpec | None = None,
                        arch: Architecture = Architecture.ARM64) -> dict:
         """便捷方法：构建执行器驱动。"""
         spec = DriverSpec(
@@ -150,7 +157,7 @@ class DriverBuilder:
         )
         return self.build(spec)
 
-    def list_built(self) -> List[str]:
+    def list_built(self) -> list[str]:
         """列出已构建的驱动。"""
         return list(self._built_drivers.keys())
 

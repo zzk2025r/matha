@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha AI Assistant — 小白友好的数学计算助手
 
@@ -11,25 +10,41 @@ Matha AI Assistant — 小白友好的数学计算助手
   6. 跨平台（Web/PWA/Electron）
 """
 from __future__ import annotations
-import re
-import json
-import math
+
 import logging
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
 from enum import Enum
+from typing import Any
 
 # 模块级调试日志
 _logger = logging.getLogger("matha.ai")
 
 # ── 新功能模块导入 ─────────────────────────────────────────────────────────
 try:
-    from src.symbolic import symbol_expr, simplify_expr, diff_expr, eval_expr, ast_to_dict, SymbolicParser
-    from src.ffi import get_ffi, MathaFFIBridge
-    from src.multi_paradigm import MultiParadigmEngine, paradigm_compute, get_paradigm_engine
-    from src.symbol_codegen import MathaCodeGen, get_codegen, codegen_python, codegen_javascript, codegen_c
-    from src.math_driver import MathDriverManager, get_driver_manager
+    from src.ffi import MathaFFIBridge, get_ffi  # noqa: F401
+    from src.math_driver import MathDriverManager, get_driver_manager  # noqa: F401
+    from src.multi_paradigm import (  # noqa: F401
+        MultiParadigmEngine,
+        get_paradigm_engine,
+        paradigm_compute,
+    )
+    from src.symbol_codegen import (  # noqa: F401
+        MathaCodeGen,
+        codegen_c,
+        codegen_javascript,
+        codegen_python,
+        get_codegen,
+    )
+    from src.symbolic import (  # noqa: F401
+        SymbolicParser,
+        ast_to_dict,
+        diff_expr,
+        eval_expr,
+        simplify_expr,
+        symbol_expr,
+    )
     _NEW_MODULES_LOADED = True
 except ImportError as e:
     _logger.warning(f"  新功能模块导入失败: {e}")
@@ -176,8 +191,8 @@ class FriendlyIntentParser:
         "平均": ["平均", "平均值", "均值", "平均数"],
         "平方": ["平方", "平方数", "二次方", "自乘"],
         "开方": ["开方", "平方根", "根号", "开根", "反平方"],
-        "单位": ["换算", "转换", "换算成", "变成"],
         "下落": ["下落", "落下", "掉下来", "扔下去", "自由下落"],
+        "单位": ["里", "丈", "尺", "寸", "亩", "公顷", "英里", "英尺", "磅", "盎司", "加仑", "焦耳", "瓦特", "马力"],
         "射程": ["射程", "飞多远", "飞多高", "落点", "飞行距离"],
         "打折": ["打折", "折扣", "打X折", "优惠", "降价", "贵了", "便宜了", "贵多少", "便宜多少", "满减"],
         "利息": ["利息", "单利", "复利", "利滚利", "年化利率", "存款利率", "贷款利率"],
@@ -189,7 +204,6 @@ class FriendlyIntentParser:
         "体积": ["体积", "容积", "升", "毫升", "立方米", "立方厘米"],
         "凑整": ["凑整", "补齐", "差额", "盈亏", "盈了", "亏了"],
         "三角": ["正弦", "余弦", "正切", "cot", "csc", "sec", "反三角"],
-        "单位": ["里", "丈", "尺", "寸", "亩", "公顷", "英里", "英尺", "磅", "盎司", "加仑", "焦耳", "瓦特", "马力"],
     }
 
     # 冷门/变体表达 → 标准意图映射
@@ -218,22 +232,22 @@ class FriendlyIntentParser:
         "这组数": IntentType.统计, "这些数": IntentType.统计,
         "数据": IntentType.统计, "统计数据": IntentType.统计,
         "最大": IntentType.统计, "最小": IntentType.统计,
-        "极差": IntentType.统计, "方差": IntentType.统计, "中位数": IntentType.统计,
+        "极差": IntentType.统计, "中位数": IntentType.统计,
         # 物理变体
         "掉下去": IntentType.物理, "扔出去": IntentType.物理,
         "抛出去": IntentType.物理, "飞行": IntentType.物理,
-        "速度": IntentType.物理, "加速度": IntentType.物理,
+        "加速度": IntentType.物理,
         # 数论变体
         "判断": IntentType.素数因数, "是不是": IntentType.素数因数,
-        "能不能整除": IntentType.素数因数, "因数": IntentType.素数因数,
-        "因子": IntentType.素数因数, "分解": IntentType.素数因数, "整除": IntentType.素数因数,
+        "能不能整除": IntentType.素数因数,
+        "分解": IntentType.素数因数, "整除": IntentType.素数因数,
         # 三角函数变体
         "正弦": IntentType.三角函数, "余弦": IntentType.三角函数, "正切": IntentType.三角函数,
         # 数学函数变体
         "根号": IntentType.数学函数, "平方根": IntentType.数学函数,
-        "立方根": IntentType.数学函数, "对数": IntentType.数学函数,
+        "立方根": IntentType.数学函数,
         "指数": IntentType.数学函数, "幂": IntentType.数学函数,
-        "绝对值": IntentType.数学函数, "正负": IntentType.数学函数,
+        "正负": IntentType.数学函数,
         "开根": IntentType.数学函数,
         # 单位换算变体
         "多少米": IntentType.单位换算, "多少千米": IntentType.单位换算,
@@ -259,7 +273,7 @@ class FriendlyIntentParser:
         # 冷门统计表达
         "排第几": IntentType.统计, "排名第几": IntentType.统计,
         "第几名": IntentType.统计, "最高分": IntentType.统计, "最低分": IntentType.统计,
-        "众数": IntentType.统计, "占比": IntentType.统计, "比例": IntentType.统计,
+        "众数": IntentType.统计, "占比": IntentType.统计,
         "取整": IntentType.算术, "取余": IntentType.算术,
         "求余": IntentType.算术, "模运算": IntentType.算术,
         # 冷门物理表达
@@ -267,14 +281,14 @@ class FriendlyIntentParser:
         "掉到地上": IntentType.物理, "扔多远": IntentType.物理,
         "多快": IntentType.物理, "跑多快": IntentType.物理,
         # 冷门数论表达
-        "质因数分解": IntentType.素数因数, "分解质因数": IntentType.素数因数,
+        "分解质因数": IntentType.素数因数,
         "公约数": IntentType.素数因数, "公倍数": IntentType.素数因数,
         # 冷门三角表达
         "cot": IntentType.三角函数, "csc": IntentType.三角函数, "sec": IntentType.三角函数,
         "arcsin": IntentType.三角函数, "arccos": IntentType.三角函数, "arctan": IntentType.三角函数,
         # 概率表达
-        "概率": IntentType.概率统计, "几率": IntentType.概率统计, "期望": IntentType.概率统计,
-        "期望值": IntentType.概率统计, "可能性": IntentType.概率统计,
+        "概率": IntentType.概率统计, "几率": IntentType.概率统计,
+        "可能性": IntentType.概率统计,
         # 数列表达
         "等差": IntentType.数列, "等比": IntentType.数列,
         "等差数列": IntentType.数列, "等比数列": IntentType.数列,
@@ -522,7 +536,7 @@ class FriendlyIntentParser:
                       best_type.value, confidence * 100, dict(scores))
         return best_type, min(confidence, 1.0)
 
-    def _infer_from_numbers(self, text: str, nums: list[float]) -> Optional[IntentType]:
+    def _infer_from_numbers(self, text: str, nums: list[float]) -> IntentType | None:
         """从数字特征推断意图（兜底策略）。"""
         text_lower = text.lower()
         if len(nums) >= 2:
@@ -624,7 +638,7 @@ class FriendlyIntentParser:
         """从文本中提取所有数字。"""
         return [float(x) for x in re.findall(r'-?\d+\.?\d*', text)]
 
-    def extract_range(self, text: str) -> Optional[tuple[int, int]]:
+    def extract_range(self, text: str) -> tuple[int, int] | None:
         """提取范围，如 '1到100' → (1, 100)。"""
         m = re.search(r'(\d+)\s*[到至 till ]\s*(\d+)', text)
         if m:
@@ -634,7 +648,7 @@ class FriendlyIntentParser:
             return int(m.group(1)), int(m.group(2))
         return None
 
-    def extract_variable(self, text: str) -> Optional[str]:
+    def extract_variable(self, text: str) -> str | None:
         """提取变量名。"""
         # 找中文字符变量名
         m = re.search(r'[\u4e00-\u9fa5]{2,8}', text)
@@ -743,15 +757,79 @@ class FriendlyIntentParser:
                 _logger.debug("  [math_func分解] 检测到次方(双数字): base=%s exp=%s", nums[0], nums[1])
                 base, exp = nums[0], nums[1]
                 steps.append(Step(f"计算 {base} 的 {exp} 次方",
-                                  f"#1：[{base} ^ {exp}]",
+                                  f"#1：[{base} ** {exp}]",
                                   f"{base}^{exp} = {base ** int(exp) if exp == int(exp) else base ** exp}"))
             elif len(nums) == 1:
                 _logger.debug("  [math_func分解] 检测到次方(单数字→平方)")
                 n = nums[0]
                 steps.append(Step(f"计算 {n} 的平方",
                                   f"#1：[{n} * {n}]", f"{n} 的平方 = {n} × {n}"))
+        # --- 三角函数（弧度制，度数自动转换）---
+        _trig_map = [
+            ("正弦", "sin", "正弦 = 对边/斜边"),
+            ("余弦", "cos", "余弦 = 邻边/斜边"),
+            ("正切", "tan", "正切 = 对边/邻边"),
+            ("反正弦", "asin", "反正弦 = sin 的反函数"),
+            ("反余弦", "acos", "反余弦 = cos 的反函数"),
+            ("反正切", "atan", "反正切 = tan 的反函数"),
+            ("双曲正弦", "sinh", "双曲正弦"),
+            ("双曲余弦", "cosh", "双曲余弦"),
+            ("双曲正切", "tanh", "双曲正切"),
+        ]
+        for cn_name, fn_name, expl in _trig_map:
+            if cn_name in text:
+                _logger.debug("  [math_func分解] 检测到 %s", cn_name)
+                n = nums[0]
+                # 检查是否带"度"→ 需要先转换为弧度
+                if "度" in text:
+                    steps.append(Step(f"计算 {n} 度的 {cn_name}",
+                                      f"#1：[{fn_name}(deg2rad({n}))]",
+                                      f"{expl}（输入为度数，先转为弧度）"))
+                else:
+                    steps.append(Step(f"计算 {cn_name}",
+                                      f"#1：[{fn_name}({n})]",
+                                      expl))
+        # --- 对数与指数 ---
+        if "自然对数" in text or "ln" in text.lower():
+            _logger.debug("  [math_func分解] 检测到自然对数/ln")
+            steps.append(Step("计算自然对数", f"#1：[ln({nums[0]})]",
+                              "自然对数 = 以 e 为底的对数"))
+        elif "对数" in text or "log" in text.lower():
+            if "常用" in text or "log10" in text.lower():
+                _logger.debug("  [math_func分解] 检测到常用对数")
+                steps.append(Step("计算常用对数", f"#1：[log10({nums[0]})]",
+                                  "常用对数 = 以 10 为底的对数"))
+            elif "二进制" in text or "log2" in text.lower():
+                _logger.debug("  [math_func分解] 检测到二进制对数")
+                steps.append(Step("计算二进制对数", f"#1：[log2({nums[0]})]",
+                                  "二进制对数 = 以 2 为底的对数"))
+            else:
+                _logger.debug("  [math_func分解] 检测到对数")
+                steps.append(Step("计算对数", f"#1：[log({nums[0]})]",
+                                  "对数 = 以 e 为底的对数"))
+        if "指数" in text or "exp" in text.lower():
+            _logger.debug("  [math_func分解] 检测到指数")
+            steps.append(Step("计算指数函数", f"#1：[exp({nums[0]})]",
+                              "指数 = e 的 x 次方"))
+        # --- 取整与符号 ---
+        if "向下取整" in text or "floor" in text.lower():
+            steps.append(Step("向下取整", f"#1：[floor({nums[0]})]",
+                              "向下取整 = 不超过该数的最大整数"))
+        if "向上取整" in text or "ceil" in text.lower():
+            steps.append(Step("向上取整", f"#1：[ceil({nums[0]})]",
+                              "向上取整 = 不小于该数的最小整数"))
+        if "四舍五入" in text or "round" in text.lower():
+            steps.append(Step("四舍五入", f"#1：[round({nums[0]})]",
+                              "四舍五入"))
+        # --- 角度弧度换算 ---
+        if "弧度" in text and ("度" in text or "deg" in text.lower()):
+            steps.append(Step("度转弧度", f"#1：[deg2rad({nums[0]})]",
+                              "度→弧度 = 度数 × π / 180"))
+        if "度" in text and ("弧度" in text or "rad" in text.lower()):
+            steps.append(Step("弧度转度", f"#1：[rad2deg({nums[0]})]",
+                              "弧度→度 = 弧度 × 180 / π"))
         _logger.debug("  [math_func分解] 生成 %d 步", len(steps))
-        return steps or [Step("请选择要计算的函数", "", "可以计算：平方、立方、开方、绝对值、阶乘、次方")]
+        return steps or [Step("请选择要计算的函数", "", "可以计算：平方、立方、开方、绝对值、阶乘、次方、正弦、余弦、正切、对数、指数、取整")]
 
     def _decompose_statistics(self, text: str, nums: list[float]) -> list[Step]:
         if not nums:
@@ -780,7 +858,7 @@ class FriendlyIntentParser:
 
     def _decompose_string(self, text: str) -> list[Step]:
         # 简单示例
-        return [Step("字符串操作", f"#1: StrReverse('hello') = 结果\n#1: [结果]",
+        return [Step("字符串操作", "#1: StrReverse('hello') = 结果\n#1: [结果]",
                       "字符串反转 = 把文字倒过来写")]
 
     def _decompose_array(self, text: str, nums: list[float]) -> list[Step]:
@@ -846,7 +924,7 @@ class FriendlyIntentParser:
                               "tan(角度) = 这个角度的正切值（对边/邻边）"))
         return steps or [Step("三角函数", "", "支持：sin、cos、tan（输入弧度）")]
 
-    def _decompose_number_theory(self, text: str, rng: Optional[tuple], nums: list[float]) -> list[Step]:
+    def _decompose_number_theory(self, text: str, rng: tuple | None, nums: list[float]) -> list[Step]:
         _logger.debug("  [数论分解] text='%s' rng=%s nums=%s", text, rng, nums)
         steps = []
         if "阶乘" in text:
@@ -889,8 +967,6 @@ class FriendlyIntentParser:
         """将公式推导/生长意图分解为可执行步骤。"""
         _logger.debug("  [公式推导分解] text='%s'", text)
         steps = []
-        from src.matha.growth import FormulaGrowthEngine
-        from src.formula_system import FormulaRegistry
 
         # 检测操作类型
         if "组合" in text or "组合公式" in text:
@@ -937,8 +1013,8 @@ class FriendlyIntentParser:
                 results.append({"step": step.description, "status": "skip", "result": None})
                 continue
             try:
-                from src.parser import parse
                 from src.interp import Interpreter
+                from src.parser import parse
                 i = Interpreter()
                 outputs, _ = i.run(parse(step.matha_code))
                 results.append({
@@ -1307,10 +1383,10 @@ class FriendlyIntentParser:
         self._tasks[task_id] = task
         return task
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         return self._tasks.get(task_id)
 
-    def list_tasks(self, status: Optional[str] = None) -> list[Task]:
+    def list_tasks(self, status: str | None = None) -> list[Task]:
         if status is None:
             return list(self._tasks.values())
         return [t for t in self._tasks.values() if t.status == status]
@@ -1431,7 +1507,7 @@ class FriendlyIntentParser:
     def _try_alternative(self, text: str, intent: IntentType) -> list[Step]:
         """当首选方案失败时，尝试替代方案。"""
         nums = self.extract_numbers(text)
-        text_lower = text.lower()
+        text.lower()
         _logger.debug("=== 替代方案尝试: intent=%s text='%s' nums=%s ===", intent.value, text, nums)
 
         # 替代方案1：如果是算术但加法失败，试其他运算
@@ -1512,7 +1588,8 @@ class MathaAIAssistant:
         """
         _logger.info("=== chat 入口: '%s' ===", text)
 
-        text = text.strip()
+        # 归一化 text：list/tuple 拼接为字符串，避免 'list' object has no attribute 'strip'
+        text = (" ".join(str(x) for x in text) if isinstance(text, (list, tuple)) else str(text)).strip()
         if not text:
             return {"reply": "请输入你的问题，例如：'计算 3 加 5'", "type": "text"}
 
@@ -1541,11 +1618,11 @@ class MathaAIAssistant:
         # 4. 执行
         result = None
         error = None
-        if matha_code and interp:
+        if matha_code:
             try:
-                from src.parser import parse
                 from src.interp import Interpreter
-                i = interp or Interpreter()
+                from src.parser import parse
+                i = interp if interp is not None else Interpreter()
                 outputs, _ = i.run(parse(matha_code))
                 result = outputs[-1] if outputs else None
                 _logger.info("  执行成功: result=%s", result)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha LLVM 后端：Matha AST → LLVM IR → 原生机器码。
 
 架构：
@@ -18,17 +17,15 @@
 """
 
 from __future__ import annotations
+
 import hashlib
-import json
 import os
 import subprocess
-import sys
 import tempfile
-import time
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any, Callable, Optional
-
+from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
 
 # ============================================================
 # LLVM 类型系统
@@ -220,7 +217,7 @@ class MathaToIRConverter:
         elif kind == "LetBinding":
             val = self.convert(ast_node.value)
             if ast_node.body:
-                body = self.convert(ast_node.body)
+                self.convert(ast_node.body)
                 return IRAssignment(ast_node.name, val, "double")
             return IRAssignment(ast_node.name, val, "double")
 
@@ -480,7 +477,7 @@ class LLVMIRGenerator:
             operand_val = operand_ll[-1].split('=')[1].strip() if operand_ll else '0'
             return [f"  {result_var} = xor i1 {operand_val}, true"]
         # and/or 简化处理
-        return [f"  %logic_tmp = const i1 0"]
+        return ["  %logic_tmp = const i1 0"]
 
     def _emit_func_call(self, node: IRFunctionCall) -> list[str]:
         result_var = self._fresh_var()
@@ -529,11 +526,11 @@ class LLVMIRGenerator:
 
         result_var = self._fresh_var()
         lines.append(f"  br i1 {cond_var}, label %if.then, label %if.else")
-        lines.append(f"if.then:")
-        lines.append(f"  br label %if.end")
-        lines.append(f"if.else:")
-        lines.append(f"  br label %if.end")
-        lines.append(f"if.end:")
+        lines.append("if.then:")
+        lines.append("  br label %if.end")
+        lines.append("if.else:")
+        lines.append("  br label %if.end")
+        lines.append("if.end:")
         lines.append(f"  {result_var} = phi double [{then_var}, %if.then], [{else_var}, %if.else]")
 
         return lines
@@ -549,15 +546,15 @@ class LLVMIRGenerator:
         lines.extend(list(cond_ll) if cond_ll else [])
 
         cond_var = cond_ll[-1].split('=')[1].strip() if cond_ll else 'true'
-        lines.append(f"  br label %loop.cond")
-        lines.append(f"loop.cond:")
+        lines.append("  br label %loop.cond")
+        lines.append("loop.cond:")
         lines.append(f"  %loop_cond = icmp eq i1 {cond_var}, true")
-        lines.append(f"  br i1 %loop_cond, label %loop.body, label %loop.end")
-        lines.append(f"loop.body:")
+        lines.append("  br i1 %loop_cond, label %loop.body, label %loop.end")
+        lines.append("loop.body:")
         lines.extend(list(step_ll) if step_ll else [])
         lines.extend(list(body_ll) if body_ll else [])
-        lines.append(f"  br label %loop.cond")
-        lines.append(f"loop.end:")
+        lines.append("  br label %loop.cond")
+        lines.append("loop.end:")
 
         return lines
 
@@ -585,7 +582,7 @@ class LLVMCompiler:
         self._toolchain = toolchain
         self._cache: dict[str, Callable] = {}
 
-    def compile(self, llvm_ir: str, func_name: str = "main") -> Optional[Callable]:
+    def compile(self, llvm_ir: str, func_name: str = "main") -> Callable | None:
         """编译 LLVM IR 为原生函数。"""
         # 检查缓存
         cache_key = hashlib.sha256(llvm_ir.encode()).hexdigest()[:16]
@@ -649,10 +646,10 @@ class LLVMCompiler:
         except FileNotFoundError:
             # llc/clang 不可用，返回 None
             return None
-        except Exception as e:
+        except Exception:
             return None
 
-    def get_cached(self, cache_key: str) -> Optional[Callable]:
+    def get_cached(self, cache_key: str) -> Callable | None:
         return self._cache.get(cache_key)
 
     @property
@@ -682,7 +679,7 @@ class LLVMHotJIT:
     def should_compile(self, name: str) -> bool:
         return self._tracker.get(name, 0) >= self._threshold
 
-    def compile_and_cache(self, name: str, llvm_ir: str) -> Optional[Callable]:
+    def compile_and_cache(self, name: str, llvm_ir: str) -> Callable | None:
         if name in self._compiled:
             return self._compiled[name]
         func = self._compiler.compile(llvm_ir, name)
@@ -690,7 +687,7 @@ class LLVMHotJIT:
             self._compiled[name] = func
         return func
 
-    def get_compiled(self, name: str) -> Optional[Callable]:
+    def get_compiled(self, name: str) -> Callable | None:
         return self._compiled.get(name)
 
     @property
@@ -714,7 +711,7 @@ def matha_to_llvm_ir(ast_node: Any, module_name: str = "matha_module") -> str:
     return generator.generate(ir_nodes)
 
 
-def compile_llvm_ir(llvm_ir: str, func_name: str = "main") -> Optional[Callable]:
+def compile_llvm_ir(llvm_ir: str, func_name: str = "main") -> Callable | None:
     """编译 LLVM IR 为原生函数。"""
     compiler = LLVMCompiler()
     return compiler.compile(llvm_ir, func_name)

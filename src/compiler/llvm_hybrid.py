@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha LLVM 工具链 - 模拟模式完整版
 
@@ -11,14 +10,12 @@ Matha LLVM 工具链 - 模拟模式完整版
 """
 
 from __future__ import annotations
+
 import hashlib
 import os
 import subprocess
-import sys
 import tempfile
 import time
-from typing import Any, Callable, Optional
-
 
 # ============================================================
 # 模拟 LLVM 后端
@@ -43,7 +40,7 @@ class SimulatedLLVMBackend:
         # 验证 LLVM IR 语法
         errors = self._validate_llvm_ir(llvm_ir)
         if errors:
-            raise RuntimeError(f"LLVM IR 验证失败:\n" + "\n".join(errors))
+            raise RuntimeError("LLVM IR 验证失败:\n" + "\n".join(errors))
 
         # 模拟编译（生成模拟结果）
         result = self._simulate_compilation(llvm_ir, output_name)
@@ -100,7 +97,7 @@ class SimulatedLLVMBackend:
         """运行模拟结果。"""
         result_path = exe_path.replace(".exe", "_result.txt")
         if os.path.exists(result_path):
-            with open(result_path, "r") as f:
+            with open(result_path) as f:
                 return {"stdout": f.read().strip(), "returncode": 0}
         return {"stdout": "0.000000", "returncode": 0}
 
@@ -255,7 +252,7 @@ def benchmark_compiler() -> dict:
     results["exec_result"] = result["stdout"]
 
     # 性能对比
-    print(f"\n  性能对比:")
+    print("\n  性能对比:")
     speedup = interp_ms / max(results.get("compile_ms", 1), 1)
     print(f"    编译 vs 解释: {speedup:.1f}x (编译一次性, 解释每次)")
     print(f"    解释器单次: {interp_ms/1000:.3f}ms")
@@ -275,11 +272,9 @@ def run_full_test() -> bool:
     print("=" * 60)
 
     from src.compiler.matha_cc import (
-        MathaLexer, MathaParser, MathaFrontend,
-        MathaLLVMGenerator, matha_to_llvm, matha_compile,
-    )
-    from src.compiler.llvm_backend import (
-        MathaToIRConverter, LLVMIRGenerator, LLVMCompiler,
+        MathaLexer,
+        MathaParser,
+        matha_to_llvm,
     )
 
     all_passed = True
@@ -367,7 +362,7 @@ def run_full_test() -> bool:
     # 测试 6: 性能基准
     print("\n[测试 6] 性能基准")
     try:
-        results = benchmark_compiler()
+        benchmark_compiler()
         print("  PASS: 性能基准完成")
     except Exception as e:
         print(f"  FAIL: {e}")
@@ -379,7 +374,7 @@ def run_full_test() -> bool:
         compiler = __import__("src.compiler.matha_cc", fromlist=["MathaCompiler"]).MathaCompiler(optimize=True)
         llvm_ir = compiler._optimize_llvm("  t1 = fadd double 1.0, 2.0")
         assert "3.0" in llvm_ir, f"常量折叠失败: {llvm_ir}"
-        print(f"  PASS: 常量折叠正确 (1.0 + 2.0 → 3.0)")
+        print("  PASS: 常量折叠正确 (1.0 + 2.0 → 3.0)")
     except Exception as e:
         print(f"  FAIL: {e}")
         all_passed = False
@@ -428,7 +423,7 @@ def run_full_test() -> bool:
 
 def matha_to_llvm(source: str) -> str:
     """将 Matha 源码转换为 LLVM IR 文本。"""
-    from src.compiler.matha_cc import MathaLexer, MathaParser, MathaFrontend, MathaLLVMGenerator
+    from src.compiler.matha_cc import MathaFrontend, MathaLexer, MathaLLVMGenerator, MathaParser
     lexer = MathaLexer(source)
     tokens = lexer.tokenize()
     parser = MathaParser(tokens)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 多语言统一层（Unified Multi-Language）
 
@@ -13,8 +12,9 @@ Matha 多语言统一层（Unified Multi-Language）
 统一后所有功能通过 UnifiedMultiLang 类访问。
 """
 from __future__ import annotations
+
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("matha.unified_multilang")
 
@@ -201,7 +201,7 @@ class UnifiedMultiLang:
 
 # ── 单例 ────────────────────────────────────────────────────────────────────
 
-_unified_multilang: Optional[UnifiedMultiLang] = None
+_unified_multilang: UnifiedMultiLang | None = None
 
 
 def get_unified_multilang() -> UnifiedMultiLang:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """v2.4 ProcessPoolExecutor 解析器重构草案
 
 设计目标：
@@ -19,23 +18,21 @@
   - 解析器实例状态（Intent 对象）不能跨进程共享
 """
 from __future__ import annotations
-import pickle
-import sys
-from typing import Any, Optional
+
+import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
-import threading
+from typing import Any
 
 from src.device_config import get_config
 
 # 延迟导入，避免主进程导入时触发子进程初始化
-from src.intent_parser import IntentParser as IntentParserBase, Intent, IntentType
 from src.errors import (
-    MathaError, ErrorStage, ErrorSeverity,
-    ClassifyError, ParamExtractError, CodeGenError, ExecError,
-    classify_error, parse_error, param_error, codegen_error,
+    ErrorSeverity,
+    ErrorStage,
+    MathaError,
 )
-from src.result import Ok, Err
+from src.result import Err, Ok
 
 Result = type
 
@@ -52,8 +49,6 @@ def _worker_init() -> None:
     """
     # 导入工作进程需要的模块（延迟导入避免循环依赖）
     from src.stdlib.core import register_core_builtins
-    from src.errors import RecoveryStrategy, ErrorStage
-    from src.intent_parser import IntentParser
 
     # 注册标准库（幂等操作）
     _worker_builtins: dict = {}
@@ -86,10 +81,9 @@ class SerializableResult:
 
     def to_result(self) -> Result:
         """重建 Result 对象。"""
-        from src.result import Ok, Err
+        from src.result import Err
         if self.is_ok:
             return Ok(self.value)
-        from src.errors import MathaError, ErrorStage, ErrorSeverity
         stage = ErrorStage[self.error_stage] if self.error_stage else ErrorStage.UNKNOWN
         severity = ErrorSeverity[self.error_severity] if self.error_severity else ErrorSeverity.ERROR
         error = MathaError(
@@ -102,7 +96,7 @@ class SerializableResult:
         return Err(error)
 
     @staticmethod
-    def from_result(result: Result) -> "SerializableResult":
+    def from_result(result: Result) -> SerializableResult:
         """从 Result 创建可序列化包装。"""
         if result.is_ok():
             return SerializableResult(is_ok=True, value=result.unwrap())
@@ -165,10 +159,10 @@ class ProcessPoolIntentParser:
         result = parser.execute("对数组 [3,1,2] 排序")
     """
 
-    def __init__(self, max_workers: Optional[int] = None, init_timeout: float = 30.0):
+    def __init__(self, max_workers: int | None = None, init_timeout: float = 30.0):
         # 自适应：根据设备 CPU 核心数决定进程数（None 时自动检测）
         self.max_workers = max_workers if max_workers is not None else get_config().process_workers
-        self._executor: Optional[ProcessPoolExecutor] = None
+        self._executor: ProcessPoolExecutor | None = None
         self._init_timeout = init_timeout
         self._lock = threading.Lock()
 
@@ -265,8 +259,8 @@ class HybridIntentParser:
       - 代码执行（exec）→ 进程池（CPU 密集，绕过 GIL）
     """
 
-    def __init__(self, thread_workers: Optional[int] = None, process_workers: Optional[int] = None):
-        from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+    def __init__(self, thread_workers: int | None = None, process_workers: int | None = None):
+        from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
         cfg = get_config()
         # 自适应：None 时根据设备性能自动决定
         self._thread_pool = ThreadPoolExecutor(
@@ -309,6 +303,7 @@ class HybridIntentParser:
 def benchmark_pools():
     """对比单进程、线程池、进程池的性能。"""
     import time
+
     from src.enhanced_intent import EnhancedIntentParser
 
     cases = [
@@ -334,7 +329,7 @@ def benchmark_pools():
     # 进程池
     t0 = time.perf_counter()
     pool = ProcessPoolIntentParser(max_workers=8)
-    results = pool.parse_batch(cases)
+    pool.parse_batch(cases)
     pool.shutdown()
     pool_time = (time.perf_counter() - t0) * 1000
 

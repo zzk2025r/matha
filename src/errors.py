@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 结构化异常系统 — v2.3
 
 设计原则：
@@ -16,13 +15,12 @@
         print(e.suggestions())
 """
 from __future__ import annotations
+
 import threading
 import traceback
-from dataclasses import dataclass, field
-from typing import Any, Optional
 from enum import Enum, auto
-from src.result import Ok, Err, MathaResultError
 
+from src.result import Err, Ok
 
 # Result 类型别名（动态）
 Result = type
@@ -51,10 +49,10 @@ class ErrorSeverity(Enum):
     ERROR = 2          # 错误（操作失败）
     FATAL = 3          # 致命（无法恢复）
 
-    def __lt__(self, other: "ErrorSeverity") -> bool:
+    def __lt__(self, other: ErrorSeverity) -> bool:
         return self.value < other.value
 
-    def __gt__(self, other: "ErrorSeverity") -> bool:
+    def __gt__(self, other: ErrorSeverity) -> bool:
         return self.value > other.value
 
 
@@ -70,7 +68,7 @@ class MathaError(Exception):
     def __init__(self, message: str = "", stage: ErrorStage = ErrorStage.UNKNOWN,
                  severity: ErrorSeverity = ErrorSeverity.ERROR,
                  code: str = "", suggestions: list = None,
-                 context: dict = None, cause: "MathaError" = None,
+                 context: dict = None, cause: MathaError = None,
                  stack: list = None, children: list = None):
         self.message = message
         self.stage = stage
@@ -83,18 +81,18 @@ class MathaError(Exception):
         self.children = children or []
         Exception.__init__(self, message)
 
-    def with_cause(self, cause: "MathaError") -> "MathaError":
+    def with_cause(self, cause: MathaError) -> MathaError:
         """链接因果错误。"""
         self.cause = cause
         self.stack = [f"  caused by: {cause.message}"] + (cause.stack or [])
         return self
 
-    def add_child(self, child: "MathaError") -> "MathaError":
+    def add_child(self, child: MathaError) -> MathaError:
         """添加子错误。"""
         self.children.append(child)
         return self
 
-    def add_suggestion(self, suggestion: str) -> "MathaError":
+    def add_suggestion(self, suggestion: str) -> MathaError:
         """添加恢复建议。"""
         if suggestion not in self.suggestions:
             self.suggestions.append(suggestion)
@@ -155,7 +153,7 @@ class ParseError(MathaError):
             self.context["line"] = line
             self.context["col"] = col
 
-    def add_suggestion(self, suggestion: str) -> "ParseError":
+    def add_suggestion(self, suggestion: str) -> ParseError:
         self.suggestions.append(suggestion)
         return self
 
@@ -228,7 +226,7 @@ class CompositeError(MathaError):
             max_sev = max((e.severity for e in errors), default=ErrorSeverity.ERROR)
             self.severity = max_sev
 
-    def recover(self) -> Optional[MathaError]:
+    def recover(self) -> MathaError | None:
         """尝试从复合错误中恢复。"""
         # 找出可恢复的错误
         recoverable = [e for e in self.children if e.severity in
@@ -306,7 +304,7 @@ class RecoveryStrategy:
         return decorator
 
     @classmethod
-    def try_recover(cls, error: MathaError) -> Optional[MathaError]:
+    def try_recover(cls, error: MathaError) -> MathaError | None:
         """尝试所有注册的恢复策略（读锁 → 锁外执行 → 建议锁）。
 
         锁使用策略：
@@ -364,7 +362,7 @@ class RecoveryStrategy:
 # ============================================================
 
 @RecoveryStrategy.register(ErrorStage.CLASSIFYING)
-def _recover_classify(error: MathaError) -> Optional[MathaError]:
+def _recover_classify(error: MathaError) -> MathaError | None:
     """意图分类失败的恢复策略。"""
     if "关键词匹配" in error.message or "未知意图" in error.message:
         error.add_suggestion("尝试加入更多描述性词汇，如'计算'、'排序'、'转换'等。")
@@ -375,7 +373,7 @@ RecoveryStrategy._mark_builtin(_recover_classify)
 
 
 @RecoveryStrategy.register(ErrorStage.PARAM_EXTRACTING)
-def _recover_params(error: MathaError) -> Optional[MathaError]:
+def _recover_params(error: MathaError) -> MathaError | None:
     """参数提取失败的恢复策略。"""
     if "类型不匹配" in error.message:
         error.add_suggestion("检查数字格式，使用阿拉伯数字。")
@@ -388,7 +386,7 @@ RecoveryStrategy._mark_builtin(_recover_params)
 
 
 @RecoveryStrategy.register(ErrorStage.CODE_GENERATING)
-def _recover_codegen(error: MathaError) -> Optional[MathaError]:
+def _recover_codegen(error: MathaError) -> MathaError | None:
     """代码生成失败的恢复策略。"""
     if "参数不足" in error.message:
         error.add_suggestion("尝试使用默认参数值。")
@@ -399,7 +397,7 @@ RecoveryStrategy._mark_builtin(_recover_codegen)
 
 
 @RecoveryStrategy.register(ErrorStage.EXECUTING)
-def _recover_exec(error: MathaError) -> Optional[MathaError]:
+def _recover_exec(error: MathaError) -> MathaError | None:
     """执行失败的恢复策略。"""
     if "NameError" in error.message:
         error.add_suggestion("检查变量名是否正确定义。")

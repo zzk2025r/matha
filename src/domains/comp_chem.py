@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 计算化学领域模块：分子模拟、量子化学、反应动力学。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -94,7 +94,7 @@ def _comp_chem_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "分子轨道能量", "反应活化能", "键长计算",
-    "振动频率", "热力学稳定性", "溶剂化能",
+    "_分子轨道能量", "_反应活化能", "_键长计算",
+    "_振动频率", "_热力学稳定性", "_溶剂化能",
     "_register_comp_chem", "_comp_chem_symtab_names",
 ]

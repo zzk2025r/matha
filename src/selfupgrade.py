@@ -18,11 +18,11 @@
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
 
 from src.interp import Interpreter, MathaRuntimeError
-
 
 # ============================================================
 # 探针：只读内省
@@ -68,7 +68,7 @@ class Probe:
         return (name in i.env or name in i.funcs
                 or name in i.builtins or name in i.constructors)
 
-    def func_info(self, name: str) -> Optional[dict]:
+    def func_info(self, name: str) -> dict | None:
         """单个函数的参数信息；未定义返回 None。"""
         f = self._i.funcs.get(name)
         if f is None:
@@ -123,7 +123,7 @@ class Sandbox:
 
     # ---------- 运行 ----------
 
-    def run(self, source: str) -> tuple[list, list[str], Optional[str]]:
+    def run(self, source: str) -> tuple[list, list[str], str | None]:
         """在沙箱中解析并运行源码；返回 (outputs, trace, error)。
 
         error 非 None 表示解析或运行时出错（已捕获，不抛出）。
@@ -204,7 +204,7 @@ class Sandbox:
 class UpgradeResult:
     """升级流程的统一结果。"""
     成功: bool
-    错误: Optional[str]
+    错误: str | None
     输出: list = field(default_factory=list)
     追踪: list = field(default_factory=list)
     变更: dict = field(default_factory=dict)
@@ -224,7 +224,7 @@ class UpgradeResult:
 # ============================================================
 
 def upgrade(parent: Interpreter, source: str,
-            verify: Optional[Callable[[Sandbox], bool]] = None) -> UpgradeResult:
+            verify: Callable[[Sandbox], bool] | None = None) -> UpgradeResult:
     """加载 Matha 源码到沙箱试运行，通过后合并到本体解释器。
 
     流程：

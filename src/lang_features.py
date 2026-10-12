@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """Matha 语言特性扩展：with/decorator/generator/async语法支持。"""
 
 from __future__ import annotations
+
 import asyncio
 import functools
-import sys
-from typing import Any, Callable, Optional
-
+from collections.abc import Callable
+from typing import Any
 
 # ============================================================
 # 上下文管理器支持（with 语句）

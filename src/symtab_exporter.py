@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 符号表导出器：导出所有内建函数签名，供其它语言调用。
 
 让其它编程语言能查询 Matha 的完整函数库（数学/工程/各学科），
@@ -12,8 +11,8 @@
 """
 
 from __future__ import annotations
+
 import json
-from typing import Any
 
 from src.interp import Interpreter
 

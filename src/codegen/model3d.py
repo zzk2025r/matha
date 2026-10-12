@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Model3DGenerator：把 Matha 规格编译为 Three.js 3D 模型场景。
 
 建模与游戏同属「交互式可视化」体系：
@@ -38,7 +37,8 @@
 """
 
 from __future__ import annotations
-from src.codegen.base import Generator, CodegenResult, Element
+
+from src.codegen.base import CodegenResult, Element, Generator
 
 
 class Model3DGenerator(Generator):

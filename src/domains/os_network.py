@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha OS与网络领域模块：进程调度、内存管理、文件系统、网络协议。
 
 覆盖：
@@ -11,7 +10,6 @@
 """
 
 from __future__ import annotations
-import math
 
 
 def _curry1(func):
@@ -99,7 +97,7 @@ def _os_network_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "进程调度等待时间", "内存页表开销", "文件碎片率",
-    "TCP重传率", "DNS查询延迟", "带宽利用率",
+    "_进程调度等待时间", "_内存页表开销", "_文件碎片率",
+    "_TCP重传率", "_DNS查询延迟", "_带宽利用率",
     "_register_os_network", "_os_network_symtab_names",
 ]

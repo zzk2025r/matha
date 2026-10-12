@@ -31,24 +31,28 @@
 """
 
 from __future__ import annotations
+
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from src import ast_nodes as ast
 from src.symbols import (
-    SymbolTable, SegmentTracker, STEP_NAMES,
+    RESOURCE_PORT,
+    RESOURCE_TEXT,
+    RESOURCE_URL,
+    SegmentTracker,
+    SymbolTable,
     detect_resource_type,
-    RESOURCE_URL, RESOURCE_FILE, RESOURCE_DIR, RESOURCE_PORT, RESOURCE_TEXT,
 )
 
 # 模块级 logger：默认静默（WARNING 级别），通过 SemanticAnalyzer(verbose=True) 开启 DEBUG 输出
 logger = logging.getLogger("matha.semantic")
 
 
-def _build_builtin_symtab() -> "SymbolTable":
+def _build_builtin_symtab() -> SymbolTable:
     """构建包含所有内建符号的符号表（模块级缓存，仅调用一次）。"""
     from src.interp import BUILTINS as _BUILTINS
-    from src.mathlib import CONSTANTS, PHYSICAL_CONSTANTS, UNIT_CONVERSIONS, TEMP_CONVERSIONS
+    from src.mathlib import CONSTANTS, PHYSICAL_CONSTANTS, TEMP_CONVERSIONS, UNIT_CONVERSIONS
     st = SymbolTable()
     for _name in _BUILTINS:
         st.define(_name, "function", decl=None)
@@ -135,7 +139,7 @@ class SemanticAnalyzer:
         for _name in _BUILTINS:
             self.symtab.define(_name, "function", decl=None)
         # 数学函数库内建（实例化时注册，不在 BUILTINS 字典）
-        from src.mathlib import CONSTANTS, PHYSICAL_CONSTANTS, UNIT_CONVERSIONS, TEMP_CONVERSIONS
+        from src.mathlib import CONSTANTS, PHYSICAL_CONSTANTS, TEMP_CONVERSIONS, UNIT_CONVERSIONS
         _math_names = (
             ["sin","cos","tan","asin","acos","atan","atan2",
              "sinh","cosh","tanh","log","ln","log10","log2","exp",
@@ -239,9 +243,11 @@ class SemanticAnalyzer:
         # 全局编号集合（跨文件一致性检查）
         self._global_ids: dict[str, int] = {}  # code_id → 出现次数
         # 当前段号（用于步骤追踪）
-        self._current_seg_id: Optional[int] = None
+        self._current_seg_id: int | None = None
         # 输出上下文标志：在 [...] 内时，变量未定义降级为警告（可能是文本标签）
         self._in_output = False
+        # 字面量类型统计（未实现前为空；记录分析中遇到的整/浮/字符串/布尔字面量）
+        self._literal_types: dict[str, int] = {}
         # 调试日志开关：verbose=True 时开启 DEBUG 级日志，便于排查子文件引用等问题
         self.verbose = verbose
         if verbose:
@@ -428,7 +434,7 @@ class SemanticAnalyzer:
         # 访问内容
         self._visit(content)
 
-    def _classify_gen_stmt_content(self, content: Any) -> Optional[str]:
+    def _classify_gen_stmt_content(self, content: Any) -> str | None:
         """将 GenStmt 内容分类为 5 步之一。"""
         if isinstance(content, ast.CommandLiteral):
             return "command"
@@ -616,7 +622,7 @@ class SemanticAnalyzer:
         self._check_chain_trigger_condition(node)
 
         # 逐环节分析 + 类型兼容性检查
-        prev_type: Optional[str] = None
+        prev_type: str | None = None
         prev_output_vars: list[str] = []
 
         for i, stmt in enumerate(node.stmts):
@@ -681,7 +687,7 @@ class SemanticAnalyzer:
                 return True
         return False
 
-    def _classify_chain_link(self, stmt: Any) -> Optional[str]:
+    def _classify_chain_link(self, stmt: Any) -> str | None:
         """将链式环节分类为 "command" / "output" / "expr" / "setup"。"""
         content = self._unwrap_chain_link_content(stmt)
         if isinstance(content, ast.CommandLiteral):
@@ -878,7 +884,7 @@ class SemanticAnalyzer:
                     # 资源读取是合法的一等能力，仅记录信息（不报错）
                     pass  # 可扩展：验证 URL 可达性、文件存在性等
 
-    def _extract_text(self, expr: Any) -> Optional[str]:
+    def _extract_text(self, expr: Any) -> str | None:
         """从表达式中提取纯文本（用于资源识别）。"""
         if isinstance(expr, ast.StringLit):
             return expr.value
@@ -1086,16 +1092,20 @@ class SemanticAnalyzer:
     # ============================================================
 
     def _visit_IntegerLit(self, node: ast.IntegerLit) -> None:
-        pass
+        node.node_type = "integer"
+        self._literal_types["integer"] = self._literal_types.get("integer", 0) + 1
 
     def _visit_FloatLit(self, node: ast.FloatLit) -> None:
-        pass
+        node.node_type = "float"
+        self._literal_types["float"] = self._literal_types.get("float", 0) + 1
 
     def _visit_StringLit(self, node: ast.StringLit) -> None:
-        pass
+        node.node_type = "string"
+        self._literal_types["string"] = self._literal_types.get("string", 0) + 1
 
     def _visit_BoolLit(self, node: ast.BoolLit) -> None:
-        pass
+        node.node_type = "boolean"
+        self._literal_types["boolean"] = self._literal_types.get("boolean", 0) + 1
 
     def _visit_Annotation(self, node: ast.Annotation) -> None:
         if node.formula:

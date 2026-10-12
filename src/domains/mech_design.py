@@ -78,8 +78,8 @@
 """
 
 from __future__ import annotations
-import math
 
+import math
 
 # ========== 柯里化工具 ==========
 
@@ -609,8 +609,6 @@ def _公差_基孔制配合(IT_grade, fit_type, D_mm):
     简化：孔 H，下偏差 EI=0；上偏差 ES = +IT_hole。
     轴的偏差按基准简化。仅返回公差带上下限（μm），非完整 GB 值。"""
     # 从 grade 解析 IT 等级
-    hole_grade = "H7"
-    shaft_grade = "h6"
     # fit_type 中的数字解析（简化默认 H7/h6）
     hole_IT_val = _公差_IT值("IT7", D_mm)
     shaft_IT_val = _公差_IT值("IT6", D_mm)

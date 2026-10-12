@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Matha v4.5 Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; }
+nav { background: #1a1a2e; padding: 12px 20px; display: flex; gap: 16px; border-bottom: 2px solid #00d4ff; }
+nav a { color: #00d4ff; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+nav a:hover { background: #16213e; }
+section { padding: 20px; max-width: 1200px; margin: 0 auto; }
+h1 { color: #00d4ff; text-align: center; margin: 20px 0; }
+.card { background: #16213e; border-radius: 12px; padding: 20px; margin: 16px 0; }
+.card h2 { color: #4ecca3; }
+</style></head><body>
+<nav>
+  <a href="#pipeline">构建管线</a>
+  <a href="#architecture">架构</a>
+  <a href="#domains">领域</a>
+  <a href="#performance">性能</a>
+</nav>
+<section id="pipeline">
+  <h1>🧮 Matha v4.5 Dashboard</h1>
+  <div class="card"><h2>📊 构建管线</h2><!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Matha Build Pipeline</title>
+<style>
+body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 20px; }
+h1 { color: #00d4ff; text-align: center; }
+.pipeline { display: flex; flex-direction: column; gap: 8px; max-width: 600px; margin: 20px auto; }
+.pipeline-step { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+                   background: #16213e; border-radius: 8px; border-left: 4px solid #555; }
+.pipeline-step.success { border-left-color: #00ff88; }
+.pipeline-step.failed { border-left-color: #ff4444; }
+.pipeline-step.running { border-left-color: #ffaa00; animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.step-icon { font-size: 20px; }
+.step-name { flex: 1; font-weight: 600; }
+.step-duration { color: #888; font-size: 12px; }
+.status { text-align: center; margin-top: 20px; font-size: 24px; }
+.target { text-align: center; color: #00d4ff; }
+</style></head><body>
+<h1>🧮 Matha Build Pipeline</h1>
+<div class="target">目标: c</div>
+<div class="status">✅ 成功</div>
+<div class="pipeline">
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">Lexer (词法分析)</span>
+                <span class="step-duration">18.6ms</span>
+            </div>
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">Parser (语法分析)</span>
+                <span class="step-duration">16.2ms</span>
+            </div>
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">Frontend (前端IR)</span>
+                <span class="step-duration">16.5ms</span>
+            </div>
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">MIR (中间表示)</span>
+                <span class="step-duration">13.9ms</span>
+            </div>
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">Optimizer (优化)</span>
+                <span class="step-duration">16.5ms</span>
+            </div>
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">Backend (后端)</span>
+                <span class="step-duration">12.3ms</span>
+            </div>
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">CodeGen (代码生成)</span>
+                <span class="step-duration">27.0ms</span>
+            </div>
+            <div class="pipeline-step success">
+                <span class="step-icon">✅</span>
+                <span class="step-name">Linker (链接)</span>
+                <span class="step-duration">23.3ms</span>
+            </div></div>
+</body></html></div>
+</section>
+<section id="architecture">
+  <div class="card"><h2>🏗️ 系统架构</h2><!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Matha Architecture</title>
+<style>
+body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; padding: 20px; }
+h1 { color: #00d4ff; text-align: center; }
+.layer { border: 2px solid #333; border-radius: 12px; padding: 16px; margin: 8px; background: #111827; }
+.layer-title { color: #00d4ff; font-weight: bold; margin-bottom: 8px; }
+.engine-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.engine-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px; flex: 1; min-width: 120px; text-align: center; }
+.engine-card .icon { font-size: 24px; }
+.engine-card .name { color: #00d4ff; font-weight: bold; }
+.domain-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.domain-item { background: #1e293b; border-radius: 6px; padding: 8px; text-align: center; font-size: 12px; }
+.target-bar { background: #1e293b; border-radius: 8px; padding: 12px; text-align: center; }
+.target-item { display: inline-block; background: #00d4ff; color: #000; padding: 4px 12px; margin: 4px; border-radius: 4px; font-weight: bold; }
+</style></head><body>
+<h1>🧮 Matha v4.5 架构图</h1>
+<div class="layer">
+  <div class="layer-title">🎯 MathaSystem (统一入口)</div>
+  <div class="engine-row">
+    <div class="engine-card"><div class="icon">🔤</div><div class="name">Lexer</div></div>
+    <div class="engine-card"><div class="icon">📝</div><div class="name">Parser</div></div>
+    <div class="engine-card"><div class="icon">⚙️</div><div class="name">Frontend</div></div>
+    <div class="engine-card"><div class="icon">🔄</div><div class="name">MIR</div></div>
+    <div class="engine-card"><div class="icon">⚡</div><div class="name">Optimizer</div></div>
+    <div class="engine-card"><div class="icon">🎯</div><div class="name">Backend</div></div>
+    <div class="engine-card"><div class="icon">💻</div><div class="name">CodeGen</div></div>
+  </div>
+</div>
+<div class="layer">
+  <div class="layer-title">📚 63个领域模块</div>
+  <div class="domain-grid">
+    <div class="domain-item">🎮 游戏引擎</div>
+    <div class="domain-item">🎨 图形引擎</div>
+    <div class="domain-item">📄 办公文档</div>
+    <div class="domain-item">⚙️ 操作系统</div>
+    <div class="domain-item">🌐 网络通信</div>
+    <div class="domain-item">📁 文件系统</div>
+    <div class="domain-item">💾 IO系统</div>
+    <div class="domain-item">⏰ 时间模块</div>
+    <div class="domain-item">🤖 AI助手</div>
+    <div class="domain-item">📡 LSP服务器</div>
+    <div class="domain-item">🔌 MCP服务器</div>
+    <div class="domain-item">📊 54+ 领域</div>
+  </div>
+</div>
+<div class="layer">
+  <div class="layer-title">🎯 编译目标</div>
+  <div class="target-bar">
+    <span class="target-item">C</span>
+    <span class="target-item">Python</span>
+    <span class="target-item">LLVM</span>
+    <span class="target-item">Matha</span>
+    <span class="target-item">Base-2</span>
+    <span class="target-item">Base-3</span>
+    <span class="target-item">Base-10</span>
+    <span class="target-item">WASM</span>
+  </div>
+</div>
+</body></html></div>
+</section>
+<section id="domains">
+  <div class="card"><h2>📚 领域模块</h2><iframe src="about:blank" id="domainFrame" style="width:100%;height:600px;border:none;"></iframe></div>
+</section>
+<section id="performance">
+  <div class="card"><h2>📈 性能仪表盘</h2><iframe src="about:blank" id="perfFrame" style="width:100%;height:600px;border:none;"></iframe></div>
+</section>
+<script>
+document.getElementById('domainFrame').srcdoc = `<p>无领域注册表</p>`;
+document.getElementById('perfFrame').srcdoc = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Matha Performance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+h1 { color: #00d4ff; text-align: center; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 20px 0; }
+.metric { background: #16213e; padding: 20px; border-radius: 12px; text-align: center; }
+.metric-value { font-size: 28px; color: #00d4ff; font-weight: bold; }
+.metric-label { color: #888; font-size: 12px; margin-top: 4px; }
+.chart-container { background: #16213e; padding: 16px; border-radius: 12px; margin: 16px 0; }
+</style></head><body>
+<h1>📊 Matha 性能仪表盘</h1>
+<div class="grid">
+  <div class="metric"><div class="metric-value">0</div><div class="metric-label">运行次数</div></div>
+  <div class="metric"><div class="metric-value">0.00ms</div><div class="metric-label">平均评估</div></div>
+  <div class="metric"><div class="metric-value">0.00ms</div><div class="metric-label">平均编译</div></div>
+  <div class="metric"><div class="metric-value">0.0%</div><div class="metric-label">缓存命中率</div></div>
+</div>
+<div class="chart-container"><canvas id="evalChart"></canvas></div>
+<div class="chart-container"><canvas id="compileChart"></canvas></div>
+<script>
+const evalData = [];
+const compileData = [];
+new Chart(document.getElementById('evalChart'), {type:'line', data:{labels:evalData.map((_,i)=>i), datasets:[{label:'Eval ms', data:evalData, borderColor:'#00d4ff'}]}});
+new Chart(document.getElementById('compileChart'), {type:'line', data:{labels:compileData.map((_,i)=>i), datasets:[{label:'Compile ms', data:compileData, borderColor:'#4ecca3'}]}});
+</script></body></html>`;
+</script></body></html>

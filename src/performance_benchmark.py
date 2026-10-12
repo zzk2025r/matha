@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 性能基准对比 v2.0
 ========================
@@ -17,15 +16,15 @@ Matha 性能基准对比 v2.0
   - 性能瓶颈识别
 """
 from __future__ import annotations
-import json
+
+import logging
 import os
 import subprocess
 import sys
 import tempfile
 import time
-import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("matha.benchmark")
 
@@ -50,13 +49,13 @@ class BenchmarkResult:
 @dataclass
 class PerformanceReport:
     """性能报告。"""
-    tests: List[BenchmarkResult] = field(default_factory=list)
-    summary: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    tests: list[BenchmarkResult] = field(default_factory=list)
+    summary: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def add_result(self, result: BenchmarkResult) -> None:
         self.tests.append(result)
 
-    def compute_summary(self) -> Dict[str, Dict[str, float]]:
+    def compute_summary(self) -> dict[str, dict[str, float]]:
         """计算各语言性能汇总。"""
         langs = set(r.language for r in self.tests)
         self.summary = {}
@@ -113,7 +112,7 @@ class BenchmarkSuite:
     """基准测试套件。"""
 
     def __init__(self):
-        self._results: List[BenchmarkResult] = []
+        self._results: list[BenchmarkResult] = []
 
     def run_benchmark(self, name: str, func, args: tuple,
                       iterations: int = 1000, language: str = "matha") -> BenchmarkResult:
@@ -190,14 +189,14 @@ class MultiLangBenchmark:
         self._suite.add_result(result)
 
         # C++ (通过临时文件编译执行)
-        cpp_code = f'''#include <random>
+        cpp_code = '''#include <random>
 #include <chrono>
 #include <iostream>
 // 简化版: 只输出占位符，实际需用 Eigen/Armadillo
-int main() {{
+int main() {
     std::cout << "0" << std::endl;
     return 0;
-}}'''
+}'''
         cpp_exe = self._compile_cpp(cpp_code, "svd_cpp")
         if cpp_exe:
             result = self._suite.run_benchmark(
@@ -252,7 +251,7 @@ int main() {{
             result_value=len(results),
         ))
 
-    def _compile_cpp(self, code: str, name: str) -> Optional[str]:
+    def _compile_cpp(self, code: str, name: str) -> str | None:
         """编译 C++ 代码。"""
         src = os.path.join(self.work_dir, f"{name}.cpp")
         exe = os.path.join(self.work_dir, f"{name}.exe" if sys.platform == "win32" else f"{name}")

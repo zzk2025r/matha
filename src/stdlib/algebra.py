@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.2 — 代数运算标准库
 
 提供代数核心功能：
@@ -18,10 +17,9 @@
   )
 """
 from __future__ import annotations
-import math
-from typing import List, Optional, Tuple, Union
-from dataclasses import dataclass
 
+import math
+from dataclasses import dataclass
 
 # ============================================================
 # 代数数据类
@@ -30,7 +28,7 @@ from dataclasses import dataclass
 @dataclass
 class Polynomial:
     """多项式：a_n·x^n + ... + a_1·x + a_0"""
-    coefficients: List[float]  # [a_0, a_1, ..., a_n]
+    coefficients: list[float]  # [a_0, a_1, ..., a_n]
 
     def degree(self) -> int:
         """获取多项式次数。"""
@@ -60,7 +58,7 @@ class Polynomial:
                 terms.append(f"{c}x^{i}" if c != 1 else f"x^{i}")
         return " + ".join(reversed(terms)) if terms else "0"
 
-    def __add__(self, other: 'Polynomial') -> 'Polynomial':
+    def __add__(self, other: Polynomial) -> Polynomial:
         """多项式加法。"""
         max_len = max(len(self.coefficients), len(other.coefficients))
         result = [0.0] * max_len
@@ -70,7 +68,7 @@ class Polynomial:
             result[i] += c
         return Polynomial(result)
 
-    def __mul__(self, other: 'Polynomial') -> 'Polynomial':
+    def __mul__(self, other: Polynomial) -> Polynomial:
         """多项式乘法。"""
         result = [0.0] * (len(self.coefficients) + len(other.coefficients) - 1)
         for i, a in enumerate(self.coefficients):
@@ -83,7 +81,7 @@ class Polynomial:
 # 方程求解
 # ============================================================
 
-def solve_linear(a: float, b: float) -> Optional[float]:
+def solve_linear(a: float, b: float) -> float | None:
     """
     求解一元一次方程：ax + b = 0
 
@@ -109,7 +107,7 @@ def solve_linear(a: float, b: float) -> Optional[float]:
     return -b / a
 
 
-def solve_quadratic(a: float, b: float, c: float) -> List[complex]:
+def solve_quadratic(a: float, b: float, c: float) -> list[complex]:
     """
     求解一元二次方程：ax² + bx + c = 0
 
@@ -147,7 +145,7 @@ def solve_quadratic(a: float, b: float, c: float) -> List[complex]:
         return [complex(real_part, imag_part), complex(real_part, -imag_part)]
 
 
-def solve_system_linear(eqs: List[Tuple[float, float, float]]) -> Optional[Tuple[float, float]]:
+def solve_system_linear(eqs: list[tuple[float, float, float]]) -> tuple[float, float] | None:
     """
     求解二元一次方程组：
       a₁x + b₁y = c₁
@@ -178,7 +176,7 @@ def solve_system_linear(eqs: List[Tuple[float, float, float]]) -> Optional[Tuple
 # 因式分解
 # ============================================================
 
-def factor_integer(n: int) -> Dict[int, int]:
+def factor_integer(n: int) -> dict[int, int]:
     """
     整数因式分解：n = p1^a1 × p2^a2 × ... × pk^ak
 
@@ -206,7 +204,7 @@ def factor_integer(n: int) -> Dict[int, int]:
     return result
 
 
-def factor_polynomial_simple(coeffs: List[float]) -> str:
+def factor_polynomial_simple(coeffs: list[float]) -> str:
     """
     简单多项式因式分解（仅处理二次多项式）。
 
@@ -225,7 +223,7 @@ def factor_polynomial_simple(coeffs: List[float]) -> str:
             r1 = round(r1)
         if abs(r2 - round(r2)) < 1e-6:
             r2 = round(r2)
-        return f"({a}x - {r1*a})({x} - {r2})"
+        return f"({a}x - {r1*a})(x - {r2})"
 
     return str(Polynomial(coeffs))
 
@@ -291,7 +289,7 @@ def expand_expression(expr: str) -> str:
 # 代数运算
 # ============================================================
 
-def poly_add(p1: List[float], p2: List[float]) -> List[float]:
+def poly_add(p1: list[float], p2: list[float]) -> list[float]:
     """多项式加法。"""
     max_len = max(len(p1), len(p2))
     result = [0.0] * max_len
@@ -302,7 +300,7 @@ def poly_add(p1: List[float], p2: List[float]) -> List[float]:
     return result
 
 
-def poly_mul(p1: List[float], p2: List[float]) -> List[float]:
+def poly_mul(p1: list[float], p2: list[float]) -> list[float]:
     """多项式乘法。"""
     result = [0.0] * (len(p1) + len(p2) - 1)
     for i, a in enumerate(p1):
@@ -311,7 +309,7 @@ def poly_mul(p1: List[float], p2: List[float]) -> List[float]:
     return result
 
 
-def poly_div(p1: List[float], p2: List[float]) -> Tuple[List[float], List[float]]:
+def poly_div(p1: list[float], p2: list[float]) -> tuple[list[float], list[float]]:
     """
     多项式除法：p1 = p2 × q + r
 
@@ -352,14 +350,14 @@ def poly_div(p1: List[float], p2: List[float]) -> Tuple[List[float], List[float]
     return quotient, dividend
 
 
-def poly_derivative(p: List[float]) -> List[float]:
+def poly_derivative(p: list[float]) -> list[float]:
     """多项式求导。"""
     if len(p) <= 1:
         return [0.0]
     return [i * p[i] for i in range(1, len(p))]
 
 
-def poly_integral(p: List[float], c: float = 0.0) -> List[float]:
+def poly_integral(p: list[float], c: float = 0.0) -> list[float]:
     """多项式积分（不定积分）。"""
     return [c] + [p[i] / (i + 1) for i in range(len(p))]
 

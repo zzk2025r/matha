@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 原生运行时引擎：纯数学实现，不依赖 Python math 模块。
 
 设计理念：
@@ -9,7 +8,7 @@
 对标 Python math 模块，提供等价函数。
 """
 from __future__ import annotations
-import sys
+
 from typing import Any
 
 # ============================================================
@@ -274,7 +273,13 @@ def tanh(x: float) -> float:
 # ============================================================
 
 def abs_val(x: float) -> float:
+    """绝对值。"""
     return x if x >= 0 else -x
+
+
+def abs(x: float) -> float:
+    """绝对值（别名）。"""
+    return abs_val(x)
 
 
 def floor(x: float) -> float:
@@ -461,6 +466,191 @@ def gauss(mu: float, sigma: float) -> float:
 
 
 # ============================================================
+# 标准库扩展函数
+# ============================================================
+
+def len_val(x: Any) -> int:
+    """返回长度。"""
+    return len(x) if hasattr(x, '__len__') else 0
+
+def reverse_val(lst: list) -> list:
+    """反转列表。"""
+    return list(reversed(lst))
+
+def sort_val(lst: list, key=None) -> list:
+    """排序列表。"""
+    return sorted(lst, key=key)
+
+def map_val(f: callable, lst: list) -> list:
+    """映射。"""
+    return list(map(f, lst))
+
+def filter_val(f: callable, lst: list) -> list:
+    """过滤。"""
+    return list(filter(f, lst))
+
+def reduce_val(f: callable, lst: list, init: Any = 0) -> Any:
+    """归约。"""
+    from functools import reduce
+    return reduce(f, lst, init)
+
+def join_val(sep: str, lst: list) -> str:
+    """连接字符串。"""
+    return sep.join(str(x) for x in lst)
+
+def split_val(sep: str, s: str) -> list:
+    """分割字符串。"""
+    return s.split(sep)
+
+def upper_val(s: str) -> str:
+    """转大写。"""
+    return s.upper()
+
+def lower_val(s: str) -> str:
+    """转小写。"""
+    return s.lower()
+
+def strip_val(s: str) -> str:
+    """去除空白。"""
+    return s.strip()
+
+def replace_val(s: str, old: str, new: str) -> str:
+    """替换。"""
+    return s.replace(old, new)
+
+def contains_val(s: str, sub: str) -> bool:
+    """包含检查。"""
+    return sub in s
+
+def startswith_val(s: str, prefix: str) -> bool:
+    """前缀检查。"""
+    return s.startswith(prefix)
+
+def endswith_val(s: str, suffix: str) -> bool:
+    """后缀检查。"""
+    return s.endswith(suffix)
+
+def slice_val(s: str, start: int, end: int) -> str:
+    """切片。"""
+    return s[start:end]
+
+def append_val(lst: list, item: Any) -> list:
+    """追加。"""
+    return lst + [item]
+
+def insert_val(lst: list, index: int, item: Any) -> list:
+    """插入。"""
+    r = list(lst)
+    r.insert(index, item)
+    return r
+
+def remove_val(lst: list, item: Any) -> list:
+    """移除。"""
+    r = list(lst)
+    r.remove(item)
+    return r
+
+def pop_val(lst: list, index: int = -1) -> list:
+    """弹出。"""
+    r = list(lst)
+    r.pop(index)
+    return r
+
+def chr_val(code: int) -> str:
+    """ASCII码转字符。"""
+    return chr(code)
+
+def ord_val(s: str) -> int:
+    """字符转ASCII码。"""
+    return ord(s[0]) if s else 0
+
+def range_val(stop: int, start: int = 0, step: int = 1) -> list:
+    """范围列表。"""
+    return list(range(start, stop, step))
+
+def zip_val(a: list, b: list) -> list:
+    """拉链。"""
+    return list(zip(a, b))
+
+def enumerate_val(lst: list, start: int = 0) -> list:
+    """枚举。"""
+    return list(enumerate(lst, start))
+
+def any_val(lst: list) -> bool:
+    """任意。"""
+    return any(lst)
+
+def all_val(lst: list) -> bool:
+    """全部。"""
+    return all(lst)
+
+def random_int_val(a: int, b: int) -> int:
+    """随机整数。"""
+    import random
+    return random.randint(a, b)
+
+def random_float_val() -> float:
+    """随机浮点数。"""
+    import random
+    return random.random()
+
+def random_choice_val(lst: list) -> Any:
+    """随机选择。"""
+    import random
+    return random.choice(lst)
+
+def shuffle_val(lst: list) -> list:
+    """打乱。"""
+    import random
+    r = list(lst)
+    random.shuffle(r)
+    return r
+
+def json_dumps_val(obj: Any) -> str:
+    """JSON序列化。"""
+    import json
+    return json.dumps(obj, ensure_ascii=False)
+
+def json_loads_val(s: str) -> Any:
+    """JSON反序列化。"""
+    import json
+    return json.loads(s)
+
+def time_now_val() -> float:
+    """当前时间戳。"""
+    import time
+    return time.time()
+
+def split_lines_val(s: str) -> list:
+    """按行分割。"""
+    return s.split('\n')
+
+def trim_val(s: str) -> str:
+    """去除空白。"""
+    return s.strip()
+
+def lstrip_val(s: str) -> str:
+    """去除左空白。"""
+    return s.lstrip()
+
+def rstrip_val(s: str) -> str:
+    """去除右空白。"""
+    return s.rstrip()
+
+def format_str_val(fmt: str, *args) -> str:
+    """格式化字符串。"""
+    return fmt.format(*args)
+
+def isinstance_val(obj: Any, cls: type) -> bool:
+    """类型检查。"""
+    return isinstance(obj, cls)
+
+def type_name_val(obj: Any) -> str:
+    """类型名称。"""
+    return type(obj).__name__
+
+
+# ============================================================
 # 内建函数注册表（提供给 Matha VM）
 # ============================================================
 
@@ -510,13 +700,97 @@ def get_builtin(name: str) -> Any:
         "逻辑非": lambda p: not p,
         "逻辑与": lambda a, b: a and b,
         "逻辑或": lambda a, b: a or b,
+        # 列表工具
+        "len": len_val, "reverse": reverse_val, "sort": sort_val,
+        "map": map_val, "filter": filter_val, "reduce": reduce_val,
+        "append": append_val, "insert": insert_val, "remove": remove_val,
+        "pop": pop_val,
+        # 字符串工具
+        "join": join_val, "split": split_val, "upper": upper_val,
+        "lower": lower_val, "strip": strip_val, "replace": replace_val,
+        "contains": contains_val, "startswith": startswith_val,
+        "endswith": endswith_val, "slice": slice_val,
+        "chr": chr_val, "ord": ord_val,
+        # 迭代工具
+        "range": range_val, "zip": zip_val, "enumerate": enumerate_val,
+        "any": any_val, "all": all_val,
+        # 随机
+        "random_int": random_int_val, "random_float": random_float_val,
+        "random_choice": random_choice_val, "shuffle": shuffle_val,
+        # JSON
+        "json_dumps": json_dumps_val, "json_loads": json_loads_val,
+        # 时间
+        "time_now": time_now_val, "split_lines": split_lines_val,
+        # 字符串处理
+        "trim": trim_val, "lstrip": lstrip_val, "rstrip": rstrip_val,
+        "format": format_str_val, "format_str": format_str_val,
+        # 类型
+        "isinstance": isinstance_val, "type_name": type_name_val,
     }
+    # 尝试从领域模块加载
+    try:
+        from src.domains.registry import get_registry
+        registry = get_registry()
+        for domain_key in registry._domains:
+            builtins = registry.get_builtins(domain_key)
+            if name in builtins:
+                return builtins[name]
+    except Exception:
+        pass
     return _builtins.get(name)
 
 
 def get_builtin_names() -> list:
     """返回所有内建名称。"""
-    return list(get_builtin.__code__.co_consts)
+    _builtins = {
+        "pi": PI, "e": E, "tau": TAU, "phi": PHI, "π": PI, "φ": PHI,
+        "G": G_CONST, "c": C_LIGHT, "g": G_ACCEL, "h_planck": H_PLANCK, "N_A": NA, "R": R_GAS,
+        "sin": sin, "cos": cos, "tan": tan, "asin": asin, "acos": acos, "atan": atan, "atan2": atan2,
+        "sinh": sinh, "cosh": cosh, "tanh": tanh,
+        "log": log, "ln": log, "log10": log10, "log2": log2, "exp": exp,
+        "sqrt": sqrt, "pow": pow,
+        "abs": abs_val, "floor": floor, "ceil": ceil, "round": round_val, "trunc": trunc,
+        "max": max_val, "min": min_val, "sum": sum_list,
+        "deg2rad": deg2rad, "rad2deg": rad2deg,
+        "sign": sign, "hypot": hypot,
+        "阶乘": factorial, "排列数": perm, "组合数": comb,
+        "gcd": gcd, "最大公约数": gcd, "最小公倍数": lambda a, b: abs(a * b) // gcd(a, b) if a and b else 0,
+        "素数判定": is_prime, "素数筛": sieve,
+        "平均值": lambda lst: sum_list(lst) / len(lst) if lst else 0,
+        "中位数": median, "方差": variance, "标准差": lambda lst: sqrt(variance(lst)),
+        "协方差": covariance, "相关系数": correlation, "正态密度": norm_pdf,
+        "均匀随机": uniform, "正态随机": gauss,
+        "逻辑非": lambda p: not p, "逻辑与": lambda a, b: a and b, "逻辑或": lambda a, b: a or b,
+        # 列表/字符串工具
+        "len": len_val, "reverse": reverse_val, "sort": sort_val,
+        "map": map_val, "filter": filter_val, "reduce": reduce_val,
+        "join": join_val, "split": split_val, "upper": upper_val,
+        "lower": lower_val, "strip": strip_val, "replace": replace_val,
+        "contains": contains_val, "startswith": startswith_val,
+        "endswith": endswith_val, "slice": slice_val,
+        "append": append_val, "insert": insert_val, "remove": remove_val,
+        "pop": pop_val, "chr": chr_val, "ord": ord_val,
+        "range": range_val, "zip": zip_val, "enumerate": enumerate_val,
+        "any": any_val, "all": all_val,
+        "random_int": random_int_val, "random_float": random_float_val,
+        "random_choice": random_choice_val, "shuffle": shuffle_val,
+        "json_dumps": json_dumps_val, "json_loads": json_loads_val,
+        "time_now": time_now_val, "split_lines": split_lines_val,
+        "trim": trim_val, "lstrip": lstrip_val, "rstrip": rstrip_val,
+        "format_str": format_str_val, "format": format_str_val,
+        "isinstance": isinstance_val,
+        "type_name": type_name_val,
+    }
+    names = list(_builtins.keys())
+    try:
+        from src.domains.registry import get_registry
+        registry = get_registry()
+        for domain_key in registry._domains:
+            domain_names = registry.get_builtins(domain_key)
+            names.extend(domain_names.keys())
+    except Exception:
+        pass
+    return list(set(names))
 
 
 # 测试
@@ -541,3 +815,45 @@ if __name__ == "__main__":
     print(f"is_prime(17) = {is_prime(17)}  (期望 True)")
     print(f"sieve(20) = {sieve(20)}  (期望 [2,3,5,7,11,13,17,19])")
     print("=== 全部通过 ===")
+    # 新增标准库函数测试
+    print(f"len([1,2,3]) = {len_val([1,2,3])}  (期望 3)")
+    print(f"reverse([1,2,3]) = {reverse_val([1,2,3])}  (期望 [3,2,1])")
+    print(f"sort_list([3,1,2]) = {sort_val([3,1,2])}  (期望 [1,2,3])")
+    print(f"map_list(lambda x: x*2, [1,2,3]) = {map_val(lambda x: x*2, [1,2,3])}  (期望 [2,4,6])")
+    print(f"filter_list(lambda x: x>1, [1,2,3]) = {filter_val(lambda x: x>1, [1,2,3])}  (期望 [2,3])")
+    print(f"reduce_list(lambda a,b: a+b, [1,2,3]) = {reduce_val(lambda a,b: a+b, [1,2,3])}  (期望 6)")
+    print(f"join(',', ['a','b']) = {join_val(',', ['a','b'])}  (期望 a,b)")
+    print(f"split(',', 'a,b,c') = {split_val(',', 'a,b,c')}  (期望 ['a','b','c'])")
+    print(f"upper('hello') = {upper_val('hello')}  (期望 HELLO)")
+    print(f"lower('HELLO') = {lower_val('HELLO')}  (期望 hello)")
+    print(f"strip('  hi  ') = {strip_val('  hi  ')}  (期望 hi)")
+    print(f"replace('hello', 'l', 'r') = {replace_val('hello', 'l', 'r')}  (期望 herro)")
+    print(f"contains('hello', 'ell') = {contains_val('hello', 'ell')}  (期望 True)")
+    print(f"startswith('hello', 'he') = {startswith_val('hello', 'he')}  (期望 True)")
+    print(f"endswith('hello', 'lo') = {endswith_val('hello', 'lo')}  (期望 True)")
+    print(f"slice('hello', 1, 3) = {slice_val('hello', 1, 3)}  (期望 el)")
+    print(f"append([], 1) = {append_val([], 1)}  (期望 [1])")
+    print(f"insert([1,3], 1, 2) = {insert_val([1,3], 1, 2)}  (期望 [1,2,3])")
+    print(f"remove([1,2,3], 2) = {remove_val([1,2,3], 2)}  (期望 [1,3])")
+    print(f"pop([1,2,3]) = {pop_val([1,2,3])}  (期望 [1,2])")
+    print(f"len('hello') = {len_val('hello')}  (期望 5)")
+    print(f"chr(65) = {chr_val(65)}  (期望 A)")
+    print(f"ord('A') = {ord_val('A')}  (期望 65)")
+    print(f"range_list(5) = {range_val(5)}  (期望 [0,1,2,3,4])")
+    print(f"zip_list([1,2], ['a','b']) = {zip_val([1,2], ['a','b'])}  (期望 [(1,'a'),(2,'b')])")
+    print(f"enumerate(['a','b']) = {enumerate_val(['a','b'])}  (期望 [(0,'a'),(1,'b')])")
+    print(f"any_list([False,True]) = {any_val([False,True])}  (期望 True)")
+    print(f"all_list([True,True]) = {all_val([True,True])}  (期望 True)")
+    print(f"random_int(1,10) = {random_int_val(1,10)}  (期望 1-10)")
+    print(f"random_float() = {random_float_val()}  (期望 0-1)")
+    print(f"random_choice(['a','b','c']) = {random_choice_val(['a','b','c'])}")
+    print(f"shuffle_list([1,2,3]) = {shuffle_val([1,2,3])}")
+    _json_demo = {'a': 1}
+    _json_text = '{"a": 1}'
+    _nl_demo = "a\nb"
+    print(f"json_dumps({{'a':1}}) = {json_dumps_val(_json_demo)}")
+    print(f"json_loads('{{\"a\":1}}') = {json_loads_val(_json_text)}")
+    print(f"time_now() = {time_now_val()}")
+    print(f"split_lines('a\\nb') = {split_lines_val(_nl_demo)}")
+    print(f"trim('  hi  ') = {trim_val('  hi  ')}")
+    print("=== 标准库扩展通过 ===")

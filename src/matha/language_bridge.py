@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 语言桥（Language Bridge）— 吞噬式成长的语言级扩展
 
 吞噬式成长三阶段（语言级）：
@@ -25,7 +24,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +59,7 @@ class DevourRecord:
     success: bool = True
     error: str = ""
     verified: bool = False                          # fuse 时通过 parser 验证
-    written: Optional[str] = None                   # 写入的文件路径
+    written: str | None = None                   # 写入的文件路径
 
     def summary(self) -> str:
         status = "✓" if self.success else "✗"
@@ -93,8 +91,15 @@ _FN_MAP = {"sqrt": "func_sqrt", "sin": "func_sin", "cos": "func_cos", "tan": "fu
            "round": "func_round", "max": "func_max", "min": "func_min", "sum": "func_sum"}
 
 
-def matha_expr(source: str) -> Optional[str]:
+def matha_expr(source: str) -> str | None:
     """将外部语言的单个表达式翻译为 Matha 表达式；失败返回 None。"""
+    # 输入规范化：list/tuple → 空格连接的字符串
+    if isinstance(source, (list, tuple)):
+        source = " ".join(str(x) for x in source)
+    elif source is not None and not isinstance(source, str):
+        source = str(source)
+    if not source:
+        return None
     tokens = []
     pos = 0
     for m in _TOKEN_RE.finditer(source):
@@ -124,12 +129,12 @@ def matha_expr(source: str) -> Optional[str]:
         idx[0] += 1
         return tok
 
-    def atom() -> Optional[str]:
+    def atom() -> str | None:
         kind, val = take()
         if kind == "num":
             return val
         if kind == "str":
-            return f'"{val.strip("\"'")}"'
+            return '"' + val.strip('"\'') + '"'
         if kind == "name":
             if val == "true":
                 return "真"
@@ -163,7 +168,7 @@ def matha_expr(source: str) -> Optional[str]:
             return f"not {inner}" if inner else None
         return None
 
-    def power() -> Optional[str]:
+    def power() -> str | None:
         base = atom()
         if base is None:
             return None
@@ -175,7 +180,7 @@ def matha_expr(source: str) -> Optional[str]:
             return f"{base} ^ {exp}"
         return base
 
-    def binary(next_fn, ops) -> Optional[str]:
+    def binary(next_fn, ops) -> str | None:
         left = next_fn()
         if left is None:
             return None
@@ -202,7 +207,7 @@ def matha_expr(source: str) -> Optional[str]:
     def logical():
         return binary(comparison, ("&&", "||"))
 
-    def expr() -> Optional[str]:
+    def expr() -> str | None:
         cond = logical()
         if cond is None:
             return None
@@ -295,7 +300,7 @@ class LanguageBridge:
         "c": ("src.multi_lang_frontend", "CFrontend"),
     }
 
-    def __init__(self, out_dir: Optional[Path] = None):
+    def __init__(self, out_dir: Path | None = None):
         self._out_dir = Path(out_dir) if out_dir else _OUT_DIR
 
     # ------------------------------------------------------------------
@@ -325,7 +330,7 @@ class LanguageBridge:
             return DevourRecord(lang, module_name, [], "", steps,
                                 success=False, error=str(ex))
 
-    def devour_file(self, path: str | Path, module_name: Optional[str] = None) -> DevourRecord:
+    def devour_file(self, path: str | Path, module_name: str | None = None) -> DevourRecord:
         """吞噬一个外部语言源文件（按扩展名识别语言）。"""
         p = Path(path)
         if not p.exists():
@@ -418,7 +423,7 @@ class LanguageBridge:
                 "String": "String", "str": "String", "string": "String",
                 }.get(typ.strip().strip("()").split(",")[0].strip(), "")
 
-    def _body_to_expr(self, body: str) -> Optional[str]:
+    def _body_to_expr(self, body: str) -> str | None:
         """函数体为单一表达式/单个 return 时直译，否则 None。"""
         text = body.strip().rstrip(";").strip()
         # 去 return 前缀
@@ -488,7 +493,7 @@ class LanguageBridge:
                 "bool": "Bool", "list": "List", "dict": "Dict"}.get(
                     str(name).lower(), "")
 
-    def _py_body_to_expr(self, fn: pyast.FunctionDef) -> Optional[str]:
+    def _py_body_to_expr(self, fn: pyast.FunctionDef) -> str | None:
         """函数体为单一 return 表达式时翻译为 Matha 表达式，否则 None。"""
         stmts = [s for s in fn.body
                  if not (isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Constant))]
@@ -496,7 +501,7 @@ class LanguageBridge:
             return None
         return self._py_expr(stmts[0].value)
 
-    def _py_expr(self, node) -> Optional[str]:
+    def _py_expr(self, node) -> str | None:
         """Python 表达式 → Matha 表达式（算术子集）。"""
         if isinstance(node, pyast.Constant):
             if isinstance(node.value, bool):

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha MIR 优化 Pass - 完整实现
 
@@ -13,8 +12,11 @@ Matha MIR 优化 Pass - 完整实现
   8. 代数简化：应用代数恒等式简化表达式
 """
 from __future__ import annotations
-import math
+
+import logging
 from typing import Any
+
+logger = logging.getLogger("matha.mir_opt")
 
 
 # ============================================================
@@ -289,7 +291,7 @@ class MathaCommonSubexprElimPass:
 
                     if expr_key in expr_map:
                         # 找到公共子表达式，直接复用
-                        old_result = _get_var(getattr(instr, "result", ""))
+                        _get_var(getattr(instr, "result", ""))
                         cached_result = expr_map[expr_key]
                         # 将所有使用该变量的地方替换为缓存的变量
                         instr.result = cached_result
@@ -385,7 +387,7 @@ class MathaStrengthReductionPass:
                 op = _get_op(instr)
                 if (hasattr(instr, "operands") and len(instr.operands) == 2
                         and op and not hasattr(instr, "c_func") and not hasattr(instr, "func_name")):
-                    left = _parse_const(instr.operands[0])
+                    _parse_const(instr.operands[0])
                     right = _parse_const(instr.operands[1])
 
                     # x * 2.0 → x + x
@@ -522,48 +524,6 @@ class MathaPeepholeOptimizer:
     @property
     def stats(self) -> dict:
         return {"optimized": self._optimized}
-
-
-# ============================================================
-# 优化管道
-# ============================================================
-
-class MathaOptimizationPipeline:
-    """优化管道：按顺序运行所有优化 Pass。"""
-
-    def __init__(self, aggressive: bool = False) -> None:
-        self._passes = [
-            MathaConstFoldPass(),
-            MathaSimplifyPass(),
-            MathaCommonSubexprElimPass(),
-            MathaCopyPropagationPass(),
-            MathaStrengthReductionPass(),
-            MathaDeadCodeElimPass(),
-            MathaInlinePass(),
-            MathaPeepholeOptimizer(),
-        ]
-        if aggressive:
-            # 激进模式：多次迭代
-            self._passes = self._passes * 3
-
-    def run(self, program: Any) -> Any:
-        for phase in self._passes:
-            program = phase.run(program)
-        return program
-
-    def get_summary(self) -> str:
-        lines = ["Matha 优化摘要:", "=" * 50]
-        total = {"folded": 0, "simplified": 0, "eliminated": 0,
-                 "propagated": 0, "reduced": 0, "removed": 0,
-                 "inlined": 0, "optimized": 0}
-        for phase in self._passes:
-            stats = phase.stats
-            for key, value in stats.items():
-                total[key] = total.get(key, 0) + value
-                lines.append(f"  {key}: {value}")
-        lines.append("-" * 50)
-        lines.append(f"  总计: {sum(total.values())} 次优化")
-        return "\n".join(lines)
 
 
 # ============================================================

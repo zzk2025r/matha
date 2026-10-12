@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 离线模式数据存储模块
 
 提供 SQLite 本地数据存储功能：
@@ -13,15 +12,12 @@
   storage.save_history("x = 1 + 2", "3")
 """
 from __future__ import annotations
-import sqlite3
-import json
-import os
-import logging
-from pathlib import Path
-from typing import List, Dict, Optional, Any
-from dataclasses import dataclass, asdict
-from datetime import datetime
 
+import logging
+import os
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +51,7 @@ class OfflineStorage:
     - 离线补全词库
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         """
         初始化离线存储
 
@@ -68,7 +64,7 @@ class OfflineStorage:
             db_path = str(home / '.matha' / 'data.db')
 
         self._db_path = db_path
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._init_database()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -162,7 +158,7 @@ class OfflineStorage:
         conn.commit()
         return cursor.lastrowid
 
-    def get_history(self, limit: int = 50, offset: int = 0) -> List[HistoryEntry]:
+    def get_history(self, limit: int = 50, offset: int = 0) -> list[HistoryEntry]:
         """
         获取历史记录
 
@@ -234,7 +230,7 @@ class OfflineStorage:
         row = cursor.fetchone()
         return row['value'] if row else default
 
-    def get_all_preferences(self) -> Dict[str, str]:
+    def get_all_preferences(self) -> dict[str, str]:
         """获取所有偏好设置"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -272,7 +268,7 @@ class OfflineStorage:
             logger.warning(f"缓存结果失败: {e}")
             return False
 
-    def get_cached_result(self, code: str) -> Optional[str]:
+    def get_cached_result(self, code: str) -> str | None:
         """
         获取缓存的计算结果
 
@@ -291,7 +287,7 @@ class OfflineStorage:
         row = cursor.fetchone()
         return row['output'] if row else None
 
-    def get_cache_stats(self) -> Dict[str, int]:
+    def get_cache_stats(self) -> dict[str, int]:
         """获取缓存统计信息"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -328,7 +324,7 @@ class OfflineStorage:
         )
         conn.commit()
 
-    def get_completion_words(self, category: Optional[str] = None, limit: int = 100) -> List[str]:
+    def get_completion_words(self, category: str | None = None, limit: int = 100) -> list[str]:
         """
         获取补全词列表
 
@@ -353,7 +349,7 @@ class OfflineStorage:
             )
         return [row['word'] for row in cursor.fetchall()]
 
-    def add_batch_words(self, words: List[str], category: str = 'default') -> int:
+    def add_batch_words(self, words: list[str], category: str = 'default') -> int:
         """
         批量添加补全词
 
@@ -445,7 +441,7 @@ class OfflineStorage:
 # 全局单例
 # ============================================================
 
-_storage: Optional[OfflineStorage] = None
+_storage: OfflineStorage | None = None
 
 
 def get_storage() -> OfflineStorage:

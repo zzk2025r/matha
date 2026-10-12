@@ -31,7 +31,7 @@ class TokenType(Enum):
     OP_NEQ = auto()        # !=  不等于
     OP_GE = auto()         # >=
     OP_MOD = auto()        # %   取模
-    OP_ANGLE = auto()      # <<  角度运算
+    OP_ANGLE = auto()      # ⟨ … ⟩  角度括号（AngleExpr 单值包装）
     OP_NEXT = auto()       # >>  四重语义：步进/属于/路径距离/通用链式
 
     # 函数 / 控制
@@ -61,7 +61,8 @@ class TokenType(Enum):
     # 位运算符（C/JS 风格）
     OP_BIT_AND = auto()    # &   位与
     OP_BIT_OR = auto()     # |   位或
-    OP_BIT_XOR = auto()    # ^   位异或
+    OP_BIT_XOR = auto()    # ^   中缀次方（EBNF 2.1 <power>="^"，右结合）
+    OP_XOR = auto()        # ⊕   位异或（专用符号，非 ASCII）
     OP_BIT_LSHIFT = auto() # <<  左移
     OP_BIT_RSHIFT = auto() # >>  右移
     OP_BIT_NOT = auto()    # ~   位取反

@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """集成测试：SelfGrower 端到端完整生命周期。"""
-import sys
 import os
+import sys
 import tempfile
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.parser import parse
-from src.interp import Interpreter
 from src.autonomous import SelfGrower, self_grow
+from src.interp import Interpreter
+from src.parser import parse
 
 
 def test_learn_from_source():
@@ -66,7 +66,7 @@ def test_learn_invalid_source():
     grower = SelfGrower(i)
     r = grower.learn('func 语法错误(', '非法源码')
     assert r.成功 is False
-    print(f"  ✓ 非法源码学习失败")
+    print("  ✓ 非法源码学习失败")
 
 
 def test_full_lifecycle():
@@ -83,7 +83,57 @@ def test_full_lifecycle():
     assert r.成功 is True
     assert i.call('平方_特化', 0) == 16
 
-    print(f"  ✓ 完整生命周期: 学习→调用→特化→调用")
+    print("  ✓ 完整生命周期: 学习→调用→特化→调用")
+
+
+def test_learn_from_file_gbk():
+    """GBK（gb18030）编码文件 → 自动 fallback 学习成功。"""
+    i = Interpreter()
+    grower = SelfGrower(i)
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.matha', delete=False) as f:
+        f.write('func 六倍(x: Int) -> Int = (x) => x * 6'.encode('gb18030'))
+        path = f.name
+    try:
+        r = grower.learn_from_file(path)
+        assert r.成功 is True, r
+        assert '六倍' in r.新能力
+        assert i.call('六倍', 3) == 18
+        print("  ✓ GBK 文件学习: 六倍(3)=18")
+    finally:
+        os.unlink(path)
+
+
+def test_learn_from_file_utf16():
+    """UTF-16（BOM）编码文件 → 显式识别并学习成功。"""
+    i = Interpreter()
+    grower = SelfGrower(i)
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.matha', delete=False) as f:
+        f.write('func 七倍(x: Int) -> Int = (x) => x * 7'.encode('utf-16'))
+        path = f.name
+    try:
+        r = grower.learn_from_file(path)
+        assert r.成功 is True, r
+        assert '七倍' in r.新能力
+        assert i.call('七倍', 2) == 14
+        print("  ✓ UTF-16 文件学习: 七倍(2)=14")
+    finally:
+        os.unlink(path)
+
+
+def test_learn_from_file_garbage_no_crash():
+    """任意二进制文件 → 不抛异常，返回结构完整的结果。"""
+    i = Interpreter()
+    grower = SelfGrower(i)
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.matha', delete=False) as f:
+        f.write(b'PAYLOAD\x81\x40\xfe\xff\x00\xff' * 4)
+        path = f.name
+    try:
+        r = grower.learn_from_file(path)  # 无论成功与否都不抛异常
+        assert hasattr(r, '成功')
+        assert hasattr(r, '新能力')
+        print(f"  ✓ 二进制文件不崩溃: 成功={r.成功}")
+    finally:
+        os.unlink(path)
 
 
 def main():
@@ -94,6 +144,9 @@ def main():
         test_self_grow_wrapper,
         test_learn_invalid_source,
         test_full_lifecycle,
+        test_learn_from_file_gbk,
+        test_learn_from_file_utf16,
+        test_learn_from_file_garbage_no_crash,
     ]
     passed = failed = 0
     for t in tests:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha REPL 语法高亮模块
 
 提供终端语法高亮功能：
@@ -14,8 +13,8 @@
   highlighted = highlight_syntax("x = 3.14  # 设置值")
 """
 from __future__ import annotations
+
 import re
-from typing import Optional
 
 
 class SyntaxHighlighter:
@@ -207,7 +206,7 @@ class SyntaxHighlighter:
 
 
 # 全局高亮器实例
-_highlighter: Optional[SyntaxHighlighter] = None
+_highlighter: SyntaxHighlighter | None = None
 
 
 def get_highlighter() -> SyntaxHighlighter:

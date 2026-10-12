@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """BackendGenerator：把 Matha 规格编译为 Python HTTP 服务成品。
 
 输出文件：
@@ -11,7 +10,8 @@
 """
 
 from __future__ import annotations
-from src.codegen.base import Generator, CodegenResult
+
+from src.codegen.base import CodegenResult, Generator
 
 
 class BackendGenerator(Generator):

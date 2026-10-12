@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 自成长系统 v2 — 递归内联、循环展开、内存优化
 
@@ -16,16 +15,12 @@ Matha 自成长系统 v2 — 递归内联、循环展开、内存优化
   8. 三角恒等式：sin(x) + cos(π/2-x) → sin²x + cos²x = 1 等简化
 """
 from __future__ import annotations
-import time
+
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
 
-from src.multi_lang_frontend import get_frontend, CompileResult
-from src.cross_language_verifier import CrossLanguageVerifier, CROSS_LANGUAGE_TESTS
-from src.vm import MathaVM
-
+from src.cross_language_verifier import CrossLanguageVerifier
 
 logger = logging.getLogger("matha.growth")
 
@@ -270,7 +265,7 @@ class MathaGrowthEngine:
         for m in pat4.finditer(source):
             arg = m.group(1)
             # 只处理单变量，不含运算符的
-            if re.match(r'^[a-zA-Z_]\w*$', arg) and '2' in m.group(0) and not '+' in arg and not '-' in arg:
+            if re.match(r'^[a-zA-Z_]\w*$', arg) and '2' in m.group(0) and '+' not in arg and '-' not in arg:
                 double_match = re.search(rf'sin\(2\s*{re.escape(arg)}\)', improved)
                 if double_match:
                     improved = improved.replace(double_match.group(0), f"2*sin({arg})*cos({arg})")

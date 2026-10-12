@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha FFI 层 v1.3.0
 ====================
@@ -13,14 +12,13 @@ Matha FFI 层 v1.3.0
   • 动态函数注册表
 """
 from __future__ import annotations
-import sys
-import os
+
+import importlib
 import logging
 import threading
-import importlib
-import inspect
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional, Any, Callable, Dict, List, Tuple
+from typing import Any
 
 logger = logging.getLogger("matha.ffi")
 
@@ -34,7 +32,7 @@ class FFIImport:
     name: str
     source: str           # "python" / "math" / "numpy" / "module"
     target_name: str = ""  # 导入后在 Matha 中的名称
-    params: List[str] = field(default_factory=list)
+    params: list[str] = field(default_factory=list)
     doc: str = ""
 
 
@@ -42,7 +40,7 @@ class FFIImport:
 class FFICall:
     """FFI 调用记录。"""
     func_name: str
-    args: List[Any]
+    args: list[Any]
     result: Any = None
     latency_ms: float = 0.0
     success: bool = True
@@ -62,9 +60,9 @@ class MathaFFIBridge:
     """
 
     def __init__(self):
-        self._registry: Dict[str, Callable] = {}
-        self._imports: Dict[str, FFIImport] = {}
-        self._call_log: List[FFICall] = []
+        self._registry: dict[str, Callable] = {}
+        self._imports: dict[str, FFIImport] = {}
+        self._call_log: list[FFICall] = []
         self._max_log = 1000
         self._lock = threading.Lock()  # 线程安全锁
 
@@ -98,7 +96,7 @@ class MathaFFIBridge:
 
     # ── 注册接口 ──────────────────────────────────────────────────────────────
 
-    def register(self, name: str, func: Callable, params: List[str] = None, doc: str = ""):
+    def register(self, name: str, func: Callable, params: list[str] = None, doc: str = ""):
         """注册 Python 函数到 Matha FFI。"""
         with self._lock:
             self._registry[name] = func
@@ -120,7 +118,7 @@ class MathaFFIBridge:
         return self
 
     def import_module(self, module_name: str, alias: str = None,
-                      exclude: List[str] = None, include: List[str] = None):
+                      exclude: list[str] = None, include: list[str] = None):
         """导入 Python 模块到 Matha 命名空间。"""
         mod = importlib.import_module(module_name)
         exclude = set(exclude or [])
@@ -197,7 +195,7 @@ class MathaFFIBridge:
             self._call_log = self._call_log[-self._max_log:]
         return call_record.result if call_record.success else None
 
-    def _resolve(self, name: str) -> Optional[Callable]:
+    def _resolve(self, name: str) -> Callable | None:
         """解析函数名（支持嵌套命名空间如 np.sin）。"""
         if '.' in name:
             parts = name.split('.')
@@ -206,7 +204,7 @@ class MathaFFIBridge:
                 return getattr(base, parts[1])
         return self._registry.get(name)
 
-    def get_function(self, name: str) -> Optional[Callable]:
+    def get_function(self, name: str) -> Callable | None:
         """获取已注册函数。"""
         with self._lock:
             return self._resolve(name) or self._registry.get(name)
@@ -218,7 +216,7 @@ class MathaFFIBridge:
 
     # ── 查询接口 ──────────────────────────────────────────────────────────────
 
-    def list_functions(self, source: str = None) -> List[dict]:
+    def list_functions(self, source: str = None) -> list[dict]:
         """列出所有注册函数。"""
         with self._lock:
             items = list(self._imports.items())
@@ -255,7 +253,7 @@ class MathaFFIBridge:
 #  单例
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_ffi_instance: Optional[MathaFFIBridge] = None
+_ffi_instance: MathaFFIBridge | None = None
 
 
 def get_ffi() -> MathaFFIBridge:
@@ -282,7 +280,7 @@ if __name__ == "__main__":
     print("=" * 60)
 
     ffi = get_ffi()
-    print(f"\n[FFI 统计]")
+    print("\n[FFI 统计]")
     print(f"  注册函数: {ffi.get_stats()['registered_functions']}")
 
     # 注册自定义函数

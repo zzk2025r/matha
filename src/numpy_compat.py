@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha NumPy 兼容层 - 纯 Python 实现
 
 本模块提供 NumPy 核心功能的纯 Python 实现，无需外部依赖。
@@ -10,10 +9,9 @@
 - 与 NumPy API 兼容
 """
 from __future__ import annotations
-import math
+
 import logging
-from typing import List, Tuple, Optional, Union, Iterable
-from dataclasses import dataclass
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +31,7 @@ class ndarray:
     - 广播机制
     """
 
-    def __init__(self, data: Union[List, Tuple, 'ndarray'], dtype: type = float):
+    def __init__(self, data: list | tuple | ndarray, dtype: type = float):
         """
         初始化 ndarray
 
@@ -48,7 +46,7 @@ class ndarray:
 
         logger.debug(f"创建 ndarray: shape={self.shape}, dtype={dtype.__name__}")
 
-    def _convert_to_array(self, data: Union[List, Tuple, 'ndarray']) -> List:
+    def _convert_to_array(self, data: list | tuple | ndarray) -> list:
         """将输入数据转换为嵌套列表"""
         if isinstance(data, ndarray):
             return data._data
@@ -62,7 +60,7 @@ class ndarray:
             return [self._cast(item) for item in data]
         return data
 
-    def _compute_shape(self, data: List) -> Tuple[int, ...]:
+    def _compute_shape(self, data: list) -> tuple[int, ...]:
         """计算数组形状"""
         if isinstance(data, (int, float, complex)):
             return ()
@@ -70,7 +68,7 @@ class ndarray:
             return (len(data),) + self._compute_shape(data[0])
         return (0,)
 
-    def _cast(self, value) -> Union[int, float, complex]:
+    def _cast(self, value) -> int | float | complex:
         """类型转换"""
         if self.dtype == int:
             return int(value)
@@ -79,7 +77,7 @@ class ndarray:
         return float(value)
 
     @property
-    def shape(self) -> Tuple[int, ...]:
+    def shape(self) -> tuple[int, ...]:
         """数组形状"""
         return self._shape
 
@@ -95,7 +93,7 @@ class ndarray:
         """维度数"""
         return self._ndim
 
-    def reshape(self, *new_shape: int) -> 'ndarray':
+    def reshape(self, *new_shape: int) -> ndarray:
         """重塑数组形状"""
         new_size = math.prod(new_shape)
         if new_size != self.size:
@@ -104,7 +102,7 @@ class ndarray:
         flat = self.flatten()
         return ndarray(flat).reshape(*new_shape)
 
-    def flatten(self) -> List:
+    def flatten(self) -> list:
         """展平为一维数组"""
         if not self._shape:
             return [self._data]
@@ -118,7 +116,7 @@ class ndarray:
                 result.append(item)
         return result
 
-    def _flatten_list(self, data: List) -> List:
+    def _flatten_list(self, data: list) -> list:
         """递归展平列表"""
         result = []
         for item in data:
@@ -138,7 +136,7 @@ class ndarray:
             return self._nested_get(self._data, index)
         return self._data[index]
 
-    def _nested_get(self, data: List, indices: Tuple) -> any:
+    def _nested_get(self, data: list, indices: tuple) -> any:
         """递归获取嵌套列表元素"""
         if len(indices) == 1:
             return data[indices[0]]
@@ -154,7 +152,7 @@ class ndarray:
         elif isinstance(index, tuple):
             self._nested_set(self._data, index, value)
 
-    def _nested_set(self, data: List, indices: Tuple, value):
+    def _nested_set(self, data: list, indices: tuple, value):
         """递归设置嵌套列表元素"""
         if len(indices) == 1:
             data[indices[0]] = value
@@ -171,7 +169,7 @@ class ndarray:
         """打印表示"""
         return self._format_array(self._data, 0)
 
-    def _format_array(self, data: List, depth: int) -> str:
+    def _format_array(self, data: list, depth: int) -> str:
         """格式化数组输出"""
         indent = "  " * depth
         if isinstance(data, list):
@@ -192,25 +190,25 @@ class ndarray:
     # 算术运算
     # ============================================================
 
-    def __add__(self, other: Union['ndarray', int, float]) -> 'ndarray':
+    def __add__(self, other: ndarray | int | float) -> ndarray:
         """加法"""
         if isinstance(other, (int, float)):
             return ndarray(self._broadcast_op(self._data, other, lambda x: x + other))
         return ndarray(self._element_wise_op(self._data, other._data, lambda a, b: a + b))
 
-    def __sub__(self, other: Union['ndarray', int, float]) -> 'ndarray':
+    def __sub__(self, other: ndarray | int | float) -> ndarray:
         """减法"""
         if isinstance(other, (int, float)):
             return ndarray(self._broadcast_op(self._data, other, lambda x: x - other))
         return ndarray(self._element_wise_op(self._data, other._data, lambda a, b: a - b))
 
-    def __mul__(self, other: Union['ndarray', int, float]) -> 'ndarray':
+    def __mul__(self, other: ndarray | int | float) -> ndarray:
         """乘法"""
         if isinstance(other, (int, float)):
             return ndarray(self._broadcast_op(self._data, other, lambda x: x * other))
         return ndarray(self._element_wise_op(self._data, other._data, lambda a, b: a * b))
 
-    def __truediv__(self, other: Union['ndarray', int, float]) -> 'ndarray':
+    def __truediv__(self, other: ndarray | int | float) -> ndarray:
         """除法"""
         if isinstance(other, (int, float)):
             return ndarray(self._broadcast_op(self._data, other, lambda x: x / other))
@@ -232,11 +230,11 @@ class ndarray:
     # 数学函数
     # ============================================================
 
-    def abs(self) -> 'ndarray':
+    def abs(self) -> ndarray:
         """绝对值"""
         return ndarray(self._broadcast_op(self._data, 0, lambda x: abs(x)))
 
-    def sqrt(self) -> 'ndarray':
+    def sqrt(self) -> ndarray:
         """平方根（安全处理负数）"""
         import warnings
         has_negative = any(x < 0 for x in self.flatten() if isinstance(x, (int, float)))
@@ -244,27 +242,27 @@ class ndarray:
             warnings.warn("sqrt() 检测到负数，返回复数或 0", UserWarning)
         return ndarray(self._broadcast_op(self._data, 0, lambda x: math.sqrt(abs(x)) if x >= 0 else complex(0, math.sqrt(abs(x)))))
 
-    def sin(self) -> 'ndarray':
+    def sin(self) -> ndarray:
         """正弦"""
         return ndarray(self._broadcast_op(self._data, 0, math.sin))
 
-    def cos(self) -> 'ndarray':
+    def cos(self) -> ndarray:
         """余弦"""
         return ndarray(self._broadcast_op(self._data, 0, math.cos))
 
-    def tan(self) -> 'ndarray':
+    def tan(self) -> ndarray:
         """正切"""
         return ndarray(self._broadcast_op(self._data, 0, math.tan))
 
-    def exp(self) -> 'ndarray':
+    def exp(self) -> ndarray:
         """指数"""
         return ndarray(self._broadcast_op(self._data, 0, math.exp))
 
-    def log(self) -> 'ndarray':
+    def log(self) -> ndarray:
         """自然对数"""
         return ndarray(self._broadcast_op(self._data, 0, math.log))
 
-    def dot(self, other: 'ndarray') -> 'ndarray':
+    def dot(self, other: ndarray) -> ndarray:
         """矩阵点积"""
         if self.ndim != 2 or other.ndim != 2:
             raise ValueError("dot 仅支持二维矩阵")
@@ -279,14 +277,14 @@ class ndarray:
             result.append(row)
         return ndarray(result)
 
-    def transpose(self) -> 'ndarray':
+    def transpose(self) -> ndarray:
         """转置"""
         if self.ndim != 2:
             raise ValueError("transpose 仅支持二维矩阵")
         result = [[self[j][i] for j in range(self.shape[0])] for i in range(self.shape[1])]
         return ndarray(result)
 
-    def sum(self, axis: Optional[int] = None) -> Union['ndarray', float]:
+    def sum(self, axis: int | None = None) -> ndarray | float:
         """求和"""
         if axis is None:
             return self._sum_all(self._data)
@@ -317,12 +315,12 @@ class ndarray:
 # 工厂函数
 # ============================================================
 
-def array(data: Union[List, Tuple], dtype: type = float) -> ndarray:
+def array(data: list | tuple, dtype: type = float) -> ndarray:
     """创建数组"""
     return ndarray(data, dtype)
 
 
-def zeros(shape: Tuple[int, ...], dtype: type = float) -> ndarray:
+def zeros(shape: tuple[int, ...], dtype: type = float) -> ndarray:
     """创建零数组"""
     if len(shape) == 1:
         return ndarray([0.0] * shape[0], dtype)
@@ -333,7 +331,7 @@ def zeros(shape: Tuple[int, ...], dtype: type = float) -> ndarray:
     raise ValueError(f"不支持的维度: {len(shape)}")
 
 
-def ones(shape: Tuple[int, ...], dtype: type = float) -> ndarray:
+def ones(shape: tuple[int, ...], dtype: type = float) -> ndarray:
     """创建全一数组"""
     if len(shape) == 1:
         return ndarray([1.0] * shape[0], dtype)
@@ -352,7 +350,7 @@ def eye(n: int, dtype: type = float) -> ndarray:
     return ndarray(result, dtype)
 
 
-def arange(start: float, stop: Optional[float] = None, step: float = 1.0) -> ndarray:
+def arange(start: float, stop: float | None = None, step: float = 1.0) -> ndarray:
     """生成等差数列"""
     if stop is None:
         stop = start
@@ -374,7 +372,7 @@ def linspace(start: float, stop: float, num: int = 50) -> ndarray:
     return ndarray(result)
 
 
-def random(size: Union[int, Tuple[int, ...]]) -> ndarray:
+def random(size: int | tuple[int, ...]) -> ndarray:
     """随机数组"""
     import random as rand_module
     if isinstance(size, int):
@@ -398,7 +396,7 @@ def matrix_transpose(A: ndarray) -> ndarray:
     return A.transpose()
 
 
-def matrix_inverse(A: ndarray) -> Optional[ndarray]:
+def matrix_inverse(A: ndarray) -> ndarray | None:
     """矩阵求逆（高斯-约当消元法）"""
     n = A.shape[0]
     if A.shape[0] != A.shape[1]:
@@ -472,7 +470,7 @@ def matrix_determinant(A: ndarray) -> float:
     return det
 
 
-def svd_decompose(A: ndarray) -> Tuple[ndarray, ndarray, ndarray]:
+def svd_decompose(A: ndarray) -> tuple[ndarray, ndarray, ndarray]:
     """
     SVD 分解：A = U Σ V^T
 
@@ -491,7 +489,7 @@ def svd_decompose(A: ndarray) -> Tuple[ndarray, ndarray, ndarray]:
     return _svd_general(A)
 
 
-def _svd_from_eigenvalues(A: ndarray) -> Tuple[ndarray, ndarray, ndarray]:
+def _svd_from_eigenvalues(A: ndarray) -> tuple[ndarray, ndarray, ndarray]:
     """从特征值分解计算 SVD（对称矩阵）
 
     对于对称矩阵 A，SVD 可以通过特征值分解得到：
@@ -534,7 +532,7 @@ def _svd_from_eigenvalues(A: ndarray) -> Tuple[ndarray, ndarray, ndarray]:
     return U, S, Vt
 
 
-def _svd_general(A: ndarray) -> Tuple[ndarray, ndarray, ndarray]:
+def _svd_general(A: ndarray) -> tuple[ndarray, ndarray, ndarray]:
     """通用矩阵的 SVD 分解（幂迭代法）"""
     m, n = A.shape[0], A.shape[1]
 
@@ -677,7 +675,7 @@ def trace(A: ndarray) -> float:
     return sum(A[i][i] for i in range(A.shape[0]))
 
 
-def norm(A: ndarray, ord: Optional[str] = None) -> float:
+def norm(A: ndarray, ord: str | None = None) -> float:
     """矩阵范数"""
     if ord == 'fro' or ord is None:
         # Frobenius 范数

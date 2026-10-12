@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 多范式引擎 v1.3.0
 ========================
@@ -12,12 +11,14 @@ Matha 多范式引擎 v1.3.0
   • Paradigm    — 范式切换器（根据任务自动选择）
 """
 from __future__ import annotations
-import sys
-import os
+
 import logging
+import os
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional, Any, Callable, Dict, List, Tuple
 from enum import Enum
+from typing import Any
 
 # 确保 src/ 目录在路径中（直接运行模块时）
 if __name__ == "__main__" and "src" not in sys.path:
@@ -44,10 +45,10 @@ class Paradigm(str, Enum):
 class ParadigmContext:
     """范式执行上下文。"""
     paradigm: Paradigm
-    state: Dict[str, Any] = field(default_factory=dict)
-    bindings: Dict[str, Any] = field(default_factory=dict)
+    state: dict[str, Any] = field(default_factory=dict)
+    bindings: dict[str, Any] = field(default_factory=dict)
     return_value: Any = None
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -58,10 +59,10 @@ class FunctionalEngine:
     """纯函数式计算引擎：lambda、柯里化、高阶函数、不可变状态。"""
 
     def __init__(self):
-        self._env: Dict[str, Any] = {}
+        self._env: dict[str, Any] = {}
         logger.info("  [函数式] 引擎初始化")
 
-    def eval(self, expr: Any, env: Dict = None) -> Any:
+    def eval(self, expr: Any, env: dict = None) -> Any:
         """求值表达式。"""
         if env is None:
             env = dict(self._env)
@@ -184,7 +185,7 @@ class ImperativeEngine:
     """命令式状态机：变量赋值、循环、分支、副作用。"""
 
     def __init__(self):
-        self._state: Dict[str, Any] = {}
+        self._state: dict[str, Any] = {}
         logger.info("  [命令式] 引擎初始化")
 
     def set(self, name: str, value: Any):
@@ -274,7 +275,7 @@ class ImperativeEngine:
             return self._state[expr]
         return expr
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """获取当前状态。"""
         return dict(self._state)
 
@@ -287,8 +288,8 @@ class LogicEngine:
     """逻辑推理引擎：规则匹配、约束求解、推导。"""
 
     def __init__(self):
-        self._rules: List[dict] = []
-        self._facts: Dict[str, Any] = {}
+        self._rules: list[dict] = []
+        self._facts: dict[str, Any] = {}
         logger.info("  [逻辑式] 引擎初始化")
 
     def add_rule(self, name: str, body: Callable, conclusion: Callable):
@@ -300,7 +301,7 @@ class LogicEngine:
         """添加事实。"""
         self._facts[name] = value
 
-    def query(self, goal: str) -> Optional[Any]:
+    def query(self, goal: str) -> Any | None:
         """查询目标，返回推导结果。"""
         for rule in self._rules:
             try:
@@ -312,7 +313,7 @@ class LogicEngine:
                 continue
         return self._facts.get(goal)
 
-    def unify(self, pattern: dict, facts: dict) -> Optional[dict]:
+    def unify(self, pattern: dict, facts: dict) -> dict | None:
         """合一：将模式与事实匹配。"""
         bindings = {}
         for key, val in pattern.items():
@@ -333,9 +334,9 @@ class DataflowEngine:
     """数据流引擎：节点式计算图。"""
 
     def __init__(self):
-        self._nodes: Dict[str, Callable] = {}
-        self._edges: Dict[str, List[str]] = {}
-        self._outputs: Dict[str, Any] = {}
+        self._nodes: dict[str, Callable] = {}
+        self._edges: dict[str, list[str]] = {}
+        self._outputs: dict[str, Any] = {}
         logger.info("  [数据流] 引擎初始化")
 
     def add_node(self, name: str, func: Callable):
@@ -347,10 +348,10 @@ class DataflowEngine:
         """添加数据流边。"""
         self._edges.setdefault(from_node, []).append(to_node)
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """运行数据流图。"""
         # 构建反向依赖图：to_node → [from_node, ...]
-        reverse_edges: Dict[str, List[str]] = {}
+        reverse_edges: dict[str, list[str]] = {}
         for frm, to in self._edges.items():
             for t in to:
                 reverse_edges.setdefault(t, []).append(frm)
@@ -412,7 +413,7 @@ class MultiParadigmEngine:
         self.imperative = ImperativeEngine()
         self.logic = LogicEngine()
         self.dataflow = DataflowEngine()
-        self._paradigm_stack: List[Paradigm] = []
+        self._paradigm_stack: list[Paradigm] = []
         logger.info("  [多范式] 引擎初始化完成")
 
     def compute(self, task: dict) -> dict:
@@ -459,9 +460,9 @@ class MultiParadigmEngine:
     def _run_symbolic(self, task: dict) -> dict:
         """符号式执行。"""
         try:
-            from src.symbolic import symbol_expr, diff_expr, simplify_expr, eval_expr
+            from src.symbolic import diff_expr, eval_expr, simplify_expr, symbol_expr
         except ImportError:
-            from .symbolic import symbol_expr, diff_expr, simplify_expr, eval_expr
+            from .symbolic import diff_expr, eval_expr, simplify_expr, symbol_expr
         expr_str = task.get("expr", "")
         bindings = task.get("params", {})
 
@@ -540,7 +541,7 @@ class MultiParadigmEngine:
         self._paradigm_stack.append(paradigm)
         logger.info(f"  [多范式] 切换到范式: {paradigm.value}")
 
-    def get_paradigm_history(self) -> List[str]:
+    def get_paradigm_history(self) -> list[str]:
         """获取范式切换历史。"""
         return [p.value for p in self._paradigm_stack]
 
@@ -549,7 +550,7 @@ class MultiParadigmEngine:
 #  单例
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_engine_instance: Optional[MultiParadigmEngine] = None
+_engine_instance: MultiParadigmEngine | None = None
 
 
 def get_paradigm_engine() -> MultiParadigmEngine:

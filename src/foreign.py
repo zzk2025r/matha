@@ -21,17 +21,16 @@
 """
 
 from __future__ import annotations
+
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from src.interp import Interpreter, MathaRuntimeError
 from src.selfupgrade import Sandbox, UpgradeResult
-
 
 # 支持的外部语言（小写规范化）
 _LANG_PYTHON = "python"
@@ -59,7 +58,7 @@ class ForeignRunner:
     其它语言：subprocess 调用解释器，JSON 传递输入输出，进程级隔离。
     """
 
-    def eval(self, lang: str, code: str, inputs: Optional[dict] = None) -> Any:
+    def eval(self, lang: str, code: str, inputs: dict | None = None) -> Any:
         """求值外部语言代码，返回结果。
 
         - Python：表达式用 eval 返回值；语句用 exec，返回 None
@@ -97,7 +96,7 @@ class ForeignRunner:
 
     # ---------- Python 宿主内嵌 ----------
 
-    def _eval_python(self, code: str, inputs: Optional[dict]) -> Any:
+    def _eval_python(self, code: str, inputs: dict | None) -> Any:
         g: dict = {"__builtins__": __builtins__}
         if inputs:
             g.update(inputs)
@@ -118,7 +117,7 @@ class ForeignRunner:
     # ---------- subprocess 通用通道 ----------
 
     def _eval_subprocess(self, lang: str, code: str,
-                         inputs: Optional[dict]) -> Any:
+                         inputs: dict | None) -> Any:
         interp = _INTERPRETERS.get(lang)
         if interp is None:
             raise MathaRuntimeError(f"不支持的语言: {lang}")
@@ -166,7 +165,7 @@ class ForeignRunner:
     def _build_call_wrapper(self, lang: str, code: str, func_name: str,
                             args: list) -> str:
         """生成「定义函数 + 用 JSON 参数调用 + JSON 输出」的 wrapper。"""
-        args_json = json.dumps(args, ensure_ascii=False)
+        json.dumps(args, ensure_ascii=False)
         if lang in (_LANG_JS, _LANG_NODE):
             return (
                 f"{code}\n"

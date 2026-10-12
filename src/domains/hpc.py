@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha HPC领域模块：并行计算、负载均衡、通信开销、加速比。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -97,7 +97,7 @@ def _hpc_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "Amdahl加速比", "并行效率", "通信延迟估算",
-    "负载均衡度", "内存带宽利用率", "浮点运算峰值",
+    "_Amdahl加速比", "_并行效率", "_通信延迟估算",
+    "_负载均衡度", "_内存带宽利用率", "_浮点运算峰值",
     "_register_hpc", "_hpc_symtab_names",
 ]

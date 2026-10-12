@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha SQLite 本地存储模块
 
 提供 SQLite 本地数据存储功能：
@@ -8,15 +7,15 @@
   - 离线补全词库
 """
 from __future__ import annotations
-import sqlite3
-import json
-import hashlib
-import logging
-from pathlib import Path
-from typing import List, Dict, Optional, Any
-from dataclasses import dataclass, asdict
-from datetime import datetime
 
+import hashlib
+import json
+import logging
+import os
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,7 @@ class SQLiteStorage:
     - 离线补全词库
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         """
         初始化存储
 
@@ -61,7 +60,7 @@ class SQLiteStorage:
             db_path = str(Path.home() / '.matha' / 'data.db')
 
         self._db_path = db_path
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._init_database()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -164,7 +163,7 @@ class SQLiteStorage:
         conn.commit()
         return cursor.lastrowid
 
-    def get_history(self, limit: int = 50, offset: int = 0) -> List[HistoryRecord]:
+    def get_history(self, limit: int = 50, offset: int = 0) -> list[HistoryRecord]:
         """获取历史记录"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -219,7 +218,7 @@ class SQLiteStorage:
         row = cursor.fetchone()
         return row['value'] if row else default
 
-    def get_all_preferences(self) -> Dict[str, str]:
+    def get_all_preferences(self) -> dict[str, str]:
         """获取所有偏好设置"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -254,7 +253,7 @@ class SQLiteStorage:
             logger.warning(f"缓存结果失败: {e}")
             return False
 
-    def get_cached_result(self, code: str) -> Optional[str]:
+    def get_cached_result(self, code: str) -> str | None:
         """获取缓存的计算结果"""
         try:
             code_hash = hashlib.md5(code.encode()).hexdigest()
@@ -267,7 +266,7 @@ class SQLiteStorage:
             logger.warning(f"获取缓存失败: {e}")
             return None
 
-    def get_cache_stats(self) -> Dict[str, int]:
+    def get_cache_stats(self) -> dict[str, int]:
         """获取缓存统计"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -306,7 +305,7 @@ class SQLiteStorage:
         )
         conn.commit()
 
-    def get_words(self, category: Optional[str] = None, limit: int = 100) -> List[str]:
+    def get_words(self, category: str | None = None, limit: int = 100) -> list[str]:
         """获取补全词列表"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -322,7 +321,7 @@ class SQLiteStorage:
             )
         return [row['word'] for row in cursor.fetchall()]
 
-    def add_batch_words(self, words: List[str], category: str = 'default') -> int:
+    def add_batch_words(self, words: list[str], category: str = 'default') -> int:
         """批量添加补全词"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -338,7 +337,7 @@ class SQLiteStorage:
     # ============================================================
 
     def enqueue_sync(self, action: str, record_type: str, record_id: str,
-                     data: Dict[str, Any], priority: int = 0) -> int:
+                     data: dict[str, Any], priority: int = 0) -> int:
         """加入同步队列"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -350,7 +349,7 @@ class SQLiteStorage:
         conn.commit()
         return cursor.lastrowid
 
-    def get_pending_sync(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_pending_sync(self, limit: int = 100) -> list[dict[str, Any]]:
         """获取待同步数据"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -385,7 +384,7 @@ class SQLiteStorage:
         conn.commit()
         return cursor.rowcount > 0
 
-    def get_queue_stats(self) -> Dict[str, int]:
+    def get_queue_stats(self) -> dict[str, int]:
         """获取队列统计"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -472,7 +471,7 @@ class SQLiteStorage:
 
 
 # 全局单例
-_storage: Optional[SQLiteStorage] = None
+_storage: SQLiteStorage | None = None
 
 
 def get_storage() -> SQLiteStorage:

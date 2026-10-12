@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 移动端远程 API 客户端
 
 提供与后端的 HTTP 通信功能：
@@ -8,15 +7,15 @@
   - 文件上传/下载
 """
 from __future__ import annotations
-import json
+
+import hashlib
 import logging
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-import hashlib
-
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +43,8 @@ class SyncStatus(Enum):
 class APIResponse:
     """API 响应"""
     status_code: int
-    data: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    data: dict[str, Any] | None = None
+    error: str | None = None
     timestamp: float = field(default_factory=time.time)
 
     @property
@@ -63,13 +62,13 @@ class SyncRecord:
     id: str
     record_type: str
     action: str  # push, pull
-    local_data: Dict[str, Any]
-    remote_data: Optional[Dict[str, Any]] = None
+    local_data: dict[str, Any]
+    remote_data: dict[str, Any] | None = None
     status: SyncStatus = SyncStatus.PENDING
     conflict_resolved: bool = False
-    error_message: Optional[str] = None
+    error_message: str | None = None
     created_at: float = field(default_factory=time.time)
-    synced_at: Optional[float] = None
+    synced_at: float | None = None
 
 
 class MathaAPIClient:
@@ -86,7 +85,7 @@ class MathaAPIClient:
     def __init__(
         self,
         base_url: str,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
     ):
@@ -94,11 +93,11 @@ class MathaAPIClient:
         self._api_key = api_key
         self._timeout = timeout
         self._max_retries = max_retries
-        self._token: Optional[str] = None
-        self._refresh_token: Optional[str] = None
-        self._sync_queue: List[SyncRecord] = []
-        self._conflict_callbacks: List[Callable[[SyncRecord], None]] = []
-        self._sync_callbacks: List[Callable[[str, str], None]] = []
+        self._token: str | None = None
+        self._refresh_token: str | None = None
+        self._sync_queue: list[SyncRecord] = []
+        self._conflict_callbacks: list[Callable[[SyncRecord], None]] = []
+        self._sync_callbacks: list[Callable[[str, str], None]] = []
         self._is_authenticated = False
 
     async def login(self, username: str, password: str) -> APIResponse:
@@ -144,7 +143,7 @@ class MathaAPIClient:
     def is_authenticated(self) -> bool:
         return self._is_authenticated and self._token is not None
 
-    async def push_data(self, record_type: str, record_id: str, data: Dict[str, Any]) -> APIResponse:
+    async def push_data(self, record_type: str, record_id: str, data: dict[str, Any]) -> APIResponse:
         try:
             response = await self._request(
                 HTTPMethod.PUT,
@@ -170,7 +169,7 @@ class MathaAPIClient:
             logger.error(f"拉取数据失败: {e}")
             return APIResponse(status_code=500, error=str(e))
 
-    async def get_all_records(self, record_type: str, since: Optional[float] = None) -> APIResponse:
+    async def get_all_records(self, record_type: str, since: float | None = None) -> APIResponse:
         try:
             params = {}
             if since:
@@ -196,7 +195,7 @@ class MathaAPIClient:
             logger.error(f"删除记录失败: {e}")
             return APIResponse(status_code=500, error=str(e))
 
-    async def batch_push(self, records: List[Dict[str, Any]]) -> APIResponse:
+    async def batch_push(self, records: list[dict[str, Any]]) -> APIResponse:
         try:
             response = await self._request(
                 HTTPMethod.POST,
@@ -208,7 +207,7 @@ class MathaAPIClient:
             logger.error(f"批量推送失败: {e}")
             return APIResponse(status_code=500, error=str(e))
 
-    async def batch_pull(self, record_keys: List[str]) -> APIResponse:
+    async def batch_pull(self, record_keys: list[str]) -> APIResponse:
         try:
             response = await self._request(
                 HTTPMethod.POST,
@@ -220,7 +219,7 @@ class MathaAPIClient:
             logger.error(f"批量拉取失败: {e}")
             return APIResponse(status_code=500, error=str(e))
 
-    async def upload_file(self, file_path: str, metadata: Optional[Dict[str, Any]] = None) -> APIResponse:
+    async def upload_file(self, file_path: str, metadata: dict[str, Any] | None = None) -> APIResponse:
         try:
             with open(file_path, 'rb') as f:
                 file_data = f.read()
@@ -276,9 +275,9 @@ class MathaAPIClient:
         self,
         method: HTTPMethod,
         path: str,
-        data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        files: Optional[Dict[str, bytes]] = None,
+        data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        files: dict[str, bytes] | None = None,
     ) -> APIResponse:
         url = f"{self._base_url}{path}"
         headers = self._build_headers()
@@ -301,7 +300,7 @@ class MathaAPIClient:
 
         return APIResponse(status_code=500, error="Max retries exceeded")
 
-    def _build_headers(self) -> Dict[str, str]:
+    def _build_headers(self) -> dict[str, str]:
         headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -348,7 +347,7 @@ class MathaAPIClient:
         self._sync_callbacks.append(callback)
 
     def _notify_conflict(self, record_type: str, record_id: str,
-                         local_data: Dict, remote_data: Dict) -> None:
+                         local_data: dict, remote_data: dict) -> None:
         record = SyncRecord(
             id=record_id,
             record_type=record_type,
@@ -376,7 +375,7 @@ class MathaAPIClient:
     def set_base_url(self, url: str) -> None:
         self._base_url = url.rstrip('/')
 
-    def get_token(self) -> Optional[str]:
+    def get_token(self) -> str | None:
         return self._token
 
     def clear_token(self) -> None:
@@ -388,7 +387,7 @@ class MathaAPIClient:
         return f"MathaAPIClient(base_url={self._base_url}, authenticated={self._is_authenticated})"
 
 
-_client: Optional[MathaAPIClient] = None
+_client: MathaAPIClient | None = None
 
 
 def get_api_client() -> MathaAPIClient:

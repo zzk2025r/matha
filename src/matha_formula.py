@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 原生公式引擎 — 纯 Matha 运行时实现，不依赖 Python SymPy/Maple。
 
 设计目标：
@@ -14,17 +13,27 @@
   - Julia: 多精度 → 用级数展开达到 double 精度
 """
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Optional
 from enum import Enum
 
 from src.matha_runtime import (
-    PI, E, sin, cos, tan, asin, acos, atan, atan2,
-    exp, log, log10, log2, sqrt, pow, abs_val,
-    floor, ceil, trunc, round_val,
-    factorial, perm, comb,
+    abs_val,
+    acos,
+    asin,
+    atan,
+    ceil,
+    cos,
+    exp,
+    factorial,
+    floor,
+    log,
+    log10,
+    pow,
+    sin,
+    sqrt,
+    tan,
 )
-
 
 # ============================================================
 # 公式类型枚举
@@ -70,9 +79,9 @@ class Formula:
     source_era: str = "当代"
 
     # 预计算派生属性
-    _cached_eval: Optional[float] = field(default=None, init=False)
+    _cached_eval: float | None = field(default=None, init=False)
 
-    def evaluate(self, substitutions: Optional[dict[str, float]] = None) -> float:
+    def evaluate(self, substitutions: dict[str, float] | None = None) -> float:
         """代入数值求值。"""
         vars_dict = dict(self.rhs.variables)
         if substitutions:
@@ -106,7 +115,7 @@ class Formula:
             return builtin_map[name](*args)
         return 0.0
 
-    def substitute(self, var: str, value: float) -> "Formula":
+    def substitute(self, var: str, value: float) -> Formula:
         """替换变量，返回新公式。"""
         new_rhs = FormulaTerm(
             coefficient=self.rhs.coefficient,
@@ -509,7 +518,7 @@ class FormulaRegistry:
         ids = self._index_by_kind.get(kind, [])
         return [self._formulas[i] for i in ids if i in self._formulas]
 
-    def get(self, formula_id: str) -> Optional[Formula]:
+    def get(self, formula_id: str) -> Formula | None:
         """按 ID 获取公式。"""
         return self._formulas.get(formula_id)
 
@@ -528,7 +537,7 @@ class FormulaRegistry:
 # 全局注册表实例
 # ============================================================
 
-_registry: Optional[FormulaRegistry] = None
+_registry: FormulaRegistry | None = None
 
 
 def get_registry() -> FormulaRegistry:

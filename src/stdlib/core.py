@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 """Matha 标准库 Core — v2.2
 
 提供基础类型：Int, String, Bool, Array 的完整实现。
 所有类型均支持 Matha 内建调用约定（函数式柯里化兼容）。
 """
 from __future__ import annotations
+
 import math
 import statistics
-from typing import Any, Optional
-
+from typing import Any
 
 # ============================================================
 # 类型注册接口

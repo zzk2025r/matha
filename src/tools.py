@@ -1,12 +1,10 @@
-# -*- coding: utf-8 -*-
 """Matha 工程工具：格式化器、Linter、测试框架 stub。"""
 
 from __future__ import annotations
-import re
-import sys
-from dataclasses import dataclass, field
-from typing import Any, Optional
 
+import re
+from dataclasses import dataclass
+from typing import Any
 
 # ============================================================
 # 代码格式化器（类 black）
@@ -157,7 +155,7 @@ def test(name: str, fn: callable) -> MathaTestCase:
     """创建并运行测试用例。"""
     tc = MathaTestCase(name)
     fn(tc)
-    result = tc.run_all()
+    tc.run_all()
     return tc
 
 

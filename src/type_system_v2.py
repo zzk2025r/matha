@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 类型系统增强 v2.0
 ========================
@@ -16,11 +15,12 @@ Matha 类型系统增强 v2.0
   - Matha: 精炼类型 + 子类型 + 依赖类型（简化版）
 """
 from __future__ import annotations
-import re
+
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+import re
+from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Any
 
 logger = logging.getLogger("matha.type_system")
 
@@ -51,9 +51,9 @@ class Type:
     """类型表示。"""
     kind: TypeKind
     name: str
-    args: Tuple["Type", ...] = ()
-    predicate: Optional[str] = None  # 精炼类型谓词
-    supertype: Optional["Type"] = None  # 父类型（子类型）
+    args: tuple[Type, ...] = ()
+    predicate: str | None = None  # 精炼类型谓词
+    supertype: Type | None = None  # 父类型（子类型）
 
     def __str__(self) -> str:
         if self.predicate:
@@ -75,48 +75,48 @@ class Type:
     NEVER = None
 
     @staticmethod
-    def list_of(element_type: "Type") -> "Type":
+    def list_of(element_type: Type) -> Type:
         return Type(TypeKind.GENERIC, "List", (element_type,))
 
     @staticmethod
-    def dict_of(key_type: "Type", value_type: "Type") -> "Type":
+    def dict_of(key_type: Type, value_type: Type) -> Type:
         return Type(TypeKind.GENERIC, "Dict", (key_type, value_type))
 
     @staticmethod
-    def tuple_of(*types: "Type") -> "Type":
+    def tuple_of(*types: Type) -> Type:
         return Type(TypeKind.TUPLE, "Tuple", types)
 
     @staticmethod
-    def function(params: Tuple["Type", ...], return_type: "Type") -> "Type":
+    def function(params: tuple[Type, ...], return_type: Type) -> Type:
         return Type(TypeKind.FUNCTION, "Func", params + (return_type,))
 
     @staticmethod
-    def option(element_type: "Type") -> "Type":
+    def option(element_type: Type) -> Type:
         return Type(TypeKind.GENERIC, "Option", (element_type,))
 
     @staticmethod
-    def union(*types: "Type") -> "Type":
+    def union(*types: Type) -> Type:
         return Type(TypeKind.UNION, "Union", types)
 
     @staticmethod
-    def refinement(name: str, predicate: str) -> "Type":
+    def refinement(name: str, predicate: str) -> Type:
         return Type(TypeKind.REFINEMENT, name, predicate=predicate)
 
     @staticmethod
-    def dependent(param_name: str, param_type: "Type",
-                  body_type: "Type") -> "Type":
+    def dependent(param_name: str, param_type: Type,
+                  body_type: Type) -> Type:
         return Type(TypeKind.DEPENDENT, f"({param_name}: {param_type}) -> {body_type}")
 
     @staticmethod
-    def subtype(name: str, supertype: "Type") -> "Type":
+    def subtype(name: str, supertype: Type) -> Type:
         return Type(TypeKind.SUBTYPE, name, supertype=supertype)
 
     @staticmethod
-    def enum(name: str, members: List[str]) -> "Type":
+    def enum(name: str, members: list[str]) -> Type:
         return Type(TypeKind.ENUM, name, args=tuple(Type(TypeKind.PRIMITIVE, m) for m in members))
 
     @staticmethod
-    def alias(name: str, underlying: "Type") -> "Type":
+    def alias(name: str, underlying: Type) -> Type:
         return Type(TypeKind.ALIAS, name, args=(underlying,))
 
 
@@ -145,8 +145,8 @@ class SubtypeRegistry:
     """
 
     def __init__(self):
-        self._hierarchies: Dict[str, Set[str]] = {}  # subtype -> set of supertypes
-        self._direct_parents: Dict[str, str] = {}    # subtype -> direct parent
+        self._hierarchies: dict[str, set[str]] = {}  # subtype -> set of supertypes
+        self._direct_parents: dict[str, str] = {}    # subtype -> direct parent
 
     def add_subtype(self, subtype: str, supertype: str) -> None:
         """添加子类型关系。"""
@@ -172,7 +172,7 @@ class SubtypeRegistry:
                 stack.append(parent)
         return False
 
-    def get_supertypes(self, subtype: str) -> Set[str]:
+    def get_supertypes(self, subtype: str) -> set[str]:
         """获取所有父类型。"""
         supertypes = set()
         stack = [subtype]
@@ -184,7 +184,7 @@ class SubtypeRegistry:
                     stack.append(parent)
         return supertypes
 
-    def get_hierarchy(self, type_name: str) -> List[str]:
+    def get_hierarchy(self, type_name: str) -> list[str]:
         """获取类型层次链。"""
         chain = [type_name]
         current = type_name
@@ -268,18 +268,18 @@ class EnhancedTypeInferencer:
     """
 
     def __init__(self):
-        self.errors: List[TypeError] = []
-        self.constraints: List[TypeConstraint] = []
+        self.errors: list[TypeError] = []
+        self.constraints: list[TypeConstraint] = []
         self.subtype_registry = SubtypeRegistry()
         self.refinement_checker = RefinementChecker()
-        self._type_aliases: Dict[str, Type] = {}
-        self._enums: Dict[str, Type] = {}
+        self._type_aliases: dict[str, Type] = {}
+        self._enums: dict[str, Type] = {}
         self._init_builtin_types()
 
     def _init_builtin_types(self) -> None:
         """初始化内建类型和函数。"""
         # 内建函数类型
-        self._builtin_funcs: Dict[str, Type] = {
+        self._builtin_funcs: dict[str, Type] = {
             "sin": Type.function((Type.FLOAT,), Type.FLOAT),
             "cos": Type.function((Type.FLOAT,), Type.FLOAT),
             "sqrt": Type.function((Type.FLOAT,), Type.FLOAT),
@@ -294,7 +294,7 @@ class EnhancedTypeInferencer:
         """定义类型别名。"""
         self._type_aliases[name] = type_expr
 
-    def define_enum(self, name: str, members: List[str]) -> None:
+    def define_enum(self, name: str, members: list[str]) -> None:
         """定义枚举类型。"""
         self._enums[name] = Type.enum(name, members)
 
@@ -302,7 +302,7 @@ class EnhancedTypeInferencer:
         """添加子类型关系。"""
         self.subtype_registry.add_subtype(subtype, supertype)
 
-    def infer(self, expr: str, context: Dict[str, Type] = None) -> Type:
+    def infer(self, expr: str, context: dict[str, Type] = None) -> Type:
         """
         推断表达式类型。
 
@@ -345,7 +345,6 @@ class EnhancedTypeInferencer:
         refine_match = re.match(r'\{(\w+):\s*(\w+)\s*\|\s*(.+)\}', expr)
         if refine_match:
             name, base_type, predicate = refine_match.groups()
-            base = Type.INT if base_type == "Int" else Type.FLOAT
             return Type.refinement(name, predicate)
 
         # 依赖类型
@@ -386,7 +385,7 @@ class EnhancedTypeInferencer:
         """检查精炼类型谓词。"""
         return self.refinement_checker.check(value, predicate)
 
-    def infer_program(self, program: str) -> List[Type]:
+    def infer_program(self, program: str) -> list[Type]:
         """推断整个程序的类型列表。"""
         types = []
         for line in program.split('\n'):
@@ -406,9 +405,9 @@ class TypeChecker:
 
     def __init__(self, inferencer: EnhancedTypeInferencer = None):
         self.inferencer = inferencer or EnhancedTypeInferencer()
-        self.errors: List[TypeError] = []
+        self.errors: list[TypeError] = []
 
-    def check(self, expr: str, expected: Type, context: Dict[str, Type] = None) -> bool:
+    def check(self, expr: str, expected: Type, context: dict[str, Type] = None) -> bool:
         """检查表达式类型是否与预期匹配。"""
         inferred = self.inferencer.infer(expr, context)
         if inferred != expected and expected.kind != TypeKind.ANY:
@@ -419,7 +418,7 @@ class TypeChecker:
             return False
         return True
 
-    def check_call(self, func_name: str, args: List[Any],
+    def check_call(self, func_name: str, args: list[Any],
                    expected_sig: Type) -> bool:
         """检查函数调用签名。"""
         builtin = self.inferencer._builtin_funcs.get(func_name)
@@ -462,8 +461,9 @@ if __name__ == "__main__":
     print("\n--- 子类型系统 ---")
     inferencer.add_subtype("Dog", "Animal")
     inferencer.add_subtype("Animal", "LivingBeing")
-    print(f"  Dog <: Animal: {inferencer.check_subtype(
-        Type.subtype('Dog', Type.ANY), Type.subtype('Animal', Type.ANY))}")
+    _result = inferencer.check_subtype(
+        Type.subtype('Dog', Type.ANY), Type.subtype('Animal', Type.ANY))
+    print(f"  Dog <: Animal: {_result}")
     print(f"  Dog <: LivingBeing: {inferencer.subtype_registry.is_subtype_of('Dog', 'LivingBeing')}")
 
     # 测试依赖类型

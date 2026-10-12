@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 混沌理论与分型领域模块。
 
@@ -11,9 +10,8 @@ Matha 混沌理论与分型领域模块。
   6) Lyapunov 指数
 """
 from __future__ import annotations
-import math
-from typing import Optional
 
+import math
 
 # ============================================================
 # Lorenz 吸引子

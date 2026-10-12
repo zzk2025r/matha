@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 移动端完整实现
 
@@ -9,11 +8,12 @@ Matha 移动端完整实现
   - 离线缓存层
 """
 from __future__ import annotations
+
 import logging
 import os
 import sys
-from typing import Any, Dict, List, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class MobileConfig:
 class MobileDeviceDetector:
     """增强的移动设备检测"""
 
-    _cache: Optional[bool] = None
+    _cache: bool | None = None
 
     @classmethod
     def detect(cls) -> bool:
@@ -68,16 +68,16 @@ class MobileDeviceDetector:
 class MobileAPI:
     """移动端简化的数学 API"""
 
-    def __init__(self, config: Optional[MobileConfig] = None):
+    def __init__(self, config: MobileConfig | None = None):
         self.config = config or MobileConfig()
-        self._ops: Dict[str, Any] = {}
-        self._cache: Dict[str, Any] = {}
+        self._ops: dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
         self._detect_backend()
 
     def _detect_backend(self) -> None:
         """检测可用后端"""
         try:
-            from src.numpy_compat import array, zeros, ones, eye, svd_decompose
+            from src.numpy_compat import array, eye, ones, svd_decompose, zeros
             self._ops = {
                 "array": array,
                 "zeros": zeros,
@@ -182,7 +182,7 @@ class FlutterShell:
         }
 
     @staticmethod
-    def create_math_response(request_id: str, result: Any, error: Optional[str] = None) -> dict:
+    def create_math_response(request_id: str, result: Any, error: str | None = None) -> dict:
         """创建数学计算响应"""
         return {
             "type": "math_response",
@@ -215,9 +215,9 @@ class FlutterShell:
 
 # ── 全局初始化 ──────────────────────────────────────────────────────────────
 
-_mobile_config: Optional[MobileConfig] = None
-_mobile_api: Optional[MobileAPI] = None
-_is_mobile: Optional[bool] = None
+_mobile_config: MobileConfig | None = None
+_mobile_api: MobileAPI | None = None
+_is_mobile: bool | None = None
 
 
 def get_mobile_config() -> MobileConfig:
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     print(f"状态: {get_mobile_state()}")
 
     api = get_mobile_api()
-    print(f"\n移动端 API:")
+    print("\n移动端 API:")
     print(f"  zeros((3,3)): {api.zeros((3, 3))}")
     print(f"  eye(3): {api.eye(3)}")
 

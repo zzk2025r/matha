@@ -55,9 +55,10 @@
 """
 
 from __future__ import annotations
-import math
-from src.stdlib.safe_ops import safe_div
 
+import math
+
+from src.stdlib.safe_ops import safe_div
 
 # ============================================================
 # 柯里化工具
@@ -93,6 +94,7 @@ def _curry4(func):
 
 # 物理常量（统一来源）
 from src.stdlib.physics_constants import C as _P
+
 # 真空光速 c = 2.998e8 m/s
 C_LIGHT = _P.c
 # 普朗克常量 h = 6.626e-34 J·s

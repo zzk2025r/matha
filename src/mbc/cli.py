@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M3V 命令行工具：编译 / 运行字节码 / 表达式求值 / 原生编译。
 
 用法：
@@ -15,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.mbc import compile_source, run_module, write_mbc, read_mbc
+from src.mbc import compile_source, read_mbc, run_module, write_mbc
 
 
 def _read(path: str) -> str:

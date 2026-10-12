@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 硬件逆向工程领域模块：信号分析、协议解析、固件提取、功耗分析。
 
 覆盖：
@@ -11,8 +10,8 @@
 """
 
 from __future__ import annotations
+
 import math
-import hashlib
 
 
 def _curry1(func):
@@ -90,7 +89,7 @@ def _hardware_reverse_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "信号频率分析", "协议解析率", "固件完整性校验",
-    "逆向复杂度", "时钟频率估算", "功耗分析",
+    "_信号频率分析", "_协议解析率", "_固件完整性校验",
+    "_逆向复杂度", "_时钟频率估算", "_功耗分析",
     "_register_hardware_reverse", "_hardware_reverse_symtab_names",
 ]

@@ -1,11 +1,12 @@
-# -*- coding: utf-8 -*-
 """Matha Jupyter 集成 — Notebook 示例
 
 演示如何在 Jupyter Notebook 中使用 Matha 意图分解引擎。
 """
 from __future__ import annotations
-import sys
+
 import math
+import sys
+
 sys.path.insert(0, '.')
 
 # ============================================================
@@ -15,15 +16,10 @@ sys.path.insert(0, '.')
 from src.intent.intent_decomposer import IntentDecomposer
 from src.intent.llm_parser import LLMIntentParser
 from src.intent.mir_generator import MIRGenerator
-from src.stdlib.arithmetic import sieve_of_eratosthenes, factorial
-from src.stdlib.algebra import solve_quadratic, factor_integer
+from src.stdlib.algebra import factor_integer, solve_quadratic
+from src.stdlib.arithmetic import factorial, sieve_of_eratosthenes
 from src.stdlib.calculus import derivative, integral, newton_method
-from src.stdlib.logic import (
-    AND, OR, NOT, IMPLIES, IFF, XOR,
-    truth_table, print_truth_table,
-    set_union, set_intersection, set_difference,
-    check_tautology, check_contradiction
-)
+from src.stdlib.logic import IMPLIES, print_truth_table
 
 print("=" * 60)
 print("  Matha Jupyter 集成示例")
@@ -60,7 +56,7 @@ print("\n【3. LLM 意图解析器】")
 parser = LLMIntentParser()
 
 intent = parser.parse("计算 100 以内所有素数")
-print(f"  输入: 计算 100 以内所有素数")
+print("  输入: 计算 100 以内所有素数")
 print(f"  意图类型: {intent.intent_type.name}")
 print(f"  置信度: {intent.confidence:.2f}")
 print(f"  建议代码: {intent.suggested_code}")
@@ -73,7 +69,7 @@ print("\n【4. MIR 代码生成器】")
 
 generator = MIRGenerator()
 mir_node = generator.generate(intent)
-print(f"  生成的 MIR 代码:")
+print("  生成的 MIR 代码:")
 print(mir_node.to_math_code())
 
 # ============================================================
@@ -98,7 +94,7 @@ root, iters = newton_method(lambda x: x**2 - 2, 1.0)
 print(f"  √2 ≈ {root:.10f} ({iters} 次迭代)")
 
 # 逻辑
-print(f"  P→Q 真值表:")
+print("  P→Q 真值表:")
 print_truth_table(2, lambda v: IMPLIES(v[0], v[1]), ["P", "Q"])
 
 # ============================================================

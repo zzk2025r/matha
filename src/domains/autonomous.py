@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 自动驾驶领域模块：碰撞预测、路径规划、感知融合、决策控制。
 
 覆盖：
@@ -11,6 +10,7 @@
 """
 
 from __future__ import annotations
+
 import math
 
 
@@ -100,7 +100,7 @@ def _autonomous_symtab_names() -> list[str]:
 
 
 __all__ = [
-    "碰撞时间估算", "路径规划复杂度", "传感器融合误差",
-    "决策响应时间", "定位精度", "油耗估算",
+    "_碰撞时间估算", "_路径规划复杂度", "_传感器融合误差",
+    "_决策响应时间", "_定位精度", "_油耗估算",
     "_register_autonomous", "_autonomous_symtab_names",
 ]

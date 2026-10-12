@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — SVD 最终性能总结
 
 本脚本生成包含纯 Python、NumPy 和稀疏 SVD 三种方案的最终性能总结图表。
@@ -7,8 +6,8 @@
   python src/benchmarks/svd_final_summary.py
   python src/benchmarks/svd_final_summary.py --verbose
 """
-import sys
 import logging
+import sys
 from pathlib import Path
 
 # 添加项目根目录到路径
@@ -74,8 +73,8 @@ def generate_summary():
         else:
             speedup = 0
 
-        numpy_speedup = python_time / numpy_time if numpy_time > 0 else 0
-        sparse_speedup = python_time / sparse_time if sparse_time > 0 else 0
+        python_time / numpy_time if numpy_time > 0 else 0
+        python_time / sparse_time if sparse_time > 0 else 0
 
         best_algo = "NumPy" if numpy_time <= sparse_time else "稀疏 SVD"
         if numpy_time == sparse_time:

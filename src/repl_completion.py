@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha REPL 自动补全模块
 
 提供 Tab 键自动补全功能：
@@ -15,9 +14,10 @@
   readline.parse_and_bind("tab: complete")
 """
 from __future__ import annotations
+
+import logging
+import os
 import re
-import sys
-from typing import List, Optional
 
 
 class REPLCompleter:
@@ -77,7 +77,7 @@ class REPLCompleter:
         # 过滤掉双下划线的内置对象
         self._builtins = {b for b in self._builtins if not b.startswith('__')}
 
-    def get_all_completions(self) -> List[str]:
+    def get_all_completions(self) -> list[str]:
         """获取所有可用的补全项"""
         completions = set()
 
@@ -100,7 +100,7 @@ class REPLCompleter:
 
         return sorted(completions)
 
-    def complete(self, text: str, state: int = 0) -> Optional[str]:
+    def complete(self, text: str, state: int = 0) -> str | None:
         """
         补全函数（供 readline 使用）
 
@@ -119,7 +119,7 @@ class REPLCompleter:
             return completions[state]
         return None
 
-    def _get_completions(self, text: str) -> List[str]:
+    def _get_completions(self, text: str) -> list[str]:
         """获取匹配的补全项列表"""
         completions = self.get_all_completions()
 
@@ -215,9 +215,8 @@ class REPLCompleter:
 
         return ""
 
-    def _get_function_hints(self, func_name: str) -> List[str]:
+    def _get_function_hints(self, func_name: str) -> list[str]:
         """获取函数参数提示"""
-        hints = []
         # 常见函数参数提示
         func_hints = {
             'matrix_multiply': ['A', 'B'],
@@ -232,7 +231,7 @@ class REPLCompleter:
         }
         return func_hints.get(func_name, [])
 
-    def _get_attribute_hints(self, prefix: str, suffix: str) -> List[str]:
+    def _get_attribute_hints(self, prefix: str, suffix: str) -> list[str]:
         """获取属性提示"""
         hints = []
         # 矩阵属性
@@ -249,33 +248,70 @@ class REPLCompleter:
 class REPLHistoryManager:
     """REPL 历史记录管理器"""
 
-    def __init__(self, max_history: int = 1000):
+    def __init__(self, max_history: int = 1000, history_file: str | None = None):
         """
         初始化历史管理器
 
         Args:
             max_history: 最大历史记录数
+            history_file: 历史持久化文件路径（可选，默认 ~/.matha/history.txt）
         """
-        self._history: List[str] = []
+        self._history: list[str] = []
         self._max_history = max_history
         self._index = -1
+        self.history_file = history_file or os.path.join(
+            os.path.expanduser("~"), ".matha", "history.txt"
+        )
+        self.load()
 
     def add(self, entry: str) -> None:
-        """添加历史记录"""
+        """添加历史记录（自动持久化到磁盘）"""
         if entry.strip():
             self._history.append(entry)
             if len(self._history) > self._max_history:
                 self._history.pop(0)
         self._index = len(self._history)
+        self.save()
 
-    def previous(self) -> Optional[str]:
+    def save(self) -> None:
+        """将历史记录写入磁盘"""
+        try:
+            os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+            with open(self.history_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(self._history))
+        except OSError as e:
+            logging.getLogger(__name__).warning(f"历史记录持久化失败: {e}")
+
+    def load(self) -> None:
+        """从磁盘加载历史记录"""
+        try:
+            if not os.path.exists(self.history_file):
+                return
+            with open(self.history_file, encoding="utf-8") as f:
+                lines = [ln.rstrip("\n") for ln in f.readlines() if ln.strip()]
+            self._history = lines[-self._max_history:]
+            self._index = len(self._history)
+        except OSError as e:
+            logging.getLogger(__name__).warning(f"历史记录加载失败: {e}")
+
+    def clear(self) -> None:
+        """清空历史记录（含磁盘）"""
+        self._history.clear()
+        self._index = 0
+        try:
+            if os.path.exists(self.history_file):
+                os.remove(self.history_file)
+        except OSError as e:
+            logging.getLogger(__name__).warning(f"历史记录清除失败: {e}")
+
+    def previous(self) -> str | None:
         """获取上一条历史记录"""
         if self._history and self._index > 0:
             self._index -= 1
             return self._history[self._index]
         return None
 
-    def next(self) -> Optional[str]:
+    def next(self) -> str | None:
         """获取下一条历史记录"""
         if self._history and self._index < len(self._history) - 1:
             self._index += 1
@@ -285,7 +321,7 @@ class REPLHistoryManager:
             return ""
         return None
 
-    def current(self) -> Optional[str]:
+    def current(self) -> str | None:
         """获取当前历史项"""
         if self._history and 0 <= self._index < len(self._history):
             return self._history[self._index]

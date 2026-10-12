@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 量子计算领域模块。
 
@@ -11,10 +10,10 @@ Matha 量子计算领域模块。
 注意：不依赖 numpy，使用纯 Python 实现以避免依赖问题。
 """
 from __future__ import annotations
+
 import cmath
 import math
-from typing import Optional, Callable
-
+from collections.abc import Callable
 
 # ============================================================
 # 基本量子门（纯 Python 矩阵）

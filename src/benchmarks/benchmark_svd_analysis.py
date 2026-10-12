@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — SVD 性能对比分析图表
 
 本脚本生成详细的性能对比图表，展示纯 Python 和 NumPy 实现的 SVD 性能差异。
@@ -8,13 +7,12 @@
   python src/benchmarks/benchmark_svd_analysis.py --verbose
   python src/benchmarks/benchmark_svd_analysis.py --sizes 10 20 50 100
 """
-import time
-import sys
 import logging
 import statistics
-from pathlib import Path
+import sys
+import time
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from pathlib import Path
 
 # 添加项目根目录到路径
 _project_root = Path(__file__).parent.parent.parent
@@ -45,7 +43,7 @@ def setup_logging(verbose: bool = False):
     )
 
 
-def benchmark_svd_python(A_data: List[List[float]], iterations: int = 10, warmup: int = 3) -> float:
+def benchmark_svd_python(A_data: list[list[float]], iterations: int = 10, warmup: int = 3) -> float:
     """基准测试纯 Python SVD。"""
     from src.stdlib.linear_algebra import Matrix, svd_decompose
 
@@ -66,7 +64,7 @@ def benchmark_svd_python(A_data: List[List[float]], iterations: int = 10, warmup
     return statistics.mean(times) * 1000  # 转换为 ms
 
 
-def benchmark_svd_numpy(A_data: List[List[float]], iterations: int = 10, warmup: int = 3) -> Optional[float]:
+def benchmark_svd_numpy(A_data: list[list[float]], iterations: int = 10, warmup: int = 3) -> float | None:
     """基准测试 NumPy SVD。"""
     try:
         import numpy as np
@@ -89,14 +87,14 @@ def benchmark_svd_numpy(A_data: List[List[float]], iterations: int = 10, warmup:
         return None
 
 
-def generate_random_matrix(n: int, seed: int = 42) -> List[List[float]]:
+def generate_random_matrix(n: int, seed: int = 42) -> list[list[float]]:
     """生成随机矩阵。"""
     import random
     random.seed(seed)
     return [[random.uniform(-1, 1) for _ in range(n)] for _ in range(n)]
 
 
-def run_benchmark(sizes: List[int]) -> List[BenchmarkResult]:
+def run_benchmark(sizes: list[int]) -> list[BenchmarkResult]:
     """运行所有基准测试。"""
     results = []
 
@@ -105,12 +103,12 @@ def run_benchmark(sizes: List[int]) -> List[BenchmarkResult]:
     print("=" * 70)
 
     try:
-        import numpy as np
+        import numpy as np  # noqa: F401
         numpy_available = True
-        print(f"\nNumPy: 可用")
+        print("\nNumPy: 可用")
     except ImportError:
         numpy_available = False
-        print(f"\nNumPy: 不可用（将使用纯 Python 实现）")
+        print("\nNumPy: 不可用（将使用纯 Python 实现）")
 
     for n in sizes:
         print(f"\n  测试 {n}x{n} 矩阵...")
@@ -140,7 +138,7 @@ def run_benchmark(sizes: List[int]) -> List[BenchmarkResult]:
     return results
 
 
-def print_performance_chart(results: List[BenchmarkResult], numpy_available: bool):
+def print_performance_chart(results: list[BenchmarkResult], numpy_available: bool):
     """打印性能对比图表。"""
     print("\n" + "=" * 70)
     print("  性能对比图表")
@@ -170,7 +168,7 @@ def print_performance_chart(results: List[BenchmarkResult], numpy_available: boo
                 print(f"  {r.size}x{r.size:<5s} {r.numpy_time:>8.4f}ms {r.speedup:>6.0f}x    {bar}")
 
 
-def print_analysis_report(results: List[BenchmarkResult], numpy_available: bool):
+def print_analysis_report(results: list[BenchmarkResult], numpy_available: bool):
     """打印性能分析报告。"""
     print("\n" + "=" * 70)
     print("  性能分析报告")
@@ -218,7 +216,7 @@ def print_analysis_report(results: List[BenchmarkResult], numpy_available: bool)
 """)
 
 
-def generate_csv_report(results: List[BenchmarkResult], output_path: str):
+def generate_csv_report(results: list[BenchmarkResult], output_path: str):
     """生成 CSV 格式报告。"""
     import csv
     with open(output_path, 'w', newline='', encoding='utf-8') as f:
@@ -252,7 +250,7 @@ def main():
 
     # 检查 NumPy 可用性
     try:
-        import numpy as np
+        import numpy as np  # noqa: F401
         numpy_available = True
     except ImportError:
         numpy_available = False

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 自动 Memoization 递归优化器
 
 解决 Matha 递归算法性能瓶颈（Fibonacci 269ms → ~0.5ms）的核心组件。
@@ -17,16 +16,14 @@
   result = fn(30)  # 自动缓存，~0.5ms vs 269ms
 """
 from __future__ import annotations
+
 import functools
 import hashlib
-import json
-import sys
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 # ============================================================
 # LRU 缓存（线程安全）
@@ -42,7 +39,7 @@ class LRUCache:
         self._misses = 0
         self._evictions = 0
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         if key in self._cache:
             self._hits += 1
             self._cache.move_to_end(key)
@@ -69,7 +66,7 @@ class LRUCache:
         return len(self._cache)
 
     @property
-    def stats(self) -> Dict:
+    def stats(self) -> dict:
         total = self._hits + self._misses
         return {
             "size": self.size,
@@ -88,10 +85,10 @@ class LRUCache:
 class RecursivePattern:
     """检测到的递归模式。"""
     func_name: str
-    params: Tuple[str, ...]
-    recursive_calls: List[Tuple[str, Tuple[str, ...]]]  # (func_name, (param1, param2, ...))
+    params: tuple[str, ...]
+    recursive_calls: list[tuple[str, tuple[str, ...]]]  # (func_name, (param1, param2, ...))
     depth: int  # 递归深度估计
-    memo_key_params: Tuple[str, ...]  # 用于 memoization 的参数字段
+    memo_key_params: tuple[str, ...]  # 用于 memoization 的参数字段
 
 
 class RecursivePatternDetector:
@@ -126,7 +123,7 @@ class RecursivePatternDetector:
     }
 
     @classmethod
-    def detect(cls, func_source: str, func_name: str = "") -> Optional[RecursivePattern]:
+    def detect(cls, func_source: str, func_name: str = "") -> RecursivePattern | None:
         """从源码中检测递归模式。"""
         source_lower = func_source.lower()
 
@@ -144,7 +141,7 @@ class RecursivePatternDetector:
 
         # 通用递归检测：函数体内调用自身
         if func_name:
-            call_pattern = func_name.lower()
+            func_name.lower()
             calls = []
             for match in __import__('re').finditer(rf'\b{re.escape(func_name)}\s*\(', source_lower):
                 start = match.start()
@@ -168,7 +165,6 @@ class RecursivePatternDetector:
 
 import re
 
-
 # ============================================================
 # Memoization 装饰器
 # ============================================================
@@ -176,7 +172,7 @@ import re
 class MemoizeDecorator:
     """通用的 memoization 装饰器，支持 LRU 缓存和自动缓存键生成。"""
 
-    def __init__(self, max_size: int = 4096, key_func: Optional[Callable] = None):
+    def __init__(self, max_size: int = 4096, key_func: Callable | None = None):
         self._max_size = max_size
         self._key_func = key_func
         self._cache = LRUCache(max_size)
@@ -197,7 +193,7 @@ class MemoizeDecorator:
         wrapper._memo_key_func = self._key_func
         return wrapper
 
-    def _make_key(self, func: Callable, args: Tuple, kwargs: Dict) -> str:
+    def _make_key(self, func: Callable, args: tuple, kwargs: dict) -> str:
         if self._key_func:
             return self._key_func(func, args, kwargs)
 
@@ -225,7 +221,7 @@ class MemoizeDecorator:
         self._cache.clear()
 
     @property
-    def stats(self) -> Dict:
+    def stats(self) -> dict:
         return self._cache.stats
 
 
@@ -253,8 +249,8 @@ class MemoizeOptimizer:
     def __init__(self, max_cache_size: int = 4096, enable_tail_recursion: bool = True):
         self._max_cache_size = max_cache_size
         self._enable_tail_recursion = enable_tail_recursion
-        self._decorators: Dict[str, MemoizeDecorator] = {}
-        self._memoized_funcs: Dict[str, Callable] = {}
+        self._decorators: dict[str, MemoizeDecorator] = {}
+        self._memoized_funcs: dict[str, Callable] = {}
         self._stats = {
             "memoized_count": 0,
             "cache_hits": 0,
@@ -263,8 +259,8 @@ class MemoizeOptimizer:
             "time_saved_ms": 0.0,
         }
 
-    def memoize(self, func: Callable, max_args: Optional[int] = None,
-                pattern: Optional[str] = None) -> Callable:
+    def memoize(self, func: Callable, max_args: int | None = None,
+                pattern: str | None = None) -> Callable:
         """
         为函数添加自动 memoization。
 
@@ -299,9 +295,8 @@ class MemoizeOptimizer:
 
         return memoized
 
-    def _try_tail_recursion(self, func: Callable, pattern: str) -> Optional[Callable]:
+    def _try_tail_recursion(self, func: Callable, pattern: str) -> Callable | None:
         """尝试将递归函数转换为尾递归形式。"""
-        func_name = func.__name__
 
         if pattern == "factorial":
             def tail_factorial(n: int, accumulator: int = 1) -> int:
@@ -341,8 +336,8 @@ class MemoizeOptimizer:
             a, b = b, a + b
         return b
 
-    def benchmark(self, func: Callable, test_cases: List[Tuple],
-                  iterations: int = 3) -> Dict:
+    def benchmark(self, func: Callable, test_cases: list[tuple],
+                  iterations: int = 3) -> dict:
         """对 memoized 和原始函数进行基准测试对比。"""
         results = {}
 
@@ -378,7 +373,7 @@ class MemoizeOptimizer:
 
         return results
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """获取优化器统计信息。"""
         stats = dict(self._stats)
         stats["decorators"] = {
@@ -398,7 +393,7 @@ class MemoizeOptimizer:
 # 全局优化器实例
 # ============================================================
 
-_optimizer: Optional[MemoizeOptimizer] = None
+_optimizer: MemoizeOptimizer | None = None
 
 def get_memoize_optimizer(max_cache_size: int = 4096) -> MemoizeOptimizer:
     """获取全局 memoization 优化器实例。"""
@@ -460,7 +455,7 @@ if __name__ == "__main__":
         print(f"  ✓ tail_fib(50) = {result} ({elapsed:.4f}ms)")
 
     # 测试统计
-    print(f"\n【优化器统计】")
+    print("\n【优化器统计】")
     stats = optimizer.get_stats()
     print(f"  Memoized 函数: {stats['memoized_count']}")
     print(f"  尾递归优化: {stats['tail_optimizations']}")

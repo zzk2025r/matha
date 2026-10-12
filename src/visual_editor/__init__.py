@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 可视化编程器 - 主模块
 
 提供完整的节点式可视化编程体验：
@@ -9,21 +8,21 @@
 """
 from __future__ import annotations
 
-from src.visual_editor.node_types import (
-    NodeType,
-    Node,
-    NodeDefinition,
-    PortDefinition,
-    NodeRegistry,
-    register_all_nodes,
-)
 from src.visual_editor.node_executor import (
-    NodeExecutor,
-    NodeExecutionResult,
+    ExecutionError,
     ExecutionStatus,
     GraphMetrics,
-    ExecutionError,
+    NodeExecutionResult,
+    NodeExecutor,
     get_executor,
+)
+from src.visual_editor.node_types import (
+    Node,
+    NodeDefinition,
+    NodeRegistry,
+    NodeType,
+    PortDefinition,
+    register_all_nodes,
 )
 
 __all__ = [

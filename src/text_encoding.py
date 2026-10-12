@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 文本编码模块：二进制 / 三进制 / 十进制 编解码。
 
 将文本字符串编码为不同进制的数字序列表示，支持反向解码。
@@ -10,8 +9,8 @@
     >>> decode_binary('1001000 1101001')
     'Hi'
     >>> encode_ternary("Hi")
-    '2012 2100'
-    >>> decode_ternary('2012 2100')
+    '2200 10220'
+    >>> decode_ternary('2200 10220')
     'Hi'
     >>> encode_decimal("Hi")
     '72 105'
@@ -19,6 +18,7 @@
     'Hi'
 """
 from __future__ import annotations
+
 from typing import Literal
 
 Base = Literal[2, 3, 10]
@@ -28,8 +28,31 @@ Base = Literal[2, 3, 10]
 # 核心编码/解码
 # ============================================================
 
+def _to_text(text) -> str:
+    """将任意输入归一化为文本字符串。
+
+    list / tuple → 拼接为连续文本（按字符逐个编码）
+    其他类型     → str() 转换
+    """
+    if isinstance(text, (list, tuple)):
+        return "".join(str(x) for x in text)
+    return str(text) if text is not None else ""
+
+
+def _to_tokens(encoded) -> str:
+    """将任意输入归一化为空格分隔的令牌字符串。
+
+    list / tuple → 各元素 str() 后用空格连接（每个元素视为一个编码令牌）
+    其他类型     → str() 转换
+    """
+    if isinstance(encoded, (list, tuple)):
+        return " ".join(str(x) for x in encoded)
+    return str(encoded) if encoded is not None else ""
+
+
 def _encode(text: str, base: Base) -> str:
     """将文本编码为指定进制的数字序列（空格分隔）。"""
+    text = _to_text(text)
     if not text:
         return ""
     parts = []
@@ -41,6 +64,7 @@ def _encode(text: str, base: Base) -> str:
 
 def _decode(encoded: str, base: Base) -> str:
     """将指定进制的数字序列解码为文本。"""
+    encoded = _to_tokens(encoded)
     if not encoded.strip():
         return ""
     chars = []
@@ -129,6 +153,7 @@ def detect_base(encoded: str) -> Base | None:
 
     返回 2、3 或 10；无法确定时返回 None。
     """
+    encoded = _to_tokens(encoded)
     tokens = encoded.strip().split()
     if not tokens:
         return None
@@ -147,7 +172,7 @@ def detect_base(encoded: str) -> Base | None:
 
 def encode_file(input_path: str, output_path: str, base: Base = 10) -> None:
     """读取文本文件，编码后写入输出文件。"""
-    with open(input_path, "r", encoding="utf-8") as f:
+    with open(input_path, encoding="utf-8") as f:
         text = f.read()
     encoded = _encode(text, base)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -156,7 +181,7 @@ def encode_file(input_path: str, output_path: str, base: Base = 10) -> None:
 
 def decode_file(input_path: str, output_path: str, base: Base = 10) -> None:
     """读取编码文件，解码后写入输出文件。"""
-    with open(input_path, "r", encoding="utf-8") as f:
+    with open(input_path, encoding="utf-8") as f:
         encoded = f.read()
     text = _decode(encoded, base)
     with open(output_path, "w", encoding="utf-8") as f:

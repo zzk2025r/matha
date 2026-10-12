@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 概率统计模块示例
 
 提供概率论与数理统计核心功能：
@@ -19,11 +18,10 @@
   )
 """
 from __future__ import annotations
+
 import math
-from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass
 from enum import Enum, auto
-
 
 # ============================================================
 # 概率分布
@@ -362,7 +360,7 @@ class UniformDistribution:
         """标准差：σ = (b-a)/√12"""
         return (self.b - self.a) / math.sqrt(12)
 
-    def sample(self, n: int = 1) -> List[float]:
+    def sample(self, n: int = 1) -> list[float]:
         """
         生成随机样本
 
@@ -380,7 +378,7 @@ class UniformDistribution:
 # 统计量计算
 # ============================================================
 
-def mean(data: List[float]) -> float:
+def mean(data: list[float]) -> float:
     """
     样本均值：x̄ = (1/n)Σx_i
 
@@ -395,7 +393,7 @@ def mean(data: List[float]) -> float:
     return sum(data) / len(data)
 
 
-def variance(data: List[float], ddof: int = 1) -> float:
+def variance(data: list[float], ddof: int = 1) -> float:
     """
     样本方差：s² = Σ(x_i - x̄)² / (n - ddof)
 
@@ -412,7 +410,7 @@ def variance(data: List[float], ddof: int = 1) -> float:
     return sum((x - m) ** 2 for x in data) / (len(data) - ddof)
 
 
-def std(data: List[float], ddof: int = 1) -> float:
+def std(data: list[float], ddof: int = 1) -> float:
     """
     样本标准差：s = √s²
 
@@ -426,7 +424,7 @@ def std(data: List[float], ddof: int = 1) -> float:
     return math.sqrt(variance(data, ddof))
 
 
-def correlation(x: List[float], y: List[float]) -> float:
+def correlation(x: list[float], y: list[float]) -> float:
     """
     皮尔逊相关系数：r = cov(X,Y) / (σ_X × σ_Y)
 
@@ -458,9 +456,9 @@ def correlation(x: List[float], y: List[float]) -> float:
 # 假设检验
 # ============================================================
 
-def z_test(sample: List[float], population_mean: float,
-           population_std: Optional[float] = None,
-           sample_std: Optional[float] = None) -> Tuple[float, float]:
+def z_test(sample: list[float], population_mean: float,
+           population_std: float | None = None,
+           sample_std: float | None = None) -> tuple[float, float]:
     """
     Z 检验：检验样本均值与总体均值的差异
 
@@ -506,7 +504,7 @@ def z_test(sample: List[float], population_mean: float,
     return z, p_value
 
 
-def t_test(sample: List[float], population_mean: float = 0) -> Tuple[float, float]:
+def t_test(sample: list[float], population_mean: float = 0) -> tuple[float, float]:
     """
     t 检验：检验样本均值与假设均值的差异
 
@@ -539,7 +537,7 @@ def t_test(sample: List[float], population_mean: float = 0) -> Tuple[float, floa
     return t, p_value
 
 
-def chi_square_test(observed: List[int], expected: Optional[List[float]] = None) -> Tuple[float, float]:
+def chi_square_test(observed: list[int], expected: list[float] | None = None) -> tuple[float, float]:
     """
     卡方检验：检验观测频数与期望频数的差异
 
@@ -660,14 +658,14 @@ def _upper_incomplete_gamma(a: float, x: float) -> float:
 @dataclass
 class RegressionResult:
     """回归分析结果。"""
-    coefficients: List[float]           # 回归系数
+    coefficients: list[float]           # 回归系数
     r_squared: float                    # R² 决定系数
     standard_error: float               # 标准误差
-    predicted: List[float]              # 预测值
-    residuals: List[float]              # 残差
+    predicted: list[float]              # 预测值
+    residuals: list[float]              # 残差
 
 
-def linear_regression(x: List[float], y: List[float]) -> RegressionResult:
+def linear_regression(x: list[float], y: list[float]) -> RegressionResult:
     """
     一元线性回归：y = β₀ + β₁x + ε
 
@@ -730,7 +728,7 @@ def linear_regression(x: List[float], y: List[float]) -> RegressionResult:
     )
 
 
-def polynomial_regression(x: List[float], y: List[float], degree: int = 2) -> RegressionResult:
+def polynomial_regression(x: list[float], y: list[float], degree: int = 2) -> RegressionResult:
     """
     多项式回归：y = β₀ + β₁x + β₂x² + ... + β_dx^d
 
@@ -786,7 +784,7 @@ def polynomial_regression(x: List[float], y: List[float], degree: int = 2) -> Re
     )
 
 
-def _matrix_transpose_multiply(A: List[List[float]]) -> List[List[float]]:
+def _matrix_transpose_multiply(A: list[list[float]]) -> list[list[float]]:
     """矩阵转置乘矩阵。"""
     m, n = len(A), len(A[0])
     result = [[0.0] * n for _ in range(n)]
@@ -797,7 +795,7 @@ def _matrix_transpose_multiply(A: List[List[float]]) -> List[List[float]]:
     return result
 
 
-def _matrix_vector_multiply_transpose(A: List[List[float]], v: List[float]) -> List[float]:
+def _matrix_vector_multiply_transpose(A: list[list[float]], v: list[float]) -> list[float]:
     """矩阵转置乘向量。"""
     n = len(A[0])
     result = [0.0] * n
@@ -807,7 +805,7 @@ def _matrix_vector_multiply_transpose(A: List[List[float]], v: List[float]) -> L
     return result
 
 
-def _solve_linear_system(A: List[List[float]], b: List[float]) -> List[float]:
+def _solve_linear_system(A: list[list[float]], b: list[float]) -> list[float]:
     """高斯消元求解线性方程组。"""
     n = len(b)
     # 增广矩阵
@@ -837,7 +835,7 @@ def _solve_linear_system(A: List[List[float]], b: List[float]) -> List[float]:
     return [aug[i][n] for i in range(n)]
 
 
-def _matrix_vector_multiply(A: List[List[float]], v: List[float], row_idx: int) -> float:
+def _matrix_vector_multiply(A: list[list[float]], v: list[float], row_idx: int) -> float:
     """矩阵乘向量（指定行）。"""
     return sum(A[row_idx][j] * v[j] for j in range(len(v)))
 

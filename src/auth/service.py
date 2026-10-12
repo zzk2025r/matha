@@ -2,21 +2,20 @@
 from __future__ import annotations
 
 import logging
-import uuid
 import time
-from typing import Optional
+import uuid
 
 logger = logging.getLogger(__name__)
 
-from src.auth.models import User, Session
-from src.auth.jwt import encode_token, encode_refresh_token, decode_token
-from src.auth.password import hash_password, verify_password
 from src.auth.exceptions import (
     AuthenticationError,
     AuthorizationError,
-    TokenError,
     RegistrationError,
+    TokenError,
 )
+from src.auth.jwt import decode_token, encode_refresh_token, encode_token
+from src.auth.models import Session, User
+from src.auth.password import hash_password, verify_password
 
 
 class SessionManager:
@@ -254,12 +253,12 @@ class SessionManager:
     # 查询
     # ------------------------------------------------------------------
 
-    def get_user(self, username: str) -> Optional[User]:
+    def get_user(self, username: str) -> User | None:
         username_lower = username.strip().lower()
         logger.debug("查询用户: username=%s", username_lower)
         return self._users.get(username_lower)
 
-    def get_session(self, session_id: str) -> Optional[Session]:
+    def get_session(self, session_id: str) -> Session | None:
         logger.debug("查询会话: session_id=%s", session_id)
         session = self._sessions.get(session_id)
         if session and session.is_expired():
@@ -268,7 +267,7 @@ class SessionManager:
             return None
         return session
 
-    def verify_access_token(self, token: str) -> Optional[dict]:
+    def verify_access_token(self, token: str) -> dict | None:
         """验证 access token 并返回 payload。"""
         payload = decode_token(token)
         if payload is None:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 协作引擎 — WebSocket + 实时同步
 
@@ -9,13 +8,15 @@ Matha 协作引擎 — WebSocket + 实时同步
   - 实时聊天
 """
 from __future__ import annotations
-import asyncio
-import json
+
+import copy
 import logging
 import time
 import uuid
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,62 @@ class Invite:
     created_at: float = field(default_factory=time.time)
 
 
+@dataclass
+class VoiceMember:
+    """语音通话成员"""
+    user_id: str
+    joined_at: float = field(default_factory=time.time)
+    muted: bool = False
+    speaking: bool = False
+
+
+@dataclass
+class ScreenShareSession:
+    """屏幕共享会话"""
+    presenter_id: str
+    started_at: float = field(default_factory=time.time)
+    frame_count: int = 0
+    viewers: set = field(default_factory=set)
+    _frames: deque = field(default_factory=lambda: deque(maxlen=120))
+
+    def publish_frame(self, frame_data: dict) -> int:
+        """发布一帧画面"""
+        self._frames.append(frame_data)
+        self.frame_count += 1
+        return self.frame_count
+
+    def latest_frame(self) -> dict | None:
+        """获取最新一帧"""
+        if self._frames:
+            return self._frames[-1]
+        return None
+
+    def recent_frames(self, limit: int = 5) -> list[dict]:
+        """获取最近 N 帧"""
+        return list(self._frames)[-limit:]
+
+
+@dataclass
+class AuditEntry:
+    """审计日志条目"""
+    audit_id: str
+    session_id: str
+    user_id: str
+    action: str
+    detail: str
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict:
+        return {
+            "audit_id": self.audit_id,
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "action": self.action,
+            "detail": self.detail,
+            "timestamp": self.timestamp,
+        }
+
+
 # ── OT 算法（操作变换）───────────────────────────────────────────────────────
 
 class OperationTransformer:
@@ -104,7 +161,7 @@ class OperationTransformer:
                 logger.debug(f"调整操作 {op.op_id} 以适配删除 {deleted.entity_id}")
         return op
 
-    def apply_operations(self, operations: List[Operation], state: dict) -> dict:
+    def apply_operations(self, operations: list[Operation], state: dict) -> dict:
         """按顺序应用操作序列到状态"""
         for op in sorted(operations, key=lambda o: o.timestamp):
             state = self._apply_single(op, state)
@@ -139,10 +196,10 @@ class CollaborationSession:
     def __init__(self, session_id: str, project_id: str):
         self.session_id = session_id
         self.project_id = project_id
-        self._collaborators: Dict[str, Collaborator] = {}
-        self._operations: List[Operation] = []
-        self._chat_messages: List[ChatMessage] = []
-        self._invites: Dict[str, Invite] = {}
+        self._collaborators: dict[str, Collaborator] = {}
+        self._operations: list[Operation] = []
+        self._chat_messages: list[ChatMessage] = []
+        self._invites: dict[str, Invite] = {}
         self._state: dict = {}
         self._transformer = OperationTransformer()
         self._on_operation = None
@@ -152,12 +209,27 @@ class CollaborationSession:
         self._on_member_leave = None
         self._client_id = uuid.uuid4().hex[:8]
 
+        # 语音通话
+        self._voice_members: dict[str, VoiceMember] = {}
+        self._on_voice_update = None
+
+        # 屏幕共享
+        self._share: ScreenShareSession | None = None
+        self._on_share_update = None
+
+        # 审计日志
+        self._audit_log: list[AuditEntry] = []
+        self._on_audit = None
+
+        # 变更历史（版本快照）
+        self._state_snapshots: list[dict] = []
+
     @property
     def collaborator_count(self) -> int:
         return len([c for c in self._collaborators.values() if c.is_online])
 
     @property
-    def collaborators(self) -> Dict[str, Collaborator]:
+    def collaborators(self) -> dict[str, Collaborator]:
         return self._collaborators.copy()
 
     # ── 成员管理 ──────────────────────────────────────────────────────────────
@@ -182,6 +254,8 @@ class CollaborationSession:
         if self._on_member_join:
             self._on_member_join(user_id, username)
 
+        self._record_audit(user_id, "join", f"{username} 加入会话")
+
         logger.info(f"协作者加入: {username} (会话: {self.session_id}, 在线: {self.collaborator_count})")
         return collaborator
 
@@ -193,6 +267,8 @@ class CollaborationSession:
 
             if self._on_member_leave:
                 self._on_member_leave(user_id, self._collaborators[user_id].username)
+
+            self._record_audit(user_id, "leave", f"{self._collaborators[user_id].username} 离开会话")
 
             logger.info(f"协作者离开: {user_id}")
 
@@ -213,13 +289,16 @@ class CollaborationSession:
 
         self._operations.append(op)
         self._state = self._transformer.apply_operations([op] + transformed_ops, self._state)
+        self._state_snapshots.append(copy.deepcopy(self._state))
 
         if self._on_operation:
             self._on_operation(op)
 
+        self._record_audit(op.user_id, "op", f"{op.action} {op.target_entity}.{op.entity_id}")
+
         logger.debug(f"操作已广播: {op.action} {op.target_entity}.{op.entity_id}")
 
-    def get_operation_history(self, limit: int = 50) -> List[Operation]:
+    def get_operation_history(self, limit: int = 50) -> list[Operation]:
         """获取操作历史"""
         return self._operations[-limit:]
 
@@ -240,9 +319,11 @@ class CollaborationSession:
         if self._on_chat:
             self._on_chat(msg)
 
+        self._record_audit(user_id, "chat", f"{username} 发送消息: {content[:50]}")
+
         return msg
 
-    def get_chat_history(self, limit: int = 50) -> List[ChatMessage]:
+    def get_chat_history(self, limit: int = 50) -> list[ChatMessage]:
         """获取聊天记录"""
         return self._chat_messages[-limit:]
 
@@ -265,10 +346,12 @@ class CollaborationSession:
         if self._on_invite:
             self._on_invite(invite)
 
+        self._record_audit(inviter_id, "invite", f"{inviter_name} 创建邀请 {invite_code}")
+
         logger.info(f"创建邀请: {invite_code} by {inviter_name}")
         return invite
 
-    def redeem_invite(self, code: str, user_id: str, username: str) -> Optional[Collaborator]:
+    def redeem_invite(self, code: str, user_id: str, username: str) -> Collaborator | None:
         """兑换邀请码"""
         invite = self._invites.get(code)
         if not invite:
@@ -282,7 +365,7 @@ class CollaborationSession:
 
         return self.join(user_id, username)
 
-    def get_invite_info(self, code: str) -> Optional[dict]:
+    def get_invite_info(self, code: str) -> dict | None:
         """获取邀请信息"""
         invite = self._invites.get(code)
         if invite:
@@ -295,6 +378,200 @@ class CollaborationSession:
                 "current_members": len(self._collaborators),
             }
         return None
+
+    # ── 审计日志 / 变更历史 ────────────────────────────────────────────────────
+
+    def _record_audit(self, user_id: str, action: str, detail: str) -> None:
+        """记录审计日志条目"""
+        entry = AuditEntry(
+            audit_id=uuid.uuid4().hex,
+            session_id=self.session_id,
+            user_id=user_id,
+            action=action,
+            detail=detail,
+        )
+        self._audit_log.append(entry)
+
+        if self._on_audit:
+            self._on_audit(entry)
+
+    def get_audit_log(self, limit: int = 100) -> list[dict]:
+        """获取审计日志（最新在前）"""
+        return [e.to_dict() for e in self._audit_log[-limit:][::-1]]
+
+    def get_audit_summary(self) -> dict[str, int]:
+        """按动作类型统计审计日志"""
+        summary: dict[str, int] = {}
+        for entry in self._audit_log:
+            summary[entry.action] = summary.get(entry.action, 0) + 1
+        return summary
+
+    @property
+    def audit_count(self) -> int:
+        return len(self._audit_log)
+
+    def get_change_history(self, limit: int = 50) -> list[dict]:
+        """获取操作历史（版本化变更记录）"""
+        return [
+            {
+                "version": i,
+                "op_id": op.op_id,
+                "user_id": op.user_id,
+                "action": op.action,
+                "target_entity": op.target_entity,
+                "entity_id": op.entity_id,
+                "timestamp": op.timestamp,
+            }
+            for i, op in enumerate(self._operations[-limit:])
+        ]
+
+    @property
+    def version_count(self) -> int:
+        """当前变更版本数"""
+        return len(self._state_snapshots)
+
+    def revert_to_version(self, version: int) -> dict:
+        """回退到指定版本（版本号为 change_history 中的 index）"""
+        if not 0 <= version < len(self._state_snapshots):
+            raise ValueError(f"非法版本号: {version}（0~{max(0, len(self._state_snapshots) - 1)}）")
+        self._state = copy.deepcopy(self._state_snapshots[version])
+        # 截断已回退的操作
+        base = len(self._operations) - len(self._state_snapshots) + version
+        self._operations = self._operations[:max(0, base)]
+        self._state_snapshots = self._state_snapshots[:version + 1]
+        self._record_audit("system", "revert", f"回退到版本 {version}")
+        return self._state
+
+    # ── 语音通话 ─────────────────────────────────────────────────────────────
+
+    def voice_join(self, user_id: str) -> bool:
+        """加入语音通话"""
+        if user_id not in self._collaborators:
+            return False
+        if user_id not in self._voice_members:
+            self._voice_members[user_id] = VoiceMember(user_id=user_id)
+            self._notify_voice()
+            self._record_audit(user_id, "voice_join", "加入语音通话")
+            return True
+        return False
+
+    def voice_leave(self, user_id: str) -> bool:
+        """离开语音通话"""
+        if self._voice_members.pop(user_id, None) is not None:
+            self._notify_voice()
+            self._record_audit(user_id, "voice_leave", "离开语音通话")
+            return True
+        return False
+
+    def voice_set_muted(self, user_id: str, muted: bool) -> bool:
+        """静音/取消静音"""
+        member = self._voice_members.get(user_id)
+        if member is None:
+            return False
+        member.muted = muted
+        self._notify_voice()
+        return True
+
+    def voice_set_speaking(self, user_id: str, speaking: bool) -> bool:
+        """更新说话状态"""
+        member = self._voice_members.get(user_id)
+        if member is None:
+            return False
+        member.speaking = speaking
+        self._notify_voice()
+        return True
+
+    @property
+    def voice_members(self) -> dict[str, VoiceMember]:
+        return dict(self._voice_members)
+
+    @property
+    def voice_member_count(self) -> int:
+        return len(self._voice_members)
+
+    def _notify_voice(self) -> None:
+        """通知语音状态变更"""
+        if self._on_voice_update:
+            self._on_voice_update(user_id=None, state=self.voice_state)
+
+    @property
+    def voice_state(self) -> dict[str, Any]:
+        return {
+            "active": len(self._voice_members) > 0,
+            "members": {
+                uid: {"muted": m.muted, "speaking": m.speaking, "joined_at": m.joined_at}
+                for uid, m in self._voice_members.items()
+            },
+        }
+
+    # ── 屏幕共享 ─────────────────────────────────────────────────────────────
+
+    def start_screen_share(self, presenter_id: str) -> bool:
+        """开始屏幕共享"""
+        if presenter_id not in self._collaborators:
+            return False
+        if self._share is not None and not self._share.viewers:
+            return False
+        self._share = ScreenShareSession(presenter_id=presenter_id)
+        self._record_audit(presenter_id, "share_start", f"{presenter_id} 开始屏幕共享")
+        self._notify_share()
+        return True
+
+    def stop_screen_share(self, presenter_id: str) -> bool:
+        """结束屏幕共享"""
+        if self._share is None or self._share.presenter_id != presenter_id:
+            return False
+        self._share = None
+        self._record_audit(presenter_id, "share_stop", f"{presenter_id} 结束屏幕共享")
+        self._notify_share()
+        return True
+
+    def publish_frame(self, presenter_id: str, frame_data: dict) -> int | None:
+        """发布屏幕共享画面帧"""
+        if self._share is None or self._share.presenter_id != presenter_id:
+            return None
+        return self._share.publish_frame(frame_data)
+
+    def watch_share(self, user_id: str, watch: bool = True) -> bool:
+        """加入/退出屏幕共享观看"""
+        if user_id not in self._collaborators:
+            return False
+        if self._share is None:
+            return False
+        if watch:
+            self._share.viewers.add(user_id)
+        else:
+            self._share.viewers.discard(user_id)
+        self._notify_share()
+        return True
+
+    @property
+    def share_state(self) -> dict:
+        if self._share is None:
+            return {"active": False, "presenter_id": None, "viewer_count": 0, "frame_count": 0}
+        return {
+            "active": True,
+            "presenter_id": self._share.presenter_id,
+            "viewer_count": len(self._share.viewers),
+            "frame_count": self._share.frame_count,
+        }
+
+    def latest_frame(self) -> dict | None:
+        """获取最新共享画面帧"""
+        if self._share is None:
+            return None
+        return self._share.latest_frame()
+
+    def recent_frames(self, limit: int = 5) -> list[dict]:
+        """获取最近共享画面帧"""
+        if self._share is None:
+            return []
+        return self._share.recent_frames(limit)
+
+    def _notify_share(self) -> None:
+        """通知共享状态变更"""
+        if self._on_share_update:
+            self._on_share_update(self.share_state)
 
     # ── 回调 ──────────────────────────────────────────────────────────────────
 
@@ -312,6 +589,15 @@ class CollaborationSession:
 
     def on_member_leave(self, callback: Callable) -> None:
         self._on_member_leave = callback
+
+    def on_voice_update(self, callback: Callable) -> None:
+        self._on_voice_update = callback
+
+    def on_share_update(self, callback: Callable) -> None:
+        self._on_share_update = callback
+
+    def on_audit(self, callback: Callable) -> None:
+        self._on_audit = callback
 
     # ── 状态 ──────────────────────────────────────────────────────────────────
 
@@ -332,6 +618,10 @@ class CollaborationSession:
             },
             "operation_count": len(self._operations),
             "chat_count": len(self._chat_messages),
+            "audit_count": self.audit_count,
+            "version_count": self.version_count,
+            "voice": self.voice_state,
+            "screen_share": self.share_state,
         }
 
     def to_dict(self) -> dict:
@@ -341,8 +631,8 @@ class CollaborationSession:
 
 # ── 全局会话管理 ────────────────────────────────────────────────────────────
 
-_sessions: Dict[str, CollaborationSession] = {}
-_session_callbacks: Dict[str, dict] = {}
+_sessions: dict[str, CollaborationSession] = {}
+_session_callbacks: dict[str, dict] = {}
 
 
 def create_session(session_id: str, project_id: str) -> CollaborationSession:
@@ -353,7 +643,7 @@ def create_session(session_id: str, project_id: str) -> CollaborationSession:
     return session
 
 
-def get_session(session_id: str) -> Optional[CollaborationSession]:
+def get_session(session_id: str) -> CollaborationSession | None:
     """获取协作会话"""
     return _sessions.get(session_id)
 
@@ -367,7 +657,7 @@ def destroy_session(session_id: str) -> bool:
     return False
 
 
-def list_sessions() -> List[dict]:
+def list_sessions() -> list[dict]:
     """列出所有会话"""
     return [
         {
@@ -398,7 +688,6 @@ if __name__ == "__main__":
     print(f"成员数: {session.collaborator_count}")
 
     # 发送操作
-    from src.visual_editor.node_executor import Operation as NodeOp
     op = Operation(
         op_id=uuid.uuid4().hex,
         user_id="alice",
@@ -426,7 +715,7 @@ if __name__ == "__main__":
 
     # 状态
     state = session.get_state()
-    print(f"\n会话状态:")
+    print("\n会话状态:")
     print(f"  协作者: {len(state['collaborators'])}")
     print(f"  操作数: {state['operation_count']}")
     print(f"  聊天数: {state['chat_count']}")

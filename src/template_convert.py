@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """新旧 Matha 模板互转工具
 
 旧模板特征：#N：{ ... } 有段号，多段分散
@@ -16,7 +15,6 @@
     3. 去掉 【*/说明/*】 和 @：【内容】（可选）
 """
 import re
-from typing import Tuple
 
 
 def old_to_new(src: str, title: str = "", code_id: str = "") -> str:
@@ -27,7 +25,6 @@ def old_to_new(src: str, title: str = "", code_id: str = "") -> str:
     code_id：可选代码编号前缀（如 "？" 或 "1"），放在 #： 之前。
     """
     lines = src.strip().split("\n")
-    out_lines = []
     in_block = False
     block_lines = []
     outputs = []
@@ -146,7 +143,7 @@ def new_to_old(src: str) -> str:
     return result
 
 
-def convert(src: str, direction: str = "auto") -> Tuple[str, str]:
+def convert(src: str, direction: str = "auto") -> tuple[str, str]:
     """自动检测并转换模板格式
 
     direction: "auto" | "old_to_new" | "new_to_old"

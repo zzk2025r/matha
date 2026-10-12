@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 遗传算法与 AI 编写代码领域模块。
 
@@ -9,9 +8,9 @@ Matha 遗传算法与 AI 编写代码领域模块。
   4) 超参数搜索
 """
 from __future__ import annotations
-import random
-from typing import Callable, Optional
 
+import random
+from collections.abc import Callable
 
 # ============================================================
 # 遗传算法

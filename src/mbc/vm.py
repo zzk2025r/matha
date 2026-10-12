@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M3V 栈式字节码虚拟机。
 
 性能墙的根本解法：
@@ -9,8 +8,12 @@
 """
 from __future__ import annotations
 
+import math
+import operator
+
+from src import formula_schema as _fs
 from src.mbc import opcodes as OP
-from src.mbc.compiler import MModule, MFunction
+from src.mbc.compiler import MFunction, MModule
 
 
 class Box:
@@ -21,7 +24,7 @@ class Box:
 
 class Closure:
     __slots__ = ("fn", "frame")
-    def __init__(self, fn: MFunction, frame: "Frame | None"):
+    def __init__(self, fn: MFunction, frame: Frame | None):
         self.fn = fn
         self.frame = frame
 
@@ -43,6 +46,21 @@ class Frame:
         self.enclosing = enclosing   # 定义帧（闭包链）
         self.stack: list = []
         self.pc = 0
+
+
+def _bitop(sym: str, fn):
+    """位运算：强制两侧为整数，语义与解释器 src/interp.py:2376-2395 逐条一致。
+
+    解释器在操作数非整数时报 `MathaRuntimeError("<sym> 操作数需为整数，…")`；
+    VM 侧抛 RuntimeError（与本模块其余内建错误的类型一致），消息文本保持
+    同样的定位信息，便于三端对照排错。bool 是 int 的子类，解释器按 Python
+    语义接受（`~真` == -2、`6 & 真` == 0），此处同样接受以保持三端一致。
+    """
+    def apply(a, b):
+        if not isinstance(a, int) or not isinstance(b, int):
+            raise RuntimeError(f"{sym} 操作数需为整数，actual left={type(a).__name__}, right={type(b).__name__}")
+        return fn(a, b)
+    return apply
 
 
 _BINOPS = {
@@ -67,6 +85,12 @@ _BINOPS = {
     # 右移对负数用算术右移，与 Python // 语义一致。
     "<<": lambda a, b: a << b,
     ">>": lambda a, b: a >> b,
+    # 位运算：与解释器 src/interp.py:2376-2395 同语义（仅整数操作数）。
+    # `^` 不在此表：按 docs/06 与 EBNF 2.1，`<power> = "^"`（中缀次方），
+    # 编译器在 _BIN_OPS 里把 AST 的 `^` 归约为 `**`；异或用专用符号 `⊕`。
+    "&": _bitop("&", operator.and_),
+    "|": _bitop("|", operator.or_),
+    "⊕": _bitop("⊕", operator.xor),
 }
 
 def _builtin_sqrt(a):
@@ -75,10 +99,49 @@ def _builtin_sqrt(a):
     return int(r) if isinstance(a, int) and r == int(r) else r
 
 
+def _builtin_bitnot(a):
+    """一元 `~` 位取反：仅整数，语义对齐解释器 src/interp.py:1730。
+
+    bool 按 Python 语义视为 int（`~真` == -2），与解释器一致。
+    """
+    if not isinstance(a, int):
+        raise RuntimeError(f"~ 仅适用于整数，实际 {type(a).__name__}")
+    return ~int(a)
+
+
+def _builtin_angle(a):
+    """`<<` 角度前缀：度数 → 弧度（docs/06 级 6、docs/17 §42）。
+
+    三角函数（stdlib.arithmetic 的 sin/cos/tan）一律吃弧度，故归一化后
+    sin(<<30) == 0.5，与文档示例一致。bool 不接受：角度不是真假值。
+    """
+    if isinstance(a, bool) or not isinstance(a, (int, float)):
+        raise RuntimeError(f"<< 角度仅适用于数值，实际 {type(a).__name__}")
+    return math.radians(a)
+
+
+def _builtin_incr(a):
+    """前缀 `++`：v + 1（非原地，不改绑定，语义同解释器 src/interp.py:1708）。"""
+    if not isinstance(a, (int, float)):
+        raise RuntimeError(f"++ 仅适用于数值，实际 {type(a).__name__}")
+    return a + 1
+
+
+def _builtin_decr(a):
+    """前缀 `--`：v - 1（非原地，语义同解释器 src/interp.py:1716）。"""
+    if not isinstance(a, (int, float)):
+        raise RuntimeError(f"-- 仅适用于数值，实际 {type(a).__name__}")
+    return a - 1
+
+
 _UNARYOPS = {
     "neg": lambda a: -a,
     "not": lambda a: not a,
     "sqrt": _builtin_sqrt,
+    "~": _builtin_bitnot,
+    "angle": _builtin_angle,
+    "++": _builtin_incr,
+    "--": _builtin_decr,
 }
 
 
@@ -195,7 +258,7 @@ def _builtin_decode_decimal(encoded):
 def _builtin_read_file(path):
     """read_file(path) → 文件内容字符串。"""
     try:
-        with open(str(path), "r", encoding="utf-8") as f:
+        with open(str(path), encoding="utf-8") as f:
             return f.read()
     except Exception as e:
         raise RuntimeError(f"read_file 失败: {e}")
@@ -243,7 +306,10 @@ def _default_builtins() -> dict:
     # 柯里化的序列工具（Matha 代码以 get(xs)(i) / append(xs)(x) 形式调用）
     b.setdefault("get", _curry2(lambda c, i: c[i]))
     b.setdefault("slice", _curry3(lambda c, s, e: c[s:e]))
-    b.setdefault("append", _curry2(lambda xs, x: (list(xs) if xs is not None else []) + [x]))
+    b.setdefault("append", _curry2(_builtin_append))
+    # 原地追加（O(1) 摊还）：仅自举编译器 `_发` 等「构建器」在保证列表无别名
+    # 共享时使用，语义上等价于 append 但避免整体复制导致的 O(n²)。
+    b.setdefault("list_push", _curry2(_builtin_list_push))
     b.setdefault("mut_set_at", _builtin_mut_set_at)
     # dict 原语（纯 Matha 无法实现：无 keys/values/不可变更新操作码）
     b.setdefault("_dict_keys", _builtin_dict_keys)
@@ -354,6 +420,26 @@ def _builtin_make_set(form, variables, elements):
     return _builtin_dedup(elements or [])
 
 
+def _builtin_append(xs, x):
+    """append(xs, x) → 新列表（非原地，保持纯函数语义）。"""
+    if xs is None:
+        return [x]
+    r = list(xs)
+    r.append(x)
+    return r
+
+
+def _builtin_list_push(lst, x):
+    """list_push(lst, x) → 原地追加 x 并返回 lst（O(1) 摊还）。
+
+    仅供**构建器**内部使用：调用方（自举编译器的 `_发`）保证该列表由单一的
+    线性函数式链持有、不与其它绑定别名共享，故原地更新对外可观察结果与
+    「返回新列表」等价，同时避免 `append` 的 O(n²) 整体复制——它曾让自举
+    编译 parser.matha 多花约 15s（整体约减半）。"""
+    lst.append(x)
+    return lst
+
+
 class VM:
     def __init__(self, mod: MModule, builtins: dict | None = None, verbose: bool = False):
         self.mod = mod
@@ -366,6 +452,8 @@ class VM:
         self.globals.setdefault("安全取属性", _curry2(_builtin_safe_attr))
         self.globals.setdefault("构造集合", _curry3(_builtin_make_set))
         self.outputs: list = []
+        # `？` 公式模式库（`#：？公式` 登记的模式）
+        self.formulas = _fs.FormulaLibrary()
         self.verbose = verbose
         # 主帧（模块全局帧）
         self.main_frame = Frame("__main__", mod.main_code, [], None)
@@ -379,29 +467,30 @@ class VM:
 
     def run(self):
         frames = self.frames
+        dispatch = self._dispatch
         while frames and not self.halted:
             f = frames[-1]
             ins = f.code[f.pc]
             f.pc += 1
-            op = ins[0]
-            self._dispatch(op, ins, f, frames)
+            dispatch(ins[0], ins, f, frames)
         return self.outputs
 
     def call(self, name: str, *args):
         """在已初始化的 VM 上调用全局函数（供外部驱动自举链路）。"""
         fn = self.globals[name]
-        base = len(self.frames)
-        f = self.frames[-1]
+        frames = self.frames
+        base = len(frames)
+        f = frames[-1]
         f.stack.append(fn)
         for a in args:
             f.stack.append(a)
-        self._dispatch(OP.CALL, (OP.CALL, len(args)), f, self.frames)
-        frames = self.frames
+        dispatch = self._dispatch
+        dispatch(OP.CALL, (OP.CALL, len(args)), f, frames)
         while len(frames) > base:
             f = frames[-1]
             ins = f.code[f.pc]
             f.pc += 1
-            self._dispatch(ins[0], ins, f, frames)
+            dispatch(ins[0], ins, f, frames)
         # 返回值在调用帧（base-1，通常是主帧）栈顶
         return frames[base - 1].stack.pop()
 
@@ -416,102 +505,50 @@ class VM:
         f.stack.append(fn)
         for a in args:
             f.stack.append(a)
+        frames = self.frames
+        dispatch = self._dispatch
         try:
-            self._dispatch(OP.CALL, (OP.CALL, len(args)), f, self.frames)
-            frames = self.frames
+            dispatch(OP.CALL, (OP.CALL, len(args)), f, frames)
             while len(frames) > base:
                 f = frames[-1]
                 ins = f.code[f.pc]
                 f.pc += 1
-                self._dispatch(ins[0], ins, f, frames)
+                dispatch(ins[0], ins, f, frames)
             return frames[base - 1].stack.pop()
         finally:
             if len(self.frames) > base:
                 del self.frames[base:]
 
     def _dispatch(self, op, ins, f: Frame, frames: list) -> None:
+        # 分派链按操作码实测出现频率排序（自举编译负载：LOAD_LOCAL 23%、
+        # CALL 10%、LOAD_GLOBAL/BINOP 各 10%、JZ 8%、PUSH_CONST 7%、GET_ATTR 7%…），
+        # 高频指令靠前可将近半指令的比较次数砍半。判定顺序不影响语义。
         C = self.mod.constants
         st = f.stack
 
-        if op == OP.PUSH_CONST:
-            st.append(C[ins[1]])
-        elif op == OP.PUSH_TRUE:
-            st.append(True)
-        elif op == OP.PUSH_FALSE:
-            st.append(False)
-        elif op == OP.PUSH_NULL:
-            st.append(None)
-
-        elif op == OP.LOAD_LOCAL:
+        if op == OP.LOAD_LOCAL:
             st.append(f.locals[ins[1]])
-        elif op == OP.STORE_LOCAL:
-            f.locals[ins[1]] = st.pop()
-        elif op == OP.LOAD_BOX:
-            st.append(f.locals[ins[1]].value)
-        elif op == OP.MAKE_BOX:
-            f.locals[ins[1]] = Box(None)
-        elif op == OP.STORE_BOX:
-            f.locals[ins[1]].value = st.pop()
-        elif op == OP.LOAD_OUTER:
-            st.append(self._outer(f, ins[1]).locals[ins[2]])
-        elif op == OP.LOAD_OUTER_BOX:
-            st.append(self._outer(f, ins[1]).locals[ins[2]].value)
-        elif op == OP.LOAD_GLOBAL:
-            st.append(self.globals[C[ins[1]]])
-        elif op == OP.STORE_GLOBAL:
-            self.globals[C[ins[1]]] = st.pop()
-
-        elif op == OP.MAKE_CLOSURE:
-            st.append(Closure(self.mod.functions[ins[1]], f))
-
         elif op == OP.CALL:
             argc = ins[1]
             # 栈布局：[..., fn, arg1, ..., argN]（栈顶为最后一个参数）
-            args = list(st[len(st) - argc:]) if argc else []
-            fn = st[len(st) - argc - 1]
-            del st[len(st) - argc - 1:]
+            if argc:
+                fn = st[-argc - 1]
+                args = st[-argc:]
+                del st[-argc - 1:]
+            else:
+                fn = st.pop()
+                args = []
             self._invoke(fn, args, f, frames)
-
-        elif op == OP.RET:
-            val = st.pop() if st else None
-            frames.pop()
-            if frames:
-                frames[-1].stack.append(val)
-
-        elif op == OP.JMP:
-            f.pc = ins[1]
-        elif op == OP.JZ:
-            if not st.pop():
-                f.pc = ins[1]
-        elif op == OP.JNZ:
-            if st.pop():
-                f.pc = ins[1]
-
+        elif op == OP.LOAD_GLOBAL:
+            st.append(self.globals[C[ins[1]]])
         elif op == OP.BINOP:
             b = st.pop(); a = st.pop()
             st.append(_BINOPS[C[ins[1]]](a, b))
-        elif op == OP.UNARYOP:
-            st.append(_UNARYOPS[C[ins[1]]](st.pop()))
-
-        elif op == OP.BUILD_LIST:
-            n = ins[1]
-            # st[-n:] 为栈底→栈顶，即元素按书写顺序压入的顺序
-            items = list(st[-n:]) if n else []
-            del st[len(st) - n:]
-            st.append(items)
-        elif op == OP.BUILD_DICT:
-            n = ins[1]
-            d = {}
-            for _ in range(n):
-                v = st.pop(); k = st.pop()
-                d[k] = v
-            st.append(d)
-        elif op == OP.INDEX_GET:
-            idx = st.pop(); c = st.pop()
-            st.append(c[idx])
-        elif op == OP.BUILD_SLICE:
-            end = st.pop(); start = st.pop(); c = st.pop()
-            st.append(c[start:end])
+        elif op == OP.JZ:
+            if not st.pop():
+                f.pc = ins[1]
+        elif op == OP.PUSH_CONST:
+            st.append(C[ins[1]])
         elif op == OP.GET_ATTR:
             obj = st.pop()
             key = C[ins[1]]
@@ -520,17 +557,72 @@ class VM:
                 st.append(obj.get(key))
             else:
                 st.append(obj[key])
+        elif op == OP.DUP:
+            st.append(st[-1])
+        elif op == OP.RET:
+            val = st.pop() if st else None
+            frames.pop()
+            if frames:
+                frames[-1].stack.append(val)
+        elif op == OP.JNZ:
+            if st.pop():
+                f.pc = ins[1]
+        elif op == OP.POP:
+            st.pop()
+        elif op == OP.STORE_LOCAL:
+            f.locals[ins[1]] = st.pop()
+        elif op == OP.JMP:
+            f.pc = ins[1]
+        elif op == OP.INDEX_GET:
+            idx = st.pop(); c = st.pop()
+            st.append(c[idx])
+        elif op == OP.PUSH_TRUE:
+            st.append(True)
+        elif op == OP.PUSH_FALSE:
+            st.append(False)
+        elif op == OP.LOAD_OUTER:
+            st.append(self._outer(f, ins[1]).locals[ins[2]])
+        elif op == OP.BUILD_LIST:
+            n = ins[1]
+            # st[-n:] 为栈底→栈顶，即元素按书写顺序压入的顺序
+            if n:
+                items = list(st[-n:])
+                del st[-n:]
+            else:
+                items = []
+            st.append(items)
+        elif op == OP.PUSH_NULL:
+            st.append(None)
         elif op == OP.UNPACK_SEQ:
             seq = st.pop()
             seq = seq if seq is not None else []
             n = ins[1]
             for i in range(n):
                 st.append(seq[i] if i < len(seq) else None)
-        elif op == OP.DUP:
-            st.append(st[-1])
-        elif op == OP.POP:
-            st.pop()
-
+        elif op == OP.LOAD_OUTER_BOX:
+            st.append(self._outer(f, ins[1]).locals[ins[2]].value)
+        elif op == OP.STORE_GLOBAL:
+            self.globals[C[ins[1]]] = st.pop()
+        elif op == OP.MAKE_CLOSURE:
+            st.append(Closure(self.mod.functions[ins[1]], f))
+        elif op == OP.UNARYOP:
+            st.append(_UNARYOPS[C[ins[1]]](st.pop()))
+        elif op == OP.BUILD_DICT:
+            n = ins[1]
+            d = {}
+            for _ in range(n):
+                v = st.pop(); k = st.pop()
+                d[k] = v
+            st.append(d)
+        elif op == OP.BUILD_SLICE:
+            end = st.pop(); start = st.pop(); c = st.pop()
+            st.append(c[start:end])
+        elif op == OP.LOAD_BOX:
+            st.append(f.locals[ins[1]].value)
+        elif op == OP.MAKE_BOX:
+            f.locals[ins[1]] = Box(None)
+        elif op == OP.STORE_BOX:
+            f.locals[ins[1]].value = st.pop()
         elif op == OP.OUTPUT:
             val = st.pop()
             self.outputs.append(val)
@@ -538,6 +630,10 @@ class VM:
                 print(val)
         elif op == OP.RAISE:
             raise RuntimeError(str(st.pop()))
+        elif op == OP.FORMULA_SCHEMA:
+            # `#N：？公式` 登记为模式：槽不可求值，只记静态规格。
+            seg_id, text, shp, slots = C[ins[1]]
+            self.formulas.register_meta(seg_id, text, shp, slots)
         elif op == OP.HALT:
             # 顶层初始化结束：停止取指，但保留主帧供后续 call() 驱动
             self.halted = True

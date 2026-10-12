@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 包管理器 — matha-pkg
 
 提供：
@@ -16,16 +15,12 @@
   matha-pkg search prime
 """
 from __future__ import annotations
+
 import json
 import re
 import sys
-import os
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
-from enum import Enum
-import hashlib
-
+from pathlib import Path
 
 # ============================================================
 # 语义化版本
@@ -40,7 +35,7 @@ class Version:
         self.patch = patch
 
     @classmethod
-    def parse(cls, version_str: str) -> 'Version':
+    def parse(cls, version_str: str) -> Version:
         """解析版本字符串。"""
         # 移除前缀 v/V
         version_str = re.sub(r'^[vV]', '', version_str)
@@ -96,11 +91,11 @@ class PackageMeta:
     description: str = ""
     author: str = ""
     license: str = ""
-    dependencies: Dict[str, str] = field(default_factory=dict)  # {name: version_spec}
-    dev_dependencies: Dict[str, str] = field(default_factory=dict)
-    entry_points: Dict[str, str] = field(default_factory=dict)  # {name: module.path}
+    dependencies: dict[str, str] = field(default_factory=dict)  # {name: version_spec}
+    dev_dependencies: dict[str, str] = field(default_factory=dict)
+    entry_points: dict[str, str] = field(default_factory=dict)  # {name: module.path}
     homepage: str = ""
-    keywords: List[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -117,7 +112,7 @@ class PackageMeta:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'PackageMeta':
+    def from_dict(cls, data: dict) -> PackageMeta:
         version_str = data.get('version', '0.0.0')
         return cls(
             name=data['name'],
@@ -151,8 +146,8 @@ class DependencyResolver:
     }
 
     def __init__(self):
-        self._resolve_cache: Dict[str, List[str]] = {}  # 依赖解析缓存
-        self._constraint_cache: Dict[str, bool] = {}     # 约束检查缓存
+        self._resolve_cache: dict[str, list[str]] = {}  # 依赖解析缓存
+        self._constraint_cache: dict[str, bool] = {}     # 约束检查缓存
 
     def check_constraint(self, version: Version, constraint: str) -> bool:
         """检查版本是否满足约束（带缓存）。"""
@@ -165,12 +160,6 @@ class DependencyResolver:
         result = all(self._check_single(version, c) for c in constraints)
         self._constraint_cache[cache_key] = result
         return result
-
-    def check_constraint(self, version: Version, constraint: str) -> bool:
-        """检查版本是否满足约束。"""
-        # 处理多个约束（逗号分隔）
-        constraints = [c.strip() for c in constraint.split(',')]
-        return all(self._check_single(version, c) for c in constraints)
 
     def _check_single(self, version: Version, constraint: str) -> bool:
         """检查单个约束。"""
@@ -206,7 +195,7 @@ class DependencyResolver:
         base = Version.parse(spec)
         return version >= base and version.major == base.major
 
-    def resolve(self, package: PackageMeta, registry: Dict[str, PackageMeta]) -> List[str]:
+    def resolve(self, package: PackageMeta, registry: dict[str, PackageMeta]) -> list[str]:
         """解析依赖树（带缓存和冲突解决）。"""
         cache_key = f"{package.name}@{package.version}"
         if cache_key in self._resolve_cache:
@@ -214,7 +203,7 @@ class DependencyResolver:
 
         resolved = []
         visited = set()
-        constraints: Dict[str, List[str]] = {}  # 收集所有约束
+        constraints: dict[str, list[str]] = {}  # 收集所有约束
 
         def _collect_constraints(pkg_name: str, version_spec: str = ''):
             """收集所有版本的约束。"""
@@ -269,7 +258,7 @@ class DependencyResolver:
         return resolved
 
     def _resolve_conflict(self, pkg_name: str, constraint: str,
-                          registry: Dict[str, PackageMeta]) -> Optional[PackageMeta]:
+                          registry: dict[str, PackageMeta]) -> PackageMeta | None:
         """尝试解决版本冲突。
 
         策略：
@@ -327,8 +316,8 @@ class MathaPackage:
         self.root = Path(root_dir) if root_dir else Path.cwd()
         self.packages_dir = self.root / '.matha_packages'
         self.packages_dir.mkdir(parents=True, exist_ok=True)
-        self.registry: Dict[str, PackageMeta] = {}
-        self.installed: Dict[str, Version] = {}
+        self.registry: dict[str, PackageMeta] = {}
+        self.installed: dict[str, Version] = {}
         self._resolver = DependencyResolver()
         self._load_registry()
 
@@ -337,7 +326,7 @@ class MathaPackage:
         # 从本地缓存加载
         cache_file = self.packages_dir / 'registry.json'
         if cache_file.exists():
-            with open(cache_file, 'r', encoding='utf-8') as f:
+            with open(cache_file, encoding='utf-8') as f:
                 data = json.load(f)
                 for name, meta in data.items():
                     self.registry[name] = PackageMeta.from_dict(meta)
@@ -385,7 +374,7 @@ class MathaPackage:
                         entry_points={mod: f'src.{mod}'},
                     )
 
-    def install(self, spec: str, dev: bool = False) -> List[str]:
+    def install(self, spec: str, dev: bool = False) -> list[str]:
         """安装包。
 
         Args:
@@ -433,11 +422,11 @@ class MathaPackage:
 
         return deps
 
-    def list_packages(self) -> List[Tuple[str, Version]]:
+    def list_packages(self) -> list[tuple[str, Version]]:
         """列出已安装的包。"""
         return [(name, ver) for name, ver in sorted(self.installed.items())]
 
-    def search(self, query: str) -> List[PackageMeta]:
+    def search(self, query: str) -> list[PackageMeta]:
         """搜索包。"""
         results = []
         query_lower = query.lower()

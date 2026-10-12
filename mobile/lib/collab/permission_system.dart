@@ -108,6 +108,7 @@ class PermissionManager extends ChangeNotifier {
   
   final Map<String, PermissionAssignment> _permissions = {};
   final List<Map<String, dynamic>> _permissionHistory = [];
+  final Set<String> _consumedInvites = {};
 
   PermissionManager({
     required this.documentId,
@@ -259,14 +260,53 @@ class PermissionManager extends ChangeNotifier {
 
   /// 生成邀请链接
   String generateInviteLink(PermissionType permission) {
-    final inviteId = DateTime.now().millisecondsSinceEpoch.toString();
-    return 'https://matha.app/invite/$inviteId?permission=${permission.name}';
+    final inviteId = _generateInviteId();
+    return 'https://matha.app/invite/$inviteId?permission=${permission.name}&doc=$documentId';
   }
 
   /// 处理邀请链接
   Future<bool> processInviteLink(String inviteId, PermissionType permission) async {
-    // TODO: 实现邀请链接验证
+    // 校验邀请 ID 合法性
+    if (inviteId.isEmpty || !_isValidInviteId(inviteId)) {
+      debugPrint('[Permission] 邀请链接无效: $inviteId');
+      return false;
+    }
+
+    // 校验权限类型合法性
+    if (!PermissionType.all.any((p) => p.name == permission.name)) {
+      debugPrint('[Permission] 非法权限类型: ${permission.name}');
+      return false;
+    }
+
+    // 拒绝重复使用（防重放）
+    if (_consumedInvites.contains(inviteId)) {
+      debugPrint('[Permission] 邀请链接已被使用: $inviteId');
+      return false;
+    }
+    _consumedInvites.add(inviteId);
+
+    _permissionHistory.add({
+      'action': 'accept_invite',
+      'inviteId': inviteId,
+      'permission': permission.name,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    notifyListeners();
+    debugPrint('[Permission] 邀请链接验证通过: $inviteId -> ${permission.name}');
     return true;
+  }
+
+  String _generateInviteId() =>
+      '${DateTime.now().millisecondsSinceEpoch}_${DateTime.now().microsecond}';
+
+  bool _isValidInviteId(String inviteId) {
+    final parts = inviteId.split('_');
+    if (parts.length != 2) return false;
+    final ts = int.tryParse(parts[0]);
+    if (ts == null || ts <= 0) return false;
+    // 邀请在 7 天内有效
+    return DateTime.now().millisecondsSinceEpoch - ts <= 7 * 24 * 60 * 60 * 1000;
   }
 
   // ========== 历史记录 ==========

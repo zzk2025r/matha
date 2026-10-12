@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.4 — 最终性能总结图表
 
 包含纯 Python、NumPy 和稀疏 SVD 三种方案的详细对比。
@@ -11,9 +10,10 @@ _project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_project_root / 'src'))
 
+import random
+
 from src.optimization.sparse_svd import SparseSVDOptimizer
 from src.stdlib.linear_algebra import Matrix
-import random
 
 
 def main():
@@ -39,15 +39,15 @@ def main():
         A = Matrix(test_data)
 
         # 测试纯 Python SVD
-        print(f"    测试纯 Python SVD...")
+        print("    测试纯 Python SVD...")
         start = time.perf_counter()
-        result_py = optimizer.svd(A, use_numpy=False)
+        optimizer.svd(A, use_numpy=False)
         python_time = (time.perf_counter() - start) * 1000
 
         # 测试稀疏 SVD
-        print(f"    测试稀疏 SVD...")
+        print("    测试稀疏 SVD...")
         start = time.perf_counter()
-        result_sparse = optimizer.svd(A, use_numpy=False, force_sparse=True)
+        optimizer.svd(A, use_numpy=False, force_sparse=True)
         sparse_time = (time.perf_counter() - start) * 1000
 
         data[size] = {
@@ -66,11 +66,6 @@ def main():
     print("=" * 80)
 
     # 1000x1000 预测数据
-    predicted = {
-        10: {'python': 39.8, 'numpy': 0.04, 'sparse_90': 19.9, 'sparse_95': 8.0},
-        50: {'python': 1908.38, 'numpy': 1.0, 'sparse_90': 950.0, 'sparse_95': 475.0},
-        1000: {'python': 2167369, 'numpy': 0.367, 'sparse_90': 1083685, 'sparse_95': 433474}
-    }
 
     print("\n  1000x1000 矩阵 SVD 性能预测")
     print("  " + "─" * 60)

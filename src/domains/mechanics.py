@@ -26,8 +26,8 @@
 """
 
 from __future__ import annotations
-import math
 
+import math
 
 # ============================================================
 # 柯里化工具（与 mathlib._curry2 语义一致）

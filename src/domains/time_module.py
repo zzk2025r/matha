@@ -1,0 +1,243 @@
+"""Matha 时间模块：时间/日期操作、计时器、时区、调度。
+
+覆盖：
+  1) 时间获取与格式化
+  2) 日期计算
+  3) 计时器（高精度）
+  4) 时区转换
+  5) 定时任务调度
+  6) 时间戳操作
+"""
+from __future__ import annotations
+
+import calendar
+import datetime
+import time
+
+# ============================================================
+# 时间获取与格式化
+# ============================================================
+
+def now() -> float:
+    """当前时间戳（秒）。"""
+    return time.time()
+
+
+def today() -> str:
+    """当前日期（YYYY-MM-DD）。"""
+    return datetime.date.today().isoformat()
+
+
+def now_datetime() -> str:
+    """当前日期时间（ISO格式）。"""
+    return datetime.datetime.now().isoformat()
+
+
+def now_utc() -> str:
+    """当前UTC时间。"""
+    return datetime.datetime.utcnow().isoformat() + "Z"
+
+
+def format_time(timestamp: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """格式化时间戳。"""
+    return datetime.datetime.fromtimestamp(timestamp).strftime(fmt)
+
+
+def parse_time(text: str, fmt: str = "%Y-%m-%d %H:%M:%S") -> float:
+    """解析时间字符串为时间戳。"""
+    try:
+        dt = datetime.datetime.strptime(text, fmt)
+        return dt.timestamp()
+    except ValueError:
+        return 0.0
+
+
+def time_str() -> str:
+    """当前时间字符串。"""
+    return datetime.datetime.now().strftime("%H:%M:%S")
+
+
+def date_str() -> str:
+    """当前日期字符串。"""
+    return datetime.date.today().strftime("%Y-%m-%d")
+
+
+# ============================================================
+# 日期计算
+# ============================================================
+
+def date_add(days: int, base: str | None = None) -> str:
+    """日期加减天数。"""
+    d = datetime.date.today() if base is None else datetime.date.fromisoformat(base)
+    return (d + datetime.timedelta(days=days)).isoformat()
+
+
+def date_diff(date1: str, date2: str) -> int:
+    """计算两个日期之间的天数差。"""
+    d1 = datetime.date.fromisoformat(date1)
+    d2 = datetime.date.fromisoformat(date2)
+    return (d2 - d1).days
+
+
+def day_of_week(date_str_val: str) -> str:
+    """获取星期几（中文）。"""
+    days = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    d = datetime.date.fromisoformat(date_str_val)
+    return days[d.weekday()]
+
+
+def is_leap_year(year: int) -> bool:
+    """判断闰年。"""
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def days_in_month(year: int, month: int) -> int:
+    """获取月份天数。"""
+    return calendar.monthrange(year, month)[1]
+
+
+# ============================================================
+# 计时器
+# ============================================================
+
+class Timer:
+    """高精度计时器。"""
+
+    def __init__(self):
+        self._start: float = 0.0
+        self._elapsed: float = 0.0
+        self._running: bool = False
+
+    def start(self) -> None:
+        """开始计时。"""
+        self._start = time.perf_counter()
+        self._running = True
+
+    def stop(self) -> float:
+        """停止计时并返回秒数。"""
+        if self._running:
+            self._elapsed += time.perf_counter() - self._start
+            self._running = False
+        return self._elapsed
+
+    def reset(self) -> None:
+        """重置计时器。"""
+        self._start = 0.0
+        self._elapsed = 0.0
+        self._running = False
+
+    def elapsed(self) -> float:
+        """获取已过时间（秒）。"""
+        if self._running:
+            return self._elapsed + (time.perf_counter() - self._start)
+        return self._elapsed
+
+
+# ============================================================
+# 时区转换
+# ============================================================
+
+def timezone_offset(timezone_str: str = "UTC") -> float:
+    """获取时区偏移（小时）。"""
+    offsets = {
+        "UTC": 0, "GMT": 0,
+        "CST": 8, "Asia/Shanghai": 8,
+        "EST": -5, "America/New_York": -5,
+        "PST": -8, "America/Los_Angeles": -8,
+        "JST": 9, "Asia/Tokyo": 9,
+        "CET": 1, "Europe/Berlin": 1,
+    }
+    return offsets.get(timezone_str, 0)
+
+
+def convert_timezone(timestamp: float, from_tz: str = "UTC", to_tz: str = "UTC") -> float:
+    """时区转换。"""
+    offset_diff = timezone_offset(to_tz) - timezone_offset(from_tz)
+    return timestamp + offset_diff * 3600
+
+
+# ============================================================
+# 定时调度
+# ============================================================
+
+_scheduled_tasks: list[dict] = []
+
+
+def schedule_task(interval_seconds: float, task_name: str, callback) -> int:
+    """注册定时任务。"""
+    task = {
+        "interval": interval_seconds,
+        "name": task_name,
+        "callback": callback,
+        "next_run": time.time() + interval_seconds,
+        "id": len(_scheduled_tasks),
+    }
+    _scheduled_tasks.append(task)
+    return task["id"]
+
+
+def run_pending_tasks() -> list[str]:
+    """执行到期的定时任务。"""
+    current = time.time()
+    executed = []
+    for task in _scheduled_tasks:
+        if current >= task["next_run"]:
+            try:
+                task["callback"]()
+                executed.append(task["name"])
+            except Exception:
+                pass
+            task["next_run"] = current + task["interval"]
+    return executed
+
+
+def get_pending_tasks() -> list[dict]:
+    """获取待执行的任务列表。"""
+    return [t for t in _scheduled_tasks if time.time() < t["next_run"]]
+
+
+# ============================================================
+# 注册
+# ============================================================
+
+def _register_time(builtins: dict) -> None:
+    builtins["获取时间戳"] = now
+    builtins["获取日期"] = today
+    builtins["获取日期时间"] = now_datetime
+    builtins["获取UTC时间"] = now_utc
+    builtins["格式化时间"] = format_time
+    builtins["解析时间"] = parse_time
+    builtins["当前时间"] = time_str
+    builtins["当前日期"] = date_str
+    builtins["日期加减"] = date_add
+    builtins["日期差"] = date_diff
+    builtins["星期几"] = day_of_week
+    builtins["闰年判断"] = is_leap_year
+    builtins["月份天数"] = days_in_month
+    builtins["创建计时器"] = Timer
+    builtins["时区偏移"] = timezone_offset
+    builtins["时区转换"] = convert_timezone
+    builtins["注册任务"] = schedule_task
+    builtins["执行待办"] = run_pending_tasks
+    builtins["待办列表"] = get_pending_tasks
+
+
+def _time_symtab_names() -> list[str]:
+    return [
+        "获取时间戳", "获取日期", "获取日期时间", "获取UTC时间",
+        "格式化时间", "解析时间", "当前时间", "当前日期",
+        "日期加减", "日期差", "星期几", "闰年判断",
+        "月份天数", "创建计时器", "时区偏移", "时区转换",
+        "注册任务", "执行待办", "待办列表",
+    ]
+
+
+__all__ = [
+    "now", "today", "now_datetime", "now_utc",
+    "format_time", "parse_time", "time_str", "date_str",
+    "date_add", "date_diff", "day_of_week",
+    "is_leap_year", "days_in_month", "Timer",
+    "timezone_offset", "convert_timezone",
+    "schedule_task", "run_pending_tasks", "get_pending_tasks",
+    "_register_time", "_time_symtab_names",
+]

@@ -1,0 +1,733 @@
+(* ============================================================
+   Matha 字节码虚拟机（M3V 解释器）
+   ------------------------------------------------------------
+   纯 Matha 实现的 M3V 字节码解释器。输入为「自举编译器」的产物 dict：
+   { 模块名, 主码, 函数, 常量 }，执行后返回全部 输出 收集列表。
+
+   语义镜像 src/mbc/vm.py：
+     - 帧式执行循环（显式帧栈，非递归求值）
+     - 闭包捕获定义帧；局部变量 = 共享可变列表（原地修改可见）
+     - 盒 = 单槽列表（BOX）
+     - 偏应用：闭包参数不足 → 部分
+     - 内建逐参应用；调用捕获 = 受保护子执行 + 错误态返回
+     - RAISE / 错误 → ["__抛错__", 消息] 状态向上传播
+
+   调用入口：运行M3V(程序) -> List  （输出收集列表）
+   ============================================================ *)
+
+module 字节码虚拟机 {
+
+  use 标准库 { len | list_slice | list_get | matha_type_of | 原地设置 }
+
+  (* ===== M3V 操作码 ===== *)
+  func 压入常量() -> Int = 1
+  func 压入真() -> Int   = 2
+  func 压入假() -> Int   = 3
+  func 压入空() -> Int   = 4
+  func 读局部() -> Int   = 16
+  func 读盒() -> Int     = 17
+  func 写局部() -> Int   = 18
+  func 建盒() -> Int     = 19
+  func 写盒() -> Int     = 20
+  func 读外部() -> Int   = 21
+  func 读外部盒() -> Int = 22
+  func 读全局() -> Int   = 23
+  func 写全局() -> Int   = 24
+  func 造闭包() -> Int   = 32
+  func 调用() -> Int     = 33
+  func 返回() -> Int     = 34
+  func 跳转() -> Int     = 48
+  func 假跳() -> Int     = 49
+  func 真跳() -> Int     = 50
+  func 二元() -> Int     = 64
+  func 一元() -> Int     = 65
+  func 建列表() -> Int   = 80
+  func 建字典() -> Int   = 81
+  func 取下标() -> Int   = 82
+  func 切片() -> Int     = 83
+  func 取属性() -> Int   = 84
+  func 解包() -> Int     = 87
+  func 复制() -> Int     = 88
+  func 弹栈() -> Int     = 89
+  func 输出() -> Int     = 96
+  func 抛出() -> Int     = 97
+  func 停机() -> Int     = 255
+
+  (* ===== 帧结构 =====
+     帧 = [码, 局部, 闭包链, 栈, pc]
+       局部：共享可变列表（原地设置 修改，闭包捕获可见）
+       栈：   当前操作数栈（每次操作重建列表，非共享）
+       闭包链：定义帧（= 外层帧），主帧为 null *)
+
+  func 顶帧(帧栈: List) -> List = 帧栈[len(帧栈) - 1]
+
+  func 换顶(帧栈: List, 帧) -> List = 帧栈[:len(帧栈) - 1] + [帧]
+
+  func 推帧(帧栈: List, 帧) -> List = 帧栈 + [帧]
+
+  func 弹帧(帧栈: List) -> List = 帧栈[:len(帧栈) - 1]
+
+  func 换栈(帧, 栈) -> List = [帧[0], 帧[1], 帧[2], 栈, 帧[4]]
+
+  func 换pc(帧, pc: Int) -> List = [帧[0], 帧[1], 帧[2], 帧[3], pc]
+
+  (* 栈操作数辅助 *)
+  func 栈弹(栈: List) -> (Value, List) =
+    let 值 = 栈[len(栈) - 1] in
+    let 余 = 栈[:len(栈) - 1] in
+    (值, 余)
+
+  (* 栈尾 n 个元素（保序）：等价 st[len-n:] *)
+  func 取尾(栈: List, n: Int) -> List =
+    n = 0 ? [] :
+    取尾(栈[:len(栈) - 1], n - 1) + [栈[len(栈) - 1]]
+
+  func 补空(n: Int) -> List =
+    n <= 0 ? [] : [null] + 补空(n - 1)
+
+  (* ===== 全局表：[[名, 值], ...]，STORE 时原地改 pair ===== *)
+
+  func 找外层(帧, 深度: Int) -> List =
+    深度 = 1 ? 帧[2] : 找外层(帧[2], 深度 - 1)
+
+  func 查全局(全局: List, 名: String) -> Value =
+    全局 = [] ? 错误("变量未被定义: " + 名) :
+    全局[0][0] = 名 ? 全局[0][1] : 查全局(全局[1:], 名)
+
+  (* 原地更新 pair；找不到则 prepend 新 pair *)
+  func 设全局(全局: List, 名: String, 值) -> List =
+    if 全局 = [] then [[名, 值]]
+    else if 全局[0][0] = 名 then
+      let 忽略 = 原地设置(全局[0], 1, 值) in
+      全局
+    else
+      let 尾 = 设全局(全局[1:], 名, 值) in
+      [全局[0]] + 尾
+
+  (* ===== 运算 ===== *)
+
+  func 应用运算(op: String, l, r) -> Value =
+    op = "+" ? l + r :
+    op = "-" ? l - r :
+    op = "*" ? l * r :
+    op = "/" ? l / r :
+    op = "//" ? l // r :
+    op = "%" ? l % r :
+    op = "**" ? l ** r :
+    op = "==" ? (l = r) :
+    op = "!=" ? (l != r) :
+    op = "<" ? (l < r) :
+    op = ">" ? (l > r) :
+    op = "<=" ? (l <= r) :
+    op = ">=" ? (l >= r) :
+    op = "and" ? (l and r) :
+    op = "or" ? (l or r) :
+    op = "in" ? (l in r) :
+    op = "is" ? (l is r) :
+    op = "<<" ? (l << r) :
+    op = ">>" ? (l >> r) :
+    错误("未知运算符: " + op)
+
+  func 整数化(r) -> Int = _to_int(r)
+
+  func 应用一元(op: String, v) -> Value =
+    op = "neg" ?
+      -v :
+    op = "not" ?
+      (not v) :
+    (* sqrt：完全平方回退为整数，对齐宿主 _builtin_sqrt *)
+    op = "sqrt" ?
+      平方根完美(v) :
+    错误("未知一元运算符: " + op)
+
+  func 平方根完美(v) -> Value =
+    if matha_type_of(v) = "Int" and 整数化(v ** 0.5) = (v ** 0.5) then 整数化(v ** 0.5)
+    else (v ** 0.5)
+
+  (* ===== 字典安全字段：对齐 GET_ATTR，缺失返回 null ===== *)
+
+  func 字典安全取(d: Dict, 名: String) -> Value =
+    if len(d) = 0 then null
+    else
+      let 键们 = _dict_keys(d) in
+      键值查找(键们, d, 名, 0)
+
+  func 键值查找(键们: List, d: Dict, 名: String, i: Int) -> Value =
+    if i >= len(键们) then null
+    else if 键们[i] = 名 then d[名]
+    else 键值查找(键们, d, 名, i + 1)
+
+  (* ===== 类型转换内建（Matha 实现，对齐 Python 语义） ===== *)
+
+  (* Python 真值性：null/假/0/0.0/空串/空列表/空字典 → 假 *)
+  func 函数bool(x) -> Bool =
+    if x = null then 假
+    else if x = 假 then 假
+    else if x = 0 then 假
+    else if x = 0.0 then 假
+    else if x = "" then 假
+    else if x = [] then 假
+    else if matha_type_of(x) = "Dict" and len(x) = 0 then 假
+    else 真
+
+  func 数字转串(n: Int) -> String =
+    if n < 0 then "-" + 数字转串(-n)
+    else if n = 0 then "0"
+    else 数字转串正(n)
+
+  func 数字转串正(n: Int) -> String =
+    if n = 0 then ""
+    else 数字转串正(n // 10) + 个位(n % 10)
+
+  func 个位(d: Int) -> String =
+    d = 0 ? "0" :
+    d = 1 ? "1" :
+    d = 2 ? "2" :
+    d = 3 ? "3" :
+    d = 4 ? "4" :
+    d = 5 ? "5" :
+    d = 6 ? "6" :
+    d = 7 ? "7" :
+    d = 8 ? "8" : "9"
+
+  (* 浮点 → 字符串：整数部分 + 小数（最多 12 位、去尾零） *)
+  func 浮点转串(x: Float) -> String =
+    if x = 0.0 then
+      if 1 / x < 0.0 then "-0.0" else "0.0"
+    else
+      let 负 = (x < 0.0) in
+      let 正x = if 负 then -x else x in
+      let 整i = 整数化(正x) in
+      let 分 = 正x - float(整i) in
+      let 分串 = if 分 = 0.0 then ".0"
+                 else "." + 尾去零(小数串(分, 12)) in
+      let 前缀 = if 负 then "-" else "" in
+      前缀 + 数字转串(整i) + 分串
+
+  func 尾去零(s: String) -> String =
+    if s = "" then ""
+    else if s[len(s) - 1] = "0" then 尾去零(s[:len(s) - 1])
+    else s
+
+  func 小数串(x: Float, 精度: Int) -> String =
+    if 精度 = 0 then ""
+    else
+      let d = 整数化(x * 10.0) in
+      let 余 = x * 10.0 - float(d) in
+      个位(d) + 小数串(余, 精度 - 1)
+
+  (* str(v)：对齐 Python str 的常用值形态 *)
+  func 函数str(x) -> String =
+    if matha_type_of(x) = "Int" then 数字转串(x)
+    else if matha_type_of(x) = "Float" then 浮点转串(x)
+    else if matha_type_of(x) = "Bool" then
+      if x then "True" else "False"
+    else if x = null then "None"
+    else if matha_type_of(x) = "String" then x
+    else if matha_type_of(x) = "List" then 列表转串(x)
+    else
+      "<?>?"
+
+  func 列表转串(xs: List) -> String =
+    "[" + 列表元素串(xs, 0) + "]"
+
+  func 列表元素串(xs: List, i: Int) -> String =
+    if i >= len(xs) then ""
+    else
+      let 前置 = if i = 0 then "" else ", " in
+      前置 + 函数str(xs[i]) + 列表元素串(xs, i + 1)
+
+  (* int(x)：数值截断 / 字符串解析（对齐 Python lenient） *)
+  func 函数int(x) -> Int =
+    if matha_type_of(x) = "Int" then x
+    else if matha_type_of(x) = "Float" then 整数化(x)
+    else if matha_type_of(x) = "String" then 文本转整数(x)
+    else 0
+
+  func 文本转整数(s: String) -> Int =
+    if s = "" then 0
+    else
+      let 负号 = (s[0] = "-") in
+      let 起始 = if 负号 then 1 else 0 in
+      let 结果 = 数位解析(s, 起始, 0) in
+      if 负号 then -结果 else 结果
+
+  func 数位解析(s: String, i: Int, acc: Int) -> Int =
+    if i >= len(s) then acc
+    else
+      let c = s[i] in
+      if c >= "0" and c <= "9" then
+        数位解析(s, i + 1, acc * 10 + (字符码(c) - 字符码("0")))
+      else acc
+
+  func 字符码(c: String) -> Int = ord(c)
+
+  (* float(x)：数值 → 浮点；字符串经宿主 _to_float 转换 *)
+  func 函数float(x) -> Float =
+    if matha_type_of(x) = "Float" then x
+    else if matha_type_of(x) = "Int" then _to_float(x)
+    else if matha_type_of(x) = "String" then _to_float(x)
+    else 0.0
+
+  (* ===== 内建分发 =====
+     应用内建(名, 参数) -> [标签, ...]
+        ["__值__", v]          直接值
+        ["__部分__", 名, 已参]  参数不足，继续收集
+        ["__捕获器__", fn]      调用捕获包装
+        ["__抛错__", 消息]      Matha 层错误（等效 RAISE） *)
+
+  func 值返回(v) -> List = ["__值__", v]
+
+  func 部分返回(名: String, 已参: List) -> List = ["__部分__", 名, 已参]
+
+  func 抛错返回(消息) -> List = ["__抛错__", 消息]
+
+  (* 一元内建（参数恰 1；否则部分）——数学/序列/dict/编码一律委托宿主全局 *)
+  func 内建一元(名: String, 参数: List) -> List =
+    if len(参数) != 1 then 部分返回(名, 参数)
+    else if 名 = "len" then 值返回(len(参数[0]))
+    else if 名 = "ord" then 值返回(ord(参数[0]))
+    else if 名 = "chr" then 值返回(chr(参数[0]))
+    else if 名 = "list" then 值返回(list(参数[0]))
+    else if 名 = "abs" then 值返回(abs(参数[0]))
+    else if 名 = "sin" then 值返回(sin(参数[0]))
+    else if 名 = "cos" then 值返回(cos(参数[0]))
+    else if 名 = "tan" then 值返回(tan(参数[0]))
+    else if 名 = "exp" then 值返回(exp(参数[0]))
+    else if 名 = "log" then 值返回(log(参数[0]))
+    else if 名 = "ln" then 值返回(log(参数[0]))
+    else if 名 = "log10" then 值返回(log10(参数[0]))
+    else if 名 = "log2" then 值返回(log2(参数[0]))
+    else if 名 = "sqrt" then 值返回(sqrt(参数[0]))
+    else if 名 = "floor" then 值返回(floor(参数[0]))
+    else if 名 = "ceil" then 值返回(ceil(参数[0]))
+    else if 名 = "round" then 值返回(round(参数[0]))
+    else if 名 = "trunc" then 值返回(trunc(参数[0]))
+    else if 名 = "sign" then 值返回(sign(参数[0]))
+    else if 名 = "deg2rad" then 值返回(deg2rad(参数[0]))
+    else if 名 = "rad2deg" then 值返回(rad2deg(参数[0]))
+    else if 名 = "sum" then 值返回(sum(参数[0]))
+    else if 名 = "max" then 值返回(max(参数[0]))
+    else if 名 = "min" then 值返回(min(参数[0]))
+    else if 名 = "type_of" then 值返回(type_of(参数[0]))
+    else if 名 = "typeof" then 值返回(type_of(参数[0]))
+    else if 名 = "_dict_keys" then 值返回(_dict_keys(参数[0]))
+    else if 名 = "_dict_values" then 值返回(_dict_values(参数[0]))
+    else if 名 = "_read_file" then 值返回(_read_file(参数[0]))
+    else if 名 = "encode_binary" then 值返回(encode_binary(参数[0]))
+    else if 名 = "decode_binary" then 值返回(decode_binary(参数[0]))
+    else if 名 = "encode_ternary" then 值返回(encode_ternary(参数[0]))
+    else if 名 = "decode_ternary" then 值返回(decode_ternary(参数[0]))
+    else if 名 = "encode_decimal" then 值返回(encode_decimal(参数[0]))
+    else if 名 = "decode_decimal" then 值返回(decode_decimal(参数[0]))
+    else if 名 = "str" then 值返回(函数str(参数[0]))
+    else if 名 = "int" then 值返回(函数int(参数[0]))
+    else if 名 = "float" then 值返回(函数float(参数[0]))
+    else if 名 = "bool" then 值返回(函数bool(参数[0]))
+    else if 名 = "逻辑非" then 值返回(not 参数[0])
+    else if 名 = "集合基数" then 值返回(len(参数[0]))
+    else if 名 = "平均值" then 值返回(平均值(参数[0]))
+    else if 名 = "阶乘" then 值返回(阶乘(参数[0]))
+    else 抛错返回("未知内建: " + 名)
+
+  func 平均值(xs: List) -> Float =
+    if len(xs) = 0 then 0.0 else sum(xs) / len(xs)
+
+  func 阶乘(n: Int) -> Int =
+    if n <= 1 then 1 else n * 阶乘(n - 1)
+
+  (* ===== 二元内建（参数齐 2 才应用；否则部分） ===== *)
+
+  func 内建二元(名: String, 参数: List) -> List =
+    if len(参数) < 2 then 部分返回(名, 参数)
+    else if 名 = "get" then 值返回(get(参数[0])(参数[1]))
+    else if 名 = "append" then 值返回(append(参数[0])(参数[1]))
+    else if 名 = "atan2" then 值返回(atan2(参数[0])(参数[1]))
+    else if 名 = "pow" then 值返回(pow(参数[0])(参数[1]))
+    else if 名 = "hypot" then 值返回(hypot(参数[0])(参数[1]))
+    else if 名 = "_dict_has" then 值返回(_dict_has(参数[0])(参数[1]))
+    else if 名 = "_dict_remove" then 值返回(_dict_remove(参数[0])(参数[1]))
+    else if 名 = "_write_file" then 值返回(_write_file(参数[0])(参数[1]))
+    else if 名 = "_append_file" then 值返回(_append_file(参数[0])(参数[1]))
+    else if 名 = "逻辑与" then 值返回(逻辑与(参数[0])(参数[1]))
+    else if 名 = "逻辑或" then 值返回(逻辑或(参数[0])(参数[1]))
+    else 部分返回(名, 参数)
+
+  (* ===== 三元内建 ===== *)
+
+  func 内建三元(名: String, 参数: List) -> List =
+    if len(参数) < 3 then 部分返回(名, 参数)
+    else if 名 = "slice" then 值返回(slice(参数[0])(参数[1])(参数[2]))
+    else if 名 = "mut_set_at" then 值返回(mut_set_at(参数[0])(参数[1])(参数[2]))
+    else if 名 = "_dict_put" then 值返回(_dict_put(参数[0])(参数[1])(参数[2]))
+    else 部分返回(名, 参数)
+
+  (* 特殊内建：输出 / print / 调用捕获 / 错误 / MathaIOError *)
+  func 内建特殊(名: String, 参数: List, 输出指针: List) -> List =
+    if (名 = "输出" or 名 = "print") and len(参数) = 1 then
+      let 新输出 = 输出指针[1] + [参数[0]] in
+      let 忽略 = 原地设置(输出指针, 1, 新输出) in
+      值返回(参数[0])
+    else if (名 = "打印文本") and len(参数) = 1 then
+      let 新输出2 = 输出指针[1] + [函数str(参数[0])] in
+      let 忽略2 = 原地设置(输出指针, 1, 新输出2) in
+      值返回(参数[0])
+    else if 名 = "调用捕获" and len(参数) = 1 then
+      值返回(["__捕获器__", 参数[0]])
+    else if 名 = "错误" and len(参数) >= 1 then
+      抛错返回(参数[0])
+    else if 名 = "MathaIOError" and len(参数) = 1 then
+      值返回(["__MathaIOError__", 参数[0]])
+    else 部分返回(名, 参数)
+
+  (* ===== 调用分发 =====
+     摊开调用(fn, 参数, 帧栈, 全局, 输出指针, 程序) -> [标签, ...]
+        ["__下一__", 帧栈', 全局']  继续运行
+        ["__抛错__", 消息, 帧栈', 全局']  错误传播
+        ["__停机__", 帧栈', 全局']  仿造 HALT（防御） *)
+
+  func 摊开调用(fn, 参数: List, 帧栈: List, 全局: List, 输出指针: List, 程序: Dict) -> List =
+    if fn[0] = "__部分__" then
+      if matha_type_of(fn[1]) = "String" then
+        调用内建(fn[1], fn[2], 参数, 帧栈, 全局, 输出指针, 程序)
+      else 摊开调用(fn[1], fn[2] + 参数, 帧栈, 全局, 输出指针, 程序)
+    else if fn[0] = "__闭包__" then 调用闭包(fn, 参数, 帧栈, 全局, 程序)
+    else if fn[0] = "__内建__" then 调用内建(fn[1], fn[2], 参数, 帧栈, 全局, 输出指针, 程序)
+    else if fn[0] = "__捕获器__" then 调用捕获器(fn[1], 参数, 帧栈, 全局, 输出指针, 程序)
+    else ["__抛错__", "不可调用的值", 帧栈, 全局]
+
+  (* 闭包调用：参数不足 → 部分；齐 → 新帧（局部 = 参数 + 补空） *)
+  func 调用闭包(fn, 参数: List, 帧栈: List, 全局: List, 程序: Dict) -> List =
+    let 信息 = fn[1] in
+    let 元数 = 信息.元数 in
+    if len(参数) < 元数 then
+      let 帧 = 顶帧(帧栈) in
+      let 新栈 = 帧[3] + [["__部分__", fn, 参数]] in
+      ["__下一__", 换顶(帧栈, 换栈(帧, 新栈)), 全局]
+    else
+      let 局部 = list_slice(参数, 0, 元数) + 补空(信息.局部数 - 元数) in
+      let 新帧 = [信息.码, 局部, fn[2], [], 0] in
+      ["__下一__", 推帧(帧栈, 新帧), 全局]
+
+  (* 把单值压回调用帧栈顶并继续 *)
+  func 压回并继续(帧栈: List, 全局: List, 值) -> List =
+    let 帧 = 顶帧(帧栈) in
+    let 新栈 = 帧[3] + [值] in
+    ["__下一__", 换顶(帧栈, 换栈(帧, 新栈)), 全局]
+
+  (* 内建调用：应用内建；结果值 / 内建部分直接压栈；抛错传播 *)
+  func 调用内建(名: String, 已收集: List, 新参数: List, 帧栈: List, 全局: List, 输出指针: List, 程序: Dict) -> List =
+    let 参数 = 已收集 + 新参数 in
+    let 结果 = 应用内建(名, 参数, 输出指针) in
+    if 结果[0] = "__值__" then 压回并继续(帧栈, 全局, 结果[1])
+    else if 结果[0] = "__部分__" then 压回并继续(帧栈, 全局, ["__部分__", 结果[1], 结果[2]])
+    else if 结果[0] = "__捕获器__" then 压回并继续(帧栈, 全局, 结果[1])
+    else ["__抛错__", 结果[1], 帧栈, 全局]
+
+  (* 应用内建顶层分发 *)
+  func 应用内建(名: String, 参数: List, 输出指针: List) -> List =
+    if (名 = "输出" or 名 = "print" or 名 = "打印文本" or 名 = "调用捕获" or 名 = "错误" or 名 = "MathaIOError") then 内建特殊(名, 参数, 输出指针)
+    else if (名 = "slice" or 名 = "mut_set_at" or 名 = "_dict_put") then 内建三元(名, 参数)
+    else if (名 = "get" or 名 = "append" or 名 = "atan2" or 名 = "pow" or 名 = "hypot" or 名 = "_dict_has" or 名 = "_dict_remove" or 名 = "_write_file" or 名 = "_append_file" or 名 = "逻辑与" or 名 = "逻辑或") then 内建二元(名, 参数)
+    else 内建一元(名, 参数)
+
+  (* ===== 调用捕获器 =====
+     受保护子执行：fn([参数]) 整体在保底处拦截；正常/异常打标 *)
+
+  func 调用捕获器(thunk, 参数: List, 帧栈: List, 全局: List, 输出指针: List, 程序: Dict) -> List =
+    let 保底 = len(帧栈) in
+    let 帧栈子 = 闭包子帧(帧栈, thunk, [参数[0]]) in
+    let 子结果 = 执行(帧栈子, 全局, 输出指针, 程序, 保底) in
+    if 子结果[0] = "__抛错__" then
+      let 剪枝 = list_slice(子结果[2], 0, 保底) in
+      let 帧 = 顶帧(剪枝) in
+      let 新栈 = 帧[3] + [["__异常__", 子结果[1]]] in
+      ["__下一__", 换顶(剪枝, 换栈(帧, 新栈)), 子结果[3]]
+    else if 子结果[0] = "__停机__" then
+      (* 子执行未抛出、帧栈回底：取调用帧栈顶的返回值为正常值（防御） *)
+      let 帧2 = 顶帧(子结果[1]) in
+      let (v, 栈2) = 栈弹(帧2[3]) in
+      let 新栈2 = 栈2 + [["__正常__", v]] in
+      ["__下一__", 换顶(子结果[1], 换栈(帧2, 新栈2)), 子结果[2]]
+    else
+      ["__抛错__", "调用捕获异常状态", 帧栈, 全局]
+
+  (* 按闭包调用规则为 thunk 建立子执行帧（参数恰 1） *)
+  func 闭包子帧(帧栈: List, thunk, 参数: List) -> List =
+    let 信息 = thunk[1] in
+    let 局部 = list_slice(参数, 0, 信息.元数) + 补空(信息.局部数 - 信息.元数) in
+    let 新帧 = [信息.码, 局部, thunk[2], [], 0] in
+    推帧(帧栈, 新帧)
+
+  (* ===== 指令处理 =====
+     处理(指令, 帧栈, 全局, 输出指针, 程序) -> [标签, ...] *)
+
+  func 处理(指令: List, 帧栈: List, 全局: List, 输出指针: List, 程序: Dict) -> List =
+    let 帧 = 顶帧(帧栈) in
+    let 码 = 帧[0] in
+    let pc = 帧[4] in
+    let 帧步 = 换pc(帧, pc + 1) in
+    let 帧栈步 = 换顶(帧栈, 帧步) in
+    let 常量 = 程序.常量 in
+    let 栈 = 帧[3] in
+    let op = 指令[0] in
+    if op = 压入常量() then 压回并继续(帧栈步, 全局, 常量[指令[1]])
+    else if op = 压入真() then 压回并继续(帧栈步, 全局, 真)
+    else if op = 压入假() then 压回并继续(帧栈步, 全局, 假)
+    else if op = 压入空() then 压回并继续(帧栈步, 全局, null)
+    else if op = 读局部() then 压回并继续(帧栈步, 全局, 帧步[1][指令[1]])
+    else if op = 读盒() then 压回并继续(帧栈步, 全局, 帧步[1][指令[1]][1])
+    else if op = 写局部() then
+      let (v, 栈1) = 栈弹(栈) in
+      let 忽略 = 原地设置(帧步[1], 指令[1], v) in
+      ["__下一__", 帧栈步, 全局]
+    else if op = 建盒() then
+      let 忽略2 = 原地设置(帧步[1], 指令[1], [null]) in
+      ["__下一__", 帧栈步, 全局]
+    else if op = 写盒() then
+      let (v2, 栈2) = 栈弹(栈) in
+      let 忽略3 = 原地设置(帧步[1][指令[1]], 1, v2) in
+      ["__下一__", 帧栈步, 全局]
+    else if op = 读外部() then
+      let 外层 = 找外层(帧步, 指令[1]) in
+      压回并继续(帧栈步, 全局, 外层[1][指令[2]])
+    else if op = 读外部盒() then
+      let 外层2 = 找外层(帧步, 指令[1]) in
+      压回并继续(帧栈步, 全局, 外层2[1][指令[2]][1])
+    else if op = 读全局() then
+      压回并继续(帧栈步, 全局, 查全局(全局, 常量[指令[1]]))
+    else if op = 写全局() then
+      let (v3, 栈3) = 栈弹(栈) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈3)), 设全局(全局, 常量[指令[1]], v3)]
+    else if op = 造闭包() then
+      let 信息 = 找函数信息(程序.函数, 指令[1]) in
+      压回并继续(帧栈步, 全局, ["__闭包__", 信息, 帧步])
+    else if op = 调用() then
+      let argc = 指令[1] in
+      let 总 = len(栈) in
+      let 参数 = 取尾(栈, argc) in
+      let fn = 栈[总 - argc - 1] in
+      let 栈体 = 栈[:总 - argc - 1] in
+      let 帧c = 换栈(帧步, 栈体) in
+      let 帧栈c = 换顶(帧栈, 帧c) in
+      摊开调用(fn, 参数, 帧栈c, 全局, 输出指针, 程序)
+    else if op = 返回() then
+      let (v4, 栈4) = 栈弹(栈) in
+      let 帧栈后 = 弹帧(帧栈步) in
+      if 帧栈后 = [] then ["__停机__", 帧栈后, 全局]
+      else
+        let 帧顶 = 顶帧(帧栈后) in
+        let 新栈4 = 帧顶[3] + [v4] in
+        ["__下一__", 换顶(帧栈后, 换栈(帧顶, 新栈4)), 全局]
+    else if op = 跳转() then
+      ["__下一__", 换顶(帧栈步, 换pc(帧步, 指令[1])), 全局]
+    else if op = 假跳() then
+      let (v5, 栈5) = 栈弹(栈) in
+      if not v5 then
+        ["__下一__", 换顶(帧栈步, 换栈(换pc(帧步, 指令[1]), 栈5)), 全局]
+      else ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈5)), 全局]
+    else if op = 真跳() then
+      let (v6, 栈6) = 栈弹(栈) in
+      if v6 then
+        ["__下一__", 换顶(帧栈步, 换栈(换pc(帧步, 指令[1]), 栈6)), 全局]
+      else ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈6)), 全局]
+    else if op = 二元() then
+      let (右, 栈b) = 栈弹(栈) in
+      let (左, 栈a) = 栈弹(栈b) in
+      let 值 = 应用运算(常量[指令[1]], 左, 右) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈a + [值])), 全局]
+    else if op = 一元() then
+      let (v7, 栈7) = 栈弹(栈) in
+      let 值7 = 应用一元(常量[指令[1]], v7) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈7 + [值7])), 全局]
+    else if op = 建列表() then
+      let n = 指令[1] in
+      let 项 = 取尾(栈, n) in
+      let 栈8 = 栈[:len(栈) - n] in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈8 + [项])), 全局]
+    else if op = 建字典() then
+      let n2 = 指令[1] in
+      let (d, 栈9) = 建字典对(栈, n2) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈9 + [d])), 全局]
+    else if op = 取下标() then
+      let (idx, 栈i) = 栈弹(栈) in
+      let (容器, 栈x) = 栈弹(栈i) in
+      if matha_type_of(容器) = "Dict" then
+        ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈x + [容器[idx]])), 全局]
+      else
+        ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈x + [list_get(容器, idx)])), 全局]
+    else if op = 切片() then
+      let (尾, 栈s) = 栈弹(栈) in
+      let (始, 栈r) = 栈弹(栈s) in
+      let (容器2, 栈c) = 栈弹(栈r) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈c + [slice(容器2)(始)(尾)])), 全局]
+    else if op = 取属性() then
+      let (对象, 栈o) = 栈弹(栈) in
+      let 键 = 常量[指令[1]] in
+      if matha_type_of(对象) = "Dict" then
+        ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈o + [字典安全取(对象, 键)])), 全局]
+      else ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈o + [对象[键]])), 全局]
+    else if op = 解包() then
+      let (序列, 栈u) = 栈弹(栈) in
+      let 长度 = 指令[1] in
+      let 新栈 = 解包栈(序列, 长度, 栈u) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 新栈)), 全局]
+    else if op = 复制() then
+      let 栈d = 栈 + [栈[len(栈) - 1]] in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈d)), 全局]
+    else if op = 弹栈() then
+      let (v9, 栈p) = 栈弹(栈) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈p)), 全局]
+    else if op = 输出() then
+      let (v10, 栈q) = 栈弹(栈) in
+      let 新输出 = 输出指针[1] + [v10] in
+      let 忽略4 = 原地设置(输出指针, 1, 新输出) in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈q)), 全局]
+    else if op = 抛出() then
+      let (v11, 栈r) = 栈弹(栈) in
+      ["__抛错__", v11, 帧栈, 全局]
+    else ["__抛错__", "未知操作码: " + 操作码名(op), 帧栈步, 全局]
+
+  func 操作码名(操作码: Int) -> String =
+    操作码 = 255 ? "0xFF" :
+    操作码 = 97 ? "0x61" :
+    操作码 = 96 ? "0x60" :
+    操作码 = 89 ? "0x59" :
+    操作码 = 88 ? "0x58" :
+    操作码 = 87 ? "0x57" :
+    操作码 = 84 ? "0x54" :
+    操作码 = 83 ? "0x53" :
+    操作码 = 82 ? "0x52" :
+    操作码 = 81 ? "0x51" :
+    操作码 = 80 ? "0x50" :
+    操作码 = 65 ? "0x41" :
+    操作码 = 64 ? "0x40" :
+    操作码 = 50 ? "0x32" :
+    操作码 = 49 ? "0x31" :
+    操作码 = 48 ? "0x30" :
+    操作码 = 34 ? "0x22" :
+    操作码 = 33 ? "0x21" :
+    操作码 = 32 ? "0x20" :
+    操作码 = 24 ? "0x18" :
+    操作码 = 23 ? "0x17" :
+    操作码 = 22 ? "0x16" :
+    操作码 = 21 ? "0x15" :
+    操作码 = 20 ? "0x14" :
+    操作码 = 19 ? "0x13" :
+    操作码 = 18 ? "0x12" :
+    操作码 = 17 ? "0x11" :
+    操作码 = 16 ? "0x10" :
+    操作码 = 4  ? "0x04" :
+    操作码 = 3  ? "0x03" :
+    操作码 = 2  ? "0x02" :
+    操作码 = 1  ? "0x01" :
+    操作码 = 0  ? "0x00" :
+    数字转串(操作码)
+
+  (* 解包序列：push seq[i]（越界 → null），按索引顺序入栈 *)
+  func 解包栈(序列, n: Int, 栈: List) -> List =
+    if n = 0 then 栈
+    else if n = 1 then 栈 + [解包项(序列, 0)]
+    else 解包栈(序列, n - 1, 栈 + [解包项(序列, n - 1)])
+
+  func 解包项(序列, i: Int) -> Value =
+    if 序列 = null then null
+    else if i < len(序列) then 序列[i]
+    else null
+
+  func 找函数信息(函数: List, 名: String) -> Value =
+    函数 = [] ? 错误("函数未定义: " + 名) :
+    函数[0][0] = 名 ? 函数[0][1] : 找函数信息(函数[1:], 名)
+
+  (* 建字典：栈顶为最后一个（按书写序最后）键值对。宿主逐对弹入 d[k]=v，
+     「更晚弹出 = 后写入 = 覆盖先写入」。栈顶对最先弹出先写入，故深处
+     （更靠近栈底）的对覆盖栈顶对。递归先处理剩余（深）再覆盖当前。 *)
+  func 建字典对(栈: List, n: Int) -> (Dict, List) =
+    if n = 0 then (_empty_dict, 栈)
+    else
+      let (v, 栈1) = 栈弹(栈) in
+      let (k, 栈2) = 栈弹(栈1) in
+      let (深, 栈3) = 建字典对(栈2, n - 1) in
+      let 当前 = _dict_put(_empty_dict)(k)(v) in
+      (键覆盖(深, 当前), 栈3)
+
+  (* 覆盖者 dict 逐键改写 被覆盖者 dict（运算序：后弹者和后写入） *)
+  func 键覆盖(覆盖者: Dict, 被覆盖者: Dict) -> Dict =
+    键覆盖循环(_dict_keys(覆盖者), 覆盖者, 被覆盖者, 0)
+
+  func 键覆盖循环(键们: List, 覆盖者: Dict, 被覆盖者: Dict, i: Int) -> Dict =
+    if i >= len(键们) then 被覆盖者
+    else 键覆盖循环(键们, 覆盖者, _dict_put(被覆盖者)(键们[i])(覆盖者[键们[i]]), i + 1)
+
+  (* ===== 主执行循环 =====
+     执行(帧栈, 全局, 输出指针, 程序, 底)
+       底 = 帧栈长度下限：子执行（调用捕获）在回底时停止 *)
+
+  func 执行(帧栈: List, 全局: List, 输出指针: List, 程序: Dict, 底: Int) -> List =
+    if len(帧栈) = 底 then ["__停机__", 帧栈, 全局]
+    else
+      let 帧 = 顶帧(帧栈) in
+      let 码 = 帧[0] in
+      let pc = 帧[4] in
+      if pc >= len(码) then ["__停机__", 帧栈, 全局]
+      else
+        let 指令 = 码[pc] in
+        if 指令[0] = 停机() then ["__停机__", 帧栈, 全局]
+        else
+          let 步骤 = 处理(指令, 帧栈, 全局, 输出指针, 程序) in
+          if 步骤[0] = "__抛错__" then 步骤
+          else if 步骤[0] = "__停机__" then 步骤
+          else 执行(步骤[1], 步骤[2], 输出指针, 程序, 底)
+
+  (* ===== 顶层：运行程序 ===== *)
+
+  func 注册程序全局(程序: Dict, 主帧) -> List =
+    注册函数全局(程序.函数, 主帧, 注册内建全局())
+
+  (* 函数注册为闭包（定义帧 = 主帧；主帧由运行入口创建并持有） *)
+  func 注册函数全局(函数: List, 主帧, 全局: List) -> List =
+    if 函数 = [] then 全局
+    else
+      let 名 = 函数[0][0] in
+      let 信息 = 函数[0][1] in
+      let 闭包 = ["__闭包__", 信息, 主帧] in
+      注册函数全局(函数[1:], 主帧, 设全局(全局, 名, 闭包))
+
+  (* 内建名表：全部以 __内建__ 包装注册（str/int/float/bool 走 Matha 实现） *)
+  func 内建名表() -> List =
+    ["len", "ord", "chr", "list", "abs",
+     "sin", "cos", "tan", "exp", "log", "ln", "log10", "log2",
+     "sqrt", "floor", "ceil", "round", "trunc", "sign",
+     "deg2rad", "rad2deg", "sum", "max", "min",
+     "type_of", "typeof", "_dict_keys", "_dict_values", "_read_file",
+     "encode_binary", "decode_binary", "encode_ternary", "decode_ternary",
+     "encode_decimal", "decode_decimal",
+     "str", "int", "float", "bool",
+     "get", "append", "atan2", "pow", "hypot",
+     "_dict_has", "_dict_remove", "_write_file", "_append_file",
+     "slice", "mut_set_at", "_dict_put",
+     "逻辑非", "集合基数", "平均值", "阶乘",
+     "输出", "print", "打印文本", "调用捕获", "错误", "MathaIOError"]
+
+  func 注册内建全局() -> List =
+    let g0 = 注册内建一批([], 内建名表()) in
+    let g1 = 设全局(g0, "真", 真) in
+    let g2 = 设全局(g1, "假", 假) in
+    let g3 = 设全局(g2, "null", null) in
+    let g4 = 设全局(g3, "None", null) in
+    let g5 = 设全局(g4, "pi", 3.141592653589793) in
+    let g6 = 设全局(g5, "e", 2.718281828459045) in
+    设全局(g6, "_empty_dict", _empty_dict)
+
+  func 注册内建一批(全局: List, 表: List) -> List =
+    if 表 = [] then 全局
+    else 注册内建一批(设全局(全局, 表[0], ["__内建__", 表[0], []]), 表[1:])
+
+  func 运行M3V(程序: Dict) -> List =
+    let 输出指针 = [[], []] in
+    let 主帧 = [程序.主码, [], null, [], 0] in
+    let 综合全局 = 注册程序全局(程序, 主帧) in
+    let 结果 = 执行([主帧], 综合全局, 输出指针, 程序, 0) in
+    输出指针[1]
+
+}

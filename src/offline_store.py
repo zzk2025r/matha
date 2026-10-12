@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 离线存储引擎
 
@@ -9,13 +8,13 @@ Matha 离线存储引擎
   - 冲突自动解决
 """
 from __future__ import annotations
+
 import json
+import logging
 import sqlite3
 import time
-import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +35,9 @@ class ChangeEntry:
 class OfflineStore:
     """离线存储引擎"""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self._db_path = db_path or str(Path.home() / ".matha" / "offline.db")
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._client_id = self._generate_client_id()
         self._init_db()
 
@@ -116,7 +115,7 @@ class OfflineStore:
             logger.error(f"保存项目失败: {e}")
             return False
 
-    def load_project(self, project_id: str) -> Optional[dict]:
+    def load_project(self, project_id: str) -> dict | None:
         """加载项目"""
         try:
             cursor = self._conn.cursor()
@@ -135,7 +134,7 @@ class OfflineStore:
             logger.error(f"加载项目失败: {e}")
             return None
 
-    def list_projects(self) -> List[dict]:
+    def list_projects(self) -> list[dict]:
         """列出所有项目"""
         try:
             cursor = self._conn.cursor()
@@ -200,7 +199,7 @@ class OfflineStore:
         except Exception as e:
             logger.warning(f"记录变更失败: {e}")
 
-    def get_pending_changes(self, limit: int = 100) -> List[ChangeEntry]:
+    def get_pending_changes(self, limit: int = 100) -> list[ChangeEntry]:
         """获取待同步的变更"""
         try:
             cursor = self._conn.cursor()
@@ -260,7 +259,6 @@ class OfflineStore:
     def resolve_conflict(self, local_data: dict, remote_data: dict, local_ts: float, remote_ts: float) -> dict:
         """最后写入者获胜冲突解决策略"""
         winner = local_data if local_ts >= remote_ts else remote_data
-        loser = remote_data if local_ts >= remote_ts else local_data
         logger.info(
             f"冲突解决: local_ts={local_ts:.3f} remote_ts={remote_ts:.3f} -> "
             f"winner={'local' if local_ts >= remote_ts else 'remote'}"
@@ -287,7 +285,7 @@ class OfflineStore:
 
 
 # 全局单例
-_store: Optional[OfflineStore] = None
+_store: OfflineStore | None = None
 
 
 def get_offline_store() -> OfflineStore:
@@ -305,7 +303,7 @@ if __name__ == "__main__":
     with OfflineStore() as store:
         # 测试保存
         store.save_project("test_001", "测试项目", {"nodes": [], "connections": []})
-        print(f"保存成功")
+        print("保存成功")
 
         # 测试加载
         project = store.load_project("test_001")

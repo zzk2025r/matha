@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
 """Matha Result 类型与异常处理 — v2.2
 
 提供 Rust 风格的 Result<T, E> 和 Option<T> 类型，
 支持函数式错误传播（? 运算符语义）。
 """
 from __future__ import annotations
-import traceback
-from typing import Any, Optional, TypeVar, Generic
-from dataclasses import dataclass, field
-from enum import Enum, auto
 
+import traceback
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, TypeVar, Union
 
 # ============================================================
 # 结果类型
@@ -47,16 +46,16 @@ class Ok:
     def unwrap_or(self, default: T) -> T:
         return self.value
 
-    def map(self, fn) -> "Result":
+    def map(self, fn) -> Result:
         return Ok(fn(self.value), label=self.label)
 
-    def map_err(self, _fn) -> "Result":
+    def map_err(self, _fn) -> Result:
         return self
 
-    def and_then(self, fn) -> "Result":
+    def and_then(self, fn) -> Result:
         return fn(self.value)
 
-    def or_else(self, _fn) -> "Result":
+    def or_else(self, _fn) -> Result:
         return self
 
     def unwrap_or_else(self, fn) -> T:
@@ -65,17 +64,14 @@ class Ok:
     def err(self) -> None:
         return None
 
-    def ok(self) -> Optional[T]:
+    def ok(self) -> T | None:
         return self.value
 
-    def as_ref(self) -> "Ok":
+    def as_ref(self) -> Ok:
         return self
 
     def iter(self) -> Any:
         return iter([self.value])
-
-    def label(self) -> str:
-        return self.label
 
 
 @dataclass
@@ -101,40 +97,41 @@ class Err:
     def unwrap_or(self, default: T) -> T:
         return default
 
-    def map(self, _fn) -> "Result":
+    def map(self, _fn) -> Result:
         return self
 
-    def map_err(self, fn) -> "Result":
+    def map_err(self, fn) -> Result:
         return Err(fn(self.error), label=self.label, trace=self.trace)
 
-    def and_then(self, _fn) -> "Result":
+    def and_then(self, _fn) -> Result:
         return self
 
-    def or_else(self, fn) -> "Result":
+    def or_else(self, fn) -> Result:
         return fn(self.error)
 
     def unwrap_or_else(self, fn) -> T:
         return fn(self.error)
 
-    def err(self) -> Optional[E]:
+    def err(self) -> E | None:
         return self.error
 
     def ok(self) -> None:
         return None
 
-    def as_ref(self) -> "Err":
+    def as_ref(self) -> Err:
         return self
 
     def iter(self) -> Any:
         return iter([])
 
-    def label(self) -> str:
-        return self.label
-
-    def context(self, msg: str) -> "Err":
+    def context(self, msg: str) -> Err:
         """添加错误上下文。"""
         return Err(self.error, label=self.label,
                    trace=f"{msg}\n{self.trace}" if self.trace else msg)
+
+
+# Result 是 Ok / Err 的联合类型（用于类型标注）
+Result = Union[Ok, Err]
 
 
 # ============================================================
@@ -161,19 +158,19 @@ class Some:
     def unwrap_or_else(self, fn) -> T:
         return self.value
 
-    def map(self, fn) -> "Option":
+    def map(self, fn) -> Option:
         return Some(fn(self.value))
 
-    def and_then(self, fn) -> "Option":
+    def and_then(self, fn) -> Option:
         return fn(self.value)
 
-    def filter(self, pred) -> "Option":
+    def filter(self, pred) -> Option:
         return self if pred(self.value) else None
 
-    def ok_or(self, err: E) -> "Result":
+    def ok_or(self, err: E) -> Result:
         return Ok(self.value)
 
-    def ok_or_else(self, err_fn) -> "Result":
+    def ok_or_else(self, err_fn) -> Result:
         return Ok(self.value)
 
     def iter(self) -> Any:
@@ -205,19 +202,19 @@ class None_:
     def unwrap_or_else(self, fn) -> T:
         return fn()
 
-    def map(self, _fn) -> "Option":
+    def map(self, _fn) -> Option:
         return None_()
 
-    def and_then(self, _fn) -> "Option":
+    def and_then(self, _fn) -> Option:
         return None_()
 
-    def filter(self, _pred) -> "Option":
+    def filter(self, _pred) -> Option:
         return None_()
 
-    def ok_or(self, err: E) -> "Result":
+    def ok_or(self, err: E) -> Result:
         return Err(err)
 
-    def ok_or_else(self, err_fn) -> "Result":
+    def ok_or_else(self, err_fn) -> Result:
         return Err(err_fn())
 
     def iter(self) -> Any:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 自然语言时代语义词典（Era-Aware Semantic Dictionary）
 
@@ -25,10 +24,9 @@ Matha 自然语言时代语义词典（Era-Aware Semantic Dictionary）
   # → {"meaning": "位移对时间的变化率", "math": "v = Δs/Δt", ...}
 """
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
-from typing import Optional
-
 
 # ============================================================
 #  语义条目
@@ -248,7 +246,7 @@ class NLDictionary:
                     self._entries[alias] = []
                 self._entries[alias].append(entry)
 
-    def lookup(self, word: str, era: str = "当代") -> Optional[SemanticEntry]:
+    def lookup(self, word: str, era: str = "当代") -> SemanticEntry | None:
         """
         查询某词在指定时代的语义。
 
@@ -280,7 +278,7 @@ class NLDictionary:
         """列出某词在所有时代的语义。"""
         return self._entries.get(word, [])
 
-    def resolve_ambiguity(self, word: str, context: str, era: str = "当代") -> Optional[SemanticEntry]:
+    def resolve_ambiguity(self, word: str, context: str, era: str = "当代") -> SemanticEntry | None:
         """
         根据上下文消歧。
 
@@ -373,7 +371,7 @@ def create_dictionary() -> NLDictionary:
     return NLDictionary()
 
 
-def lookup(word: str, era: str = "当代") -> Optional[SemanticEntry]:
+def lookup(word: str, era: str = "当代") -> SemanticEntry | None:
     """便捷查询：lookup(word, era) → SemanticEntry"""
     return NLDictionary().lookup(word, era)
 

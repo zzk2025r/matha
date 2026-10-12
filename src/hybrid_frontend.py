@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 混合语言编译器（Hybrid Frontend）
 
@@ -13,14 +12,13 @@ Matha 混合语言编译器（Hybrid Frontend）
 否则回退到 Python 正则解析前端。
 """
 from __future__ import annotations
+
 import json
 import logging
-import os
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("matha.hybrid_frontend")
 
@@ -64,7 +62,7 @@ class LanguageFrontendRegistry:
     def register(self, language: str, frontend: Any) -> None:
         self._frontends[language.lower()] = frontend
 
-    def get(self, language: str) -> Optional[Any]:
+    def get(self, language: str) -> Any | None:
         return self._frontends.get(language.lower())
 
     def supported(self) -> list[str]:
@@ -80,7 +78,7 @@ class NativeFrontendRunner:
     def __init__(self, frontend_dir: Path):
         self._dir = frontend_dir
 
-    def _find_binary(self, name: str) -> Optional[str]:
+    def _find_binary(self, name: str) -> str | None:
         """查找原生前端可执行文件。"""
         # 优先查找编译好的二进制
         for ext in (".exe", "", ".bin"):
@@ -89,7 +87,7 @@ class NativeFrontendRunner:
                 return str(path)
         return None
 
-    def _run(self, binary: str, source: str) -> Optional[dict]:
+    def _run(self, binary: str, source: str) -> dict | None:
         """运行前端并返回解析结果。"""
         try:
             result = subprocess.run(
@@ -107,13 +105,13 @@ class NativeFrontendRunner:
         except json.JSONDecodeError:
             return None
 
-    def run_rust(self, source: str) -> Optional[dict]:
+    def run_rust(self, source: str) -> dict | None:
         binary = self._find_binary("matha_rust_frontend")
         if binary:
             return self._run(binary, source)
         return None
 
-    def run_go(self, source: str) -> Optional[dict]:
+    def run_go(self, source: str) -> dict | None:
         binary = self._find_binary("matha_go_frontend")
         if binary:
             return self._run(binary, source)
@@ -123,7 +121,7 @@ class NativeFrontendRunner:
             try:
                 result = subprocess.run(
                     ["go", "run", str(go_file), source],
-                    capture_output=True, text=True, timeout=30,
+                    capture_output=True, text=True, timeout=90,
                 )
                 if result.returncode == 0:
                     return json.loads(result.stdout)
@@ -131,7 +129,7 @@ class NativeFrontendRunner:
                 pass
         return None
 
-    def run_c(self, source: str) -> Optional[dict]:
+    def run_c(self, source: str) -> dict | None:
         binary = self._find_binary("matha_c_frontend")
         if binary:
             return self._run(binary, source)
@@ -146,7 +144,7 @@ class NativeFrontendRunner:
                 pass
         return None
 
-    def run_js(self, source: str) -> Optional[dict]:
+    def run_js(self, source: str) -> dict | None:
         js_file = self._dir / "js" / "frontend.js"
         if js_file.exists():
             try:
@@ -160,13 +158,13 @@ class NativeFrontendRunner:
                 pass
         return None
 
-    def run_matha(self, source: str) -> Optional[dict]:
+    def run_matha(self, source: str) -> dict | None:
         """Matha 原生前端（通过 Python 解释器执行）。"""
         matha_file = self._dir / "matha" / "frontend.matha"
         if matha_file.exists():
             try:
-                from src.parser import parse
                 from src.interp import Interpreter
+                from src.parser import parse
                 prog = parse(source)
                 interp = Interpreter()
                 outputs, trace = interp.run(prog)
@@ -198,7 +196,10 @@ class HybridFrontend:
     def _register_builtin_frontends(self):
         """注册内置 Python 前端作为回退。"""
         from src.multi_lang_frontend import (
-            RustFrontend, GoFrontend, JSFrontend, CFrontend,
+            CFrontend,
+            GoFrontend,
+            JSFrontend,
+            RustFrontend,
         )
         self._registry.register("rust", RustFrontend())
         self._registry.register("go", GoFrontend())
@@ -253,7 +254,7 @@ class HybridFrontend:
             errors=[f"无法编译 {lang} 代码: 所有前端均不可用"],
         )
 
-    def _try_native(self, source: str, lang: str) -> Optional[dict]:
+    def _try_native(self, source: str, lang: str) -> dict | None:
         """尝试使用原生前端。"""
         # Matha 原生前端（优先）
         if lang == "matha":
@@ -269,12 +270,12 @@ class HybridFrontend:
             return self._runner.run_js(source)
         return None
 
-    def _try_matha_frontend(self, source: str) -> Optional[dict]:
+    def _try_matha_frontend(self, source: str) -> dict | None:
         """使用 Matha 原生前端编译。"""
         # 先尝试标准 Matha 解释器
         try:
-            from src.parser import parse
             from src.interp import Interpreter
+            from src.parser import parse
             prog = parse(source)
             interp = Interpreter()
             outputs, trace = interp.run(prog)
@@ -294,12 +295,12 @@ class HybridFrontend:
             logger.debug(f"Matha 解释器编译失败: {e}")
 
         # 回退：加载并执行 matha/native 前端模块
-        frontend_file = FRONTENDS_DIR / "matha" / "frontend.matha"
+        FRONTENDS_DIR / "matha" / "frontend.matha"
         multi_file = FRONTENDS_DIR / "multi_lang.matha"
         if multi_file.exists():
             try:
-                from src.parser import parse as matha_parse
                 from src.interp import Interpreter
+                from src.parser import parse as matha_parse
                 content = multi_file.read_text(encoding="utf-8")
                 prog = matha_parse(content)
                 interp = Interpreter()
@@ -314,7 +315,7 @@ class HybridFrontend:
         # 最终回退：用 Python 前端
         return None
 
-    def _try_tree_sitter(self, source: str, lang: str) -> Optional[dict]:
+    def _try_tree_sitter(self, source: str, lang: str) -> dict | None:
         """尝试使用 tree-sitter。"""
         try:
             from src.tree_sitter_backends import get_parser
@@ -351,7 +352,7 @@ class HybridFrontend:
 
 # ── 单例 ────────────────────────────────────────────────────────
 
-_hybrid_frontend: Optional[HybridFrontend] = None
+_hybrid_frontend: HybridFrontend | None = None
 
 
 def get_hybrid_frontend() -> HybridFrontend:
@@ -368,5 +369,5 @@ def compile_to_ir(source: str, language: str = "python") -> IRResult:
     return get_hybrid_frontend().compile(source, language)
 
 
-def parse_foreign(source: str, lang: str) -> Optional[dict]:
+def parse_foreign(source: str, lang: str) -> dict | None:
     return get_hybrid_frontend().compile(source, lang).to_dict()

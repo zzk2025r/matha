@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """扩展建模函数：结构力学、流体力学、热力学、电气工程、控制理论。
 
 覆盖新增学科门类：
@@ -11,9 +10,8 @@
 """
 
 from __future__ import annotations
-import math
-from typing import Any
 
+import math
 
 # ============================================================
 # 结构工程
@@ -195,7 +193,7 @@ def _胡克定律(σ: float, E: float) -> float:
 
 def _疲劳寿命(S: float, Sn: float, N: float = 1e6) -> int:
     """Miner 疲劳寿命估算（简化）。"""
-    if S <= Sn:
+    if Sn >= S:
         return int(N * 10)
     return int(N * (Sn / S)**3)
 

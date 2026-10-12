@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha 包管理器增强版 — v2.0
 
 完善功能：
@@ -18,24 +17,203 @@
   mgr.publish("my-pkg") # 发布
 """
 from __future__ import annotations
+
 import hashlib
-import http.client
 import json
 import os
 import re
+import subprocess
 import sys
-import urllib.request
+import tempfile
 import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
 
 # 扩展基础包管理器
 from src.pkg_manager import (
-    MathaPackage, PackageMeta, Version, DependencyResolver,
-    PackageNotFoundError, VersionConflictError,
+    MathaPackage,
+    PackageMeta,
+    PackageNotFoundError,
+    Version,
+    VersionConflictError,
 )
+
+# ============================================================
+# 签名验证 (cosign/sigstore)
+# ============================================================
+
+
+class SignatureError(Exception):
+    """签名验证相关错误。"""
+    pass
+
+class SignatureVerifier:
+    """签名验证器：使用 cosign/sigstore 验证包签名。"""
+
+    def __init__(self,
+                 cosign_path: str = "cosign",
+                 sigstore_root: str = "",
+                 offline: bool = False):
+        self._cosign = cosign_path
+        self._sigstore_root = sigstore_root
+        self._offline = offline
+        self._verify_cosign_available()
+
+    def _verify_cosign_available(self) -> bool:
+        """检查 cosign 是否可用。"""
+        try:
+            result = subprocess.run([self._cosign, "version"],
+                                  capture_output=True, timeout=5)
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    @property
+    def is_available(self) -> bool:
+        return self._verify_cosign_available()
+
+    def sign_blob(self, data: bytes, key_path: str, password: str | None = None) -> bytes:
+        """对数据进行签名。
+
+        Args:
+            data: 要签名的数据
+            key_path: 私钥路径
+            password: 私钥密码（可选）
+
+        Returns:
+            签名字节
+        """
+        if not self.is_available:
+            raise SignatureError("cosign 未安装或不可用")
+
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_data:
+            tmp_data.write(data)
+            data_path = tmp_data.name
+
+        try:
+            cmd = [self._cosign, "sign-blob", "--key", key_path]
+            if password:
+                cmd.extend(["--passphrase", password])
+            cmd.append(data_path)
+
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            if result.returncode != 0:
+                raise SignatureError(f"签名失败: {result.stderr.decode()}")
+
+            # cosign 输出签名到 stdout
+            signature = result.stdout
+            return signature
+        finally:
+            os.unlink(data_path)
+
+    def verify_blob(self, data: bytes, signature: bytes,
+                    public_key_path: str,
+                    certificate_path: str | None = None) -> bool:
+        """验证 blob 签名。
+
+        Args:
+            data: 原始数据
+            signature: 签名
+            public_key_path: 公钥路径
+            certificate_path: 证书路径（可选，用于 keyless 验证）
+
+        Returns:
+            验证是否通过
+        """
+        if not self.is_available:
+            raise SignatureError("cosign 未安装或不可用")
+
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_data:
+            tmp_data.write(data)
+            data_path = tmp_data.name
+
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_sig:
+            tmp_sig.write(signature)
+            sig_path = tmp_sig.name
+
+        try:
+            cmd = [self._cosign, "verify-blob",
+                   "--key", public_key_path,
+                   "--signature", sig_path]
+
+            if certificate_path:
+                cmd.extend(["--certificate", certificate_path])
+            if self._offline:
+                cmd.append("--offline")
+
+            cmd.append(data_path)
+
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            return result.returncode == 0
+        finally:
+            os.unlink(data_path)
+            os.unlink(sig_path)
+
+    def verify_signed_package(self, pkg_path: Path,
+                              public_key_path: str,
+                              certificate_path: str | None = None) -> bool:
+        """验证已签名的包（tar.gz）。
+
+        Args:
+            pkg_path: 包文件路径
+            public_key_path: 公钥路径
+            certificate_path: 证书路径（可选）
+
+        Returns:
+            验证是否通过
+        """
+        if not pkg_path.exists():
+            return False
+
+        pkg_path.read_bytes()
+        # 假设签名文件名为 <pkg_name>.sig
+        sig_path = pkg_path.with_suffix(pkg_path.suffix + ".sig")
+        if not sig_path.exists():
+            # 尝试查找 .sig 文件
+            alt_sig = pkg_path.with_suffix(".sig")
+            if alt_sig.exists():
+                sig_path = alt_sig
+            else:
+                return False
+
+        with open(sig_path, "rb") as f:
+            f.read()
+
+        return self.verify_blob(
+            pkg_path.read_bytes(),
+            pkg_path.read_bytes(),
+            pkg_path.read_bytes()
+        )
+
+    def verify_slsa_provenance(self, pkg_path: Path,
+                               provenance_path: Path,
+                               builder_id: str) -> bool:
+        """验证 SLSA 来源认证。
+
+        Args:
+            pkg_path: 包文件路径
+            provenance_path: SLSA 来源文件路径
+            builder_id: 预期的构建器 ID
+
+        Returns:
+            验证是否通过
+        """
+        if not self.is_available:
+            return False
+
+        try:
+            cmd = [
+                self._cosign, "verify-attestation",
+                "--type", "slsaprovenance",
+                "--predicate", str(provenance_path),
+                "--certificate-identity-regexp", builder_id,
+                str(pkg_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            return result.returncode == 0
+        except Exception:
+            return False
 
 
 # ============================================================
@@ -48,10 +226,10 @@ class LockEntry:
     name: str
     version: Version
     checksum: str = ""
-    dependencies: Dict[str, str] = field(default_factory=dict)
+    dependencies: dict[str, str] = field(default_factory=dict)
     source: str = "local"  # "local", "remote", "git"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "name": self.name,
             "version": str(self.version),
@@ -61,7 +239,7 @@ class LockEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'LockEntry':
+    def from_dict(cls, data: dict) -> LockEntry:
         return cls(
             name=data["name"],
             version=Version.parse(data["version"]),
@@ -76,13 +254,13 @@ class Lockfile:
 
     def __init__(self, lockfile_path: str = "matha.lock"):
         self._path = Path(lockfile_path)
-        self._entries: Dict[str, LockEntry] = {}
+        self._entries: dict[str, LockEntry] = {}
 
     def load(self) -> None:
         """加载 lockfile。"""
         if not self._path.exists():
             return
-        with open(self._path, 'r', encoding='utf-8') as f:
+        with open(self._path, encoding='utf-8') as f:
             data = json.load(f)
         for name, entry_data in data.get("packages", {}).items():
             self._entries[name] = LockEntry.from_dict(entry_data)
@@ -101,7 +279,7 @@ class Lockfile:
         """添加锁条目。"""
         self._entries[entry.name] = entry
 
-    def get(self, name: str) -> Optional[LockEntry]:
+    def get(self, name: str) -> LockEntry | None:
         """获取锁条目。"""
         return self._entries.get(name)
 
@@ -117,7 +295,7 @@ class Lockfile:
         return False
 
     @property
-    def packages(self) -> Dict[str, LockEntry]:
+    def packages(self) -> dict[str, LockEntry]:
         return dict(self._entries)
 
 
@@ -131,7 +309,7 @@ class RemotePackageClient:
     def __init__(self, base_url: str = "https://pypi.matha-lang.org"):
         self._base_url = base_url
 
-    def search(self, query: str) -> List[Dict]:
+    def search(self, query: str) -> list[dict]:
         """搜索远程包。"""
         try:
             url = f"{self._base_url}/search?q={query}"
@@ -141,7 +319,7 @@ class RemotePackageClient:
         except (urllib.error.URLError, json.JSONDecodeError, ConnectionError):
             return []
 
-    def get_metadata(self, name: str, version: Optional[str] = None) -> Optional[Dict]:
+    def get_metadata(self, name: str, version: str | None = None) -> dict | None:
         """获取包元数据。"""
         try:
             if version:
@@ -227,7 +405,7 @@ class MathaPackageManager(MathaPackage):
         data = json.dumps(pkg.to_dict(), sort_keys=True).encode()
         return hashlib.sha256(data).hexdigest()[:16]
 
-    def check_lockfile(self) -> Dict:
+    def check_lockfile(self) -> dict:
         """检查 lockfile 一致性。"""
         issues = []
         for name, lock_entry in self._lockfile.packages.items():
@@ -246,7 +424,7 @@ class MathaPackageManager(MathaPackage):
     # 远程包操作
     # ============================================================
 
-    def install_remote(self, spec: str) -> List[str]:
+    def install_remote(self, spec: str) -> list[str]:
         """从远程仓库安装包。"""
         if not self._remote_client:
             raise RuntimeError("未配置远程仓库 URL")
@@ -287,17 +465,355 @@ class MathaPackageManager(MathaPackage):
         print(f"  已安装(远程): {pkg_name}=={version}")
         return [f"{pkg_name}=={version}"]
 
-    def search_remote(self, query: str) -> List[Dict]:
+    def search_remote(self, query: str) -> list[dict]:
         """在远程仓库搜索包。"""
         if not self._remote_client:
             return []
         return self._remote_client.search(query)
 
+    def search_local(self, query: str) -> list[dict]:
+        """在本地已安装/注册包中搜索。"""
+        query_lower = query.lower()
+        results = []
+        for name, pkg in self.registry.items():
+            if query_lower in name.lower() or query_lower in pkg.description.lower():
+                results.append({
+                    "name": pkg.name,
+                    "version": str(pkg.version),
+                    "description": pkg.description,
+                    "author": pkg.author,
+                    "keywords": pkg.keywords,
+                    "score": self._calculate_relevance(query_lower, name, pkg.description),
+                    "installed": name in self.installed,
+                })
+        # 按相关性排序
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results
+
+    def search(self, query: str, remote: bool = False) -> list[dict]:
+        """统一搜索接口。"""
+        if remote:
+            remote_results = self.search_remote(query)
+            local_results = self.search_local(query)
+            # 合并结果，去重
+            seen = set()
+            results = []
+            for r in remote_results + local_results:
+                key = r["name"]
+                if key not in seen:
+                    seen.add(key)
+                    results.append(r)
+            return results
+        return self.search_local(query)
+
+    def _calculate_relevance(self, query: str, name: str, description: str) -> float:
+        """计算搜索相关性得分。"""
+        score = 0.0
+        query_lower = query.lower()
+        name_lower = name.lower()
+        desc_lower = (description or "").lower()
+
+        # 名称完全匹配
+        if query_lower == name_lower:
+            score += 100
+        # 名称前缀匹配
+        elif name_lower.startswith(query_lower):
+            score += 50
+        # 名称包含
+        elif query_lower in name_lower:
+            score += 30
+        # 描述中包含
+        elif query_lower in desc_lower:
+            score += 10
+
+        # 词级匹配
+        query_words = query_lower.split()
+        for word in query_words:
+            if word in name_lower:
+                score += 10
+            if word in desc_lower:
+                score += 5
+
+        return score
+
+    # ============================================================
+    # 包评分系统
+    # ============================================================
+
+    def rate_package(self, pkg_name: str, rating: int, user: str = "anonymous") -> bool:
+        """为包评分。"""
+        if pkg_name not in self.registry:
+            raise PackageNotFoundError(f"未知包: {pkg_name}")
+        if not 1 <= rating <= 5:
+            raise ValueError("评分必须在 1-5 之间")
+
+        self.root / "ratings.json"
+        ratings = {}
+        if self.root.joinpath("ratings.json").exists():
+            with open(self.root / "ratings.json", encoding='utf-8') as f:
+                ratings = json.load(f)
+
+        if pkg_name not in ratings:
+            ratings[pkg_name] = {}
+
+        ratings[pkg_name][user] = {
+            "rating": rating,
+            "timestamp": __import__('time').time()
+        }
+
+        with open(self.root / "ratings.json", 'w', encoding='utf-8') as f:
+            json.dump(ratings, f, ensure_ascii=False, indent=2)
+        return True
+
+    def get_package_rating(self, pkg_name: str) -> dict:
+        """获取包的评分信息。"""
+        ratings_file = self.root / "ratings.json"
+        if not ratings_file.exists():
+            return {"average": 0, "count": 0, "distribution": {1:0,2:0,3:0,4:0,5:0}}
+
+        with open(self.root / "ratings.json", encoding='utf-8') as f:
+            ratings = json.load(f)
+
+        if pkg_name not in ratings:
+            return {"average": 0, "count": 0, "distribution": {1:0,2:0,3:0,4:0,5:0}}
+
+        pkg_ratings = ratings[pkg_name]
+        total = len(pkg_ratings)
+        if total == 0:
+            return {"average": 0, "count": 0, "distribution": {1:0,2:0,3:0,4:0,5:0}}
+
+        distribution = {1:0, 2:0, 3:0, 4:0, 5:0}
+        total_score = 0
+        for user, data in pkg_ratings.items():
+            rating = data.get("rating", 0)
+            total_score += rating
+            distribution[rating] = distribution.get(rating, 0) + 1
+
+        return {
+            "average": round(total_score / total, 2),
+            "count": total,
+            "distribution": distribution
+        }
+
+    def get_package_stats(self, pkg_name: str) -> dict:
+        """获取包的统计信息。"""
+        if pkg_name not in self.registry:
+            return {}
+
+        pkg = self.registry[pkg_name]
+        rating_info = self.get_package_rating(pkg_name)
+
+        return {
+            "name": pkg.name,
+            "version": str(pkg.version),
+            "description": pkg.description,
+            "author": pkg.author,
+            "license": pkg.license,
+            "keywords": pkg.keywords,
+            "dependencies": pkg.dependencies,
+            "installed": pkg_name in self.installed,
+            "installed_version": str(self.installed.get(pkg_name, "")),
+            "rating": rating_info,
+            "downloads": 0,
+        }
+
+    # ============================================================
+    # 依赖解析增强
+    # ============================================================
+
+    def resolve_dependencies(self, spec: str, dev: bool = False) -> dict[str, Version]:
+        """解析依赖关系，返回完整的依赖树和版本。
+
+        Returns:
+            Dict[package_name, Version]: 完整的依赖树（包含传递依赖）
+        """
+        match = re.match(r'^([a-zA-Z0-9_-]+)(?:==([0-9.]+))?$', spec.strip())
+        if not match:
+            raise ValueError(f"无效包规格: {spec}")
+
+        pkg_name, version_spec = match.groups()
+        if pkg_name not in self.registry:
+            raise PackageNotFoundError(f"未知包: {pkg_name}")
+
+        target_version = Version.parse(version_spec) if version_spec else self.registry[pkg_name].version
+        resolved = {}
+        conflicts = []
+
+        def _resolve(name: str, version: Version, path: list[str]) -> None:
+            if name in resolved:
+                if resolved[name] != version:
+                    conflicts.append({
+                        "package": name,
+                        "required": version,
+                        "existing": resolved[name],
+                        "path": " -> ".join(path + [name])
+                    })
+                return
+
+            if name in path:
+                # 循环依赖检测（忽略根包自身）
+                cycle = " -> ".join(path + [name])
+                raise ValueError(f"循环依赖检测: {cycle}")
+
+            resolved[name] = version
+            path.append(name)
+
+            if name in self.registry:
+                pkg = self.registry[name]
+                for dep_name, dep_spec in pkg.dependencies.items():
+                    if dep_name not in self.registry:
+                        continue
+                    self.registry[dep_name]
+                    dep_version = Version.parse(dep_spec) if isinstance(dep_spec, str) else dep_spec
+                    _resolve(dep_name, dep_version, path.copy())
+
+        try:
+            _resolve(pkg_name, target_version, [])
+        except ValueError as e:
+            raise ValueError(f"依赖解析失败: {e}")
+
+        if conflicts:
+            raise VersionConflictError(f"版本冲突: {conflicts}")
+
+        return resolved
+
+    def check_conflicts(self, specs: list[str]) -> list[dict]:
+        """检查多个包规格之间的版本冲突。"""
+        all_deps = {}
+        conflicts = []
+
+        for spec in specs:
+            try:
+                resolved = self.resolve_dependencies(spec)
+                for name, version in resolved.items():
+                    if name in all_deps and all_deps[name] != version:
+                        conflicts.append({
+                            "package": name,
+                            "versions": [str(all_deps[name]), str(version)],
+                            "sources": "多个包依赖不同版本"
+                        })
+                    else:
+                        all_deps[name] = version
+            except Exception as e:
+                conflicts.append({
+                    "package": spec,
+                    "error": str(e)
+                })
+
+        return conflicts
+
+    def suggest_version_resolution(self, conflicts: list[dict]) -> dict[str, Version]:
+        """建议版本冲突解决方案。"""
+        suggestions = {}
+        for conflict in conflicts:
+            pkg = conflict["package"]
+            versions = [Version.parse(v) for v in conflict["versions"]]
+            if pkg in self.registry:
+                self.registry[conflict["package"]]
+                # 策略：选择最高版本
+                suggestions[conflict["package"]] = max(versions)
+        return suggestions
+
+    def get_dependency_tree(self, pkg_name: str, depth: int = 5) -> dict:
+        """获取完整的依赖树（包含版本信息）。"""
+        if pkg_name not in self.registry:
+            return {}
+
+        result = {"name": pkg_name, "version": str(self.registry[pkg_name].version), "dependencies": {}}
+
+        def _build_tree(name: str, depth: int, seen: set):
+            if depth <= 0 or name in seen:
+                return {}
+            seen.add(name)
+
+            if name not in self.registry:
+                return {}
+
+            pkg = self.registry[name]
+            deps = {}
+            for dep_name, dep_spec in pkg.dependencies.items():
+                if dep_name not in self.registry:
+                    continue
+                dep_version = Version.parse(dep_spec) if isinstance(dep_spec, str) else dep_spec
+                deps[dep_name] = {
+                    "version": str(dep_version),
+                    "installed": self.installed.get(dep_name),
+                    "dependencies": self.get_dependency_tree(dep_name, depth - 1, seen.copy())
+                }
+            return deps
+
+        result["dependencies"] = _build_tree(pkg_name, 5, set())
+        return result
+
+    def check_updates(self) -> list[dict]:
+        """检查已安装包的更新。"""
+        updates = []
+        for name, installed_version in self.installed.items():
+            if name in self.registry:
+                latest = self.registry[name].version
+                if Version.parse(installed_version) < latest:
+                    updates.append({
+                        "package": name,
+                        "current": installed_version,
+                        "latest": str(latest),
+                        "type": "major" if Version.parse(installed_version).major < latest.major else "minor/patch"
+                    })
+        return updates
+
+    def upgrade_all(self, dry_run: bool = False) -> list[str]:
+        """升级所有可更新的包。"""
+        updates = self.check_updates()
+        upgraded = []
+        for update in updates:
+            if not dry_run:
+                self.install(f"{update['package']}=={update['latest']}")
+            upgraded.append(f"{update['package']} {update['current']} -> {update['latest']}")
+        return upgraded
+
+    def upgrade_package(self, pkg_name: str, dry_run: bool = False) -> list[str]:
+        """升级指定包。"""
+        updates = self.check_updates()
+        pkg_update = next((u for u in updates if u['package'] == pkg_name), None)
+        if not pkg_update:
+            return []
+        if not dry_run:
+            self.install(f"{pkg_name}=={pkg_update['latest']}")
+        return [f"{pkg_name} {pkg_update['current']} -> {pkg_update['latest']}"]
+
+    # ============================================================
+    # CLI 入口增强
+    # ============================================================
+
+    def show_package_info(self, pkg_name: str) -> str:
+        """显示包的详细信息。"""
+        stats = self.get_package_stats(pkg_name)
+        if not stats:
+            return f"包不存在: {pkg_name}"
+
+        lines = [
+            f"包名: {stats['name']}",
+            f"版本: {stats['version']}",
+            f"描述: {stats['description']}",
+            f"作者: {stats['author']}",
+            f"许可证: {stats['license']}",
+            f"关键词: {', '.join(stats.get('keywords', []))}",
+            f"依赖: {', '.join(stats.get('dependencies', {}).keys()) or '无'}",
+            f"状态: {'已安装' if stats['installed'] else '未安装'}",
+        ]
+        if stats.get('installed'):
+            lines.append(f"已安装版本: {stats['installed_version']}")
+
+        rating = stats.get('rating', {})
+        if rating.get('count', 0) > 0:
+            lines.append(f"评分: {rating['average']}/5.0 ({rating['count']} 人评价)")
+
+        return "\n".join(lines)
+
     # ============================================================
     # 包发布
     # ============================================================
 
-    def pack(self, pkg_name: str, version: Optional[str] = None) -> str:
+    def pack(self, pkg_name: str, version: str | None = None) -> str:
         """打包发布包。"""
         if pkg_name not in self.registry:
             raise PackageNotFoundError(f"未知包: {pkg_name}")
@@ -338,12 +854,12 @@ class MathaPackageManager(MathaPackage):
         print(f"  已打包: {tar_path} ({tar_path.stat().st_size // 1024} KB)")
         return str(tar_path)
 
-    def publish(self, pkg_name: str, version: Optional[str] = None) -> bool:
+    def publish(self, pkg_name: str, version: str | None = None) -> bool:
         """发布包到远程仓库。"""
         if not self._remote_client:
             raise RuntimeError("未配置远程仓库 URL")
 
-        tar_path = self.pack(pkg_name, version)
+        self.pack(pkg_name, version)
         # 这里应该上传到远程仓库
         print(f"  发布包: {pkg_name} (打包完成，等待上传)")
         return True
@@ -370,12 +886,12 @@ class MathaPackageManager(MathaPackage):
         print(f"  已创建环境: {env_name} → {env_dir}")
         return env_dir
 
-    def list_envs(self) -> List[Dict]:
+    def list_envs(self) -> list[dict]:
         """列出所有环境。"""
         envs = []
         for env_dir in self._envs_dir.iterdir():
             if env_dir.is_dir() and (env_dir / 'env.json').exists():
-                with open(env_dir / 'env.json', 'r', encoding='utf-8') as f:
+                with open(env_dir / 'env.json', encoding='utf-8') as f:
                     envs.append(json.load(f))
         return envs
 
@@ -414,7 +930,7 @@ class MathaPackageManager(MathaPackage):
     # 覆盖基类方法，集成 Lockfile
     # ============================================================
 
-    def install(self, spec: str, dev: bool = False) -> List[str]:
+    def install(self, spec: str, dev: bool = False) -> list[str]:
         """安装（集成 lockfile）。"""
         deps = super().install(spec, dev)
 
@@ -435,7 +951,7 @@ class MathaPackageManager(MathaPackage):
 
         return deps
 
-    def list_packages(self) -> List[Tuple[str, Version]]:
+    def list_packages(self) -> list[tuple[str, Version]]:
         """列出（显示 lockfile 状态）。"""
         result = super().list_packages()
         lock_pkgs = self._lockfile.packages
@@ -473,6 +989,31 @@ if __name__ == "__main__":
     search_p = subparsers.add_parser('search', help='搜索包')
     search_p.add_argument('query', help='搜索关键词')
     search_p.add_argument('--remote', action='store_true', help='搜索远程仓库')
+    search_p.add_argument('--detail', action='store_true', help='显示详细信息')
+
+    # rate
+    rate_p = subparsers.add_parser('rate', help='给包评分')
+    rate_p.add_argument('package', help='包名')
+    rate_p.add_argument('rating', type=int, help='评分 (1-5)')
+    rate_p.add_argument('--user', default='anonymous', help='用户名')
+
+    # info
+    info_p = subparsers.add_parser('info', help='显示包详细信息')
+    info_p.add_argument('package', help='包名')
+
+    # upgrade
+    upgrade_p = subparsers.add_parser('upgrade', help='升级包')
+    upgrade_p.add_argument('package', nargs='?', help='包名 (不指定则升级所有)')
+    upgrade_p.add_argument('--dry-run', action='store_true', help='仅显示将升级的包')
+
+    # check-conflicts
+    conflict_p = subparsers.add_parser('check-conflicts', help='检查依赖冲突')
+    conflict_p.add_argument('specs', nargs='+', help='包规格列表')
+
+    # deptree
+    deptree_p = subparsers.add_parser('deptree', help='显示完整依赖树')
+    deptree_p.add_argument('package', help='包名')
+    deptree_p.add_argument('--depth', type=int, default=5, help='显示深度')
 
     # tree
     tree_p = subparsers.add_parser('tree', help='显示依赖树')
@@ -482,6 +1023,24 @@ if __name__ == "__main__":
     pack_p = subparsers.add_parser('pack', help='打包发布')
     pack_p.add_argument('name', help='包名')
     pack_p.add_argument('--version', help='版本号')
+
+    # sign
+    sign_p = subparsers.add_parser('sign', help='签名包文件')
+    sign_p.add_argument('package', help='包文件路径 (.tar.gz)')
+    sign_p.add_argument('--key', required=True, help='私钥路径')
+    sign_p.add_argument('--password', help='私钥密码')
+
+    # verify
+    verify_p = subparsers.add_parser('verify', help='验证包签名')
+    verify_p.add_argument('package', help='包文件路径 (.tar.gz)')
+    verify_p.add_argument('--key', required=True, help='公钥路径')
+    verify_p.add_argument('--cert', help='证书路径 (可选，用于 keyless 验证)')
+
+    # verify-slsa
+    verify_slsa_p = subparsers.add_parser('verify-slsa', help='验证 SLSA 来源认证')
+    verify_slsa_p.add_argument('package', help='包文件路径')
+    verify_slsa_p.add_argument('--provenance', required=True, help='SLSA 来源文件路径')
+    verify_slsa_p.add_argument('--builder-id', required=True, help='预期的构建器 ID')
 
     # publish
     pub_p = subparsers.add_parser('publish', help='发布到远程仓库')
@@ -516,7 +1075,7 @@ if __name__ == "__main__":
         if result["consistent"]:
             print(f"✓ Lockfile 一致 ({result['locked_packages']} 个包)")
         else:
-            print(f"✗ Lockfile 不一致:")
+            print("✗ Lockfile 不一致:")
             for issue in result["issues"]:
                 print(f"  {issue}")
 
@@ -546,8 +1105,80 @@ if __name__ == "__main__":
                 print(f"未找到与 '{args.query}' 匹配的包")
             else:
                 print(f"\n找到 {len(results)} 个包:")
-                for pkg in results:
-                    print(f"  {pkg.name}=={pkg.version} - {pkg.description}")
+                for r in results:
+                    status = "🔒" if r.get('installed') else "  "
+                    print(f"  {status} {r['name']}=={r['version']} - {r['description']}")
+                    if args.detail:
+                        print(f"      作者: {r.get('author', '未知')}")
+                        print(f"      分类: {r.get('category', '未知')}")
+
+    elif args.command == 'rate':
+        try:
+            mgr.rate_package(args.package, args.rating, args.user)
+            print(f"✓ 已为 {args.package} 评分: {args.rating}/5")
+        except Exception as e:
+            print(f"评分失败: {e}")
+            sys.exit(1)
+
+    elif args.command == 'info':
+        print(mgr.show_package_info(args.package))
+
+    elif args.command == 'upgrade':
+        if args.package:
+            pkg_update = None
+            updates = mgr.check_updates()
+            for u in updates:
+                if u['package'] == args.package:
+                    pkg_update = u
+                    break
+            if pkg_update:
+                if args.dry_run:
+                    print(f"将升级: {pkg_update['package']} {pkg_update['current']} -> {pkg_update['latest']} ({pkg_update['type']})")
+                else:
+                    result = mgr.upgrade_package(args.package)
+                    print(f"✓ 已升级: {result}")
+            else:
+                print(f"包 {args.package} 已是最新版本或未安装")
+        else:
+            updates = mgr.check_updates()
+            if not updates:
+                print("所有包均为最新版本")
+            else:
+                if args.dry_run:
+                    print("将升级以下包:")
+                    for u in updates:
+                        print(f"  {u['package']} {u['current']} -> {u['latest']} ({u['type']})")
+                else:
+                    upgraded = mgr.upgrade_all()
+                    print(f"✓ 已升级 {len(upgraded)} 个包:")
+                    for u in upgraded:
+                        print(f"  {u}")
+
+    elif args.command == 'check-conflicts':
+        conflicts = mgr.check_conflicts(args.specs)
+        if not conflicts:
+            print("✓ 无版本冲突")
+        else:
+            print(f"发现 {len(conflicts)} 个冲突:")
+            for c in conflicts:
+                if 'versions' in c:
+                    print(f"  {c['package']}: {' vs '.join(c['versions'])} - {c.get('sources', '')}")
+                else:
+                    print(f"  {c['package']}: {c.get('error', '未知错误')}")
+            # 建议解决方案
+            suggestions = mgr.suggest_version_resolution(conflicts)
+            if suggestions:
+                print("\n建议解决方案:")
+                for pkg, ver in suggestions.items():
+                    print(f"  {pkg} -> {ver}")
+
+    elif args.command == 'deptree':
+        import json
+        tree = mgr.get_dependency_tree(args.package, args.depth)
+        if tree:
+            print(json.dumps(tree, ensure_ascii=False, indent=2))
+        else:
+            print(f"包不存在: {args.package}")
 
     elif args.command == 'tree':
         print(mgr.show_tree(args.package))
@@ -559,10 +1190,102 @@ if __name__ == "__main__":
     elif args.command == 'publish':
         mgr.publish(args.name, args.version)
 
+    elif args.command == 'sign':
+        if not mgr._remote_client:
+            print("错误: 未配置远程仓库，无法签名")
+            sys.exit(1)
+
+        # 初始化签名验证器
+        try:
+            verifier = SignatureVerifier()
+            if not verifier.is_available:
+                print("错误: cosign 未安装，无法签名")
+                print("请安装 cosign: https://docs.sigstore.dev/cosign/installation/")
+                sys.exit(1)
+        except Exception as e:
+            print(f"错误: 初始化签名验证器失败: {e}")
+            sys.exit(1)
+
+        pkg_path = Path(args.package)
+        if not pkg_path.exists():
+            print(f"错误: 包文件不存在: {pkg_path}")
+            sys.exit(1)
+
+        print(f"正在签名: {pkg_path}")
+        try:
+            data = pkg_path.read_bytes()
+            signature = verifier.sign_blob(data, args.key, args.password)
+
+            # 写入签名文件
+            sig_path = pkg_path.with_suffix(pkg_path.suffix + ".sig")
+            sig_path.write_bytes(signature)
+            print(f"✓ 签名完成: {sig_path}")
+        except Exception as e:
+            print(f"签名失败: {e}")
+            sys.exit(1)
+
+    elif args.command == 'verify':
+        if not hasattr(mgr, '_verifier'):
+            mgr._verifier = SignatureVerifier()
+
+        if not mgr._verifier.is_available:
+            print("错误: cosign 未安装，无法验证")
+            print("请安装 cosign: https://docs.sigstore.dev/cosign/installation/")
+            sys.exit(1)
+
+        pkg_path = Path(args.package)
+        if not pkg_path.exists():
+            print(f"错误: 包文件不存在: {pkg_path}")
+            sys.exit(1)
+
+        print(f"正在验证: {pkg_path}")
+        try:
+            result = mgr._verifier.verify_signed_package(
+                Path(args.package),
+                args.key,
+                args.cert
+            )
+            if result:
+                print("✓ 验证通过: 签名有效")
+            else:
+                print("✗ 验证失败: 签名无效或文件已被篡改")
+                sys.exit(1)
+        except Exception as e:
+            print(f"验证失败: {e}")
+            sys.exit(1)
+
+    elif args.command == 'verify-slsa':
+        if not hasattr(mgr, '_verifier'):
+            mgr._verifier = SignatureVerifier()
+
+        if not mgr._verifier.is_available:
+            print("错误: cosign 未安装，无法验证")
+            sys.exit(1)
+
+        pkg_path = Path(args.package)
+        provenance_path = Path(args.provenance)
+
+        if not pkg_path.exists() or not provenance_path.exists():
+            print("错误: 包文件或来源文件不存在")
+            sys.exit(1)
+
+        print(f"正在验证 SLSA 来源认证: {args.package}")
+        try:
+            result = mgr._verifier.verify_slsa_provenance(
+                Path(args.package),
+                Path(args.provenance),
+                args.builder_id
+            )
+            if result:
+                print("✓ SLSA 来源认证验证通过")
+            else:
+                print("✗ SLSA 来源认证验证失败")
+                sys.exit(1)
+        except Exception as e:
+            print(f"验证失败: {e}")
+            sys.exit(1)
+
     elif args.command == 'env':
-        if args.command == 'env' and args.nargs == 'create':
-            mgr.create_env(args.name)
-        elif args.command == 'env' and args.nargs == 'list':
             envs = mgr.list_envs()
             if not envs:
                 print("无环境")

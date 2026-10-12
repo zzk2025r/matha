@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 跨语言交叉验证框架
 
@@ -25,15 +24,12 @@
   print(result)
 """
 from __future__ import annotations
-import math
+
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
 
-from src.multi_lang_frontend import MultiLanguageFrontend, CompileResult, get_frontend
+from src.multi_lang_frontend import get_frontend
 from src.vm import MathaVM
-from src.mir import MIRProgram
-
 
 # ============================================================
 # 日志
@@ -221,7 +217,7 @@ class CrossLanguageVerifier:
         if failures:
             summary += f"失败: {', '.join(failures)}\n"
         if result.differences:
-            summary += f"差异:\n"
+            summary += "差异:\n"
             for diff in result.differences:
                 summary += f"  - {diff}\n"
         summary += f"一致性: {'✓ 通过' if result.consistent else '✗ 不通过'}"
@@ -322,7 +318,8 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    import sys, os
+    import os
+    import sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     verifier = CrossLanguageVerifier(verbose=True)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 防火墙引擎 — 用 Matha 语言约束 Matha 代码执行
 
@@ -17,10 +16,10 @@ Matha 防火墙引擎 — 用 Matha 语言约束 Matha 代码执行
   FirewallException — 可识别的拦截异常
 """
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
 
 from src.interp import Interpreter, MathaRuntimeError, ast
 
@@ -169,12 +168,12 @@ class FirewallPolicy:
                     self._deny_rules.append(r)
         # 全功能：无默认规则
 
-    def deny(self, builtin: str, reason: str = "", tags: Optional[list[str]] = None) -> "FirewallPolicy":
+    def deny(self, builtin: str, reason: str = "", tags: list[str] | None = None) -> FirewallPolicy:
         """添加黑名单规则（覆盖白名单）。"""
         self._deny_rules.append(FirewallRule(builtin, "deny", self.level.value, reason, tags or []))
         return self
 
-    def allow(self, builtin: str, reason: str = "", tags: Optional[list[str]] = None) -> "FirewallPolicy":
+    def allow(self, builtin: str, reason: str = "", tags: list[str] | None = None) -> FirewallPolicy:
         """添加白名单规则。"""
         self._allow_rules.append(FirewallRule(builtin, "allow", self.level.value, reason, tags or []))
         return self
@@ -229,7 +228,7 @@ class MathaFirewall:
     """
 
     def __init__(self, level: FirewallLevel = FirewallLevel.沙箱,
-                 policy: Optional[FirewallPolicy] = None):
+                 policy: FirewallPolicy | None = None):
         self.level = level
         self.policy = policy or FirewallPolicy(level)
         self._interp = Interpreter()
@@ -469,7 +468,6 @@ def full_interpret(source: str) -> tuple[list, list[str]]:
 # ============================================================
 
 if __name__ == "__main__":
-    import sys
     print("=" * 50)
     print("  Matha 防火墙引擎 v1.0.0")
     print("=" * 50)

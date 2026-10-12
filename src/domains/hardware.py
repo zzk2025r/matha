@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Hardware Domain: 硬件控制与系统交互内建。
 
 覆盖：
@@ -19,9 +18,6 @@ import os
 import platform
 import socket
 import subprocess
-import sys
-from typing import Any
-
 
 # ============================================================
 # 系统信息

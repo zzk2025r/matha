@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Matha 诊断系统统一层（Unified Diagnostics）
 
@@ -13,11 +12,11 @@ from __future__ import annotations
 # ── 从 diagnostics_v2 导入增强实现 ──────────────────────────────────────────
 try:
     from src.diagnostics_v2 import (  # noqa: F401
-        Severity,
-        Diagnostic,
         ContextAnalyzer,
-        ErrorHistory,
+        Diagnostic,
         EnhancedDiagnosticCollector,
+        ErrorHistory,
+        Severity,
         SourceHighlighter,
     )
 except ImportError:
@@ -30,13 +29,17 @@ except ImportError:
 
 # ── 从 diagnostics 导入基础实现（向后兼容）───────────────────────────────────
 try:
-    from src.diagnostics import (  # noqa: F401
-        DiagnosticSeverity,
+    from src.diagnostics import (
         Diagnostic as BaseDiagnostic,
+    )
+    from src.diagnostics import (  # noqa: F401
         DiagnosticCollector,
-        MathaErrorKind,
-        SourceHighlighter as BaseSourceHighlighter,
+        DiagnosticSeverity,
         LSPServer,
+        MathaErrorKind,
+    )
+    from src.diagnostics import (
+        SourceHighlighter as BaseSourceHighlighter,
     )
 except ImportError:
     DiagnosticSeverity = None

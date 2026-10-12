@@ -3,6 +3,8 @@
 > 生成时间：2025-07-26
 > 版本：4.4.16
 > 状态：进行中
+> 更新：2026-10-07 —— 代码中 10 处 Dart TODO 已全部实现（见下方各节 ✅ 标记）
+> 说明：涉及 DB 初始化/Pyodide 执行/SQLite 存储/云端同步/缓存清除/邀请校验/点赞/离线同步远程通道/聊天 WebSocket 发送/节点图导入
 
 ---
 
@@ -25,7 +27,7 @@
 
 | 功能 | 描述 | 预估时间 | 状态 |
 |------|------|----------|------|
-| WebAssembly 打包 | 将 Matha 打包为 WASM | 2 天 | 🔲 |
+| WebAssembly 打包 | 将 Matha 打包为 WASM | 2 天 | ✅ 脚本+本地加载路径已就绪 |
 | 资源预加载 | 预编译常用包 | 1 天 | 🔲 |
 | 内存管理 | 优化内存使用 | 1 天 | 🔲 |
 
@@ -47,9 +49,9 @@
 
 | 功能 | 描述 | 预估时间 | 状态 |
 |------|------|----------|------|
-| **WebSocket 连接** | **实现实时通信** | **2 天** | **🔲** |
-| 邀请系统 | 通过链接邀请 | 0.5 天 | ✅ 框架已创建 |
-| 实时聊天 | 会话内聊天 | 1 天 | ✅ 框架已创建 |
+| **WebSocket 连接** | **实现实时通信** | 2 天 | ✅ 2026-10-07 |
+| 邀请系统 | 通过链接邀请 | 0.5 天 | ✅ 2026-10-07 邀请链接校验+防重放 |
+| 实时聊天 | 会话内聊天 | 1 天 | ✅ 2026-10-07 WebSocket 收发已接通 |
 | 变更历史 | 操作历史记录 | 1 天 | 🔲 |
 | 语音通话 | 会话内语音 | 2 天 | 🔲 |
 | 屏幕共享 | 共享编辑界面 | 2 天 | 🔲 |
@@ -147,25 +149,28 @@
 
 ```
 1. 添加依赖
-   pubspec.yaml: web_socket_channel: ^3.0.0
+   pubspec.yaml: web_socket_channel: ^3.0.0 ✅
 
 2. 创建 WebSocket 连接管理器
    mobile/lib/collab/websocket_manager.dart ✅ 已创建
+   - 补充实现：join/leave 用户同步、op ack 确认移除、光标转发、
+     连接成功后待发送操作冲刷、断线重连、心跳检测
+   - 平台自适应连接工厂: ws_connection_factory.dart (VM: IO / Web: HTML) ✅
 
 3. 实现连接生命周期管理
-   - 连接建立（connect）
-   - 消息发送/接收（sendOp, _handleRemoteOp）
-   - 断线重连（reconnect）
-   - 心跳检测（_startHeartbeat）
+   - 连接建立（connect）✅
+   - 消息发送/接收（sendOp, _handleRemoteOp）✅
+   - 断线重连（reconnect）✅
+   - 心跳检测（_startHeartbeat）✅
 
 4. 实现 CRDT 操作同步
-   - 本地操作推送到服务器
-   - 远程操作订阅和合并
-   - 冲突解决
+   - 本地操作推送到服务器 ✅
+   - 远程操作订阅和合并（忽略自身回显）✅
+   - 冲突解决 ✅
 
 5. 集成到协作引擎
-   - 替换 TODO 标记的 WebSocket 实现
-   - 添加连接状态回调
+   - 替换 TODO 标记的 WebSocket 实现 ✅ (collab_engine.dart connect/_sendToServer)
+   - 添加连接状态回调 ✅ (onConnected/onDisconnected/onError/onUsersUpdate/onCursorMove)
 ```
 
 ---
@@ -180,7 +185,8 @@
    - 配置 Python 编译环境
 
 2. 创建 WebAssembly 构建脚本
-   mobile/assets/pyodide/build_wasm.sh
+   mobile/assets/pyodide/build_wasm.sh ✅ (v1)
+   mobile/assets/pyodide/build_wasm_v2.sh ✅ (v2: --full/--package/--build/--validate/--deploy)
 
 3. 打包 Matha 核心模块
    - calculus_symbolic
@@ -194,8 +200,8 @@
    - 懒加载
 
 5. 集成到 Pyodide
-   - 修改 pyodide_bridge.dart
-   - 添加本地 WASM 加载路径
+   - 修改 pyodide_bridge.dart ✅ 添加本地 WASM 加载路径 (assets/pyodide/pyodide.js，
+     加载失败自动回退 CDN；pubspec 中 assets 声明需在构建产物生成后启用)
 ```
 
 ### 关键配置
@@ -256,8 +262,8 @@ python -m pyodide pack --output matha-wasm.tar
 | 功能 | 描述 | 预估时间 | 状态 |
 |------|------|----------|------|
 | 文件上传 | 大文件分片上传 | 1 天 | 🔲 |
-| 实时同步 | WebSocket 双向通信 | 2 天 | 🔲 |
-| 离线队列 | 断网时队列管理 | 1 天 | 🔲 |
+| 实时同步 | WebSocket 双向通信 | 2 天 | ✅ 2026-10-07 |
+| 离线队列 | 断网时队列管理 | 1 天 | ✅ 2026-10-07 offline_sync_manager 全实现（拉取/保存本地/远程通道，未配置端点时优雅降级） |
 
 ---
 
@@ -299,7 +305,7 @@ python -m pyodide pack --output matha-wasm.tar
 
 | 功能 | 描述 | 预估时间 | 状态 |
 |------|------|----------|------|
-| 离线执行 | 无需网络运行 | 2 天 | 🔲 |
+| 离线执行 | 无需网络运行 | 2 天 | ✅ 2026-10-07 math_provider 接通平台执行器（Web=Pyodide，VM/离线=本地模拟）；历史记录写入 SQLite |
 | 离线帮助 | help 命令离线可用 | 0.5 天 | 🔲 |
 | 离线补全 | 本地补全词库 | 1 天 | 🔲 |
 
@@ -375,11 +381,11 @@ python -m pyodide pack --output matha-wasm.tar
 - [x] 权限系统
 - [x] 评论系统
 - [x] 日志埋点
-- [ ] **WebSocket 连接** ⬅️ 下一步
+- [x] **WebSocket 连接** ✅ 2026-10-07
 - [ ] 邀请系统
 
 ### 下一阶段（Week 10-11）：Pyodide 集成
-- [ ] **WebAssembly 打包** ⬅️ 重点
+- [x] WebAssembly 构建脚本（build_wasm.sh v1/v2，需在 Linux+emsdk 环境执行生成产物）
 - [ ] 资源预加载
 - [ ] 内存管理优化
 

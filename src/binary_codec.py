@@ -17,6 +17,17 @@ MATHA_BINARY_PREFIX = "M2:"    # Matha 专属二进制
 MATHA_TERNARY_PREFIX = "M3:"   # Matha 专属三进制
 
 
+def _to_str(value) -> str:
+    """将任意输入归一化为字符串。
+
+    list / tuple → 各元素 str() 后用空格连接
+    其他类型     → str() 转换
+    """
+    if isinstance(value, (list, tuple)):
+        return " ".join(str(x) for x in value)
+    return str(value) if value is not None else ""
+
+
 # ============================================================
 # 基础转译：整数 ⇄ 二进制 / 三进制
 # ============================================================
@@ -42,7 +53,7 @@ def from_binary(s: str) -> int:
 
     "1010" → 10，支持空格分隔（"1010 0011" → 163）
     """
-    s = s.strip().replace(" ", "")
+    s = _to_str(s).strip().replace(" ", "")
     if not s:
         return 0
     sign = -1 if s.startswith("-") else 1
@@ -72,7 +83,7 @@ def from_ternary(s: str) -> int:
 
     "210" → 21，支持空格分隔
     """
-    s = s.strip().replace(" ", "")
+    s = _to_str(s).strip().replace(" ", "")
     if not s:
         return 0
     sign = -1 if s.startswith("-") else 1
@@ -127,7 +138,7 @@ def from_matha_code(code: str) -> int:
     "M2:1010" → 10，"M3:210" → 21
     无前缀时按十进制解析（兼容传统格式）。
     """
-    code = code.strip()
+    code = _to_str(code).strip()
     if code.startswith(MATHA_BINARY_PREFIX):
         return from_binary(code[len(MATHA_BINARY_PREFIX):])
     if code.startswith(MATHA_TERNARY_PREFIX):

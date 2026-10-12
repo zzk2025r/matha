@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Matha v4.0 — 语言适配器层
 
 设计原则：
@@ -10,17 +9,15 @@
   Matha IR → LanguageAdapter → 目标语言 → 执行 → 结果
 """
 from __future__ import annotations
+
 import abc
 import hashlib
 import json
-import os
 import subprocess
 import sys
-import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
-
+from typing import Any
 
 # ============================================================
 # 适配器基类
@@ -31,7 +28,7 @@ class AdaptResult:
     """适配结果。"""
     success: bool
     target_code: str = ""
-    executable: Optional[Any] = None
+    executable: Any | None = None
     output: Any = None
     error: str = ""
     compile_time_ms: float = 0.0
@@ -44,7 +41,7 @@ class LanguageAdapter(abc.ABC):
     def __init__(self, name: str, ext: str = ".py"):
         self.name = name
         self.ext = ext
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
         self._cache_dir = Path(".matha_cache") / name
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -62,11 +59,11 @@ class LanguageAdapter(abc.ABC):
         """生成缓存键。"""
         return hashlib.sha256(code.encode()).hexdigest()[:16]
 
-    def _get_cached(self, key: str) -> Optional[Any]:
+    def _get_cached(self, key: str) -> Any | None:
         """获取缓存的执行结果。"""
         cache_file = self._cache_dir / f"{key}.json"
         if cache_file.exists():
-            with open(cache_file, 'r', encoding='utf-8') as f:
+            with open(cache_file, encoding='utf-8') as f:
                 return json.load(f)
         return None
 
@@ -265,7 +262,7 @@ class RustAdapter(LanguageAdapter):
 '''
         return rust_code
 
-    def _compile(self, rust_code: str, cache_key: str) -> Optional[str]:
+    def _compile(self, rust_code: str, cache_key: str) -> str | None:
         """编译 Rust 代码。"""
         src_file = self._cache_dir / f"{cache_key}.rs"
         exe_file = self._cache_dir / f"{cache_key}"
@@ -295,7 +292,7 @@ class RustAdapter(LanguageAdapter):
 class LanguageAdapterRegistry:
     """语言适配器注册表。"""
 
-    _adapters: Dict[str, LanguageAdapter] = {}
+    _adapters: dict[str, LanguageAdapter] = {}
 
     @classmethod
     def register(cls, name: str, adapter: LanguageAdapter):
@@ -303,12 +300,12 @@ class LanguageAdapterRegistry:
         cls._adapters[name] = adapter
 
     @classmethod
-    def get(cls, name: str) -> Optional[LanguageAdapter]:
+    def get(cls, name: str) -> LanguageAdapter | None:
         """获取语言适配器。"""
         return cls._adapters.get(name)
 
     @classmethod
-    def list_adapters(cls) -> List[str]:
+    def list_adapters(cls) -> list[str]:
         """列出所有已注册的适配器。"""
         return list(cls._adapters.keys())
 
