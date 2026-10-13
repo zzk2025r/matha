@@ -160,6 +160,41 @@ def test_now_date_matches_local_clock():
     assert abs((datetime.date(y, m, d) - datetime.date.today()).days) <= 1
 
 
+PARSE_CASES = [
+    ('"2001-09-09 09:46:40"', '"%Y-%m-%d %H:%M:%S"', "1000000000.0"),
+    ('"2024-01-01 12:00:00"', '"%Y-%m-%d %H:%M:%S"', "1704081600.0"),
+    ('"2024-02-29 23:59:59"', '"%Y-%m-%d %H:%M:%S"', "1709222399.0"),
+    ('"1999-12-31 12:00:00"', '"%Y-%m-%d %H:%M:%S"', "946612800.0"),
+    ('"2024/07/04 06:30:00"', '"%Y/%m/%d %H:%M:%S"', "1720045800.0"),
+    ('"2024-01-02"', '"%Y-%m-%d"', "1704124800.0"),
+    ('"23-05-06"', '"%y-%m-%d"', "1683302400.0"),
+    ('"2024-01-01 00:00:00.5"', '"%Y-%m-%d %H:%M:%S.%f"', "1704038400.5"),
+    ('"2024.01.02"', '"%Y.%m.%d"', "1704124800.0"),
+    ('"2024-1-2"', '"%Y-%m-%d"', "1704124800.0"),
+    ('"bad input"', '"%Y-%m-%d %H:%M:%S"', "0.0"),
+    ('"2024-13-01"', '"%Y-%m-%d"', "0.0"),
+    ('"2024-02-30"', '"%Y-%m-%d %H:%M:%S"', "0.0"),
+    ('"2024-01-01 12:00:00 extra"', '"%Y-%m-%d %H:%M:%S"', "0.0"),
+    ('"2024-01-01x"', '"%Y-%m-%d"', "0.0"),
+    ('"2024-01-01 12:00:00"', '"%Y-%m-%d%"', "0.0"),
+]
+
+
+@pytest.mark.parametrize("text,fmt,expected", PARSE_CASES)
+def test_parse_time_cases(text, fmt, expected):
+    expr = f"解析时间({text})({fmt})"
+    rc, out = _run(f"输出({expr})")
+    assert rc == 0 and out == expected
+
+
+def test_parse_time_parity_with_host():
+    src = "\n".join(f"输出(解析时间({t})({f}))" for t, f, _ in PARSE_CASES)
+    iout, vout = _host(src)
+    assert iout == vout
+    rc, nout = _run(src)
+    assert rc == 0 and nout == iout
+
+
 def test_host_zero_arg_builtins():
     """零参内建经 `_ignore_unit` 包装后，解释器/VM 均应正常求值。"""
     for name in ["获取时间戳", "获取日期", "当前日期", "当前时间",

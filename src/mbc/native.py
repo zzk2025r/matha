@@ -194,8 +194,8 @@ _CRT_FUNCS = ["_ecvt", "strtod", "sqrt", "pow", "floor", "fmod",
               "log10", "log2", "rint", "trunc", "hypot",
               # 砖块 16 阶段三：文件 I/O
               "fopen", "fread", "fwrite", "fseek", "ftell", "fclose",
-              # 砖块 21：日期时间非纯族（本地/UTC 分解与格式化）
-              "_time64", "_localtime64_s", "_gmtime64_s", "strftime"]
+              # 砖块 21：日期时间非纯族（本地/UTC 分解、格式化与反向解析）
+              "_time64", "_localtime64_s", "_gmtime64_s", "_mktime64", "strftime"]
 
 VSTACK_SIZE = 0x10000         # 64KB 操作数栈
 NUMBUF_SIZE = 64              # 整数输出缓冲
@@ -502,6 +502,12 @@ class _Emitter:
 
     def mov_mem_r(self, base: int, disp: int, src: int):
         rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if base >= 8 else 0)
+        self.emit(bytes([rex, 0x89]))
+        self._emit_rm(src, base, disp)
+
+    def mov_mem_r32(self, base: int, disp: int, src: int):
+        """mov dword [base+disp], src32（取 src 低 32 位）。"""
+        rex = 0x40 | (0x04 if src >= 8 else 0) | (0x01 if base >= 8 else 0)
         self.emit(bytes([rex, 0x89]))
         self._emit_rm(src, base, disp)
 
@@ -6946,9 +6952,9 @@ NATIVE_BUILTINS = (
     "查找正则", "查找全部", "命名组", "分割正则", "替换正则",
     # 砖块 21：日期时间纯函数（原生后端）
     "闰年判断", "月份天数", "时区偏移", "时区转换", "日期差", "星期几", "日期加减",
-    # 砖块 21：日期时间非纯函数（时钟采集族 + 格式化）
+    # 砖块 21：日期时间非纯函数（时钟采集族 + 格式化 + 反向解析）
     "获取时间戳", "获取日期", "获取日期时间", "获取UTC时间",
-    "当前时间", "当前日期", "格式化时间",
+    "当前时间", "当前日期", "格式化时间", "解析时间",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -6999,9 +7005,9 @@ _BUILTIN_ARITY = {
     "闰年判断": 1, "月份天数": 2, "时区偏移": 1, "时区转换": 3,
     "日期差": 2, "星期几": 1, "日期加减": 2,
     # 砖块 21：日期时间非纯函数（时钟族以「忽略单位实参」的单参形式暴露，
-    # 对齐 Matha `f()` → FuncApp(f, 0) 的调用约定）+ 二参格式化
+    # 对齐 f() -> FuncApp(f,0)；格式化/解析为二参柯里化）
     "获取时间戳": 1, "获取日期": 1, "获取日期时间": 1, "获取UTC时间": 1,
-    "当前时间": 1, "当前日期": 1, "格式化时间": 2,
+    "当前时间": 1, "当前日期": 1, "格式化时间": 2, "解析时间": 2,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7115,6 +7121,7 @@ _BUILTIN_EMITTERS: dict = {
     "获取日期时间": _timelib._emit_builtin_now_datetime,
     "获取UTC时间": _timelib._emit_builtin_now_utc,
     "格式化时间": _timelib._emit_builtin_format_time,
+    "解析时间": _timelib._emit_builtin_parse_time,
 }
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
@@ -7146,8 +7153,8 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_decimal", "decode_decimal",
     # 常量（异常原语 错误/调用捕获 已实现，见 NATIVE_BUILTINS）
     "MathaIOError", "真", "假", "null", "None",
-    # 日期时间：依赖 CRT strptime / 对象 / 全局状态，原生后端暂未实现
-    "解析时间", "创建计时器", "注册任务", "执行待办", "待办列表",
+    # 日期时间：依赖对象 / 全局状态，原生后端暂未实现
+    "创建计时器", "注册任务", "执行待办", "待办列表",
 })
 
 # 宿主 mathlib 通过 _register_math_builtins 注册的数学/工具函数。

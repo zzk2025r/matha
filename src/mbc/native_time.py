@@ -22,14 +22,20 @@ civil_from_days 算法在儒略日序列号上运算，避免闰年/月末分支
   获取日期时间() -> str                     （本地「YYYY-MM-DDTHH:MM:SS.ffffff」）
   获取UTC时间() -> str                      （UTC，同上并以 Z 结尾）
   格式化时间(ts, fmt) -> str                （localtime + CRT strftime）
+  解析时间(text, fmt) -> float              （自实现 strptime 子集 + CRT _mktime64）
 
 时钟来源为 kernel32!GetSystemTimeAsFileTime（经 k32_base 惰性 GetProcAddress），
 日历字段由 CRT _localtime64_s / _gmtime64_s 产出，格式化交给 CRT strftime，
 故与宿主解释器（同用 CRT）的格式码行为一致。微秒由 FILETIME 低 7 位十进制推出。
 
-仍暂缓：解析时间（无 CRT strptime）、创建计时器（对象/方法）、注册任务/执行待办/
-待办列表（全局状态 + 回调）。这些名字在 native.py 的 _UNRESOLVED_GLOBALS 中显式
-拒绝，避免编译期静默读 cell→0。
+解析时间：Windows CRT 无 strptime，故按格式串自实现一个子集解析器
+（%Y/%y/%m/%d/%H/%M/%S/%f 与字面量/%%），把结果填入 struct tm 后交
+CRT _mktime64 按**本地时区**换算（与宿主 datetime.timestamp() 同语义）；
+解析失败（含格式不符、字段越界）返回 0.0，与宿主捕获 ValueError 的行为一致。
+
+仍暂缓：创建计时器（对象/方法）、注册任务/执行待办/待办列表（全局状态 +
+回调）。这些名字在 native.py 的 _UNRESOLVED_GLOBALS 中显式拒绝，避免编译期
+静默读 cell→0。
 
 原生字符串布局：`[TYPE_STR][+8]=字节长][+16..]=UTF-8 字节`。
 整数为未装箱立即数（rax 直接返回），布尔为 bool_true/bool_false 指针对象。
@@ -101,8 +107,13 @@ def _cqo(em):
 
 
 def _imul(em, dst, src):
-    """imul dst, src（64 位有符号乘，低 64 位）。"""
-    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    """imul dst, src（64 位有符号乘，低 64 位）。
+
+    两操作数形式 `imul r64, r/m64`：ModRM.reg=dst（其扩展位是 REX.R=0x04），
+    ModRM.rm=src（其扩展位是 REX.B=0x01）。此前 REX.R/REX.B 判据写反，当
+    dst 或 src ≥ r8 时会错误扩展，导致乘错寄存器。
+    """
+    rex = 0x48 | (0x04 if dst >= 8 else 0) | (0x01 if src >= 8 else 0)
     em.emit(bytes([rex, 0x0F, 0xAF, 0xC0 | ((dst & 7) << 3) | (src & 7)]))
 
 
@@ -509,6 +520,251 @@ def _emit_time_runtime(em):
     em.emit(b"\x5B")                                # pop rbx
     em.emit(b"\xC3")
 
+    # ---- tm_pf_digits(rdi=指针, rsi=剩余, rcx=最多位数) -> rax=值, rdx=消费数 ----
+    em.label_here("tm_pf_digits")
+    em.xor_rr32(_RAX, _RAX)                         # value=0
+    em.xor_rr32(_R8, _R8)                           # consumed=0
+    em.mov_r_imm32(_R11, 10)
+    em.label_here("tm_pf_d_loop")
+    em.cmp_rr(_R8, _RCX)
+    em.jcc_rel32(0x83, "tm_pf_d_done")              # jae：已达位数上限
+    em.emit(b"\x48\x85\xF6")                        # test rsi,rsi
+    em.jcc_rel32(0x84, "tm_pf_d_done")              # jz：输入耗尽
+    em.movzx_r_m8(_R9, _RDI, 0)
+    em.cmp_ri(_R9, 48)
+    em.jcc_rel32(0x82, "tm_pf_d_done")              # jb：非数字
+    em.cmp_ri(_R9, 57)
+    em.jcc_rel32(0x87, "tm_pf_d_done")              # ja：非数字
+    _imul(em, _RAX, _R11)
+    em.add_ri(_R9, -48)
+    em.add_rr(_RAX, _R9)
+    em.inc_r(_RDI)
+    em.emit(b"\x48\xFF\xCE")                        # dec rsi
+    em.inc_r(_R8)
+    em.jcc_rel32(None, "tm_pf_d_loop")
+    em.label_here("tm_pf_d_done")
+    em.mov_rr(_RDX, _R8)
+    em.emit(b"\xC3")
+
+    # ---- tm_parse_fmt(rdi=text载荷, rsi=fmt载荷, rdx=text长, rcx=fmt长,
+    #                   r8=&tm) -> rax=1 成功 / 0 失败；失败不改 tm。
+    # 支持 %Y %y %m %d %H %M %S %f %% 与字面量；字段默认 1900-01-01 00:00:00。
+    # 微秒写入 tm_frac。用自建帧保存中间值（-48 年/-56 月/-64 日/-72 时/
+    # -80 分/-88 秒/-96 微秒），故帧 0x60；本 helper 不外呼 CRT，无影子空间需求。
+    em.label_here("tm_parse_fmt")
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x48\x83\xEC\x60")                    # sub rsp,0x60
+    em.mov_mem_r(_RBP, -8, _RDI)
+    em.mov_mem_r(_RBP, -16, _RSI)
+    em.mov_mem_r(_RBP, -24, _RDX)
+    em.mov_mem_r(_RBP, -32, _RCX)
+    em.mov_mem_r(_RBP, -40, _R8)
+    em.mov_r_imm32(_RAX, 1900)
+    em.mov_mem_r(_RBP, -48, _RAX)                   # 年默认 1900
+    em.mov_r_imm32(_RAX, 1)
+    em.mov_mem_r(_RBP, -56, _RAX)                   # 月默认 1
+    em.mov_mem_r(_RBP, -64, _RAX)                   # 日默认 1
+    em.xor_rr32(_RAX, _RAX)
+    em.mov_mem_r(_RBP, -72, _RAX)
+    em.mov_mem_r(_RBP, -80, _RAX)
+    em.mov_mem_r(_RBP, -88, _RAX)
+    em.mov_mem_r(_RBP, -96, _RAX)
+
+    em.label_here("tm_pf_loop")
+    em.mov_rd_mem(_RAX, _RBP, -32)
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x84, "tm_pf_fin")                 # 格式串耗尽 → 收尾
+    em.mov_rd_mem(_RDI, _RBP, -16)                  # 取格式字节
+    em.movzx_r_m8(_R10, _RDI, 0)
+    em.inc_r(_RDI)
+    em.mov_mem_r(_RBP, -16, _RDI)
+    em.mov_rd_mem(_RAX, _RBP, -32)
+    em.dec_r(_RAX)
+    em.mov_mem_r(_RBP, -32, _RAX)
+    em.cmp_ri(_R10, 37)                             # '%'
+    em.jcc_rel32(0x84, "tm_pf_spec")
+    # 字面量：文本需有剩余且逐字节相等
+    em.mov_rd_mem(_RAX, _RBP, -24)
+    em.emit(b"\x48\x85\xC0")
+    em.jcc_rel32(0x84, "tm_pf_fail")
+    em.mov_rd_mem(_RDI, _RBP, -8)
+    em.movzx_r_m8(_RAX, _RDI, 0)
+    em.cmp_rr(_RAX, _R10)
+    em.jcc_rel32(0x85, "tm_pf_fail")                # jne
+    em.inc_r(_RDI)
+    em.mov_mem_r(_RBP, -8, _RDI)
+    em.mov_rd_mem(_RAX, _RBP, -24)
+    em.dec_r(_RAX)
+    em.mov_mem_r(_RBP, -24, _RAX)
+    em.jcc_rel32(None, "tm_pf_loop")
+
+    em.label_here("tm_pf_spec")
+    em.mov_rd_mem(_RAX, _RBP, -32)
+    em.emit(b"\x48\x85\xC0")
+    em.jcc_rel32(0x84, "tm_pf_fail")                # '%' 后无字符
+    em.mov_rd_mem(_RDI, _RBP, -16)
+    em.movzx_r_m8(_R10, _RDI, 0)
+    em.inc_r(_RDI)
+    em.mov_mem_r(_RBP, -16, _RDI)
+    em.mov_rd_mem(_RAX, _RBP, -32)
+    em.dec_r(_RAX)
+    em.mov_mem_r(_RBP, -32, _RAX)
+    em.cmp_ri(_R10, 89)
+    em.jcc_rel32(0x84, "tm_pf_Y")
+    em.cmp_ri(_R10, 121)
+    em.jcc_rel32(0x84, "tm_pf_y")
+    em.cmp_ri(_R10, 109)
+    em.jcc_rel32(0x84, "tm_pf_m")
+    em.cmp_ri(_R10, 100)
+    em.jcc_rel32(0x84, "tm_pf_d")
+    em.cmp_ri(_R10, 72)
+    em.jcc_rel32(0x84, "tm_pf_H")
+    em.cmp_ri(_R10, 77)
+    em.jcc_rel32(0x84, "tm_pf_M")
+    em.cmp_ri(_R10, 83)
+    em.jcc_rel32(0x84, "tm_pf_S")
+    em.cmp_ri(_R10, 102)
+    em.jcc_rel32(0x84, "tm_pf_f")
+    em.cmp_ri(_R10, 37)
+    em.jcc_rel32(0x84, "tm_pf_pct")
+    em.jcc_rel32(None, "tm_pf_fail")                # 未知格式码
+
+    def _take(dest_off, maxdigits):
+        em.mov_rd_mem(_RDI, _RBP, -8)
+        em.mov_rd_mem(_RSI, _RBP, -24)
+        em.mov_r_imm32(_RCX, maxdigits)
+        em.call_rel32("tm_pf_digits")
+        em.emit(b"\x48\x85\xD2")                    # test rdx,rdx
+        em.jcc_rel32(0x84, "tm_pf_fail")            # 未消费到数字
+        em.mov_rd_mem(_R11, _RBP, -8)
+        em.add_rr(_R11, _RDX)
+        em.mov_mem_r(_RBP, -8, _R11)
+        em.mov_rd_mem(_R11, _RBP, -24)
+        em.sub_rr(_R11, _RDX)
+        em.mov_mem_r(_RBP, -24, _R11)
+        em.mov_mem_r(_RBP, dest_off, _RAX)
+
+    for _cc, _lbl, _dest, _mx in (
+            (89, "tm_pf_Y", -48, 4), (109, "tm_pf_m", -56, 2),
+            (100, "tm_pf_d", -64, 2), (72, "tm_pf_H", -72, 2),
+            (77, "tm_pf_M", -80, 2), (83, "tm_pf_S", -88, 2)):
+        em.label_here(_lbl)
+        _take(_dest, _mx)
+        em.jcc_rel32(None, "tm_pf_loop")
+
+    em.label_here("tm_pf_y")                        # 两位年：<69→20xx，否则 19xx
+    _take(-48, 2)
+    em.mov_rd_mem(_RAX, _RBP, -48)
+    em.cmp_ri(_RAX, 69)
+    em.jcc_rel32(0x83, "tm_pf_y_old")               # jae
+    em.add_ri(_RAX, 2000)
+    em.jcc_rel32(None, "tm_pf_y_set")
+    em.label_here("tm_pf_y_old")
+    em.add_ri(_RAX, 1900)
+    em.label_here("tm_pf_y_set")
+    em.mov_mem_r(_RBP, -48, _RAX)
+    em.jcc_rel32(None, "tm_pf_loop")
+
+    em.label_here("tm_pf_f")
+    em.mov_rd_mem(_RDI, _RBP, -8)
+    em.mov_rd_mem(_RSI, _RBP, -24)
+    em.mov_r_imm32(_RCX, 6)
+    em.call_rel32("tm_pf_digits")                   # rax=值, rdx=消费位数
+    em.emit(b"\x48\x85\xD2")                        # test rdx,rdx
+    em.jcc_rel32(0x84, "tm_pf_fail")
+    em.mov_rd_mem(_R11, _RBP, -8)
+    em.add_rr(_R11, _RDX)
+    em.mov_mem_r(_RBP, -8, _R11)
+    em.mov_rd_mem(_R11, _RBP, -24)
+    em.sub_rr(_R11, _RDX)
+    em.mov_mem_r(_RBP, -24, _R11)
+    em.mov_r_imm32(_R8, 6)
+    em.sub_rr(_R8, _RDX)                            # 指数 = 6 - 位数
+    em.mov_r_imm32(_R9, 1)
+    em.label_here("tm_pf_fpow")
+    em.test_rr(_R8, _R8)
+    em.jcc_rel32(0x84, "tm_pf_fpow_done")
+    em.mov_r_imm32(_R10, 10)
+    _imul(em, _R9, _R10)
+    em.dec_r(_R8)
+    em.jcc_rel32(None, "tm_pf_fpow")
+    em.label_here("tm_pf_fpow_done")
+    _imul(em, _RAX, _R9)                            # 微秒 = 值 × 10^指数
+    em.mov_mem_r(_RBP, -96, _RAX)
+    em.jcc_rel32(None, "tm_pf_loop")
+
+    em.label_here("tm_pf_pct")
+    em.mov_rd_mem(_RAX, _RBP, -24)
+    em.emit(b"\x48\x85\xC0")
+    em.jcc_rel32(0x84, "tm_pf_fail")
+    em.mov_rd_mem(_RDI, _RBP, -8)
+    em.movzx_r_m8(_RAX, _RDI, 0)
+    em.cmp_ri(_RAX, 37)
+    em.jcc_rel32(0x85, "tm_pf_fail")                # jne
+    em.inc_r(_RDI)
+    em.mov_mem_r(_RBP, -8, _RDI)
+    em.mov_rd_mem(_RAX, _RBP, -24)
+    em.dec_r(_RAX)
+    em.mov_mem_r(_RBP, -24, _RAX)
+    em.jcc_rel32(None, "tm_pf_loop")
+
+    em.label_here("tm_pf_fin")
+    em.mov_rd_mem(_RAX, _RBP, -24)
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x85, "tm_pf_fail")                # 输入有剩余 -> 失败
+    # 字段范围校验（与 strptime 一致：月 1..12，日 1..当月天数，时 0..23 等）
+    em.mov_rd_mem(_RAX, _RBP, -56)
+    em.cmp_ri(_RAX, 1)
+    em.jcc_rel32(0x8C, "tm_pf_fail")                # jl
+    em.cmp_ri(_RAX, 12)
+    em.jcc_rel32(0x8F, "tm_pf_fail")                # jg
+    em.mov_rd_mem(_RAX, _RBP, -64)
+    em.cmp_ri(_RAX, 1)
+    em.jcc_rel32(0x8C, "tm_pf_fail")
+    em.mov_rd_mem(_RDI, _RBP, -48)                  # tm_days_in_month(年, 月)
+    em.mov_rd_mem(_RSI, _RBP, -56)
+    em.call_rel32("tm_days_in_month")
+    em.mov_rd_mem(_RCX, _RBP, -64)
+    em.cmp_rr(_RCX, _RAX)
+    em.jcc_rel32(0x8F, "tm_pf_fail")                # 日 > 当月天数 -> jg
+    em.mov_rd_mem(_RAX, _RBP, -72)
+    em.cmp_ri(_RAX, 23)
+    em.jcc_rel32(0x8F, "tm_pf_fail")
+    em.mov_rd_mem(_RAX, _RBP, -80)
+    em.cmp_ri(_RAX, 59)
+    em.jcc_rel32(0x8F, "tm_pf_fail")
+    em.mov_rd_mem(_RAX, _RBP, -88)
+    em.cmp_ri(_RAX, 59)
+    em.jcc_rel32(0x8F, "tm_pf_fail")
+    # 写入 struct tm（MSVC 布局：sec/min/hour/mday/mon[0基]/year-1900/.../isdst）
+    em.mov_rd_mem(_R11, _RBP, -40)
+    em.xor_rr32(_RAX, _RAX)
+    for _off in (0, 4, 8, 12, 16, 20, 24, 28, 32):
+        em.mov_mem_r32(_R11, _off, _RAX)
+    em.mov_rd_mem(_RAX, _RBP, -88)
+    em.mov_mem_r32(_R11, 0, _RAX)
+    em.mov_rd_mem(_RAX, _RBP, -80)
+    em.mov_mem_r32(_R11, 4, _RAX)
+    em.mov_rd_mem(_RAX, _RBP, -72)
+    em.mov_mem_r32(_R11, 8, _RAX)
+    em.mov_rd_mem(_RAX, _RBP, -64)
+    em.mov_mem_r32(_R11, 12, _RAX)
+    em.mov_rd_mem(_RAX, _RBP, -56)
+    em.dec_r(_RAX)                                  # mon 0 基
+    em.mov_mem_r32(_R11, 16, _RAX)
+    em.mov_rd_mem(_RAX, _RBP, -48)
+    em.add_ri(_RAX, -1900)
+    em.mov_mem_r32(_R11, 20, _RAX)
+    em.mov_r_imm32(_RAX, -1)
+    em.mov_mem_r32(_R11, 32, _RAX)                  # tm_isdst=-1（按本地时区判定）
+    em.mov_rd_mem(_RAX, _RBP, -96)
+    em.store_rip_from("tm_frac", _RAX)
+    em.mov_r_imm32(_RAX, 1)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
+    em.label_here("tm_pf_fail")
+    em.xor_rr32(_RAX, _RAX)
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
     # ---- tm_now_tm(rdi=0 本地/1 UTC) -> rax=微秒；填充 tm_timeval 与 tm_tm ----
     em.label_here("tm_now_tm")
     em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
@@ -866,9 +1122,43 @@ def _emit_builtin_format_time(em):
     _emit_ret_int(em)
 
 
+def _emit_builtin_parse_time(em):
+    """解析时间(text, fmt) → float（自实现 strptime 子集 + _mktime64）。"""
+    em.label_here("fn:解析时间")
+    _EMIT_PROLOGUE(em, 2, 2)
+    _save(em)
+    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20（CRT 调用影子空间）
+    em.mov_rd_mem(_RDI, _RBP, -16)                  # text STR 对象
+    em.mov_rd_mem(_RSI, _RBP, -8)                   # fmt STR 对象
+    em.mov_rd_mem(_RDX, _RDI, 8)                    # text 字节长
+    em.mov_rd_mem(_RCX, _RSI, 8)                    # fmt 字节长
+    em.add_ri(_RDI, 16)                             # text 载荷
+    em.add_ri(_RSI, 16)                             # fmt 载荷
+    em.lea_rip(_R8, "tm_tm")
+    em.call_rel32("tm_parse_fmt")                   # rax=1 成功 / 0 失败
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x84, "tm_pt_zero")                # 解析失败 -> 0.0
+    em.lea_rip(_RCX, "tm_tm")
+    em.call_rip_indirect("crt__mktime64")           # rax=本地时区秒
+    em.cvtsi2sd(0, _RAX)                            # xmm0=秒
+    em.load_rip_to(_R11, "tm_frac")
+    em.cvtsi2sd(1, _R11)                            # xmm1=微秒
+    em.lea_rip(_R11, "tm_c_1e6")
+    em.movsd_load(2, _R11, 0)                       # xmm2=1e-6
+    em.mulsd(1, 2)
+    em.addsd(0, 1)
+    em.jcc_rel32(None, "tm_pt_box")
+    em.label_here("tm_pt_zero")
+    em.emit(b"\x66\x0F\x57\xC0")                    # xorps xmm0,xmm0 -> 0.0
+    em.label_here("tm_pt_box")
+    em.call_rel32("box_float")
+    em.emit(b"\x48\x83\xC4\x20")                    # add rsp,0x20（回收影子空间）
+    _emit_ret_int(em)
+
+
 def emit_time_bss(eb):
     """在 .bss 预留时钟 scratch（kernel32 基址 + FILETIME + tm + 格式化缓冲）。"""
-    for nm in ("k32_base", "tm_filetime", "tm_timeval"):
+    for nm in ("k32_base", "tm_filetime", "tm_timeval", "tm_frac"):
         eb.align(8)
         eb.label_here(nm)
         eb.emit_virtual(8)
