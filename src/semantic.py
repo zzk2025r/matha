@@ -92,6 +92,7 @@ def _build_builtin_symtab() -> SymbolTable:
         ("src.domains.building_struct", "_building_struct_symtab_names"),
         ("src.domains.mech_design", "_mech_design_symtab_names"),
         ("src.domains.kernel_math", "kernel_symtab_names"),
+        ("src.domains.time_module", "_time_symtab_names"),
     ]
     for mod_path, fn_name in _domain_imports:
         mod = __import__(mod_path, fromlist=[fn_name])

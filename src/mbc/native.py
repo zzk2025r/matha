@@ -168,6 +168,7 @@ from pathlib import Path
 
 from src.mbc import opcodes as OP
 from src.mbc import native_regex as _regexlib
+from src.mbc import native_time as _timelib
 
 # ---- 节区布局常量 ----
 TEXT_RVA = 0x1000             # .text 节 RVA（代码）
@@ -714,8 +715,9 @@ def _emit_epilogue(em: _Emitter):
     em.emit(b"\xC3")                                # ret
 
 
-# 向正则发射模块注入序/尾声原语（native_regex 无法反向 import 本模块）。
+# 向正则/时间发射模块注入序/尾声原语（它们无法反向 import 本模块）。
 _regexlib.configure(_emit_prologue, _emit_epilogue)
+_timelib.configure(_emit_prologue, _emit_epilogue)
 
 
 MAX_NATIVE_ARITY = 8
@@ -6936,6 +6938,8 @@ NATIVE_BUILTINS = (
     # 查找正则/查找全部/命名组/分割正则/替换正则）
     "匹配", "全匹配",
     "查找正则", "查找全部", "命名组", "分割正则", "替换正则",
+    # 砖块 21：日期时间纯函数（原生后端）
+    "闰年判断", "月份天数", "时区偏移", "时区转换", "日期差", "星期几", "日期加减",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -6982,6 +6986,9 @@ _BUILTIN_ARITY = {
     # 砖块 21：正则（阶段 A：字面量；阶段 B：五内建）
     "匹配": 2, "全匹配": 2,
     "查找正则": 2, "查找全部": 2, "命名组": 2, "分割正则": 2, "替换正则": 3,
+    # 砖块 21：日期时间纯函数（原生后端）
+    "闰年判断": 1, "月份天数": 2, "时区偏移": 1, "时区转换": 3,
+    "日期差": 2, "星期几": 1, "日期加减": 2,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7080,6 +7087,14 @@ _BUILTIN_EMITTERS: dict = {
     "命名组": _regexlib._emit_builtin_regex_named,
     "分割正则": _regexlib._emit_builtin_regex_split,
     "替换正则": _regexlib._emit_builtin_regex_sub,
+    # 砖块 21：日期时间纯函数（原生后端）
+    "闰年判断": _timelib._emit_builtin_is_leap,
+    "月份天数": _timelib._emit_builtin_days_in_month,
+    "时区偏移": _timelib._emit_builtin_tz_offset,
+    "时区转换": _timelib._emit_builtin_tz_convert,
+    "日期差": _timelib._emit_builtin_date_diff,
+    "星期几": _timelib._emit_builtin_weekday,
+    "日期加减": _timelib._emit_builtin_date_add,
 }
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
@@ -8040,6 +8055,7 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     _emit_float_runtime(ec)                     # 浮点运行时
     _emit_bigint_runtime(ec)                    # 大整数运行时
     _regexlib._emit_re_runtime(ec)              # 正则运行时（阶段 A：字面量）
+    _timelib._emit_time_runtime(ec)             # 日期时间纯函数运行时
     return _emit_data_section(mod, labels, ec, user_names)
 
 
@@ -9750,6 +9766,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     # （heap_base..heap_free），使错误字符串能被「obj−heap_base<heap_used」判据
     # 识别为有效指针，从而可安全交给 raise_rt。
     _regexlib.emit_regex_data(ed)
+    # 砖块 21：日期时间静态数据（时区名 + 中文星期名 STR 对象）。
+    _timelib.emit_time_data(ed)
     # 砖块 16 阶段二：静态空字典对象（_empty_dict）。
     ed.align(8)
     ed.label_here("empty_dict")

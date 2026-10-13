@@ -1,5 +1,43 @@
 # Matha 变更摘要
 
+## 原生后端：日期时间内建（纯函数）
+
+**日期**：2026-10-13
+
+### 变更范围
+
+为原生后端补齐 `time_module` 中**纯函数**的机器码实现，与解释器
+（`src/domains/time_module.py`）逐字节对齐：`闰年判断`/`月份天数`/`时区偏移`/
+`时区转换`/`日期差`/`星期几`/`日期加减`。日期用 Howard Hinnant 的
+`days_from_civil`/`civil_from_days` 算法在儒略日序列号上运算，避免闰年与
+月末分支；时区名与中文星期名以静态 STR 对象随数据区发射。非纯函数
+（获取时间戳/当前日期/格式化时间/解析时间/计时器/任务调度等）依赖系统时钟
+与全局状态，仍只由解释器与 VM 提供，原生后续补齐。
+
+### 变更内容
+
+- 新增 `src/mbc/native_time.py`：
+  - 运行时助手 `tm_is_leap`/`tm_days_in_month`/`tm_parse_date`（ISO 文本
+    → 儒略日序列号）/`tm_streq`/`tm_tz_offset`（时区名查表 → 小时偏移）/
+    `tm_format_date`（序列号 → ISO 文本，堆分配 26 字节）。
+  - `_emit_days_from_civil`/`_emit_civil_from_days`：Hinnant 日历算法。
+  - 7 个内建发射器（纯函数，整数未装箱返回，布尔用 `bool_true`/`bool_false`）。
+  - `emit_time_data`：12 个时区名 + 7 个中文星期名 STR 对象。
+  - `configure()` 注入 `_emit_prologue/_emit_epilogue`，避免循环导入。
+- `src/mbc/native.py`：注册 7 个内建；`_emit_time_runtime` 追加到运行时段，
+  `emit_time_data` 随静态数据区发射。
+
+### 关键修复
+
+- `days_from_civil` 的纪元除数误用 146097（天/400 年）除以**年**，应为 400；
+  导致解析出的序列号恒少 4～5 天（`星期几` 偏移、`日期加减` 结果偏差）。
+
+### 测试覆盖
+
+- 新增 `tests/test_native_time.py`（39 项）：纯函数定值用例 + 与解释器/VM 的
+  联合 parity（含 1970 前日期、世纪闰年、未知时区、跨世纪日期加减）。
+- 全量 `pytest`：2589 passed。
+
 ## 原生后端：正则内建（阶段 B：解析器 + 回溯 VM + 捕获组与 5 内建）
 
 **日期**：2026-10-13
