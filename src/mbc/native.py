@@ -2423,6 +2423,9 @@ def _emit_gc_runtime(em: _Emitter):
     em.emit(b"\x48\x8B\x05")                        # mov rax,[rip+raise_msg]
     em.rel32_to("raise_msg")
     em.call_rel32("gc_mark_candidate")
+    em.emit(b"\x48\x8B\x05")                        # mov rax,[rip+gc_extra_root]
+    em.rel32_to("gc_extra_root")
+    em.call_rel32("gc_mark_candidate")              # 模块级持久状态的 GC 根
     em.lea_rip(7, "cells_begin")                    # 全局变量单元 [cells_begin,cells_end)
     em.emit(b"\x48\x8B\x35")
     em.rel32_to("cells_end")
@@ -6966,6 +6969,8 @@ NATIVE_BUILTINS = (
     "当前时间", "当前日期", "格式化时间", "解析时间",
     # 砖块 21：计时器（极简对象/方法模型：对象=字典，方法=共享状态盒的闭包）
     "创建计时器",
+    # 砖块 21：定时调度（严格对齐 interp/VM 现状：回调从不触发、执行待办恒返回 []）
+    "注册任务", "执行待办", "待办列表",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -7021,6 +7026,8 @@ _BUILTIN_ARITY = {
     "当前时间": 1, "当前日期": 1, "格式化时间": 2, "解析时间": 2,
     # 创建计时器 按「忽略单位实参」的单参形式暴露（对齐 f() -> FuncApp(f,0)）
     "创建计时器": 1,
+    # 调度：注册任务 为 3 参柯里化；执行待办/待办列表 经 _ignore_unit 单参包装
+    "注册任务": 3, "执行待办": 1, "待办列表": 1,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7136,6 +7143,9 @@ _BUILTIN_EMITTERS: dict = {
     "格式化时间": _timelib._emit_builtin_format_time,
     "解析时间": _timelib._emit_builtin_parse_time,
     "创建计时器": _timelib._emit_builtin_create_timer,
+    "注册任务": _timelib._emit_builtin_register_task,
+    "执行待办": _timelib._emit_builtin_run_pending,
+    "待办列表": _timelib._emit_builtin_pending_list,
 }
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
@@ -7167,8 +7177,7 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_decimal", "decode_decimal",
     # 常量（异常原语 错误/调用捕获 已实现，见 NATIVE_BUILTINS）
     "MathaIOError", "真", "假", "null", "None",
-    # 日期时间：依赖全局状态 + 回调，原生后端暂未实现
-    "注册任务", "执行待办", "待办列表",
+    # 日期时间：全部内建均已原生实现
 })
 
 # 宿主 mathlib 通过 _register_math_builtins 注册的数学/工具函数。
@@ -9666,6 +9675,10 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     ed.label_here("handler_top")
     ed.emit(b"\x00" * 8)
     ed.label_here("raise_msg")
+    ed.emit(b"\x00" * 8)
+    # 额外根槽（始终存在、始终扫描）：供模块级持久状态挂接一个 GC 根。
+    # 目前由 time_module 的定时任务表（原生 注册任务/执行待办/待办列表）使用。
+    ed.label_here("gc_extra_root")
     ed.emit(b"\x00" * 8)
     # 砖块 18：GC 标量槽（零初始即正确：free_head/mark_top 空）。
     ed.label_here("stack_top")

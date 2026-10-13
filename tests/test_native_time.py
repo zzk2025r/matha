@@ -9,6 +9,10 @@
 
 覆盖 解析时间（strptime 子集）与 计时器（极简对象/方法模型：对象=字典、方法=
 共享状态盒的闭包，英文方法名 start/stop/reset/elapsed）。
+
+覆盖 调度三内建（注册任务/执行待办/待办列表）：三者严格对齐解释器/VM 现状——
+id 按注册序递增，任务=五键字典（interval/name/callback/next_run/id），
+执行待办 因回调不可调用而恒返回空列表，待办列表 返回未到期任务字典组成的列表。
 """
 import datetime
 import os
@@ -22,6 +26,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.domains import time_module as tm
 from src.interp import interpret
 from src.mbc import compile_source, run_module
 from src.mbc.native import compile_to_exe
@@ -37,6 +42,15 @@ def _run(src):
 
 def _host(src):
     iout = "\n".join(str(v) for v in interpret(src)[0])
+    vout = "\n".join(str(v) for v in run_module(compile_source(src)))
+    return iout, vout
+
+
+def _host_fresh(src):
+    """调度内建使用模块级全局 _scheduled_tasks，跨运行会残留，故每次清空。"""
+    tm._scheduled_tasks.clear()
+    iout = "\n".join(str(v) for v in interpret(src)[0])
+    tm._scheduled_tasks.clear()
     vout = "\n".join(str(v) for v in run_module(compile_source(src)))
     return iout, vout
 
@@ -282,3 +296,82 @@ def test_host_zero_arg_builtins():
         iout = interpret(f"输出({name}())")[0]
         vout = run_module(compile_source(f"输出({name}())"))
         assert len(iout) == 1 and len(vout) == 1
+
+
+SCHED_DET_SRC = (
+    '回调 = (n) => 0\n'
+    'i0 = 注册任务(0)("A")(回调)\n'
+    'i1 = 注册任务(100)("B")(回调)\n'
+    '输出(i0)\n'
+    '输出(i1)\n'
+    '输出(执行待办())\n'
+    '输出(len(待办列表()))\n'
+)
+
+
+def test_sched_deterministic_parity():
+    """到期任务(interval 0)被 执行待办 移除，未到期任务保留。"""
+    iout, vout = _host_fresh(SCHED_DET_SRC)
+    assert iout == vout == "0\n1\n[]\n1"
+    rc, nout = _run(SCHED_DET_SRC)
+    assert rc == 0 and nout == iout
+
+
+def test_sched_sequential_ids():
+    src = (
+        '回调 = (n) => 0\n'
+        '输出(注册任务(5)("A")(回调))\n'
+        '输出(注册任务(5)("B")(回调))\n'
+        '输出(注册任务(5)("C")(回调))\n'
+    )
+    iout, vout = _host_fresh(src)
+    assert iout == vout == "0\n1\n2"
+    rc, nout = _run(src)
+    assert rc == 0 and nout == iout
+
+
+def test_sched_run_pending_returns_empty_list():
+    """回调值不可调用（宿主吞 TypeError），故 执行待办 恒返回空列表。"""
+    src = (
+        '回调 = (n) => 0\n'
+        '注册任务(0)("A")(回调)\n'
+        '注册任务(0)("B")(回调)\n'
+        '输出(执行待办())\n'
+    )
+    iout, vout = _host_fresh(src)
+    assert iout == vout == "[]"
+    rc, nout = _run(src)
+    assert rc == 0 and nout == iout
+
+
+def test_sched_pending_shape_is_list():
+    src = (
+        '回调 = (n) => 0\n'
+        '注册任务(5)("X")(回调)\n'
+        '注册任务(5)("Y")(回调)\n'
+        '输出(typeof(待办列表()))\n'
+        '输出(len(待办列表()))\n'
+    )
+    iout, vout = _host_fresh(src)
+    assert iout == vout == "列表\n2"
+    rc, nout = _run(src)
+    assert rc == 0 and nout == iout
+
+
+def test_sched_gc_churn():
+    """注册大量任务不执行，验证 GC 期间根集合保留全部任务。"""
+    src = (
+        '回调 = (n) => 0\n'
+        'i = 0\n'
+        'last = 0\n'
+        'while i < 3000 {\n'
+        '    last = 注册任务(5)("T")(回调)\n'
+        '    i = i + 1\n'
+        '}\n'
+        '输出(last)\n'
+        '输出(len(待办列表()))\n'
+    )
+    iout, vout = _host_fresh(src)
+    assert iout == vout == "2999\n3000"
+    rc, nout = _run(src)
+    assert rc == 0 and nout == iout

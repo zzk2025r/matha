@@ -1,5 +1,42 @@
 # Matha 变更摘要
 
+## 原生后端：调度三内建（注册任务/执行待办/待办列表）
+
+**日期**：2026-10-13
+
+### 变更范围
+
+为原生后端补齐 `注册任务`/`执行待办`/`待办列表`，**严格对齐解释器/VM 现状**：
+宿主 `_scheduled_tasks` 为模块级全局，且回调值（解释器为元组
+`('__closure__', Lambda, [])`，VM 为 `Closure` 对象）**不可调用**，故
+`task["callback"]()` 恒抛 `TypeError` 被吞——`执行待办` **恒返回空列表**，
+到期任务仍被移出待办表。原生端逐字复现该语义（不引入可调用回调）。
+
+### 变更内容
+
+- `src/mbc/native_time.py`：
+  - 局部类型常量补 `TYPE_LIST = 2`（`_emit_new_empty_list` 需要）。
+  - `_emit_sched_runtime`：`tm_now_sec`（`GetSystemTimeAsFileTime`×100ns
+    → 秒 − `tm_c_unix_epoch`=11644473600.0），供 next_run 比较。
+  - 任务对象 = 五键字典 `interval/name/callback/next_run/id`（键经 `val_eq`
+    与源码 `sob:` 串匹配）；`注册任务` = 柯里三参内建，分配 id = 当前任务数
+    （追加前），构造字典后 `list_append` 写回 BSS 根 `gc_extra_root`。
+  - `执行待办`（arity 1，忽略占位）：遍历到期项（`float_cmp2` `jae` now≥next）
+    前移 `next_run = now + interval`，并**不逐个移出**（复现宿主吞异常路径），
+    最终返回空列表。
+  - `待办列表`（arity 1，忽略占位）：返回未到期任务字典组成的列表。
+  - 调度标签统一以 `tsk_` 前缀，避免与堆运行时的 `pl_loop` 等标签冲突。
+- `src/mbc/native.py`：新增 GC 根槽 `gc_extra_root`（BSS）并纳入 GC 标记；
+  `注册任务`/`执行待办`/`待办列表` 注册进 `NATIVE_BUILTINS`/`_BUILTIN_ARITY`
+  （3/1/1）/`_BUILTIN_EMITTERS`，并从 `_UNRESOLVED_GLOBALS` 移除。
+
+### 测试
+
+- `tests/test_native_time.py`：新增 5 例（确定性三端 parity：顺序 id 0/1、
+  到期任务被移除后 `执行待办=[]` 且 `len(待办列表())=1`；顺序 id；执行待办
+  恒 `[]`；待办列表类型/长度；3000 次注册触发 GC 后根集合仍完整）。
+- 全量 `pytest`：2632 passed。
+
 ## 原生后端：计时器内建（极简对象/方法模型）
 
 **日期**：2026-10-13

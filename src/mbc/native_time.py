@@ -46,6 +46,7 @@ import struct
 
 TYPE_STR = 1
 # 与 native.py 保持一致的局部标签（本模块不反向 import native，避免循环导入）。
+TYPE_LIST = 2
 TYPE_DICT = 3
 TYPE_CLOSURE = 4
 TYPE_TIMER = 12
@@ -881,6 +882,7 @@ def _emit_time_runtime(em):
     em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
 
     _emit_timer_runtime(em)                         # 计时器对象方法函数
+    _emit_sched_runtime(em)                         # 调度辅助（当前时刻，秒）
 
 
 # ------------------------------------------------------------ 内建发射器
@@ -1301,6 +1303,221 @@ def _emit_builtin_create_timer(em):
     _emit_ret_int(em)
 
 
+# ============================================================
+# 定时调度（严格对齐 interp/VM 现状）
+# ============================================================
+# 任务表：一个原生列表（元素为任务字典），挂到全局 GC 根槽 gc_extra_root。
+# 任务字典键序（对齐宿主 dict 字面量）：interval / name / callback / next_run / id。
+#
+# 严格对齐说明：interp/VM 中回调值（闭包元组 / vm.Closure）不可调用，故宿主
+# run_pending_tasks 里的 task["callback"]() 恒抛 TypeError 被吞，「执行待办」
+# 实际从不触发回调、恒返回 []；但到期任务的 next_run 仍会前移（宿主在 except
+# 之外更新）。本实现照此复现：执行待办不调用回调、返回空列表，仅前移到期项。
+
+_SCHED_KEYS = (
+    ("tm_k_interval", "interval"),
+    ("tm_k_name", "name"),
+    ("tm_k_callback", "callback"),
+    ("tm_k_nextrun", "next_run"),
+    ("tm_k_id", "id"),
+)
+
+
+def _emit_sched_runtime(em):
+    """tm_now_sec() → xmm0：自 Unix 纪元的秒（含小数）。
+
+    由 FILETIME（100ns 自 1601-01-01 UTC）换算：秒 = ticks/1e7 - 11644473600。
+    """
+    em.label_here("tm_now_sec")
+    em.emit(b"\x48\x83\xEC\x08")                    # sub rsp,8（对齐调用）
+    em.call_rel32("tm_gsftaf")                      # rax = FILETIME 100ns
+    em.cvtsi2sd(0, _RAX)                            # xmm0 = ticks
+    em.lea_rip(_R11, "tm_c_1e7")
+    em.movsd_load(1, _R11, 0)
+    em.divsd(0, 1)                                  # 秒（自 1601）
+    em.lea_rip(_R11, "tm_c_unix_epoch")
+    em.movsd_load(1, _R11, 0)
+    em.subsd(0, 1)                                  # 减 1970 偏移 → 自 Unix
+    em.emit(b"\x48\x83\xC4\x08")                    # add rsp,8
+    em.emit(b"\xC3")
+
+
+def _emit_now_box(em, dst):
+    """dst = box_float(tm_now_sec())（Matha 浮点对象指针）。"""
+    em.call_rel32("tm_now_sec")
+    em.call_rel32("box_float")
+    em.mov_rr(dst, _RAX)
+
+
+def _emit_new_empty_list(em, dst):
+    em.mov_r_imm32(_RDI, 16)
+    em.call_rel32("alloc")
+    em.mov_r_imm32(_RCX, TYPE_LIST)
+    em.mov_mem_r(_RAX, 0, _RCX)
+    em.mov_r_imm32(_RCX, 0)
+    em.mov_mem_r(_RAX, 8, _RCX)
+    em.mov_rr(dst, _RAX)
+
+
+def _emit_dict_put_key(em, key_lab, val_reg):
+    """就地 dict_put：r15=dict、rdx=值 → r15=新 dict（键为静态 STR）。"""
+    em.mov_rr(_RDX, val_reg)
+    em.lea_rip(_RCX, key_lab)
+    em.mov_rr(_RAX, _R15)
+    em.call_rel32("dict_put")
+    em.mov_rr(_R15, _RAX)
+
+
+def _emit_builtin_register_task(em):
+    """注册任务(interval)(name)(callback) → int（任务 id = 追加前任务数）。
+
+    interval=[rbp-24]、name=[rbp-16]、callback=[rbp-8]。
+    """
+    em.label_here("fn:注册任务")
+    _EMIT_PROLOGUE(em, 3, 3)
+    _save(em)
+    # id = 现有任务数（表为空/0 → 0，否则 [list+8]）
+    em.load_rip_to(_RBX, "gc_extra_root")           # rbx = 任务表（0 表示空）
+    em.mov_r_imm32(_R14, 0)
+    em.emit(b"\x48\x85\xDB")                        # test rbx,rbx
+    em.jcc_rel32(0x84, "tsk_reg_id")
+    em.mov_rd_mem(_R14, _RBX, 8)
+    em.label_here("tsk_reg_id")                     # r14 = id
+    # 新建空字典 → r15
+    em.mov_r_imm32(_RDI, 16)
+    em.call_rel32("alloc")
+    em.mov_r_imm32(_RCX, TYPE_DICT)
+    em.mov_mem_r(_RAX, 0, _RCX)
+    em.mov_r_imm32(_RCX, 0)
+    em.mov_mem_r(_RAX, 8, _RCX)
+    em.mov_rr(_R15, _RAX)
+    # interval（存原始实参值）
+    em.mov_rd_mem(_RBX, _RBP, -24)
+    _emit_dict_put_key(em, "tm_k_interval", _RBX)
+    # name
+    em.mov_rd_mem(_RBX, _RBP, -16)
+    _emit_dict_put_key(em, "tm_k_name", _RBX)
+    # callback（原样存值）
+    em.mov_rd_mem(_RBX, _RBP, -8)
+    _emit_dict_put_key(em, "tm_k_callback", _RBX)
+    # next_run = now + interval（浮点）
+    em.call_rel32("tm_now_sec")
+    em.call_rel32("box_float")                      # rax = now_box
+    em.mov_rd_mem(_RCX, _RBP, -24)                  # rcx = interval（int/float）
+    em.call_rel32("f_add")                          # rax = boxed(now+interval)
+    _emit_dict_put_key(em, "tm_k_nextrun", _RAX)
+    # id
+    _emit_dict_put_key(em, "tm_k_id", _R14)
+    # 追加到任务表并写回根槽
+    em.load_rip_to(_RAX, "gc_extra_root")
+    em.mov_rr(_RCX, _R15)
+    em.call_rel32("list_append")                    # rax = 新列表
+    em.store_rip_from("gc_extra_root", _RAX)
+    em.mov_rr(_RAX, _R14)                           # 返回 id
+    _emit_ret_int(em)
+
+
+def _emit_builtin_run_pending(em):
+    """执行待办()（忽略占位实参）→ []（严格对齐：回调从不触发）。
+
+    到期项（now >= next_run）的 next_run 前移为 now+interval；返回空列表。
+    """
+    em.label_here("fn:执行待办")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.emit(b"\x48\x83\xEC\x10")                    # sub rsp,0x10（存 now_box）
+    _emit_now_box(em, _RAX)
+    em.mov_mem_r(_RSP, 0, _RAX)                     # [rsp] = now_box
+    _emit_new_empty_list(em, _R13)                  # r13 = 新任务表
+    em.load_rip_to(_R15, "gc_extra_root")           # r15 = 旧任务表
+    em.mov_r_imm32(_R12, 0)
+    em.emit(b"\x4D\x85\xFF")                        # test r15,r15
+    em.jcc_rel32(0x84, "tsk_rp_cnt")
+    em.mov_rd_mem(_R12, _R15, 8)                    # r12 = count
+    em.label_here("tsk_rp_cnt")
+    em.mov_r_imm32(_R14, 0)                         # i = 0
+    em.label_here("tsk_rp_loop")
+    em.cmp_rr(_R14, _R12)
+    em.jcc_rel32(0x83, "tsk_rp_end")                    # jae i>=count
+    em.mov_rr(_RCX, _R14)
+    em.shl_ri(_RCX, 3)
+    em.mov_rd_mem(_RBX, _R15, 16, index=_RCX, scale=1)  # rbx = task
+    # nr = task["next_run"]
+    em.mov_rr(_RAX, _RBX)
+    em.lea_rip(_RCX, "tm_k_nextrun")
+    em.call_rel32("dict_get")                       # rax = next_run
+    em.mov_rr(_RCX, _RAX)
+    em.mov_rd_mem(_RAX, _RSP, 0)                    # l = now_box
+    em.call_rel32("float_cmp2")                     # ucomisd(now, next_run)
+    em.jcc_rel32(0x82, "tsk_rp_keep")                   # jb：now < next_run → 未到期
+    # 到期：next_run = f_add(now_box, interval)
+    em.mov_rr(_RAX, _RBX)
+    em.lea_rip(_RCX, "tm_k_interval")
+    em.call_rel32("dict_get")                       # rax = interval（原始值）
+    em.mov_rr(_RCX, _RAX)
+    em.mov_rd_mem(_RAX, _RSP, 0)                    # rax = now_box
+    em.call_rel32("f_add")                          # rax = 新 next_run
+    em.mov_rr(_RDX, _RAX)                           # val = 新 next_run
+    em.lea_rip(_RCX, "tm_k_nextrun")                # key
+    em.mov_rr(_RAX, _RBX)                           # dict = task
+    em.call_rel32("dict_put")                       # rax = 新任务字典
+    em.mov_rr(_RBX, _RAX)                           # rbx = 更新后的 task
+    em.label_here("tsk_rp_keep")
+    em.mov_rr(_RAX, _R13)
+    em.mov_rr(_RCX, _RBX)
+    em.call_rel32("list_append")
+    em.mov_rr(_R13, _RAX)
+    em.inc_r(_R14)
+    em.jcc_rel32(None, "tsk_rp_loop")
+    em.label_here("tsk_rp_end")
+    em.store_rip_from("gc_extra_root", _R13)        # 写回新表
+    _emit_new_empty_list(em, _RAX)                  # 返回 []
+    em.emit(b"\x48\x83\xC4\x10")                    # add rsp,0x10
+    _emit_ret_int(em)
+
+
+def _emit_builtin_pending_list(em):
+    """待办列表()（忽略占位实参）→ 未到期任务（now < next_run）的字典列表。"""
+    em.label_here("fn:待办列表")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.emit(b"\x48\x83\xEC\x10")                    # sub rsp,0x10
+    _emit_now_box(em, _RAX)
+    em.mov_mem_r(_RSP, 0, _RAX)                     # [rsp] = now_box
+    _emit_new_empty_list(em, _R13)                  # r13 = 结果列表
+    em.load_rip_to(_R15, "gc_extra_root")
+    em.mov_r_imm32(_R12, 0)
+    em.emit(b"\x4D\x85\xFF")                        # test r15,r15
+    em.jcc_rel32(0x84, "tsk_pl_cnt")
+    em.mov_rd_mem(_R12, _R15, 8)
+    em.label_here("tsk_pl_cnt")
+    em.mov_r_imm32(_R14, 0)
+    em.label_here("tsk_pl_loop")
+    em.cmp_rr(_R14, _R12)
+    em.jcc_rel32(0x83, "tsk_pl_end")
+    em.mov_rr(_RCX, _R14)
+    em.shl_ri(_RCX, 3)
+    em.mov_rd_mem(_RBX, _R15, 16, index=_RCX, scale=1)  # rbx = task
+    em.mov_rr(_RAX, _RBX)
+    em.lea_rip(_RCX, "tm_k_nextrun")
+    em.call_rel32("dict_get")                       # rax = next_run
+    em.mov_rr(_RCX, _RAX)
+    em.mov_rd_mem(_RAX, _RSP, 0)                    # l = now_box
+    em.call_rel32("float_cmp2")
+    em.jcc_rel32(0x83, "tsk_pl_skip")                   # jae：now >= next_run → 已到期
+    em.mov_rr(_RAX, _R13)
+    em.mov_rr(_RCX, _RBX)
+    em.call_rel32("list_append")
+    em.mov_rr(_R13, _RAX)
+    em.label_here("tsk_pl_skip")
+    em.inc_r(_R14)
+    em.jcc_rel32(None, "tsk_pl_loop")
+    em.label_here("tsk_pl_end")
+    em.mov_rr(_RAX, _R13)
+    em.emit(b"\x48\x83\xC4\x10")
+    _emit_ret_int(em)
+
+
 def emit_time_bss(eb):
     """在 .bss 预留时钟 scratch（kernel32 基址 + FILETIME + tm + 格式化缓冲）。"""
     for nm in ("k32_base", "tm_filetime", "tm_timeval", "tm_frac"):
@@ -1343,8 +1560,14 @@ def emit_time_data(ed):
     ed.align(8)
     ed.label_here("tm_c_1e7")
     ed.emit(struct.pack("<d", 1e7))
+    ed.align(8)
+    ed.label_here("tm_c_unix_epoch")
+    ed.emit(struct.pack("<d", 11644473600.0))
 
     # 计时器方法名 STR 对象（键），须与源码 t.start 的 sob: 串按内容相等。
     for lab, nm in (("tm_key_start", "start"), ("tm_key_stop", "stop"),
                     ("tm_key_reset", "reset"), ("tm_key_elapsed", "elapsed")):
+        _str(lab, nm)
+    # 调度任务字典的键（对齐宿主 dict 字面量键序）。
+    for lab, nm in _SCHED_KEYS:
         _str(lab, nm)
