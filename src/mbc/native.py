@@ -9521,6 +9521,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     eb.align(64)
     eb.label_here("mark_stack0")                    # 镜像内兜底标记栈（不可增长）
     eb.emit_virtual(GC_MARK_STACK_FALLBACK)
+    eb.align(64)
+    _regexlib.emit_regex_bss(eb)                    # 正则引擎 scratch（纯虚拟零填充）
 
     # ---- .data：标量 + 静态对象 + 末尾固定堆 ----
     data_rva = bss_rva + ((eb.total_len + 0xFFF) & ~0xFFF)

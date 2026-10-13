@@ -1,7 +1,8 @@
-"""原生后端正则（阶段 A：字面量）测试。
+"""原生后端正则（阶段 A 字面量 + 阶段 B-1 元字符）测试。
 
-覆盖 匹配/全匹配 的字面量语义（子串/精确、空模式、UTF-8 多字节）、元字符与
-非字符串的错误路径（可捕获 + 退出码），以及与解释器/VM 结果的 parity。
+覆盖 匹配/全匹配 的字面量语义（子串/精确、空模式、UTF-8 多字节）、阶段 B-1
+的元字符/字符类/量词/分组/交替/锚点语义、暂不支持构造与省略字符串参数的
+错误路径（可捕获 + 退出码），以及与解释器/VM 结果的 parity。
 """
 import os
 import subprocess
@@ -67,18 +68,72 @@ def test_literal_parity_with_host():
     assert vout.strip() == out
 
 
+META_CASES = [
+    ('匹配("a.c")("abc")', True),
+    ('匹配("a.c")("ac")', False),
+    ('匹配("a.c")("a\\nc")', False),
+    ('匹配("a*")("aaa")', True),
+    ('全匹配("a*")("aaa")', True),
+    ('全匹配("a*")("")', True),
+    ('匹配("^ab")("ab")', True),
+    ('匹配("^ab")("cab")', False),
+    ('匹配("[a-z]")("a")', True),
+    ('匹配("[a-z]")("A")', False),
+    ('匹配("[^a-z]")("A")', True),
+    ('匹配("a|b")("b")', True),
+    ('匹配("a+")("a")', True),
+    ('匹配("a?")("b")', True),
+    ('全匹配("a?")("")', True),
+    ('全匹配("(a|ab)c")("abc")', True),
+    ('匹配("(a)")("a")', True),
+    ('匹配("^a$")("a")', True),
+    ('匹配("^a$")("ab")', False),
+    ('匹配("\\\\d+")("abc123")', True),
+    ('匹配("\\\\d+")("abc")', False),
+    ('匹配("\\\\w+")("!!!")', False),
+    ('匹配("\\\\s")("a b")', True),
+    ('匹配("\\\\bfoo\\\\b")("a foo b")', True),
+    ('匹配("\\\\bfoo\\\\b")("afoob")', False),
+    ('全匹配("\\\\Aab\\\\Z")("ab")', True),
+    ('匹配("ab\\\\z")("ab")', True),
+    ('匹配("a\\\\x41")("aA")', True),
+    ('匹配("a\\\\u0041")("aA")', True),
+    ('匹配("\\\\U00000041")("A")', True),
+    ('匹配("[a-cx]+")("xxcba")', True),
+    ('匹配("(?:ab)+")("abab")', True),
+    ('全匹配("(a*)*")("")', True),
+    ('匹配("([a-z]+@[a-z]+\\\\.[a-z]+)")("mail foo@bar.com ok")', True),
+    ('匹配("colou?r")("color")', True),
+]
+
+
+@pytest.mark.parametrize("expr,expected", META_CASES)
+def test_meta_match(expr, expected):
+    rc, out = _run(f"输出({expr})")
+    assert rc == 0 and out == str(expected)
+
+
+def test_meta_parity_with_host():
+    body = "\n".join(f"输出({e})" for e, _ in META_CASES)
+    rc, out = _run(body)
+    assert rc == 0
+    iout, vout = _host(body)
+    if iout is not None:
+        assert iout.strip() == out
+    assert vout.strip() == out
+
+
 @pytest.mark.parametrize("pat,subj", [
-    ("a.c", "abc"),
-    ("a*", "aaa"),
-    ("^ab", "ab"),
-    ("[a-z]", "a"),
-    ("a|b", "a"),
-    ("a+", "a"),
-    ("a?", "a"),
-    ("(a)", "a"),
     ("a{2}", "aa"),
+    ("a{2,3}", "aaa"),
+    ("a??", "a"),
+    ("(?=a)", "a"),
+    ("(?<=a)b", "ab"),
+    ('(a)\\\\1', "aa"),
+    ('(?P<x>a)', "a"),
+    ("(?i)a", "A"),
 ])
-def test_meta_raises_catchable(pat, subj):
+def test_unsupported_meta_raises_catchable(pat, subj):
     src = (
         "func 试() -> Int =\n"
         f'  匹配("{pat}")("{subj}")\n'
@@ -86,11 +141,11 @@ def test_meta_raises_catchable(pat, subj):
     )
     rc, out = _run(src)
     assert rc == 0
-    assert out.startswith('[\'__异常__\', \'原生正则：暂不支持元字符模式')
+    assert out.startswith('[\'__异常__\', \'原生正则：模式解析失败')
 
 
-def test_meta_uncaught_exits_one():
-    rc, out = _run('匹配("a.c")("abc")')
+def test_unsupported_meta_uncaught_exits_one():
+    rc, out = _run('匹配("a{2}")("aa")')
     assert rc == 1 and out == ""
 
 
