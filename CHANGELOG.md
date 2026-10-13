@@ -1,5 +1,55 @@
 # Matha 变更摘要
 
+## 原生后端：正则内建（阶段 B：解析器 + 回溯 VM + 捕获组与 5 内建）
+
+**日期**：2026-10-13
+
+### 变更范围
+
+在阶段 A（字面量）基础上，为原生后端补齐完整正则引擎：模式解析器、回溯
+VM（`re_search`/`re_bt_try`，含回溯栈与循环头）、UTF-8 编解码助手、捕获
+组切片与结果构造，并实现 5 个内建 `查找正则`/`查找全部`/`命名组`/`分割
+正则`/`替换正则` 的机器码发射。语义以 `src/regexlib.py` 为单一事实源，
+原生输出与解释器/VM 逐字节对齐。
+
+### 变更内容
+
+- `src/mbc/native_regex.py`
+  - 模式解析器 `re_compile`：字面量、字符类、预定义类、量词 `* + ? {m,n}`
+    （含非贪婪）、分组（捕获/非捕获/命名 `(?P<name>...)`）、选择 `|`、
+    锚点 `^ $ \A \Z \z \b \B`、转义（含 `\d` 等）；编译为 OP 程序数组。
+  - 回溯 VM：`re_search`（起点扫描 + 可选 require_end）、`re_bt_try`
+    （`OP_MATCH/CHAR/ANY/CLASS/JMP/SPLIT/BOL/EOL/BOS/EOS/WORDB/NWORDB/
+    SAVE/LOOPHEAD/PLUSHEAD/LOOPEND`，回溯栈 `BT_MAX`、循环上限 `UNDO_MAX`）。
+  - 运行时助手：`re_enc_cp`/`re_utf8_decode`/`re_check_str`/`re_cp_slice`/
+    `re_cap_slice`/`re_mk_match_list`/`re_join`/`re_append_cp`。
+  - `_emit_re_prelude`/`_emit_new_list`：内建进入时解码模式与主语、编译程序、
+    构造空列表；`_emit_re_expand_into`：替换模板展开（`\1..\9 \0`、
+    `\g<name>`/`\k<name>`/`\g'name'`、`$n`，simple 转义，未知项按 regexlib
+    语义丢弃反斜杠）。
+  - 5 个内建发射器：`_emit_builtin_regex_find/findall/named/split/sub`。
+  - 新增 BSS/数据区（`emit_regex_bss`/`emit_regex_data`）与 `_SCALARS` 中的
+    正则状态格；`TYPE_LIST=2`/`TYPE_DICT=3` 常量。
+- `src/mbc/native.py`：注册 5 个内建（`NATIVE_BUILTINS`/`_BUILTIN_ARITY`/
+  `_BUILTIN_EMITTERS`），从 `_UNRESOLVED_GLOBALS` 移除对应名字；追加
+  `_emit_re_runtime` 到 `_build_emitters`。
+
+### 关键修复
+
+- 回溯 VM 将 `OP_BOS`（`\A`）误当作结束锚点（`pos==slen`），导致
+  `全匹配("\\Aab\\Z")` 误判为假；改为要求 `pos==0`。
+- 替换模板 `\g<name>`/`\k<name>`：起始定界符分支与「是否消费闭符」判断
+  取反，导致命名组取值错误、闭符偶被当成字面量。修正为 `<`→`>`、`{`→`}`
+  正确配对，并仅在读到闭符时前移索引。
+- 新内建标签（`fa_loop`/`bt_loop`/`rs_fail` 等）与 `native.py` 全局标签
+  冲突（`标签重复`）；统一加 `rg_` 前缀消除。
+
+### 测试覆盖
+
+- `tests/test_native_regex.py` 扩充至 101 项：元字符匹配/全匹配 parity、
+  5 内建与解释器/VM 的联合 parity、非支持构造的可捕获异常。
+- 全量 `pytest`：2550 passed。
+
 ## 原生后端：正则内建（阶段 A：字面量）
 
 **日期**：2026-02-14

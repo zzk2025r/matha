@@ -6932,8 +6932,10 @@ NATIVE_BUILTINS = (
     # 砖块 17 阶段三：mathlib 统计 / 随机
     "平均值", "中位数", "方差", "标准差", "协方差", "相关系数", "正态密度",
     "均匀随机", "正态随机",
-    # 砖块 21：正则（阶段 A：字面量模式；元字符模式以明确错误中止）
+    # 砖块 21：正则（阶段 A：字面量；阶段 B：元字符/分组/量词/锚点 +
+    # 查找正则/查找全部/命名组/分割正则/替换正则）
     "匹配", "全匹配",
+    "查找正则", "查找全部", "命名组", "分割正则", "替换正则",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -6977,8 +6979,9 @@ _BUILTIN_ARITY = {
     "平均值": 1, "中位数": 1, "方差": 1, "标准差": 1,
     "协方差": 2, "相关系数": 2, "正态密度": 3,
     "均匀随机": 2, "正态随机": 2,
-    # 砖块 21：正则（阶段 A：字面量）
+    # 砖块 21：正则（阶段 A：字面量；阶段 B：五内建）
     "匹配": 2, "全匹配": 2,
+    "查找正则": 2, "查找全部": 2, "命名组": 2, "分割正则": 2, "替换正则": 3,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7069,9 +7072,14 @@ _BUILTIN_EMITTERS: dict = {
     "正态密度": _emit_builtin_norm_pdf,
     "均匀随机": _emit_builtin_uniform,
     "正态随机": _emit_builtin_gauss,
-    # 砖块 21：正则（阶段 A：字面量）
+    # 砖块 21：正则（阶段 A：字面量；阶段 B：五内建）
     "匹配": _regexlib._emit_builtin_regex_match,
     "全匹配": _regexlib._emit_builtin_regex_fullmatch,
+    "查找正则": _regexlib._emit_builtin_regex_find,
+    "查找全部": _regexlib._emit_builtin_regex_findall,
+    "命名组": _regexlib._emit_builtin_regex_named,
+    "分割正则": _regexlib._emit_builtin_regex_split,
+    "替换正则": _regexlib._emit_builtin_regex_sub,
 }
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
@@ -7103,8 +7111,6 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_decimal", "decode_decimal",
     # 常量（异常原语 错误/调用捕获 已实现，见 NATIVE_BUILTINS）
     "MathaIOError", "真", "假", "null", "None",
-    # 砖块 21：正则内建（阶段 A 仅实现 匹配/全匹配；其余待原生引擎扩展）
-    "查找正则", "查找全部", "命名组", "替换正则", "分割正则",
 })
 
 # 宿主 mathlib 通过 _register_math_builtins 注册的数学/工具函数。

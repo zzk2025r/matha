@@ -123,6 +123,37 @@ def test_meta_parity_with_host():
     assert vout.strip() == out
 
 
+BUILTIN_CASES = [
+    r'输出(查找正则("a")("bab"))',
+    r'输出(查找正则("(a)(b)")("zabz"))',
+    r'输出(查找正则("(x)")("zabz"))',
+    r'输出(查找正则("a")("zzz"))',
+    r'输出(查找全部("a")("banana"))',
+    r'输出(查找全部("")("ab"))',
+    r'输出(查找全部("\\d+")("a12b345"))',
+    r'输出(命名组("(?P<x>a)(?P<y>b)")("zab"))',
+    r'输出(命名组("(?P<x>a)(?P<y>b)")("zzz"))',
+    r'输出(命名组("(?P<x>a)(?P<y>b)")("za"))',
+    r'输出(分割正则(",")("a,b,c"))',
+    r'输出(分割正则("(,)")("a,b,c"))',
+    r'输出(分割正则("x")("abc"))',
+    r'输出(替换正则("a")("X")("banana"))',
+    r'输出(替换正则("(a)")("[\\1]")("bab"))',
+    r'输出(替换正则("(?P<x>a)")("<\\g<x>>")("ab"))',
+    r'输出(替换正则("\\d")("#")("a1b2"))',
+]
+
+
+def test_builtin_parity_with_host():
+    body = "\n".join(BUILTIN_CASES)
+    rc, out = _run(body)
+    assert rc == 0
+    iout, vout = _host(body)
+    if iout is not None:
+        assert iout.strip() == out
+    assert vout.strip() == out
+
+
 @pytest.mark.parametrize("pat,subj", [
     ("a{2}", "aa"),
     ("a{2,3}", "aaa"),
@@ -130,7 +161,6 @@ def test_meta_parity_with_host():
     ("(?=a)", "a"),
     ("(?<=a)b", "ab"),
     ('(a)\\\\1', "aa"),
-    ('(?P<x>a)', "a"),
     ("(?i)a", "A"),
 ])
 def test_unsupported_meta_raises_catchable(pat, subj):
@@ -168,4 +198,4 @@ def test_non_string_uncaught_exits_one():
 def test_unresolved_global_rejected():
     from src.mbc.native import NativeNotSupported
     with pytest.raises(NativeNotSupported):
-        compile_to_exe('输出(查找正则("a")("a"))')
+        compile_to_exe('输出(list_push)')
