@@ -1,5 +1,49 @@
 # Matha 变更摘要
 
+## 原生后端：计时器内建（极简对象/方法模型）
+
+**日期**：2026-10-13
+
+### 变更范围
+
+为原生后端补齐 `创建计时器`，并据此引入「**极简对象/方法模型**」：
+**对象 = 字典**（键=方法名，值=闭包），**方法 = 共享同一状态盒的单参闭包**。
+三端（解释器/VM/原生）表示一致，故解释器与 VM 无需改动即可通过
+`t.start()`（`dict.get` + 可调用值）调用方法；原生端复用既有的 dict、
+闭包记录与 `apply_rt`，无需新增属性/方法分派指令。方法名保持英文，
+与既有 `Timer` API 一致：`start`/`stop`/`reset`/`elapsed`。
+
+### 变更内容
+
+- `src/domains/time_module.py`：新增工厂 `make_timer()`，返回
+  `{"start":…,"stop":…,"reset":…,"elapsed":…}`，四个闭包共享可变状态盒
+  `[start, elapsed, running]`，签名均为 `(_unit=None)` 以容忍 `t.m()` 被解析
+  为 `m(0)` 的占位实参；`创建计时器` 由 `Timer` 类改为
+  `_ignore_unit(make_timer)`。保留 `Timer` 类供宿主 Python 直接使用。
+- `src/mbc/native_time.py`：
+  - 状态盒 `[TYPE_TIMER][start(FILETIME 100ns)][elapsed(double)][running]`
+    （32 字节）。
+  - 方法函数 `tm_method_start/stop/reset/elapsed`：从环境槽 `[rbp-16]` 取盒；
+    `start` 记 `GetSystemTimeAsFileTime` 并置运营标志；`stop` 若在运行则累加
+    `(now-start)/1e7` 后清零标志并返回累计秒；`elapsed` 运行中返回
+    `elapsed+(now-start)/1e7`，否则返回 `elapsed`；`reset` 清空三项。返回值
+    经 `box_float` 装箱（`stop`/`elapsed`）或 `null_obj`。
+  - `_emit_builtin_create_timer`：分配状态盒 → 四个闭包记录
+    （`[TYPE_CLOSURE][fn][env=盒][arity=1]`）→ 字典 `[TYPE_DICT][4][(键,值)×4]`。
+  - `emit_time_data` 追加 `tm_c_1e7` 常量与四个方法名 STR 对象
+    （`tm_key_start/stop/reset/elapsed`）；键经 `val_eq` 按内容比较，故与源码
+    `t.start` 的 `sob:` 串匹配。
+- `src/mbc/native.py`：新增 `TYPE_TIMER=12`；`创建计时器` 注册进 `NATIVE_BUILTINS`
+  /`_BUILTIN_ARITY`（1）/`_BUILTIN_EMITTERS`，并从 `_UNRESOLVED_GLOBALS` 移除；
+  GC 对象尺寸表增 `TYPE_TIMER → 32`（盒内 `+8..+24` 均为标量/整数，不指向堆）。
+
+### 测试
+
+- `tests/test_native_time.py`：新增 5 例（确定性三端 parity：reset 后
+  `elapsed`/`stop` 精确 `0.0`、`typeof=字典`；非负性断言；双实例互不影响；
+  20000 次创建/丢弃触发 GC 后仍可用）。
+- 全量 `pytest`：2627 passed。
+
 ## 原生后端：日期时间内建（非纯时钟采集族 + 解析时间）
 
 **日期**：2026-10-13

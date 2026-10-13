@@ -223,6 +223,10 @@ TYPE_ENV = 8
 TYPE_PARTIAL = 9
 TYPE_FLOAT = 10
 TYPE_BIGINT = 11
+# 计时器状态盒（极简对象/方法模型的宿主状态）：32 字节
+#   [0]=TYPE_TIMER [8]=start(FILETIME 100ns) [16]=elapsed(double) [24]=running(0/1)
+# 体内无对象指针，GC 扫描到的标量都会被 mark_candidate 判为「非堆指针」而跳过。
+TYPE_TIMER = 12
 
 # 浮点对象：24 字节 [TYPE_FLOAT][len=8][double]（double 在 +16）。
 FLOAT_OBJ_SIZE = 24
@@ -2564,6 +2568,8 @@ def _emit_gc_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "gos_part")
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_BIGINT]))
     em.jcc_rel32(0x84, "gos_bigint")
+    em.emit(b"\x48\x83\xF9" + bytes([TYPE_TIMER]))
+    em.jcc_rel32(0x84, "gos_timer")
     em.emit(b"\xB8\x10\x00\x00\x00")                # mov eax,16（默认：BOX）
     em.emit(b"\xC3")
     em.label_here("gos_str")
@@ -2594,6 +2600,9 @@ def _emit_gc_runtime(em: _Emitter):
     em.emit(b"\x48\xC1\xE0\x03")                    # shl rax,3
     em.emit(b"\xC3")
     em.label_here("gos_clos")
+    em.emit(b"\xB8\x20\x00\x00\x00")                # mov eax,32
+    em.emit(b"\xC3")
+    em.label_here("gos_timer")
     em.emit(b"\xB8\x20\x00\x00\x00")                # mov eax,32
     em.emit(b"\xC3")
     em.label_here("gos_part")
@@ -6955,6 +6964,8 @@ NATIVE_BUILTINS = (
     # 砖块 21：日期时间非纯函数（时钟采集族 + 格式化 + 反向解析）
     "获取时间戳", "获取日期", "获取日期时间", "获取UTC时间",
     "当前时间", "当前日期", "格式化时间", "解析时间",
+    # 砖块 21：计时器（极简对象/方法模型：对象=字典，方法=共享状态盒的闭包）
+    "创建计时器",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -7008,6 +7019,8 @@ _BUILTIN_ARITY = {
     # 对齐 f() -> FuncApp(f,0)；格式化/解析为二参柯里化）
     "获取时间戳": 1, "获取日期": 1, "获取日期时间": 1, "获取UTC时间": 1,
     "当前时间": 1, "当前日期": 1, "格式化时间": 2, "解析时间": 2,
+    # 创建计时器 按「忽略单位实参」的单参形式暴露（对齐 f() -> FuncApp(f,0)）
+    "创建计时器": 1,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7122,6 +7135,7 @@ _BUILTIN_EMITTERS: dict = {
     "获取UTC时间": _timelib._emit_builtin_now_utc,
     "格式化时间": _timelib._emit_builtin_format_time,
     "解析时间": _timelib._emit_builtin_parse_time,
+    "创建计时器": _timelib._emit_builtin_create_timer,
 }
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
@@ -7153,8 +7167,8 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_decimal", "decode_decimal",
     # 常量（异常原语 错误/调用捕获 已实现，见 NATIVE_BUILTINS）
     "MathaIOError", "真", "假", "null", "None",
-    # 日期时间：依赖对象 / 全局状态，原生后端暂未实现
-    "创建计时器", "注册任务", "执行待办", "待办列表",
+    # 日期时间：依赖全局状态 + 回调，原生后端暂未实现
+    "注册任务", "执行待办", "待办列表",
 })
 
 # 宿主 mathlib 通过 _register_math_builtins 注册的数学/工具函数。

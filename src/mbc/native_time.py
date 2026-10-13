@@ -45,6 +45,10 @@ from __future__ import annotations
 import struct
 
 TYPE_STR = 1
+# 与 native.py 保持一致的局部标签（本模块不反向 import native，避免循环导入）。
+TYPE_DICT = 3
+TYPE_CLOSURE = 4
+TYPE_TIMER = 12
 
 # 由 native.py 在定义 _emit_prologue/_emit_epilogue 之后注入（避免循环导入）。
 _EMIT_PROLOGUE = None
@@ -876,6 +880,8 @@ def _emit_time_runtime(em):
     em.call_rel32("tm_newstr")
     em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
 
+    _emit_timer_runtime(em)                         # 计时器对象方法函数
+
 
 # ------------------------------------------------------------ 内建发射器
 def _emit_ret_int(em):
@@ -1156,6 +1162,145 @@ def _emit_builtin_parse_time(em):
     _emit_ret_int(em)
 
 
+# ============================================================
+# 计时器（极简对象/方法模型）
+# ============================================================
+# 对象表示：字典 {方法名 -> 闭包记录}。闭包记录 = [TYPE_CLOSURE][fn][env=box][1]，
+# 方法函数从参数帧的环境槽（[rbp-16]，由 apply_rt 的 ar_close 分支写入 r13）拿到
+# 状态盒 box = [TYPE_TIMER][start(FILETIME 100ns)][elapsed(double)][running(0/1)]。
+# 与宿主 time_module.make_timer（对象=dict、方法=共享 state 的闭包）逐一对齐。
+#
+# 方法名与宿主一致（英文 start/stop/reset/elapsed），键用静态 STR 对象发射，
+# dict_get 经 val_eq 按内容比较，故与源码里 t.start 的 sob: 串匹配。
+
+_TIMER_METHODS = (
+    ("start", "tm_key_start", "tm_method_start"),
+    ("stop", "tm_key_stop", "tm_method_stop"),
+    ("reset", "tm_key_reset", "tm_method_reset"),
+    ("elapsed", "tm_key_elapsed", "tm_method_elapsed"),
+)
+
+
+def _emit_timer_runtime(em):
+    """发射计时器对象的四个方法函数（供 CREATE_TIMER 构造的闭包调用）。"""
+    # ---- start(box)：box.start = gsftaf(); box.running = 1; 返回 null ----
+    em.label_here("tm_method_start")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.mov_rd_mem(_RBX, _RBP, -16)                  # rbx = box（环境槽）
+    em.call_rel32("tm_gsftaf")                      # rax = now（FILETIME 100ns）
+    em.mov_mem_r(_RBX, 8, _RAX)                     # box.start = now
+    em.mov_r_imm32(_RDX, 1)
+    em.mov_mem_r(_RBX, 24, _RDX)                    # box.running = 1
+    em.lea_rip(_RAX, "null_obj")
+    _emit_ret_int(em)
+
+    # ---- reset(box)：清空三项；返回 null ----
+    em.label_here("tm_method_reset")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.mov_rd_mem(_RBX, _RBP, -16)
+    em.xor_rr32(_RAX, _RAX)
+    em.mov_mem_r(_RBX, 8, _RAX)
+    em.mov_mem_r(_RBX, 16, _RAX)
+    em.mov_mem_r(_RBX, 24, _RAX)
+    em.lea_rip(_RAX, "null_obj")
+    _emit_ret_int(em)
+
+    # ---- elapsed(box)：运行中 → elapsed + (now-start)/1e7；否则 elapsed ----
+    em.label_here("tm_method_elapsed")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.mov_rd_mem(_RBX, _RBP, -16)
+    em.mov_rd_mem(_RAX, _RBX, 24)                   # running
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x84, "tm_el_notrun")
+    em.call_rel32("tm_gsftaf")
+    em.mov_rd_mem(_RCX, _RBX, 8)                    # start
+    em.sub_rr(_RAX, _RCX)                           # delta（100ns）
+    em.cvtsi2sd(0, _RAX)                            # xmm0 = delta
+    em.lea_rip(_R11, "tm_c_1e7")
+    em.movsd_load(1, _R11, 0)                       # xmm1 = 1e7
+    em.divsd(0, 1)                                  # xmm0 = 秒
+    em.movsd_load(1, _RBX, 16)                      # xmm1 = elapsed
+    em.addsd(0, 1)                                  # xmm0 = 累计
+    em.jcc_rel32(None, "tm_el_box")
+    em.label_here("tm_el_notrun")
+    em.movsd_load(0, _RBX, 16)
+    em.label_here("tm_el_box")
+    em.call_rel32("box_float")
+    _emit_ret_int(em)
+
+    # ---- stop(box)：运行中先结算并清零 running；返回累计秒（float）----
+    em.label_here("tm_method_stop")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.mov_rd_mem(_RBX, _RBP, -16)
+    em.mov_rd_mem(_RAX, _RBX, 24)                   # running
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x84, "tm_st_notrun")
+    em.call_rel32("tm_gsftaf")
+    em.mov_rd_mem(_RCX, _RBX, 8)
+    em.sub_rr(_RAX, _RCX)
+    em.cvtsi2sd(0, _RAX)
+    em.lea_rip(_R11, "tm_c_1e7")
+    em.movsd_load(1, _R11, 0)
+    em.divsd(0, 1)
+    em.movsd_load(1, _RBX, 16)
+    em.addsd(0, 1)                                  # 新 elapsed
+    em.movsd_store(_RBX, 16, 0)                     # box.elapsed = xmm0
+    em.xor_rr32(_RAX, _RAX)
+    em.mov_mem_r(_RBX, 24, _RAX)                    # running = 0
+    em.jcc_rel32(None, "tm_st_box")
+    em.label_here("tm_st_notrun")
+    em.movsd_load(0, _RBX, 16)
+    em.label_here("tm_st_box")
+    em.call_rel32("box_float")
+    _emit_ret_int(em)
+
+
+def _emit_builtin_create_timer(em):
+    """创建计时器() → dict{start,stop,reset,elapsed}（方法闭包共享状态盒）。"""
+    em.label_here("fn:创建计时器")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    # 状态盒 box = [TYPE_TIMER][start=0][elapsed=0][running=0]（32 字节）
+    em.mov_r_imm32(_RDI, 32)
+    em.call_rel32("alloc")
+    em.mov_r_imm32(_RCX, TYPE_TIMER)
+    em.mov_mem_r(_RAX, 0, _RCX)
+    em.xor_rr32(_RCX, _RCX)
+    em.mov_mem_r(_RAX, 8, _RCX)
+    em.mov_mem_r(_RAX, 16, _RCX)
+    em.mov_mem_r(_RAX, 24, _RCX)
+    em.mov_rr(_RBX, _RAX)                           # rbx = box
+    # 字典 d = [TYPE_DICT][4][(key,val)*4]
+    em.mov_r_imm32(_RDI, 16 + 16 * 4)
+    em.call_rel32("alloc")
+    em.mov_r_imm32(_RCX, TYPE_DICT)
+    em.mov_mem_r(_RAX, 0, _RCX)
+    em.mov_r_imm32(_RCX, 4)
+    em.mov_mem_r(_RAX, 8, _RCX)
+    em.mov_rr(_R15, _RAX)                           # r15 = dict
+    for i, (_name, key_lab, fn_lab) in enumerate(_TIMER_METHODS):
+        # 闭包记录 [TYPE_CLOSURE][fn][env=box][arity=1]
+        em.mov_r_imm32(_RDI, 32)
+        em.call_rel32("alloc")
+        em.mov_r_imm32(_RCX, TYPE_CLOSURE)
+        em.mov_mem_r(_RAX, 0, _RCX)
+        em.lea_rip(_R9, fn_lab)
+        em.mov_mem_r(_RAX, 8, _R9)                  # fn
+        em.mov_mem_r(_RAX, 16, _RBX)                # env = box
+        em.mov_r_imm32(_RCX, 1)
+        em.mov_mem_r(_RAX, 24, _RCX)                # arity
+        # 写入字典 pair (key, val)
+        em.lea_rip(_R9, key_lab)
+        em.mov_mem_r(_R15, 16 + 16 * i, _R9)
+        em.mov_mem_r(_R15, 16 + 16 * i + 8, _RAX)
+    em.mov_rr(_RAX, _R15)
+    _emit_ret_int(em)
+
+
 def emit_time_bss(eb):
     """在 .bss 预留时钟 scratch（kernel32 基址 + FILETIME + tm + 格式化缓冲）。"""
     for nm in ("k32_base", "tm_filetime", "tm_timeval", "tm_frac"):
@@ -1195,3 +1340,11 @@ def emit_time_data(ed):
     ed.align(8)
     ed.label_here("tm_c_1e6")
     ed.emit(struct.pack("<d", 1e-6))
+    ed.align(8)
+    ed.label_here("tm_c_1e7")
+    ed.emit(struct.pack("<d", 1e7))
+
+    # 计时器方法名 STR 对象（键），须与源码 t.start 的 sob: 串按内容相等。
+    for lab, nm in (("tm_key_start", "start"), ("tm_key_stop", "stop"),
+                    ("tm_key_reset", "reset"), ("tm_key_elapsed", "elapsed")):
+        _str(lab, nm)

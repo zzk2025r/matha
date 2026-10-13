@@ -6,6 +6,9 @@
 另覆盖非纯时钟采集族（获取时间戳/获取日期/当前日期/当前时间/获取日期时间/
 获取UTC时间/格式化时间）：确定性部分做三端 parity，取当前时刻者做格式/时钟
 一致性断言（其值本身非确定）。
+
+覆盖 解析时间（strptime 子集）与 计时器（极简对象/方法模型：对象=字典、方法=
+共享状态盒的闭包，英文方法名 start/stop/reset/elapsed）。
 """
 import datetime
 import os
@@ -193,6 +196,83 @@ def test_parse_time_parity_with_host():
     assert iout == vout
     rc, nout = _run(src)
     assert rc == 0 and nout == iout
+
+
+# ---- 计时器（极简对象/方法模型：对象=字典，方法=闭包）----
+
+# 确定性部分：reset 后 elapsed/stop 恒 0.0；对象类型为「字典」。三端应完全一致。
+TIMER_DET_SRC = (
+    't = 创建计时器()\n'
+    't.reset()\n'
+    '输出(t.elapsed())\n'
+    '输出(t.stop())\n'
+    't.reset()\n'
+    '输出(t.elapsed())\n'
+    '输出(typeof(t))\n'
+)
+
+
+def test_timer_deterministic_parity():
+    iout, vout = _host(TIMER_DET_SRC)
+    assert iout == vout == "0.0\n0.0\n0.0\n字典"
+    rc, nout = _run(TIMER_DET_SRC)
+    assert rc == 0 and nout == iout
+
+
+def test_timer_object_type_is_dict():
+    iout = interpret("输出(typeof(创建计时器()))")[0]
+    assert iout == ["字典"]
+
+
+def test_timer_methods_return_nonneg():
+    """start/stop/elapsed 返回值非负（其量级非确定，故只断言符号）。"""
+    src = (
+        't = 创建计时器()\n'
+        't.start()\n'
+        'a = t.elapsed()\n'
+        'b = t.stop()\n'
+        '输出(a >= 0)\n'
+        '输出(b >= 0)\n'
+        '输出(t.elapsed() >= 0)\n'
+    )
+    iout, vout = _host(src)
+    assert iout == vout == "True\nTrue\nTrue"
+    rc, nout = _run(src)
+    assert rc == 0 and nout == iout
+
+
+def test_timer_two_instances_independent():
+    src = (
+        'a = 创建计时器()\n'
+        'b = 创建计时器()\n'
+        'a.start()\n'
+        'b.reset()\n'
+        '输出(b.elapsed())\n'
+        '输出(b.stop())\n'
+        '输出(a.stop() >= 0)\n'
+    )
+    iout, vout = _host(src)
+    assert iout == vout == "0.0\n0.0\nTrue"
+    rc, nout = _run(src)
+    assert rc == 0 and nout == iout
+
+
+def test_timer_gc_churn():
+    """大量创建/丢弃计时器（触发 GC 回收）后仍能正常使用。"""
+    src = (
+        'i = 0\n'
+        'while i < 20000 {\n'
+        '  tmp = 创建计时器()\n'
+        '  tmp.start()\n'
+        '  i = i + 1\n'
+        '}\n'
+        'c = 创建计时器()\n'
+        'c.reset()\n'
+        '输出(c.elapsed())\n'
+        '输出(i)\n'
+    )
+    rc, out = _run(src)
+    assert rc == 0 and out == "0.0\n20000"
 
 
 def test_host_zero_arg_builtins():

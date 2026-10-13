@@ -101,7 +101,7 @@ def days_in_month(year: int, month: int) -> int:
 # ============================================================
 
 class Timer:
-    """高精度计时器。"""
+    """高精度计时器（宿主 Python 直接使用；Matha 侧见 make_timer）。"""
 
     def __init__(self):
         self._start: float = 0.0
@@ -131,6 +131,44 @@ class Timer:
         if self._running:
             return self._elapsed + (time.perf_counter() - self._start)
         return self._elapsed
+
+
+def make_timer() -> dict:
+    """创建计时器对象（极简对象/方法模型的宿主表示）。
+
+    对象 = 字典：键为方法名，值为共享同一份可变状态的闭包。方法以「忽略一个
+    占位实参」的单参形式暴露，以对齐 Matha 的 `f()` → 对占位整数 0 的应用
+    （parser.py 空括号 → FuncApp(f, IntegerLit(0))），故 `t.start()` 合法。
+    原生后端以「字典 + 闭包记录（env 指向状态盒）」实现同一布局，三端一致。
+    """
+    state = [0.0, 0.0, False]  # [start, elapsed, running]
+
+    def _start(_unit=None) -> None:
+        state[0] = time.perf_counter()
+        state[2] = True
+
+    def _stop(_unit=None) -> float:
+        if state[2]:
+            state[1] += time.perf_counter() - state[0]
+            state[2] = False
+        return state[1]
+
+    def _reset(_unit=None) -> None:
+        state[0] = 0.0
+        state[1] = 0.0
+        state[2] = False
+
+    def _elapsed(_unit=None) -> float:
+        if state[2]:
+            return state[1] + (time.perf_counter() - state[0])
+        return state[1]
+
+    return {
+        "start": _start,
+        "stop": _stop,
+        "reset": _reset,
+        "elapsed": _elapsed,
+    }
 
 
 # ============================================================
@@ -240,7 +278,7 @@ def _register_time(builtins: dict) -> None:
     builtins["星期几"] = day_of_week
     builtins["闰年判断"] = is_leap_year
     builtins["月份天数"] = _curry2(days_in_month)
-    builtins["创建计时器"] = _ignore_unit(Timer)
+    builtins["创建计时器"] = _ignore_unit(make_timer)
     builtins["时区偏移"] = timezone_offset
     builtins["时区转换"] = _curry3(convert_timezone)
     builtins["注册任务"] = _curry3(schedule_task)
@@ -262,7 +300,7 @@ __all__ = [
     "now", "today", "now_datetime", "now_utc",
     "format_time", "parse_time", "time_str", "date_str",
     "date_add", "date_diff", "day_of_week",
-    "is_leap_year", "days_in_month", "Timer",
+    "is_leap_year", "days_in_month", "Timer", "make_timer",
     "timezone_offset", "convert_timezone",
     "schedule_task", "run_pending_tasks", "get_pending_tasks",
     "_register_time", "_time_symtab_names",
