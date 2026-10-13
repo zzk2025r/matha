@@ -1,12 +1,19 @@
-"""原生后端日期时间（纯函数）测试。
+"""原生后端日期时间测试。
 
 覆盖 闰年判断/月份天数/时区偏移/时区转换/日期差/星期几/日期加减 的原生语义，
 以及与解释器/VM 的 parity（含 1970 前日期、世纪闰年、随机日期与未知时区）。
+
+另覆盖非纯时钟采集族（获取时间戳/获取日期/当前日期/当前时间/获取日期时间/
+获取UTC时间/格式化时间）：确定性部分做三端 parity，取当前时刻者做格式/时钟
+一致性断言（其值本身非确定）。
 """
+import datetime
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -98,3 +105,65 @@ def test_parity_with_host():
     assert iout == vout
     rc, nout = _run(src)
     assert rc == 0 and nout == iout
+
+
+# ---- 非纯时钟采集族 ----
+
+# 确定性：给定时间戳与格式串，三端应完全一致（均用本机本地时区）。
+FMT_CASES = [
+    (0, "%Y-%m-%d %H:%M:%S"),
+    (1, "%Y-%m-%d %H:%M:%S"),
+    (1000000, "%Y-%m-%d %H:%M:%S"),
+    (1234567890, "%Y-%m-%d %H:%M:%S"),
+    (262144, "%Y-%m-%d %H:%M:%S"),      # 触发 localtime 影子空间路径
+    (1000000000, "%Y/%m/%d"),
+    (2147483647, "%Y-%m-%d %H:%M:%S"),
+    (1000000000, "今天是 %Y 年 %m 月 %d 日"),
+]
+
+
+@pytest.mark.parametrize("ts,fmt", FMT_CASES)
+def test_format_time_parity(ts, fmt):
+    expr = f'格式化时间({ts})("{fmt}")'
+    iout = "\n".join(str(v) for v in interpret(f"输出({expr})")[0])
+    rc, nout = _run(f"输出({expr})")
+    assert rc == 0 and nout == iout
+
+
+def test_now_timestamp_close_to_clock():
+    before = time.time()
+    rc, out = _run("输出(获取时间戳())")
+    after = time.time()
+    assert rc == 0
+    assert before - 2 <= float(out) <= after + 2
+
+
+NOW_FORMATS = {
+    "获取日期": r"\d{4}-\d{2}-\d{2}",
+    "当前日期": r"\d{4}-\d{2}-\d{2}",
+    "当前时间": r"\d{2}:\d{2}:\d{2}",
+    "获取日期时间": r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}",
+    "获取UTC时间": r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z",
+}
+
+
+@pytest.mark.parametrize("name,pat", list(NOW_FORMATS.items()))
+def test_now_format(name, pat):
+    rc, out = _run(f"输出({name}())")
+    assert rc == 0 and re.fullmatch(pat, out)
+
+
+def test_now_date_matches_local_clock():
+    rc, out = _run("输出(获取日期())")
+    assert rc == 0
+    y, m, d = map(int, re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", out).groups())
+    assert abs((datetime.date(y, m, d) - datetime.date.today()).days) <= 1
+
+
+def test_host_zero_arg_builtins():
+    """零参内建经 `_ignore_unit` 包装后，解释器/VM 均应正常求值。"""
+    for name in ["获取时间戳", "获取日期", "当前日期", "当前时间",
+                 "获取日期时间", "获取UTC时间"]:
+        iout = interpret(f"输出({name}())")[0]
+        vout = run_module(compile_source(f"输出({name}())"))
+        assert len(iout) == 1 and len(vout) == 1

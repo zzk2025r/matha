@@ -193,7 +193,9 @@ _CRT_FUNCS = ["_ecvt", "strtod", "sqrt", "pow", "floor", "fmod",
               "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh",
               "log10", "log2", "rint", "trunc", "hypot",
               # 砖块 16 阶段三：文件 I/O
-              "fopen", "fread", "fwrite", "fseek", "ftell", "fclose"]
+              "fopen", "fread", "fwrite", "fseek", "ftell", "fclose",
+              # 砖块 21：日期时间非纯族（本地/UTC 分解与格式化）
+              "_time64", "_localtime64_s", "_gmtime64_s", "strftime"]
 
 VSTACK_SIZE = 0x10000         # 64KB 操作数栈
 NUMBUF_SIZE = 64              # 整数输出缓冲
@@ -597,8 +599,11 @@ class _Emitter:
 
     # ---- SSE2 双精度 ----
     def _sse_rm(self, opcode: bytes, xmm: int, base: int, disp: int):
+        # opcode = 强制前缀(F2) + 0F xx。REX 必须紧随强制前缀、且在 0F 之前
+        # （F2 REX 0F xx）。此前把 REX 放在 F2 之前，当 REX.B 置位（base=r8..r15）
+        # 时 REX 被解码器丢弃，基址退化成低 3 位寄存器（如 r11→rbx）导致误访存。
         rex = 0x40 | (0x04 if xmm >= 8 else 0) | (0x01 if base >= 8 else 0)
-        self.emit(rex.to_bytes(1, "little") + opcode)
+        self.emit(opcode[:1] + rex.to_bytes(1, "little") + opcode[1:])
         self._emit_rm(xmm, base, disp)
 
     def movsd_load(self, xmm: int, base: int, disp: int = 0):
@@ -1134,6 +1139,7 @@ def _emit_resolve_apis(em: _Emitter):
     em.label_here("rs_fail")
     em.emit(b"\x0F\x0B")                                # ud2（未找到 kernel32）
     em.label_here("rs_done")
+    em.store_rip_from("k32_base", 3)                    # 保存 kernel32 基址（rbx）
 
 
 def _emit_print_int(em: _Emitter):
@@ -6940,6 +6946,9 @@ NATIVE_BUILTINS = (
     "查找正则", "查找全部", "命名组", "分割正则", "替换正则",
     # 砖块 21：日期时间纯函数（原生后端）
     "闰年判断", "月份天数", "时区偏移", "时区转换", "日期差", "星期几", "日期加减",
+    # 砖块 21：日期时间非纯函数（时钟采集族 + 格式化）
+    "获取时间戳", "获取日期", "获取日期时间", "获取UTC时间",
+    "当前时间", "当前日期", "格式化时间",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -6989,6 +6998,10 @@ _BUILTIN_ARITY = {
     # 砖块 21：日期时间纯函数（原生后端）
     "闰年判断": 1, "月份天数": 2, "时区偏移": 1, "时区转换": 3,
     "日期差": 2, "星期几": 1, "日期加减": 2,
+    # 砖块 21：日期时间非纯函数（时钟族以「忽略单位实参」的单参形式暴露，
+    # 对齐 Matha `f()` → FuncApp(f, 0) 的调用约定）+ 二参格式化
+    "获取时间戳": 1, "获取日期": 1, "获取日期时间": 1, "获取UTC时间": 1,
+    "当前时间": 1, "当前日期": 1, "格式化时间": 2,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7095,6 +7108,13 @@ _BUILTIN_EMITTERS: dict = {
     "日期差": _timelib._emit_builtin_date_diff,
     "星期几": _timelib._emit_builtin_weekday,
     "日期加减": _timelib._emit_builtin_date_add,
+    "获取时间戳": _timelib._emit_builtin_now,
+    "获取日期": _timelib._emit_builtin_today,
+    "当前日期": _timelib._emit_builtin_date_str,
+    "当前时间": _timelib._emit_builtin_time_str,
+    "获取日期时间": _timelib._emit_builtin_now_datetime,
+    "获取UTC时间": _timelib._emit_builtin_now_utc,
+    "格式化时间": _timelib._emit_builtin_format_time,
 }
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
@@ -7126,6 +7146,8 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_decimal", "decode_decimal",
     # 常量（异常原语 错误/调用捕获 已实现，见 NATIVE_BUILTINS）
     "MathaIOError", "真", "假", "null", "None",
+    # 日期时间：依赖 CRT strptime / 对象 / 全局状态，原生后端暂未实现
+    "解析时间", "创建计时器", "注册任务", "执行待办", "待办列表",
 })
 
 # 宿主 mathlib 通过 _register_math_builtins 注册的数学/工具函数。
@@ -9545,6 +9567,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     eb.emit_virtual(GC_MARK_STACK_FALLBACK)
     eb.align(64)
     _regexlib.emit_regex_bss(eb)                    # 正则引擎 scratch（纯虚拟零填充）
+    _timelib.emit_time_bss(eb)                      # 日期时间时钟 scratch（k32_base 等）
 
     # ---- .data：标量 + 静态对象 + 末尾固定堆 ----
     data_rva = bss_rva + ((eb.total_len + 0xFFF) & ~0xFFF)

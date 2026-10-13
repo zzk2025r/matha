@@ -14,8 +14,22 @@ r"""原生日期时间后端（阶段：纯函数）。
 日期一律 ISO 8601「YYYY-MM-DD」，用 Howard Hinnant 的 days_from_civil /
 civil_from_days 算法在儒略日序列号上运算，避免闰年/月末分支。
 
-非纯函数（获取时间戳/当前日期/格式化时间/解析时间/计时器/任务调度等）依赖
-系统时钟与全局状态，暂只由解释器与 VM 提供，原生后端后续补齐。
+非纯函数（时钟采集族）原生实现：
+
+  获取时间戳() -> float                     （Unix 秒，含微秒小数）
+  获取日期() / 当前日期() -> str            （本地「YYYY-MM-DD」）
+  当前时间() -> str                         （本地「HH:MM:SS」）
+  获取日期时间() -> str                     （本地「YYYY-MM-DDTHH:MM:SS.ffffff」）
+  获取UTC时间() -> str                      （UTC，同上并以 Z 结尾）
+  格式化时间(ts, fmt) -> str                （localtime + CRT strftime）
+
+时钟来源为 kernel32!GetSystemTimeAsFileTime（经 k32_base 惰性 GetProcAddress），
+日历字段由 CRT _localtime64_s / _gmtime64_s 产出，格式化交给 CRT strftime，
+故与宿主解释器（同用 CRT）的格式码行为一致。微秒由 FILETIME 低 7 位十进制推出。
+
+仍暂缓：解析时间（无 CRT strptime）、创建计时器（对象/方法）、注册任务/执行待办/
+待办列表（全局状态 + 回调）。这些名字在 native.py 的 _UNRESOLVED_GLOBALS 中显式
+拒绝，避免编译期静默读 cell→0。
 
 原生字符串布局：`[TYPE_STR][+8]=字节长][+16..]=UTF-8 字节`。
 整数为未装箱立即数（rax 直接返回），布尔为 bool_true/bool_false 指针对象。
@@ -41,6 +55,7 @@ def configure(prologue, epilogue):
 # 寄存器编号
 _RAX, _RCX, _RDX, _RBX, _RSP, _RBP, _RSI, _RDI = range(8)
 _R8, _R9, _R10, _R11 = 8, 9, 10, 11
+_R12, _R13, _R14, _R15 = 12, 13, 14, 15
 
 # 中文星期名（索引：0=星期一 … 6=星期日，与 Python date.weekday() 一致）
 _WEEKDAY_ZH = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
@@ -95,6 +110,19 @@ def _idiv(em, src):
     """idiv src（64 位有符号除；商在 rax，余数在 rdx）。"""
     rex = 0x48 | (0x01 if src >= 8 else 0)
     em.emit(bytes([rex, 0xF7, 0xF8 | (src & 7)]))
+
+
+def _div(em, src):
+    """div src（64 位无符号除；商在 rax，余数在 rdx）。调用前需清零 rdx。"""
+    rex = 0x48 | (0x01 if src >= 8 else 0)
+    em.emit(bytes([rex, 0xF7, 0xF0 | (src & 7)]))
+
+
+def _cvttsd2si(em, reg, xmm=0):
+    """cvttsd2si reg, xmm（截断取整：double → int64）。"""
+    rex = 0x48 | (0x04 if reg >= 8 else 0)
+    em.emit(bytes([0xF2, rex, 0x0F, 0x2C,
+                   0xC0 | ((reg & 7) << 3) | (xmm & 7)]))
 
 
 def _ret_frame(em):
@@ -404,7 +432,7 @@ def _emit_time_runtime(em):
     em.label_here("tm_format_date")
     em.emit(b"\x55")                                # push rbp
     em.mov_rr(_RBP, _RSP)                           # mov rbp,rsp
-    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20
+    em.emit(b"\x48\x83\xEC\x40")                    # sub rsp,0x40（局部+影子空间）
     _emit_civil_from_days(em)                       # -> r8/r9/r10
     em.mov_mem_r(_RBP, -8, _R8)
     em.mov_mem_r(_RBP, -16, _R9)
@@ -465,6 +493,132 @@ def _emit_time_runtime(em):
     em.mov_rr(_RAX, _R11)
     em.add_ri(_RAX, -16)                            # 返回对象头
     _ret_frame(em)
+
+    # ---- tm_gsftaf() -> rax(FILETIME)：kernel32!GetSystemTimeAsFileTime ----
+    # 100ns 计数（自 1601-01-01 UTC）。k32_base 由 native.py 引导期写入。
+    em.label_here("tm_gsftaf")
+    em.emit(b"\x53")                                # push rbx（16 字节对齐）
+    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20（x64 影子空间）
+    em.load_rip_to(_RCX, "k32_base")                # rcx=kernel32 HMODULE
+    em.lea_rip(_RDX, "tm_name_gsftaf")
+    em.call_rip_indirect("api_GetProcAddress")      # rax=proc
+    em.lea_rip(_RCX, "tm_filetime")
+    em.emit(b"\xFF\xD0")                            # call rax
+    em.load_rip_to(_RAX, "tm_filetime")
+    em.emit(b"\x48\x83\xC4\x20")                    # add rsp,0x20
+    em.emit(b"\x5B")                                # pop rbx
+    em.emit(b"\xC3")
+
+    # ---- tm_now_tm(rdi=0 本地/1 UTC) -> rax=微秒；填充 tm_timeval 与 tm_tm ----
+    em.label_here("tm_now_tm")
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x48\x83\xEC\x40")                    # sub rsp,0x40（局部+影子空间）
+    em.mov_mem_r(_RBP, -8, _RDI)                    # [rbp-8]=mode
+    em.call_rel32("tm_gsftaf")                      # rax=ft
+    em.mov_mem_r(_RBP, -16, _RAX)                   # [rbp-16]=ft
+    # time_t = ft/10000000 - 11644473600
+    em.mov_r_imm64(_R8, 10000000)
+    em.xor_rr32(_RDX, _RDX)
+    _div(em, _R8)
+    em.mov_r_imm64(_RCX, 11644473600)
+    em.sub_rr(_RAX, _RCX)
+    em.store_rip_from("tm_timeval", _RAX)
+    # micros = (ft/10) % 1000000
+    em.mov_rd_mem(_RAX, _RBP, -16)
+    em.mov_r_imm32(_R8, 10)
+    em.xor_rr32(_RDX, _RDX)
+    _div(em, _R8)
+    em.mov_r_imm64(_R8, 1000000)
+    em.xor_rr32(_RDX, _RDX)
+    _div(em, _R8)
+    em.mov_mem_r(_RBP, -24, _RDX)                   # [rbp-24]=micros
+    em.lea_rip(_RCX, "tm_tm")
+    em.lea_rip(_RDX, "tm_timeval")
+    em.mov_rd_mem(_R10, _RBP, -8)
+    em.test_rr(_R10, _R10)
+    em.jcc_rel32(0x85, "tm_now_utc")
+    em.call_rip_indirect("crt__localtime64_s")
+    em.jcc_rel32(None, "tm_now_fin")
+    em.label_here("tm_now_utc")
+    em.call_rip_indirect("crt__gmtime64_s")
+    em.label_here("tm_now_fin")
+    em.mov_rd_mem(_RAX, _RBP, -24)                  # rax=微秒
+    em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
+
+    # ---- tm_strftime(rdi=格式串地址) -> rax=长度；写入 tm_strbuf ----
+    em.label_here("tm_strftime")
+    em.emit(b"\x48\x83\xEC\x28")                    # sub rsp,0x28（影子空间+对齐）
+    em.lea_rip(_RCX, "tm_strbuf")
+    em.mov_r_imm32(_RDX, 256)
+    em.mov_rr(_R8, _RDI)
+    em.lea_rip(_R9, "tm_tm")
+    em.call_rip_indirect("crt_strftime")
+    em.emit(b"\x48\x83\xC4\x28")                    # add rsp,0x28
+    em.emit(b"\xC3")
+
+    # ---- tm_newstr(rdi=字节源, rsi=长度) -> rax=STR 对象 ----
+    em.label_here("tm_newstr")
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x48\x83\xEC\x40")                    # sub rsp,0x40（局部+影子空间）
+    em.mov_mem_r(_RBP, -8, _RSI)                    # len
+    em.mov_mem_r(_RBP, -16, _RDI)                   # src
+    em.mov_rr(_RDI, _RSI)
+    em.add_ri(_RDI, 16)
+    em.call_rel32("alloc")                          # rax=obj
+    em.emit(b"\x48\xC7\x00" + struct.pack("<i", TYPE_STR))
+    em.mov_rd_mem(_RCX, _RBP, -8)
+    em.mov_mem_r(_RAX, 8, _RCX)                     # [rax+8]=len
+    em.mov_rd_mem(_RSI, _RBP, -16)                  # rsi=src
+    em.lea_mem(_RDI, _RAX, 16)                      # rdi=载荷
+    em.mov_rd_mem(_RCX, _RBP, -8)                   # rcx=len
+    em.emit(b"\xF3\xA4")                            # rep movsb
+    em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
+
+    # ---- tm_build_dt(rdi=0 本地/1 UTC) -> rax=STR（含 .ffffff[Z]）----
+    em.label_here("tm_build_dt")
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x48\x83\xEC\x40")                    # sub rsp,0x40（局部+影子空间）
+    em.mov_mem_r(_RBP, -8, _RDI)                    # mode
+    em.call_rel32("tm_now_tm")                      # rax=微秒
+    em.mov_mem_r(_RBP, -16, _RAX)                   # micros
+    em.lea_rip(_RDI, "tm_fmt_dt")
+    em.call_rel32("tm_strftime")                    # rax=长度
+    em.mov_rr(_R15, _RAX)                           # r15=长度
+    em.lea_rip(_R11, "tm_strbuf")
+    em.add_rr(_R11, _R15)                           # buf+len
+    em.mov_m8_ri(_R11, 0, 46)                       # '.'
+    em.inc_r(_R11)
+    em.mov_rd_mem(_RBX, _RBP, -16)                  # rbx=微秒
+    em.mov_r_imm64(_R8, 100000)                     # 十进制权重
+    em.xor_rr32(_R13, _R13)                         # i=0
+    em.label_here("tm_dt_loop")
+    em.mov_rr(_RAX, _RBX)
+    em.xor_rr32(_RDX, _RDX)
+    _div(em, _R8)                                   # rax=digit
+    em.add_ri(_RAX, 48)
+    em.mov_m8_r(_R11, 0, _RAX)
+    em.mov_rr(_RBX, _RDX)                           # remainder
+    em.mov_rr(_RAX, _R8)
+    em.xor_rr32(_RDX, _RDX)
+    em.mov_r_imm32(_R9, 10)
+    _div(em, _R9)                                   # divisor/=10
+    em.mov_rr(_R8, _RAX)
+    em.inc_r(_R11)
+    em.inc_r(_R13)
+    em.cmp_ri(_R13, 6)
+    em.jcc_rel32(0x82, "tm_dt_loop")                # jb
+    em.mov_rd_mem(_RAX, _RBP, -8)
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x84, "tm_dt_noz")
+    em.mov_m8_ri(_R11, 0, 90)                       # 'Z'
+    em.inc_r(_R11)
+    em.label_here("tm_dt_noz")
+    em.lea_rip(_RAX, "tm_strbuf")
+    em.sub_rr(_R11, _RAX)                           # 长度
+    em.mov_rr(_RSI, _R11)
+    em.mov_rr(_RDI, _RAX)
+    em.call_rel32("tm_newstr")
+    em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
 
 
 # ------------------------------------------------------------ 内建发射器
@@ -595,7 +749,137 @@ def _emit_builtin_date_add(em):
     _emit_ret_int(em)
 
 
-# ------------------------------------------------------------ 数据
+def _emit_builtin_now(em):
+    """获取时间戳() → float（Unix 秒，含微秒）。"""
+    em.label_here("fn:获取时间戳")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.call_rel32("tm_gsftaf")
+    em.mov_rr(_RBX, _RAX)
+    em.mov_r_imm64(_R8, 10000000)
+    em.xor_rr32(_RDX, _RDX)
+    _div(em, _R8)
+    em.mov_r_imm64(_RCX, 11644473600)
+    em.sub_rr(_RAX, _RCX)
+    em.cvtsi2sd(0, _RAX)                            # xmm0=(double)time_t
+    em.mov_rr(_RAX, _RBX)
+    em.mov_r_imm32(_R8, 10)
+    em.xor_rr32(_RDX, _RDX)
+    _div(em, _R8)
+    em.mov_r_imm64(_R8, 1000000)
+    em.xor_rr32(_RDX, _RDX)
+    _div(em, _R8)                                   # rdx=微秒
+    em.cvtsi2sd(1, _RDX)                            # xmm1=(double)微秒
+    em.lea_rip(_R11, "tm_c_1e6")
+    em.movsd_load(2, _R11, 0)                       # xmm2=1e-6
+    em.mulsd(1, 2)
+    em.addsd(0, 1)                                  # xmm0=time_t+微秒/1e6
+    em.call_rel32("box_float")
+    _emit_ret_int(em)
+
+
+def _emit_builtin_today(em):
+    """获取日期() → str（本地「YYYY-MM-DD」）。"""
+    em.label_here("fn:获取日期")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.xor_rr32(_RDI, _RDI)
+    em.call_rel32("tm_now_tm")
+    em.lea_rip(_RDI, "tm_fmt_date")
+    em.call_rel32("tm_strftime")
+    em.mov_rr(_RSI, _RAX)
+    em.lea_rip(_RDI, "tm_strbuf")
+    em.call_rel32("tm_newstr")
+    _emit_ret_int(em)
+
+
+def _emit_builtin_date_str(em):
+    """当前日期() → str（本地「YYYY-MM-DD」）。"""
+    em.label_here("fn:当前日期")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.xor_rr32(_RDI, _RDI)
+    em.call_rel32("tm_now_tm")
+    em.lea_rip(_RDI, "tm_fmt_date")
+    em.call_rel32("tm_strftime")
+    em.mov_rr(_RSI, _RAX)
+    em.lea_rip(_RDI, "tm_strbuf")
+    em.call_rel32("tm_newstr")
+    _emit_ret_int(em)
+
+
+def _emit_builtin_time_str(em):
+    """当前时间() → str（本地「HH:MM:SS」）。"""
+    em.label_here("fn:当前时间")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.xor_rr32(_RDI, _RDI)
+    em.call_rel32("tm_now_tm")
+    em.lea_rip(_RDI, "tm_fmt_time")
+    em.call_rel32("tm_strftime")
+    em.mov_rr(_RSI, _RAX)
+    em.lea_rip(_RDI, "tm_strbuf")
+    em.call_rel32("tm_newstr")
+    _emit_ret_int(em)
+
+
+def _emit_builtin_now_datetime(em):
+    """获取日期时间() → str（本地「…T..:..:..ffffff」）。"""
+    em.label_here("fn:获取日期时间")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.xor_rr32(_RDI, _RDI)
+    em.call_rel32("tm_build_dt")
+    _emit_ret_int(em)
+
+
+def _emit_builtin_now_utc(em):
+    """获取UTC时间() → str（UTC，以 Z 结尾）。"""
+    em.label_here("fn:获取UTC时间")
+    _EMIT_PROLOGUE(em, 1, 1)
+    _save(em)
+    em.mov_r_imm32(_RDI, 1)
+    em.call_rel32("tm_build_dt")
+    _emit_ret_int(em)
+
+
+def _emit_builtin_format_time(em):
+    """格式化时间(ts, fmt) → str（localtime + strftime）。"""
+    em.label_here("fn:格式化时间")
+    _EMIT_PROLOGUE(em, 2, 2)
+    _save(em)
+    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,0x20（CRT 调用影子空间）
+    em.mov_rd_mem(_RAX, _RBP, -16)                  # ts
+    em.call_rel32("as_double")                      # xmm0=ts
+    _cvttsd2si(em, _RAX)                            # rax=秒
+    em.store_rip_from("tm_timeval", _RAX)
+    em.lea_rip(_RCX, "tm_tm")
+    em.lea_rip(_RDX, "tm_timeval")
+    em.call_rip_indirect("crt__localtime64_s")
+    em.mov_rd_mem(_RDI, _RBP, -8)                   # fmt STR
+    em.add_ri(_RDI, 16)                             # 载荷地址
+    em.call_rel32("tm_strftime")                    # rax=长度
+    em.mov_rr(_RSI, _RAX)
+    em.lea_rip(_RDI, "tm_strbuf")
+    em.call_rel32("tm_newstr")
+    em.emit(b"\x48\x83\xC4\x20")                    # add rsp,0x20（回收影子空间）
+    _emit_ret_int(em)
+
+
+def emit_time_bss(eb):
+    """在 .bss 预留时钟 scratch（kernel32 基址 + FILETIME + tm + 格式化缓冲）。"""
+    for nm in ("k32_base", "tm_filetime", "tm_timeval"):
+        eb.align(8)
+        eb.label_here(nm)
+        eb.emit_virtual(8)
+    eb.align(16)
+    eb.label_here("tm_tm")
+    eb.emit_virtual(64)
+    eb.align(16)
+    eb.label_here("tm_strbuf")
+    eb.emit_virtual(256)
+
+
 def emit_time_data(ed):
     """在 .data（静态堆区）发射时区名与星期名 STR 对象。"""
     def _str(lab, s):
@@ -609,3 +893,15 @@ def emit_time_data(ed):
         _str(lab, nm)
     for i, nm in enumerate(_WEEKDAY_ZH):
         _str(f"tm_wd_s{i}", nm)
+
+    # 非纯时钟族所需常量：CRT 格式串、kernel32 导出名、浮点常量。
+    for lab, s in (("tm_fmt_date", "%Y-%m-%d"),
+                   ("tm_fmt_time", "%H:%M:%S"),
+                   ("tm_fmt_dt", "%Y-%m-%dT%H:%M:%S"),
+                   ("tm_name_gsftaf", "GetSystemTimeAsFileTime")):
+        ed.align(8)
+        ed.label_here(lab)
+        ed.emit(s.encode("ascii") + b"\x00")
+    ed.align(8)
+    ed.label_here("tm_c_1e6")
+    ed.emit(struct.pack("<d", 1e-6))

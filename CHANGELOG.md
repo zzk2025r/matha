@@ -1,5 +1,54 @@
 # Matha 变更摘要
 
+## 原生后端：日期时间内建（非纯时钟采集族）
+
+**日期**：2026-10-13
+
+### 变更范围
+
+为原生后端补齐 `time_module` 中**非纯**时钟采集族，与解释器/VM 逐字节对齐：
+`获取时间戳`（Unix 秒含微秒的浮点）/`获取日期`/`当前日期`（本地 `YYYY-MM-DD`）/
+`当前时间`（`HH:MM:SS`）/`获取日期时间`（本地 `…T..:..:..ffffff`）/
+`获取UTC时间`（UTC，`Z` 结尾）/`格式化时间`（任意时间戳 + `strftime` 格式串）。
+`解析时间`/`创建计时器`/`注册任务`/`执行待办`/`待办列表` 依赖 `strptime`/对象/
+全局状态，原生暂未实现（列入 `_UNRESOLVED_GLOBALS`）。
+
+### 变更内容
+
+- `src/mbc/native_time.py`：
+  - `tm_gsftaf`：`kernel32!GetSystemTimeAsFileTime` → `FILETIME`（100ns），
+    经引导期写入的 `k32_base` 惰性 `GetProcAddress` 解析。
+  - `tm_now_tm`（本地/UTC 分解）、`tm_strftime`、`tm_newstr`、`tm_build_dt`
+    （ISO 秒 + 微秒 + 可选 `Z`）。
+  - 7 个内建发射器；`emit_time_bss` 预留 `k32_base`/`tm_filetime`/`tm_timeval`/
+    `tm_tm`/`tm_strbuf`；`emit_time_data` 追加 CRT 格式串/导出名/`1e-6` 常量。
+- `src/mbc/native.py`：`_CRT_FUNCS` 增 `_time64`/`_localtime64_s`/`_gmtime64_s`/
+  `strftime`；API 解析完成后保存 `k32_base`；注册 7 个内建（arity 见下）。
+- `src/domains/time_module.py`：新增 `_ignore_unit`——Matha 的 `f()` 被解析为
+  对占位整数 0 的应用（`parser.py` 空括号 → `FuncApp(func, IntegerLit(0))`），
+  故零参内建须以「忽略一个占位实参」的单参形式暴露；`获取时间戳`/`获取日期`/
+  `当前日期`/`当前时间`/`获取日期时间`/`获取UTC时间`/`创建计时器`/`执行待办`/
+  `待办列表` 均据此包装。原生端对应内建 arity 设为 1（`格式化时间` 为 2）。
+
+### 关键修复
+
+- **x64 影子空间**：`tm_gsftaf` 调用 WinAPI、`格式化时间` 调用
+  `_localtime64_s` 前未预留 32 字节影子空间，CRT 覆写已被压栈保存的
+  寄存器（`_save` 区域与影子空间重叠）；`_localtime64_s` 在较大时间戳上
+  走会写影子的慢路径，故表现为按时间戳阈值触发的 `0xC0000005`。助手帧
+  统一放大到 `0x40`（`tm_strftime` 为 `0x28`），`格式化时间` 在调用 CRT
+  前额外 `sub rsp,0x20`。
+- **SSE 强前缀序**：`_Emitter._sse_rm` 把 REX 放在强制前缀 `F2` 之前，
+  当 `REX.B` 置位（基址 `r8..r15`）时被解码器丢弃，基址退化为低 3 位寄存器
+  （如 `r11→rbx`）导致误访存；改为 `F2 REX 0F xx`。
+
+### 测试覆盖
+
+- `tests/test_native_time.py` 扩到 55 项：确定性 `格式化时间` 三端 parity
+  （含触发影子空间路径的 `262144`）、取当前时刻者的格式/时钟一致性断言、
+  零参内建的解释器/VM 求值。
+- 全量 `pytest`：2589 passed。
+
 ## 原生后端：日期时间内建（纯函数）
 
 **日期**：2026-10-13

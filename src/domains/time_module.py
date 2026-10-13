@@ -214,26 +214,38 @@ def _curry3(func):
     return w1
 
 
+def _ignore_unit(func):
+    """把零参函数包装为「忽略一个占位实参」的单参函数。
+
+    Matha 的 `f()` 会被解析为对占位整数 0 的应用（parser.py 空括号 →
+    FuncApp(func, IntegerLit(0))），故零参内建必须以单参形式暴露，否则
+    `获取日期()` 会以 0 作为实参调用而抛 TypeError。
+    """
+    def w(_unit=None):
+        return func()
+    return w
+
+
 def _register_time(builtins: dict) -> None:
-    builtins["获取时间戳"] = now
-    builtins["获取日期"] = today
-    builtins["获取日期时间"] = now_datetime
-    builtins["获取UTC时间"] = now_utc
+    builtins["获取时间戳"] = _ignore_unit(now)
+    builtins["获取日期"] = _ignore_unit(today)
+    builtins["获取日期时间"] = _ignore_unit(now_datetime)
+    builtins["获取UTC时间"] = _ignore_unit(now_utc)
     builtins["格式化时间"] = _curry2(format_time)
     builtins["解析时间"] = _curry2(parse_time)
-    builtins["当前时间"] = time_str
-    builtins["当前日期"] = date_str
+    builtins["当前时间"] = _ignore_unit(time_str)
+    builtins["当前日期"] = _ignore_unit(date_str)
     builtins["日期加减"] = _curry2(date_add)
     builtins["日期差"] = _curry2(date_diff)
     builtins["星期几"] = day_of_week
     builtins["闰年判断"] = is_leap_year
     builtins["月份天数"] = _curry2(days_in_month)
-    builtins["创建计时器"] = lambda: Timer()
+    builtins["创建计时器"] = _ignore_unit(Timer)
     builtins["时区偏移"] = timezone_offset
     builtins["时区转换"] = _curry3(convert_timezone)
     builtins["注册任务"] = _curry3(schedule_task)
-    builtins["执行待办"] = run_pending_tasks
-    builtins["待办列表"] = get_pending_tasks
+    builtins["执行待办"] = _ignore_unit(run_pending_tasks)
+    builtins["待办列表"] = _ignore_unit(get_pending_tasks)
 
 
 def _time_symtab_names() -> list[str]:
