@@ -104,6 +104,8 @@ class Parser:
         self._in_lambda_rel = False    # True when parsing = right side inside lambda body
         self._in_func_app = False      # True when parsing inside a function call args
         self._in_let_value = False     # True when parsing the value expression of a let statement
+        # 正在解析三元 ? / : 的分支：此语境下 [expr] 是列表字面量而非输出
+        self._in_ternary_branch = False
         self._if_depth: int = 0        # 当前 if 表达式嵌套深度
         # 正在解析 @(a|b|c) 括号式设定：此语境 `|` 是**项分隔符**而非位或
         self._in_setup_paren = False
@@ -1470,6 +1472,21 @@ class Parser:
     # 优先级：rel > add > mul > pow > unary > postfix > primary
     # ============================================================
 
+    def _parse_ternary_branch(self):
+        """解析三元 `?` / `:` 分支。
+
+        此语境下的 `[expr]`（含单元素 `[x]`）是列表字面量，而非输出命令——
+        与 `_parse_primary` 的多元素 / 运算符右值语境判定对齐，避免
+        `cond ? [x] : [y]` 被误解析为 Output（此前宿主产出 `[x, x]` 且与
+        自举解析器不一致）。
+        """
+        saved = self._in_ternary_branch
+        self._in_ternary_branch = True
+        try:
+            return self._parse_expr()
+        finally:
+            self._in_ternary_branch = saved
+
     def _parse_expr(self, stop_at_comma: bool = False):
         """<expr> = <or_expr> , [ ";" , <expr> ]* （支持分号分隔的表达式序列）
 
@@ -1521,7 +1538,7 @@ class Parser:
             cond = exprs[-1]
         if self._check(TokenType.OP_QUESTION):
             self._advance()
-            then_expr = self._parse_expr()
+            then_expr = self._parse_ternary_branch()
             self._skip_newlines()
             # 检查 else 分支：可能是 else expr，也可能是裸的 else 值（如 `假`）
             if self._check(TokenType.IDENTIFIER) and self._current().value == "else":
@@ -1535,20 +1552,20 @@ class Parser:
                     # else 属于外层三元：回退并作为 else 分支
                     self.pos = saved
                     self._advance()
-                    else_expr = self._parse_expr()
+                    else_expr = self._parse_ternary_branch()
                     return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
                 # else 属于内层 if-expr，不消费
             elif self._check(TokenType.LIT_BOOL):
                 # 裸 else 值：如 `(cond) ? a 假 : b`
                 # 将当前标识符作为 else 分支
-                else_expr = self._parse_expr()
+                else_expr = self._parse_ternary_branch()
                 self._skip_newlines()
                 self._expect(TokenType.OP_COLON, ":")
-                else_expr = self._parse_expr()
+                else_expr = self._parse_ternary_branch()
                 return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
             else:
                 self._expect(TokenType.OP_COLON, ":")
-                else_expr = self._parse_expr()
+                else_expr = self._parse_ternary_branch()
                 return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
             return then_expr
         return cond
@@ -2206,6 +2223,9 @@ class Parser:
             # 非空列表：在函数应用语境中，或紧跟 => (lambda 体中) / = (绑定右值) / 逗号 (setUp) 时解析为列表
             if self._in_func_app or self._check(TokenType.OP_FATARROW) or self._check(TokenType.OP_ASSIGN):
                 return self._parse_list_literal()
+            # 三元 ? / : 分支：此语境 [expr] 为列表字面量（含单元素 [x]）
+            if self._in_ternary_branch:
+                return self._parse_list_literal()
             # 绑定右值语境：opt = [...] 中的 [ 应解析为列表
             if getattr(self, '_in_bind_value', False):
                 return self._parse_list_literal()
@@ -2442,10 +2462,10 @@ class Parser:
         # 检查是否为三元表达式
         if self._check(TokenType.OP_QUESTION):
             self._advance()
-            then_expr = self._parse_expr()
+            then_expr = self._parse_ternary_branch()
             self._skip_newlines()
             self._expect(TokenType.OP_COLON, ":")
-            else_expr = self._parse_expr()
+            else_expr = self._parse_ternary_branch()
             expr = ast.IfExpr(cond=expr, then=then_expr, else_=else_expr)
         elif self._is_comma():
             # 控制流语境中的逗号：回退为元组

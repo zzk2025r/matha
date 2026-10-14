@@ -1,5 +1,42 @@
 # Matha 变更摘要
 
+## 宿主解析器：三元分支中的单元素列表字面量（四端一致修复）
+
+**日期**：2026-10-14
+
+### 变更范围
+
+宿主解析器 `src/parser.py` 的 `_parse_primary` 在遇到 `[` 时，依据**前一个
+token** 判定其为列表字面量还是输出命令，但遗漏了三元 `?` / `:` 语境。于是
+`cond ? [x] : [y]`（**单元素**）被误判为 Output：condition 两侧各自输出一次，
+宿主产出 `[x, x]`；而多元素 `[x, y]` 与自举解析器都按列表字面量。宿主自身
+语义即不一致，且 `matha/vm.matha` 的 `补空`（`n>0 ? [null]+… : []` 的变体）
+在宿主上崩溃（`None + list`）。
+
+修复：新增语境标记 `_in_ternary_branch`，在三元 `?` / `:` 两处解析点
+（`_parse_expr`、`_parse_paren_dispatch`）经新方法 `_parse_ternary_branch`
+包裹分支解析；`_parse_primary` 在 `[` 判定时将该标记并入列表字面量语境。
+修复后 `cond ? [x] : [y]` 在宿主 / 自举解析器上语义一致（列表），
+stage2 ≡ stage3。
+
+### 变更
+
+- `src/parser.py`：
+  - `__init__` 增 `self._in_ternary_branch = False`。
+  - 新增 `_parse_ternary_branch()`：置标记后调用 `_parse_expr()`，`finally`
+    恢复（支持嵌套三元）。
+  - `_parse_expr`（三元 `?`/`:`，含裸 `else` 值与 `LIT_BOOL` 分支）与
+    `_parse_paren_dispatch`（`(cond) ? a : b`）的 then/else 分支改用
+    `_parse_ternary_branch()`。
+  - `_parse_primary` 的 `[` 列表判定增补 `self._in_ternary_branch`。
+
+### 测试
+
+- `tests/test_mbc_bootstrap.py`：新增 M8 段 `_M8_TERNARY_LIST_CASES`
+  （8 例：then/else 单元素、变量、布尔、多元素对照、递归 `补空`、括号三元点、
+  嵌套三元）× 3（宿主运行 / stage2 ≡ stage3 / 自举运行）= 24 用例。
+- 全量 `pytest`：2695 passed（含 slow 不动点用例）；ruff 无新增告警。
+
 ## 完全自举不动点：自编译编译器产物逐位一致（stage-2）
 
 **日期**：2026-10-14

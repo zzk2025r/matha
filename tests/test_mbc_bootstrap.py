@@ -1353,3 +1353,52 @@ def test_m4_host_fix_stage3_runs(compiler_boot_vm, name, src, expect):
         pytest.xfail("stage3 已知差异（待补）: %s —— %s" % (name, _M4_STAGE3_PENDING[name]))
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M8：三元分支单元素列表字面量 ====================
+# 宿主 _parse_primary 曾按「前一个 token」判定 [ 是列表还是输出，但漏了
+# 三元 ? / :——导致 `cond ? [x] : [y]`（单元素）被误当 Output：宿主产出
+# `[x, x]`（两分支各输出一次），而多元素 `[x, y]` 与自举解析器都按列表，
+# 宿主自身语义即不一致。修复：新增 _in_ternary_branch 语境标记。
+_M8_TERNARY_LIST_CASES = [
+    ("ternary_then_single",
+     "x = 1\n#：[x > 0 ? [1] : [0]]\n", [[1]]),
+    ("ternary_else_single",
+     "x = 0\n#：[x > 0 ? [1] : [2]]\n", [[2]]),
+    ("ternary_var_single",
+     "a = 1\nb = 2\n#：[a > b ? [a] : [b]]\n", [[2]]),
+    ("ternary_bool_single",
+     "x = true\n#：[x ? [42] : []]\n", [[42]]),
+    ("ternary_multi_unaffected",
+     "x = 1\n#：[x > 0 ? [1, 2] : [3, 4]]\n", [[1, 2]]),
+    ("ternary_recursive_null",
+     "func 补空(n: Int) -> List = (n) => n <= 0 ? [] : [null] + 补空(n - 1)\n"
+     "#：[补空(3)]\n", [[None, None, None]]),
+    ("ternary_paren_site",
+     "x = 1\n#：[(x > 0) ? [7] : [8]]\n", [[7]]),
+    ("ternary_nested_single",
+     "x = 2\n#：[x > 1 ? x > 2 ? [1] : [2] : [3]]\n", [[2]]),
+]
+
+_M8_TERNARY_IDS = [c[0] for c in _M8_TERNARY_LIST_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M8_TERNARY_LIST_CASES, ids=_M8_TERNARY_IDS)
+def test_m8_ternary_list_host_runs(name, src, expect):
+    """M8：宿主编译运行三元分支中的单元素列表字面量，语义为列表。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M8_TERNARY_LIST_CASES, ids=_M8_TERNARY_IDS)
+def test_m8_ternary_list_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M8：三元分支列表字面量 stage2 ≡ stage3（宿主与自举解析一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M8_TERNARY_LIST_CASES, ids=_M8_TERNARY_IDS)
+def test_m8_ternary_list_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M8：自举链路编译三元分支列表字面量，运行结果与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
