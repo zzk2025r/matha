@@ -293,6 +293,10 @@ def _default_builtins() -> dict:
     _register_math_builtins(b)
     _register_regex_builtins(b)
     _register_time(b)
+    # 正则内建 `匹配` 与引导文件 matha/parser.matha 的顶层 `func 匹配` 同名：二者
+    # 合入同一模块时后者会遮蔽前者。故额外暴露一个不冲突的别名，供 matha/vm.matha
+    # 委托正则匹配（其余内建名无此冲突，可直接按名委托）。
+    b.setdefault("_bmatch", b["匹配"])
     # 基础原语（与宿主解释器一致）
     b.setdefault("len", len)
     b.setdefault("abs", abs)
@@ -321,6 +325,14 @@ def _default_builtins() -> dict:
     b.setdefault("_dict_has", _curry2(lambda d, k: k in d))
     b.setdefault("_dict_put", _curry3(lambda d, k, v: {**d, k: v}))
     b.setdefault("_dict_remove", _curry2(lambda d, k: {kk: vv for kk, vv in d.items() if kk != k}))
+    # 位运算原语（供自举 vm.matha 的 应用运算/应用一元 使用）：自举源码不宜书写
+    # `&`/`|`/`⊕`/`~` 运算符（会与「解释自身字节码」形成自引用，并阻碍 vm.matha
+    # 自解析），故以宿主原语暴露；语义逐条复用 _BINOPS / _UNARYOPS（含非整数操作数
+    # 的报错定位），确保与宿主 VM 位运算逐字节一致。
+    b.setdefault("_bit_and", _curry2(_BINOPS["&"]))
+    b.setdefault("_bit_or", _curry2(_BINOPS["|"]))
+    b.setdefault("_bit_xor", _curry2(_BINOPS["⊕"]))
+    b.setdefault("_bit_not", _UNARYOPS["~"])
     # 空字典常量（{} 在 Matha 语法中为空集合构造，故用 VM 值提供空字典）
     b.setdefault("_empty_dict", {})
     # 列表去重：与宿主解释器 builtin_列表去重 同语义（按 == 去重、保序），
