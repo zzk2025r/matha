@@ -185,3 +185,23 @@ def test_operator_parity_host_compiled(vm_boot_vm, src):
     host.run()
     matha = vm_boot_vm.call("运行M3V", module_to_dict(comp.mod))
     assert matha == host.outputs
+
+
+def test_bootstrap_compiles_vm_matha_identically(vm_boot_vm):
+    """自举编译器（compiler_matha.matha）可编译 matha/vm.matha 自身，
+    且产物与宿主编译逐位一致（函数/主码/常量池），锁定自解析闭环。"""
+    with open("matha/vm.matha", encoding="utf-8") as f:
+        src = f.read()
+
+    self_dict = vm_boot_vm.call("编译", src)
+    assert isinstance(self_dict, dict)
+
+    host_dict = module_to_dict(_compile_files(["matha/vm.matha"]).mod)
+
+    assert self_dict["模块名"] == host_dict["模块名"]
+    assert self_dict["主码"] == host_dict["主码"]
+    assert self_dict["常量"] == host_dict["常量"]
+    assert {e[0] for e in self_dict["函数"]} == {e[0] for e in host_dict["函数"]}
+    hmap = {e[0]: e[1] for e in host_dict["函数"]}
+    smap = {e[0]: e[1] for e in self_dict["函数"]}
+    assert smap == hmap

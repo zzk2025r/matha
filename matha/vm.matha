@@ -83,7 +83,7 @@ module 字节码虚拟机 {
     取尾(栈[:len(栈) - 1], n - 1) + [栈[len(栈) - 1]]
 
   func 补空(n: Int) -> List =
-    n <= 0 ? [] : [null] + 补空(n - 1)
+    if n <= 0 then [] else [null] + 补空(n - 1)
 
   (* ===== 全局表：[[名, 值], ...]，STORE 时原地改 pair ===== *)
 
@@ -122,7 +122,7 @@ module 字节码虚拟机 {
     op = ">=" ? (l >= r) :
     op = "and" ? (l and r) :
     op = "or" ? (l or r) :
-    op = "in" ? (l in r) :
+    op = "in" ? (l ∈ r) :
     op = "is" ? (l is r) :
     op = "<<" ? (l << r) :
     op = ">>" ? (l >> r) :
@@ -507,8 +507,8 @@ module 字节码虚拟机 {
   (* 应用内建顶层分发 *)
   func 应用内建(名: String, 参数: List, 输出指针: List) -> List =
     if (名 = "输出" or 名 = "print" or 名 = "打印文本" or 名 = "调用捕获" or 名 = "错误" or 名 = "MathaIOError") then 内建特殊(名, 参数, 输出指针)
-    else if 名 in 三元名表() then 内建三元(名, 参数)
-    else if 名 in 二元名表() then 内建二元(名, 参数)
+    else if 名 ∈ 三元名表() then 内建三元(名, 参数)
+    else if 名 ∈ 二元名表() then 内建二元(名, 参数)
     else 内建一元(名, 参数)
 
   (* 参数齐 3 才应用的内建名（否则收集为部分） *)

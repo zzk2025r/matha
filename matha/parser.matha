@@ -838,17 +838,10 @@ module 语法器 {
                   (c >= 97 and c <= 102) ? c - 87 : 0 in
       字符串转整数_helper(substr(s, 1), acc * base + digit, base)
 
+  (* 浮点字面量 → Float。直接委托宿主/自举 VM 的 float(String)，
+     由底层数值解析保证与宿主 float() 逐位一致（含科学计数法 e/E）。 *)
   func 字符串转浮点(s: String) -> Float =
-    if s = "" then 0.0
-    else
-      let parts = 分割(s, ".") in
-      let whole = 字符串转整数(parts[0], 10) in
-      let frac_part = (len(parts) > 1) ? parts[1] : "" in
-      if frac_part = "" then float(whole)
-      else
-        let frac_digits = len(frac_part) in
-        let frac = 字符串转整数(frac_part, 10) in
-        whole + frac / (10.0 ** frac_digits)
+    if s = "" then 0.0 else float(s)
 
   (* 字符串工具 ===== *)
   func substr(s: String, start: Int) -> String =

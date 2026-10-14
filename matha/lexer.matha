@@ -201,7 +201,29 @@ module 词法器 {
           (pos + 1 < len(src) and 是数字码(ord(get(src)(pos + 1))) ?
             扫描数字续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + ".")(真) :
             扫描(src)(pos)(line)(col)(append(toks)(做Token(整数, 缓存, line, 起列)))) :
-        扫描(src)(pos)(line)(col)(append(toks)(做Token(有小数点 ? 浮点 : 整数, 缓存, line, 起列))))
+        (是科学尾(get(src)(pos)) and pos + 1 < len(src) and (是数字码(ord(get(src)(pos + 1))) or get(src)(pos + 1) = "+" or get(src)(pos + 1) = "-")) ?
+          扫描尾数指数(src)(pos)(line)(col)(toks)(起列)(缓存) :
+          扫描(src)(pos)(line)(col)(append(toks)(做Token(有小数点 ? 浮点 : 整数, 缓存, line, 起列))))
+
+  (* 科学计数法尾数 e/E；与宿主 src/lexer.py _lex_number 的 Xe[+|-]Y 同构。 *)
+  func 是科学尾(c: String) -> Bool = (c) =>
+    (c = "e" or c = "E") ? 真 : 假
+
+  func 扫描尾数指数(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
+    (src, pos, line, col, toks, 起列, 缓存) =>
+      扫描指数符号(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))
+
+  func 扫描指数符号(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
+    (src, pos, line, col, toks, 起列, 缓存) =>
+      (pos < len(src) and (get(src)(pos) = "+" or get(src)(pos) = "-")) ?
+        扫描指数数字(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
+        扫描指数数字(src)(pos)(line)(col)(toks)(起列)(缓存)
+
+  func 扫描指数数字(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
+    (src, pos, line, col, toks, 起列, 缓存) =>
+      (pos < len(src) and 是数字码(ord(get(src)(pos)))) ?
+        扫描指数数字(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
+        扫描(src)(pos)(line)(col)(append(toks)(做Token(浮点, 缓存, line, 起列)))
 
   (* ===== 扫描标识符续 ===== *)
   func 扫描标识符续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String, 忽略: Bool) -> List =
