@@ -135,6 +135,9 @@ module 语法器 {
     pos: Int
     line: Int
     col: Int
+    (* 禁止并列：输出括号 [ … ] 内解析时置真，禁用并列应用（juxtaposition），
+       以对齐宿主 parser（无并列应用语法）。缺省 / 假 表示允许并列。 *)
+    禁止并列: Bool
   }
 
   (* ===== 解析器辅助 ===== *)
@@ -142,17 +145,17 @@ module 语法器 {
      使解析器状态的 pos 始终指向非换行 token。 *)
   func 规范(p: 解析器) -> 解析器 = (p) =>
     (p.pos < len(p.tokens) and p.tokens[p.pos].类型 = 类型.换行) ?
-      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1 }) : p
+      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1, 禁止并列: p.禁止并列 }) : p
 
   (* 推进：消费当前 token，并规范化到下一个非换行 token *)
   func 推进(p: 解析器) -> 解析器 =
-    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col })
+    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列 })
 
   (* 推进原样：消费当前 token 但**不**跳过换行。
      自然语言块需区分「】后紧跟换行」（正文为空）与「】后同行还有正文」，
      而 推进 会吞掉换行，故单列一个原样版本。 *)
   func 推进原样(p: 解析器) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col }
+    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列 }
 
   func 当前(p: 解析器) -> Token = (p) =>
     (p.pos < len(p.tokens)) ? p.tokens[p.pos] : 做Token(类型.结束, "", p.line, p.col)
@@ -589,7 +592,7 @@ module 语法器 {
       let p2 = 推进(p) in
       let (值, p3) = 解析表达式(p2) in
       解析应用链(做发送(expr, 值), p3)
-    else if 是原子起点(p) and not 是行首关键字(p) and not 是中缀is(p) then
+    else if 是原子起点(p) and not 是行首关键字(p) and not 是中缀is(p) and not p.禁止并列 then
       (* 并列应用 f x / f(x) 假：同一行内，原子 token 紧跟表达式时视为应用。
          is 例外：它是中缀运算符而非实参，否则 `a is b` 会被并列应用吞成
          FuncApp(a, Variable("is"))，剩余的 b 再成一次应用。 *)
@@ -1156,7 +1159,43 @@ module 语法器 {
     窥视逗号(p) ?
       let (元素, p2) = 解析列表元素(p) in
       (做ListLit(元素), p2) :
-      解析表达式(p)
+      尝试输出表达式(p)
+
+  (* 尝试将 [ … ] 内容解析为恰好填满至 ] 的单个表达式。
+     成功（解析后正好停在 ]）→ 返回 (表达式, 解析器)；
+     否则文本回退：拼接 ] 之前的原始记号文本为字符串字面量
+     （对齐宿主 _parse_output 的 ParseError 回退，见 src/parser.py:2614）。
+     解析在「禁并列」副本上进行：宿主 parser 无并列应用语法，
+     故 [Hello world] 须回退为文本而非被吞成 FuncApp。） *)
+  func 尝试输出表达式(p: 解析器) -> (Dict, 解析器) =
+    let 捕获 = 调用捕获(() => 试解析输出(p))([]) in
+    捕获[0] == "__正常__" ? 处理输出(捕获[1], p) : 做文本回退(p)
+
+  (* 受保护尝试体：解析成功且正好停在 ] 时返回 [真, 表达式, 解析器]，
+     否则返回 [假]。解析异常由 VM 内建 调用捕获 拦截（等价宿主 try/catch
+     的 ParseError 回退，但避免在自举目录引入自举编译器尚不支持的 try 节点）。 *)
+  func 试解析输出(p: 解析器) -> List =
+    let (expr, p2) = 解析表达式(禁并列(p)) in
+    匹配(p2, 类型.右括号方) ? [真, expr, p2] : [假]
+
+  (* 处理 调用捕获 的受保护结果：正常且命中 → (表达式, 解析器)；否则文本回退。 *)
+  func 处理输出(内层: List, p: 解析器) -> (Dict, 解析器) =
+    内层[0] ? (内层[1], 内层[2]) : 做文本回退(p)
+
+  (* 禁并列：构造禁用并列应用的解析器副本（供输出括号内解析使用）。 *)
+  func 禁并列(p: 解析器) -> 解析器 =
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: 真 }
+
+  (* 文本回退：拼接当前至 ] 之间的原始记号文本（含换行 "\n"，不跳过换行），
+     与宿主回退的 _advance().value 逐 token 拼接一致。
+     返回 (字符串字面量, 停在 ] 的解析器)，供调用方随后消费 ]。 *)
+  func 做文本回退(p: 解析器) -> (Dict, 解析器) =
+    let (文本, p2) = 收集原始文本(p, "") in
+    (做StringLit(文本), p2)
+
+  func 收集原始文本(p: 解析器, acc: String) -> (String, 解析器) =
+    匹配(p, 类型.右括号方) or 匹配(p, 类型.结束) ? (acc, p) :
+    收集原始文本(推进原样(p), acc + 当前(p).文本)
 
   (* 窥视：从当前位置起的下一个非换行 token *)
   func 窥视(p: 解析器, n: Int) -> Token =

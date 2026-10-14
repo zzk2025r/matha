@@ -1,5 +1,66 @@
 # Matha 变更摘要
 
+## `#：` 输出括号内文本回退（四端一致修复）
+
+**日期**：2026-10-14
+
+### 变更范围
+
+`#：[…]` 输出括号内的内容，宿主 `_parse_output`（`src/parser.py:2524`）在无法
+解析为「恰好填满到 `]` 的单个表达式」时回退：把 `]` 之前的原始记号文本
+（含换行 `"\n"`、不跳空白）拼成一个字符串字面量。自举 parser 无此回退，遇到
+`#：[Hello world]` 等非表达式内容即报错（`probe2` 暴露）：
+
+- `#：[Hello world]`：宿主 `['Helloworld']`，自举报错。
+- `#：[你好，世界]`：宿主 `['你好，世界']`。
+- `#：[  Hello   world  ]`：宿主 `['Helloworld']`（空白非记号）。
+- `#：[1 + +2]`：宿主 `['1++2']`（`+ +2` 不能解析，回退拼记号）。
+
+### 变更
+
+- `matha/parser.matha`：
+  - `解析器` struct 新增 `禁止并列` 字段，`规范`/`推进`/`推进原样` 透传。
+    自举 parser 有并列应用（`f x`），宿主无；输出括号内须禁用并列，否则
+    `[Hello world]` 被吞成 `FuncApp` 而非回退文本。
+  - `解析应用链` 并列分支加 `and not p.禁止并列` 守卫。
+  - `解析括号内输出` 重排：`]` → 空输出；`窥视逗号` → 列表字面量；否则
+    `尝试输出表达式`。
+  - 新增 `尝试输出表达式`/`试解析输出`/`处理输出`：经 VM 内建 `调用捕获`
+    受保护地尝试解析（等价宿主 try/catch 的 ParseError 回退）；成功且正好停在
+    `]` 用其结果，否则 `做文本回退`。
+  - 新增 `禁并列`/`做文本回退`/`收集原始文本`：`收集原始文本` 以 `推进原样`
+    逐记号拼 `当前(p).文本`（含换行），与宿主回退的 `_advance().value` 拼接
+    逐字节一致；`做文本回退` 返回 `(做StringLit(文本), 停在 ] 的解析器)`，
+    供调用方随后消费 `]`。
+  - **实现约束（关键）**：不使用 `try` 节点，也不使用块内裸 `let`。自举编译器
+    `compiler_matha` 尚不支持 `try` 的字节码生成（宿主把 try/catch/finally 各编
+    为 thunk），且对块内裸 `let`（`{ let x = … in …; 后续语句 }`）会把局部名泄漏
+    进常量池——二者都会破坏 stage2 ≡ stage3 自举定点。故 fallback 改用
+    `调用捕获(() => 试解析输出(p))([])` + 纯 `let … in` 链实现。
+- `tests/test_mbc_bootstrap.py`：
+  - 新增 M12 段 `_M12_FALLBACK_CASES`（15 例 × 3：宿主运行 / stage2≡stage3 /
+    stage3 运行）。
+  - `test_set_rejects_identifier_leading_comma`：`#1：[{x, 2}]` 现与宿主一致
+    （输出文本 `['{x,2}']`，非集合），断言随之更新。
+  - `test_m10_comprehension_unsupported`：`#：[{…}]` 集合理解形式经文本回退不再
+    报错；`ident_head` 与宿主一致，`gen_clause`/`top_pipe_gen`（宿主产集合结果）
+    标注为集合理解遗留缺口（xfail）。
+
+### 测试
+
+- 探针 `fallback_parity.py`：16 例宿主/自举逐例对照，16/16 一致。
+- `test_m2_boot_source_stage2_equals_stage3`（含 `matha/parser.matha`）通过——
+  自举 parser 自身 stage2 ≡ stage3 复归（此前因引入 try/裸 let 而告负）。
+- 全量 `pytest tests/ -m "not slow"` 2828 passed + 2 xfailed；slow 完全自举
+  不动点单测通过。ruff `tests/test_mbc_bootstrap.py` 无新增告警。
+
+### 已知遗留（本次未处理）
+
+- `#：[…]` 的**列表前瞻**：宿主 `is_list_lookahead` 除「首个记号后紧跟逗号」外，
+  还用 `_bracket_has_comma`（括号内深度 1 任意逗号）判定，故 `#：[1 + 1, 2]`
+  宿主为列表 `[[2, 2]]`；自举 `窥视逗号` 仅看紧邻下一记号，此例回退为文本
+  `['1+1,2']`。该差异先于本次（列表路径未改动），属独立缺口。
+
 ## 自举前缀一元运算符 ~ ^ ** << ++ --（四端一致修复）
 
 **日期**：2026-10-14
