@@ -22,6 +22,7 @@ module 词法器 {
     占位符 读取开 读取闭 读取开2 读取闭2
     命令开 命令闭 段号 全角冒号 设置符
     省略号 双省略号 中文逗号 标注开 标注闭
+    加加 减减
   }
 
   (* ===== Token 结构 ===== *)
@@ -82,6 +83,9 @@ module 词法器 {
         (c1 = "=" and c2 = "=") ? (等于, "==") :
         (c1 = "/" and c2 = "/") ? (整除, "//") :
         (c1 = "*" and c2 = "*") ? (次方, "**") :
+        (* 前缀自增/自减 ++ / --（宿主 tokens.py MULTI_CHAR_OPS 的 OP_INCR/OP_DECR） *)
+        (c1 = "+" and c2 = "+") ? (加加, "++") :
+        (c1 = "-" and c2 = "-") ? (减减, "--") :
         (* 全角运算符 *)
         (c1 = "：" and c2 = ":") ? (全角冒号, "：:") :
         (* 中文标点归一化 *)
@@ -357,7 +361,7 @@ module 词法器 {
       (let (t, txt) = 检测多符(src, pos) in
         (t = 不等于 or t = 大于等于 or t = 小于等于 or t = 胖箭头 or
          t = 箭头 or t = 发送 or t = 整除 or t = 等于 or t = 次方 or
-         t = 左移 or t = 右移 or t = 可选链) ?
+         t = 左移 or t = 右移 or t = 可选链 or t = 加加 or t = 减减) ?
           扫描(src)(pos + 2)(line)(col + 2)(append(toks)(做Token(t, txt, line, col))) :
       (* 单字符 *)
         扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(映射单符(get(src)(pos)), get(src)(pos), line, col))))))))

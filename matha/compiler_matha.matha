@@ -61,7 +61,9 @@ module 编译器 {
     "in": "in", "is": "is", "<<": "<<", ">>": ">>",
     "&": "&", "|": "|", "⊕": "⊕"
   }
-  let 一元运算表 = {"-": "neg", "not": "not", "非": "not"}
+  let 一元运算表 = {"-": "neg", "not": "not", "非": "not",
+    "sqrt": "sqrt", "^": "sqrt", "~": "~", "angle": "angle",
+    "++": "++", "--": "--"}
 
   (* ===== 字节码容器 =====
      「元数表」为顶层函数 name -> 元数 的预扫描结果，在编译任何函数体之前
@@ -629,16 +631,23 @@ module 编译器 {
     op = "**" ? ((b < 0 and _是整数字面量(l)) ? 不折叠 : a ^ b) :
     不折叠
 
-  (* op 为一元运算表的值（neg not sqrt）
-     sqrt 仅对浮点字面量折叠：宿主对整数字面量会保留整型（完全平方时），
-     需编译期整数开方，此处保守不折叠以免类型与宿主不一致。 *)
+  (* sqrt 折叠：与宿主 _fold_unary 对齐——整数字面量完全平方时折叠为整型
+     （如 ^9 → 3），否则折叠为浮点 r。前缀 ^ 的操作数经 解析一元 后必为
+     非负字面量（负数先被包成 neg → 非字面量 → 不折叠），故无需负数分支。 *)
+  func _折叠开方(operand: Dict, v: Value) -> Value =
+    let r = v ^ 0.5 in
+    _是整数字面量(operand) ? ((int_of_num(r) = r) ? int_of_num(r) : r) : r
+
+  (* op 为一元运算表的值（neg not sqrt ~ angle ++ --）
+     ~ / angle 不折叠，与宿主 _fold_unary 一致（→ 发射 OP_UNARYOP）。 *)
   func _折叠一元(op: String, operand: Dict) -> Value =
     let v = _字面量数值(operand) in
     (v = 不折叠) ? 不折叠 :
     op = "neg" ? -v :
     op = "not" ? (not v) :
-    op = "sqrt" ?
-      ((v < 0) or _是整数字面量(operand) ? 不折叠 : (v ^ 0.5)) :
+    op = "sqrt" ? _折叠开方(operand, v) :
+    op = "++" ? v + 1 :
+    op = "--" ? v - 1 :
     不折叠
 
   func _发射二元(e: Dict, code: List, sc: List, bc: Dict)

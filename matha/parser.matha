@@ -456,23 +456,70 @@ module 语法器 {
     else (base, p2)
 
   (* 一元：-x, ^x *)
-  func 解析一元(p: 解析器) -> (Dict, 解析器) =
-    if 匹配(p, 类型.减) then
+  (* 前缀位取反 `~`：自举词法器把 ~ 归入 符号 类型（无专属类型），按文本判定。
+     宿主 lexer 产出 OP_BIT_NOT，文本等价。 *)
+  func 是位取反(p: 解析器) -> Bool =
+    当前(p).类型 = 类型.符号 and 当前(p).文本 = "~"
+
+  (* 一元运算符的操作数：允许再接一层同族前缀（<< - ~ ^ **），否则退回 解析应用。
+     与宿主 src/parser.py:_parse_unary_operand 对齐：`-<<30` = -(<<30)，
+     `<<-90` = <<(-90)。注意不能调 解析一元（上一级），否则无限递归。 *)
+  func 解析一元操作数(p: 解析器) -> (Dict, 解析器) =
+    if 匹配(p, 类型.左移) then
       let p2 = 推进(p) in
-      let (operand, p3) = 解析一元(p2) in
-      (做UnaryOp("-", operand), p3)
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("angle", operand), p3)
     else if 匹配(p, 类型.次方) then
       let p2 = 推进(p) in
-      let (operand, p3) = 解析一元(p2) in
-      (做UnaryOp("^", operand), p3)
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("sqrt", operand), p3)
+    else if 匹配(p, 类型.减) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("-", operand), p3)
+    else if 是位取反(p) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("~", operand), p3)
+    else 解析应用(p)
+
+  (* 前缀一元：<<（前缀角度）^/** （前缀开方）- ~ ++ -- not typeof。
+     与宿主 src/parser.py:_parse_unary 对齐。^(OP_BIT_XOR) 与 **(OP_POWER)
+     前缀均映射为开方；<< 前缀为角度（中缀 << 仍是位移，在 解析移位 层处理）。
+     not/typeof 的操作数退回 解析应用（对应宿主 _parse_postfix）。 *)
+  func 解析一元(p: 解析器) -> (Dict, 解析器) =
+    if 匹配(p, 类型.左移) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("angle", operand), p3)
+    else if 匹配(p, 类型.次方) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("sqrt", operand), p3)
+    else if 匹配(p, 类型.减) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("-", operand), p3)
+    else if 是位取反(p) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("~", operand), p3)
+    else if 匹配(p, 类型.加加) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("++", operand), p3)
+    else if 匹配(p, 类型.减减) then
+      let p2 = 推进(p) in
+      let (operand, p3) = 解析一元操作数(p2) in
+      (做UnaryOp("--", operand), p3)
     else if 匹配关键字文本(p, "not") then
       let p2 = 推进(p) in
-      let (operand, p3) = 解析一元(p2) in
+      let (operand, p3) = 解析应用(p2) in
       (做UnaryOp("not", operand), p3)
     else if 匹配关键字文本(p, "typeof") then
       (* typeof <expr>：编译为 LOAD_GLOBAL "typeof"; <operand>; CALL 1 *)
       let p2 = 推进(p) in
-      let (operand, p3) = 解析一元(p2) in
+      let (operand, p3) = 解析应用(p2) in
       (做typeof(operand), p3)
     else 解析应用(p)
 

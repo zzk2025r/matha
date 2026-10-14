@@ -1507,3 +1507,58 @@ def test_m10_comprehension_unsupported(compiler_boot_vm, src):
     """M10：集合理解形式自举层不支持，应报错而非静默误解析为位或。"""
     with pytest.raises(RuntimeError, match="集合理解"):
         compiler_boot_vm.call("编译", src)
+
+
+# ==================== M11：前缀一元运算符 ~ ^ ** << ++ -- ====================
+# 1) 自举 parser 的 解析一元 曾缺 `~`（位取反）、`^`/`**`（前缀开方）、`<<`（前缀
+#    角度）、`++`/`--`（前缀自增/自减）：宿主可运行而自举崩（KeyError '^' /
+#    VM：不可调用的值 None），`--3` 更因 `--` 被拆成两个 减 记号而误算为 3。
+#    修复：与宿主 src/parser.py:_parse_unary 对齐——新增 解析一元操作数
+#    （对应 _parse_unary_operand，覆盖 << - ~ ^ ** 的任意层前缀组合），
+#    解析一元 补齐 左移/加加/减减 分支；not/typeof 的操作数退回 解析应用。
+# 2) 自举 lexer 曾把 `++`/`--` 拆成两个 加/减 记号；修复：enum 增 加加/减减，
+#    检测多符 增 `++`/`--` 分支（对应宿主 tokens.py OP_INCR/OP_DECR）。
+# 3) 自举 compiler 的 一元运算表 补 sqrt/~/angle/++/--；_折叠一元 补 sqrt
+#    （整数字面量完全平方 → 整型，如 ^9 → 3，与宿主 _fold_unary 一致）、
+#    ++/--（v±1）；~ / angle 不折叠，与宿主一致。
+_M11_PREFIX_CASES = [
+    ("bit_not", "#：[~5]\n", [-6]),
+    ("bit_not_zero", "#：[~0]\n", [-1]),
+    ("bit_not_chain", "#：[~~~5]\n", [-6]),
+    ("sqrt_int_square", "#：[^9]\n", [3]),
+    ("sqrt_int_nonsquare", "#：[^2]\n", [1.4142135623730951]),
+    ("sqrt_float", "#：[^9.0]\n", [3.0]),
+    ("sqrt_starstar", "#：[**9]\n", [3]),
+    ("sqrt_in_expr", "#：[1 + ^9]\n", [4]),
+    ("angle", "#：[<<90]\n", [1.5707963267948966]),
+    ("angle_neg", "#：[<<-90]\n", [-1.5707963267948966]),
+    ("neg_angle", "#：[-<<90]\n", [-1.5707963267948966]),
+    ("incr", "#：[++3]\n", [4]),
+    ("decr", "#：[--3]\n", [2]),
+    ("incr_float", "#：[++3.5]\n", [4.5]),
+    ("incr_var", "x = 5\n#：[++x]\n#：[x]\n", [6, 5]),
+    ("decr_var", "x = 5\n#：[--x]\n#：[x]\n", [4, 5]),
+]
+
+_M11_PREFIX_IDS = [c[0] for c in _M11_PREFIX_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M11_PREFIX_CASES, ids=_M11_PREFIX_IDS)
+def test_m11_prefix_host_runs(name, src, expect):
+    """M11：宿主解析前缀一元运算符，语义正确。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M11_PREFIX_CASES, ids=_M11_PREFIX_IDS)
+def test_m11_prefix_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M11：stage2 ≡ stage3（前缀一元运算符逐位一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M11_PREFIX_CASES, ids=_M11_PREFIX_IDS)
+def test_m11_prefix_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M11：自举链路编译前缀一元运算符，运行一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
