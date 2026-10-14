@@ -1,5 +1,34 @@
 # Matha 变更摘要
 
+## 原生后端：list_push（收尾剩余未实现全局名）
+
+**日期**：2026-10-14
+
+### 变更范围
+
+补齐原生后端唯一仍可实现的 VM-only 全局 `list_push`（自举编译器 `_发`
+使用的线性列表构建器）。原生列表为不可变定长对象（无容量位），故返回
+新列表，**语义等价 `append`**：调用方保证列表由单一线性链持有、不与其它
+绑定别名共享，故与 VM 的原地 `list.append` 可观察结果一致。
+
+### 变更细节
+
+- `src/mbc/native.py`：新增 `_emit_builtin_list_push`（arity 2，复用
+  `list_append`，标签 `fn:list_push`）；`list_push` 注册进 `NATIVE_BUILTINS`/
+  `_BUILTIN_ARITY`（2）/`_BUILTIN_EMITTERS`。
+- 收尾后 `_UNRESOLVED_GLOBALS` 中**唯一真正可达**的未实现名仅剩
+  `MathaIOError`：VM 端返回 Python 元组 `("MathaIOError", msg)`，原生后端
+  无元组类型，保留为文档化的结构性限制（编译期报 `NativeNotSupported`）；
+  其余名字（`真/假/null/None`、数学常量）已在 `LOAD_GLOBAL` 前特殊处理。
+
+### 测试
+
+- `tests/test_native.py`：新增 parity 用例 `b16s_list_push`、
+  `test_list_push_builder_matches_append`。
+- `tests/test_native_regex.py`：`test_unresolved_global_rejected` 改用
+  `MathaIOError`（`list_push` 已实现）。
+- 全量 `pytest`：2634 passed。
+
 ## 原生后端：调度三内建（注册任务/执行待办/待办列表）
 
 **日期**：2026-10-13

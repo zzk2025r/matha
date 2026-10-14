@@ -5075,6 +5075,22 @@ def _emit_builtin_append(em: _Emitter):
     _emit_epilogue(em)
 
 
+def _emit_builtin_list_push(em: _Emitter):
+    """list_push(xs)(elem) → 追加 elem 后的列表。
+
+    原生列表为不可变定长对象（无容量位），故返回新列表，语义等价 append。
+    调用方（自举编译器 `_发`）保证列表由单一线性链持有、不与其它绑定别名
+    共享，故与 VM 的原地 `list.append` 可观察结果一致（见 vm.py
+    _builtin_list_push 的构建器契约）。"""
+    em.label_here("fn:list_push")
+    _emit_prologue(em, 2, 2)
+    em.mov_rd_mem(0, 5, -16)                        # xs
+    em.mov_rd_mem(1, 5, -8)                         # elem
+    em.call_rel32("list_append")
+    em.push_rax()
+    _emit_epilogue(em)
+
+
 def _emit_builtin_mut_set_at(em: _Emitter):
     """mut_set_at(lst)(idx)(val)：原地改列表；越界/类型错 → null。"""
     l_bad = "msa_bad"
@@ -6932,7 +6948,7 @@ NATIVE_BUILTINS = (
     "type_of", "typeof",
     "pow", "atan2", "hypot",
     # 砖块 16 阶段二：序列 + 字典原语
-    "slice", "append", "mut_set_at",
+    "slice", "append", "list_push", "mut_set_at",
     "_dict_keys", "_dict_values", "_dict_has", "_dict_put", "_dict_remove",
     # 集合字面量语法糖 {} / {1,2,3} / {x | cond} 的归约目标
     "构造集合", "去重",
@@ -6990,7 +7006,7 @@ _BUILTIN_ARITY = {
     "type_of": 1, "typeof": 1,
     "pow": 2, "atan2": 2, "hypot": 2,
     # 砖块 16 阶段二
-    "slice": 3, "append": 2, "mut_set_at": 3,
+    "slice": 3, "append": 2, "list_push": 2, "mut_set_at": 3,
     "_dict_keys": 1, "_dict_values": 1, "_dict_has": 2,
     "_dict_put": 3, "_dict_remove": 2,
     "构造集合": 3, "去重": 1,
@@ -7058,6 +7074,7 @@ _BUILTIN_EMITTERS: dict = {
     # 砖块 16 阶段二
     "slice": _emit_builtin_slice,
     "append": _emit_builtin_append,
+    "list_push": _emit_builtin_list_push,
     "mut_set_at": _emit_builtin_mut_set_at,
     "_dict_keys": _emit_builtin_dict_keys,
     "_dict_values": _emit_builtin_dict_values,
@@ -7164,10 +7181,7 @@ _UNRESOLVED_GLOBALS = frozenset({
     "abs", "int", "_to_int", "float", "_to_float", "str", "bool", "list",
     "ord", "chr", "range", "type_of",
     # 序列/字典原语（get 已实现，见 NATIVE_BUILTINS）
-    "slice", "append", "mut_set_at",
-    # 自举编译器 `_发` 使用的原地追加（VM 端 list_push，原生暂未实现；
-    # 线性构建器语义等价 append，见 vm.py _builtin_list_push）
-    "list_push",
+    "slice", "append", "list_push", "mut_set_at",
     "_dict_keys", "_dict_values", "_dict_has", "_dict_put", "_dict_remove",
     "_empty_dict",
     # 文件 I/O 与编码
@@ -7175,7 +7189,9 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_binary", "decode_binary",
     "encode_ternary", "decode_ternary",
     "encode_decimal", "decode_decimal",
-    # 常量（异常原语 错误/调用捕获 已实现，见 NATIVE_BUILTINS）
+    # 常量（真/假/null/None 已在 LOAD_GLOBAL 前特殊处理，故实际可达报错
+    # 仅剩 MathaIOError：VM 端返回 Python 元组 ("MathaIOError", msg)，原生
+    # 后端无元组类型，保留为文档化的结构性限制）
     "MathaIOError", "真", "假", "null", "None",
     # 日期时间：全部内建均已原生实现
 })

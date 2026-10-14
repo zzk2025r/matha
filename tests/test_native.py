@@ -1263,6 +1263,14 @@ _PARITY_CASES = {
     "b16s_empty_dict": "输出(_empty_dict)\n输出(type_of(_empty_dict))\n",
     "b16s_append": "输出(append([1, 2])(3))\n输出(append([])(7))\n"
                    "输出(append([[1], [2]])([3]))\n",
+    # list_push 为 VM 端原地追加；原生列表不可变，按线性构建器契约
+    # （单链持有、无别名观察）返回新列表，可观测量与 VM 一致。
+    "b16s_list_push": "let s0 = [] in\n"
+                      "let s1 = list_push(s0)(1) in\n"
+                      "let s2 = list_push(s1)(2) in\n"
+                      "let s3 = list_push(s2)(3) in\n"
+                      "输出(s3)\n输出(len(s3))\n"
+                      '输出(list_push(["a"])("b"))\n',
     "b16s_slice": "输出(slice([1, 2, 3, 4])(1)(3))\n"
                   "输出(slice([1, 2, 3, 4])(1)(9))\n"
                   "输出(slice([1, 2, 3, 4])(-2)(4))\n"
@@ -1389,6 +1397,30 @@ def test_vm_aot_parity_multi_arg(case):
     """多参调用的 VM 语义与原生 AOT 必须逐行一致。"""
     src = _PARITY_CASES[case]
     assert _aot(src) == _vm(src), f"{case} 的 VM/AOT 输出不一致"
+
+
+def test_list_push_builder_matches_append():
+    """list_push 在单链构建器下与 append 结果一致（原生按不可变实现）。
+
+    原生列表为定长对象，list_push 发射为返回新列表；只要不与其它绑定
+    别名共享，可观察结果与 VM 的原地追加一致。此处对原生端做定点断言，
+    并确认逐层构建与等价 append 链产生相同列表。
+    """
+    src = (
+        "let p0 = [] in\n"
+        "let p1 = list_push(p0)(1) in\n"
+        "let p2 = list_push(p1)(2) in\n"
+        "let p3 = list_push(p2)(3) in\n"
+        "输出(p3)\n"
+        "let a0 = [] in\n"
+        "let a1 = append(a0)(1) in\n"
+        "let a2 = append(a1)(2) in\n"
+        "let a3 = append(a2)(3) in\n"
+        "输出(a3)\n"
+    )
+    out = _aot(src)
+    assert out == ["[1, 2, 3]", "[1, 2, 3]"]
+    assert out[0] == out[1]
 
 
 def test_file_io_roundtrip(tmp_path):

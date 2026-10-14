@@ -196,6 +196,10 @@ def test_non_string_uncaught_exits_one():
 
 
 def test_unresolved_global_rejected():
+    """未实现的 VM 全局在编译期报 NativeNotSupported，而非运行期访问违例。
+
+    list_push 已在原生后端实现（等价 append），故此处改用仍未实现的
+    MathaIOError（VM 端返回元组，原生无元组类型）作为代表。"""
     from src.mbc.native import NativeNotSupported
     with pytest.raises(NativeNotSupported):
-        compile_to_exe('输出(list_push)')
+        compile_to_exe('输出(MathaIOError)')
