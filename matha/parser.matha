@@ -372,11 +372,35 @@ module 语法器 {
       let p3 = 推进(p) in
       let (right, p4) = 解析乘除(p3) in
       解析移位_续(做BinaryOp(">>", left, right), p4)
+    else if 是位与(p) then
+      let p3 = 推进(p) in
+      let (right, p4) = 解析乘除(p3) in
+      解析移位_续(做BinaryOp("&", left, right), p4)
+    else if 是位或(p) then
+      let p3 = 推进(p) in
+      let (right, p4) = 解析乘除(p3) in
+      解析移位_续(做BinaryOp("|", left, right), p4)
+    else if 是异或(p) then
+      let p3 = 推进(p) in
+      let (right, p4) = 解析乘除(p3) in
+      解析移位_续(做BinaryOp("⊕", left, right), p4)
     else if 是中缀is(p) then
       let p3 = 推进(p) in
       let (right, p4) = 解析移位(p3) in
       解析移位_续(做同一性(left, right), p4)
     else (left, p)
+
+  (* 位运算符判定（对齐宿主 _parse_bit_expr：&/＆→位与、|/｜→位或、⊕→异或）。
+     `|` 另需在集合理解头部排除，见 解析集合构造 的 是理解头/有顶层理解管道 守卫。 *)
+  func 是位与(p: 解析器) -> Bool =
+    当前(p).类型 = 类型.符号 and (当前(p).文本 = "&" or 当前(p).文本 = "＆")
+
+  func 是位或(p: 解析器) -> Bool =
+    当前(p).类型 = 类型.管道 or
+    (当前(p).类型 = 类型.符号 and (当前(p).文本 = "|" or 当前(p).文本 = "｜"))
+
+  func 是异或(p: 解析器) -> Bool =
+    当前(p).类型 = 类型.符号 and 当前(p).文本 = "⊕"
 
   (* 中缀 is 判定：词法把 is 归为标识符（KEYWORDS 无此条，与宿主一致），
      故须比对标识符文本，并确认其后确为表达式起始——
@@ -619,9 +643,76 @@ module 语法器 {
      { 输出 | v >> S | 条件 }（form="comprehension"）与有界域推断 { x | 1 <= x <= 10 }，
      宿主解释器与字节码/原生后端（同源 MMB 字节码）均已支持；自举层只产出枚举形式，
      遇到理解形式不伪造宿主 VM 到不了的 AST（保持阶段一致性）。 *)
+  (* 集合理解判定：对齐宿主 _is_comprehension_head / _has_top_level_comprehension_pipe。
+     自举层不产出理解形式 AST，命中即报错（避免 `{x | cond}` 被静默误解析为位或枚举）。
+     `{1 | 2}` 非理解头（首记号非标识符/元组且管道后无条件），仍按位或枚举解析，与宿主 [3] 一致。 *)
+  func 是理解头(p: 解析器) -> Bool =
+    let t = 窥视(p, 0) in
+    if t.类型 = 类型.标识符 or t.类型 = 类型.占位符 then
+      窥视(p, 1).类型 = 类型.管道
+    else if t.类型 = 类型.左括号 then
+      let j = 配对括号后续(p, 0) in
+      j >= 0 and 窥视(p, j).类型 = 类型.管道
+    else 假
+
+  (* 从非换行索引 i（应为左括号）找到配对右括号之后的位置；越界返回 -1。 *)
+  func 配对括号后续(p: 解析器, i: Int) -> Int = 配对括号走(p, i, 0)
+
+  func 配对括号走(p: 解析器, i: Int, depth: Int) -> Int =
+    let t = 窥视(p, i).类型 in
+    t = 类型.结束 or t = 类型.右括号花 ? -1 :
+    (t = 类型.左括号 or t = 类型.左括号方) ? 配对括号走(p, i + 1, depth + 1) :
+    (t = 类型.右括号 or t = 类型.右括号方) ?
+      (depth = 1 ? i + 1 : 配对括号走(p, i + 1, depth - 1)) :
+    配对括号走(p, i + 1, depth)
+
+  (* 顶层是否存在生成子句 `v >> S`，或首个管道之后的过滤条件。 *)
+  func 有顶层理解管道(p: 解析器) -> Bool =
+    let tops = 顶层记号(p, 0, 0, []) in
+    存在生成子句(p, tops) or 首管道后有条件(tops)
+
+  (* 收集深度为 0 的记号，元素为 [非换行索引, 类型, 文本]。 *)
+  func 顶层记号(p: 解析器, i: Int, depth: Int, acc: List) -> List =
+    let t = 窥视(p, i) in
+    t.类型 = 类型.结束 ? acc :
+    (t.类型 = 类型.左括号 or t.类型 = 类型.左括号方 or t.类型 = 类型.左括号花) ?
+      顶层记号(p, i + 1, depth + 1, acc) :
+    (t.类型 = 类型.右括号 or t.类型 = 类型.右括号方 or t.类型 = 类型.右括号花) ?
+      (depth = 0 ? acc : 顶层记号(p, i + 1, depth - 1, acc)) :
+    (depth = 0 ?
+       顶层记号(p, i + 1, depth, acc + [[i, t.类型, t.文本]]) :
+       顶层记号(p, i + 1, depth, acc))
+
+  func 存在生成子句(p: 解析器, tops: List) -> Bool =
+    tops = [] ? 假 :
+    (tops[0][1] = 类型.管道 and len(tops) >= 2 and
+     (tops[1][1] = 类型.标识符 or tops[1][1] = 类型.占位符) and
+     窥视(p, tops[1][0] + 1).类型 = 类型.右移) ? 真 :
+    存在生成子句(p, tops[1:])
+
+  func 首管道后有条件(tops: List) -> Bool =
+    let fp = 首个管道(tops) in
+    fp < 0 ? 假 : 区间有条件(tops[fp + 1:])
+
+  func 首个管道(tops: List) -> Int =
+    tops = [] ? -1 :
+    tops[0][1] = 类型.管道 ? 0 : 首个管道(tops[1:])
+
+  func 区间有条件(tops: List) -> Bool =
+    tops = [] ? 假 :
+    (是条件运算符(tops[0][1]) or
+     (tops[0][1] = 类型.关键字 and (tops[0][2] = "and" or tops[0][2] = "or"))) ? 真 :
+    区间有条件(tops[1:])
+
+  func 是条件运算符(t: 类型) -> Bool =
+    t = 类型.小于 or t = 类型.大于 or t = 类型.小于等于 or t = 类型.大于等于 or
+    t = 类型.不等于 or t = 类型.等于
+
   func 解析集合构造(p: 解析器) -> (Dict, 解析器) =
     if 匹配(p, 类型.右括号花) then
       (做集合构造("enumeration", null, null, []), 推进(p))
+    else if 是理解头(p) or 有顶层理解管道(p) then
+      错误("集合理解暂不支持")
     else
       let (first, p2) = 解析表达式(p) in
       解析集合元素_rest(p2, [first])

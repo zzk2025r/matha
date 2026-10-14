@@ -1450,3 +1450,60 @@ def test_m9_let_lambda_stage3_runs(compiler_boot_vm, name, src, expect):
     """M9：自举链路编译 let 函数绑定显式 lambda 与 let/func 次序，运行一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M10：位运算符 & | ⊕（含集合语境守卫）====================
+# 1) 自举 parser 的 解析移位_续 曾缺 `&`/`|`/`⊕`，宿主可运行而自举崩
+#    （VM：不可调用的值 None）。修复：与宿主 _parse_bit_expr 同层左结合，
+#    按记号文本区分 `&`/`＆`（位与）、`|`/`｜`（位或）、`⊕`（异或）。
+# 2) 自举 compiler 的 二元运算表 亦缺此三算子，一并补上（不参与常量折叠，
+#    与宿主 _fold_bin 仅折叠 + - * ** 一致）。
+# 3) `|` 与集合语境：宿主在集合理解头部把 `|` 当子句分隔符；自举 parser 不支持
+#    理解形式，故引入 是理解头/有顶层理解管道 守卫，命中即报错，避免 `{x | cond}`
+#    被静默误解析为位或枚举；`{1 | 2}`（非理解头）仍按位或，与宿主 [3] 一致。
+_M10_BITOPS_CASES = [
+    ("bit_and", "#：[6 & 3]\n", [2]),
+    ("bit_or", "#：[6 | 3]\n", [7]),
+    ("bit_xor", "#：[6 ⊕ 3]\n", [5]),
+    ("bit_and_fullwidth", "#：[6 ＆ 3]\n", [2]),
+    ("bit_or_fullwidth", "#：[6 ｜ 3]\n", [7]),
+    ("bit_mixed", "#：[6 & 3 | 1]\n", [3]),
+    ("set_bit_or", "#：[{1 | 2}]\n", [[3]]),
+    ("set_bit_and", "#：[{1 & 2}]\n", [[0]]),
+    ("set_bit_xor", "#：[{1 ⊕ 2}]\n", [[3]]),
+    ("set_enum_bit", "#：[{1, 2 | 3}]\n", [[1, 3]]),
+]
+
+_M10_BITOPS_IDS = [c[0] for c in _M10_BITOPS_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M10_BITOPS_CASES, ids=_M10_BITOPS_IDS)
+def test_m10_bitops_host_runs(name, src, expect):
+    """M10：宿主解析位运算符（含集合语境），语义正确。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M10_BITOPS_CASES, ids=_M10_BITOPS_IDS)
+def test_m10_bitops_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M10：stage2 ≡ stage3（位运算符逐位一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M10_BITOPS_CASES, ids=_M10_BITOPS_IDS)
+def test_m10_bitops_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M10：自举链路编译位运算符，运行一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
+
+
+@pytest.mark.parametrize("src", [
+    "s = [1, 2]\n#：[{x | x >> s}]\n",
+    "s = [1, 2]\n#：[{a | b}]\n",
+    "s = [1, 2, 3]\n#：[{1 + 1 | x >> s}]\n",
+], ids=["gen_clause", "ident_head", "top_pipe_gen"])
+def test_m10_comprehension_unsupported(compiler_boot_vm, src):
+    """M10：集合理解形式自举层不支持，应报错而非静默误解析为位或。"""
+    with pytest.raises(RuntimeError, match="集合理解"):
+        compiler_boot_vm.call("编译", src)
