@@ -25,6 +25,11 @@ def _compile_files(rels):
     return comp
 
 
+def _read_source(rel):
+    with open(rel, encoding="utf-8") as f:
+        return f.read()
+
+
 def dict_to_module(d):
     """自举编译器产物 dict → 宿主 MModule（指令 list 转 tuple，结构等价）。"""
     mod = MModule(module_name=d.get("模块名", "主程序"))
@@ -205,3 +210,28 @@ def test_bootstrap_compiles_vm_matha_identically(vm_boot_vm):
     hmap = {e[0]: e[1] for e in host_dict["函数"]}
     smap = {e[0]: e[1] for e in self_dict["函数"]}
     assert smap == hmap
+
+
+@pytest.mark.slow
+def test_bootstrap_self_hosting_fixpoint(vm_boot_vm):
+    """完全自举不动点（stage-2）：用自举编译器编译【整条引导链】
+    （lexer/stdlib/parser/interp/compiler_matha 五文件拼接），得到由自举产物
+    构建的 stage-2 编译器；再用它编译 vm.matha，产物必须与 stage-1（宿主编译
+    的编译器）及宿主编译 gold 逐位一致。证明编译器自编译后行为不变。
+
+    代价约 4 分钟（自举编译器解释执行 143KB 引导源码），故标 slow。
+    """
+    with open("matha/vm.matha", encoding="utf-8") as f:
+        vm_src = f.read()
+    stage1 = vm_boot_vm.call("编译", vm_src)
+
+    joined = "\n".join(_read_source(p) for p in _COMPILER_BOOT_FILES)
+    stage2_mod = vm_boot_vm.call("编译", joined)
+    assert isinstance(stage2_mod, dict)
+
+    vm2 = VM(dict_to_module(stage2_mod))
+    vm2.run()
+    stage2 = vm2.call("编译", vm_src)
+
+    gold = module_to_dict(_compile_files(["matha/vm.matha"]).mod)
+    assert stage2 == stage1 == gold

@@ -1,5 +1,31 @@
 # Matha 变更摘要
 
+## 完全自举不动点：自编译编译器产物逐位一致（stage-2）
+
+**日期**：2026-10-14
+
+### 变更范围
+
+在「自举编译器可编译 `vm.matha`」的基础上，验证**完全自举不动点**：用自举
+编译器编译**整条引导链**（`lexer`/`stdlib`/`parser`/`interp`/`compiler_matha`
+五文件拼接，488 个函数），得到由自举产物构建的 **stage-2 编译器**；再用它编译
+`matha/vm.matha`，产物与 stage-1（宿主编译的编译器）及宿主编译 gold **逐位
+一致**（函数字节码、主码、常量池）。证明编译器自编译后行为不变，自举闭环成立。
+
+同时核对：六个自举源文件（含 lexer/stdlib/parser/interp/compiler_matha/vm）
+各自经自举编译器编译的产物，函数集合、主码、常量池均与宿主编译逐位一致。
+
+### 变更
+
+- `tests/test_mbc_vm_matha.py`：新增 `test_bootstrap_self_hosting_fixpoint`
+  （标 `@pytest.mark.slow`，代价约 265s，源于自举编译器解释执行 143KB 引导
+  源码）；断言 `stage2 == stage1 == gold`。
+
+### 测试
+
+- `pytest tests/test_mbc_vm_matha.py -k fixpoint`：1 passed（约 265s）。
+- 全量 `pytest`：2671 passed（约 577s，含本 slow 用例）。
+
 ## 自举闭环：自举编译器可编译 `vm.matha`（逐位一致）
 
 **日期**：2026-10-14
