@@ -139,8 +139,8 @@
        print 是 输出 的别名（LOAD_GLOBAL 期改写，无独立函数体）。
 
  明确不支持（抛 NativeNotSupported）：
-   MathaIOError 等非原生名字，及未作为值处理的 mathlib 常量
-     （调用未注册内建会在
+   引用「VM 能解析、原生未实现」的全局（当前无此类可达名字，仅保留防御分支）；
+     调用未注册内建会在
     apply_rt 走到 ar_plain 的空地址分支，见 _dispatch）
   其余结构性限制：实参数上限 8；操作数栈固定 64KB（无溢出检查）；
     堆总量固定 1GB 保留（页按需提交；保守式 mark-sweep，回收块可切分/相邻合并）；
@@ -5091,6 +5091,25 @@ def _emit_builtin_list_push(em: _Emitter):
     _emit_epilogue(em)
 
 
+def _emit_builtin_matha_io_error(em: _Emitter):
+    """MathaIOError(msg) → ["MathaIOError", msg]（2 元素列表）。
+
+    三端（解释器 / VM / 原生）与自举 vm.matha 统一为列表表示（VM 原为
+    Python 元组）；原生无元组类型。负载保留实参原值（不做 str 归一）。"""
+    em.label_here("fn:MathaIOError")
+    _emit_prologue(em, 1, 1)
+    em.xor_rr32(0, 0)                               # rax = 0（空列表基）
+    em.lea_rip(1, "tag_ioerror")                    # rcx = "MathaIOError"
+    em.call_rel32("list_append")                    # rax = ["MathaIOError"]
+    em.push_rax()                                   # 中间列表入操作数栈作 GC 根
+    em.read_top_to(0)                               # rax = 中间列表
+    em.mov_rd_mem(1, 5, -8)                         # rcx = msg（局部槽）
+    em.call_rel32("list_append")                    # rax = ["MathaIOError", msg]
+    em.discard()                                    # 弹出中间列表
+    em.push_rax()                                   # 结果入操作数栈
+    _emit_epilogue(em)
+
+
 def _emit_builtin_mut_set_at(em: _Emitter):
     """mut_set_at(lst)(idx)(val)：原地改列表；越界/类型错 → null。"""
     l_bad = "msa_bad"
@@ -6936,7 +6955,7 @@ def _emit_builtin_decode_decimal(em: _Emitter):
 
 
 NATIVE_BUILTINS = (
-    "len", "输出", "print", "get", "错误", "调用捕获",
+    "len", "输出", "print", "get", "错误", "调用捕获", "MathaIOError",
     # 砖块 16 阶段一：数值 + 转换核心
     "abs", "sign",
     "sin", "cos", "tan", "asin", "acos", "atan",
@@ -6995,6 +7014,7 @@ NATIVE_BUILTINS = (
 # 分配一条 [TYPE_CLOSURE][fn][env=0][arity] 记录，指针存入数据槽 bclo:{name}。
 _BUILTIN_ARITY = {
     "len": 1, "输出": 1, "print": 1, "get": 2, "错误": 1, "调用捕获": 2,
+    "MathaIOError": 1,
     # 砖块 16 阶段一
     "abs": 1, "sign": 1,
     "sin": 1, "cos": 1, "tan": 1, "asin": 1, "acos": 1, "atan": 1,
@@ -7054,6 +7074,7 @@ _BUILTIN_EMITTERS: dict = {
     "get": _emit_builtin_get,
     "错误": _emit_builtin_error,
     "调用捕获": _emit_builtin_guard,
+    "MathaIOError": _emit_builtin_matha_io_error,
     "abs": _emit_builtin_abs,
     "sign": _emit_builtin_sign,
     "int": lambda em: _emit_builtin_int(em, "int"),
@@ -7189,10 +7210,10 @@ _UNRESOLVED_GLOBALS = frozenset({
     "encode_binary", "decode_binary",
     "encode_ternary", "decode_ternary",
     "encode_decimal", "decode_decimal",
-    # 常量（真/假/null/None 已在 LOAD_GLOBAL 前特殊处理，故实际可达报错
-    # 仅剩 MathaIOError：VM 端返回 Python 元组 ("MathaIOError", msg)，原生
-    # 后端无元组类型，保留为文档化的结构性限制）
-    "MathaIOError", "真", "假", "null", "None",
+    # 常量（真/假/null/None 已在 LOAD_GLOBAL 前特殊处理，故这些名字都不会
+    # 真正走到「未实现全局」分支；本集合现仅作为防御性登记，再无未实现的
+    # 可达名字——MathaIOError 已实现为 2 元素列表）
+    "真", "假", "null", "None",
     # 日期时间：全部内建均已原生实现
 })
 
@@ -9776,6 +9797,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                    ("dk_lb", "{"), ("dk_rb", "}"), ("dk_q", "'"),
                    ("dk_col", ": "),
 ("tag_normal", "__正常__"), ("tag_error", "__异常__"),
+                    ("tag_ioerror", "MathaIOError"),
                     ("err_divzero", "division by zero"),
                     ("err_powzero", "zero to a negative power"),
                     ("err_bitand", "& 操作数需为整数"),

@@ -195,11 +195,15 @@ def test_non_string_uncaught_exits_one():
     assert rc == 1 and out == ""
 
 
-def test_unresolved_global_rejected():
+def test_unresolved_global_rejected(monkeypatch):
     """未实现的 VM 全局在编译期报 NativeNotSupported，而非运行期访问违例。
 
-    list_push 已在原生后端实现（等价 append），故此处改用仍未实现的
-    MathaIOError（VM 端返回元组，原生无元组类型）作为代表。"""
+    MathaIOError / list_push 均已实现，真实名字再无未实现者；此处以
+    monkeypatch 注入探针名，验证该防御分支仍然生效。"""
+    from src.mbc import native as nat
     from src.mbc.native import NativeNotSupported
+    probe = "__regex_unresolved_probe__"
+    monkeypatch.setattr(nat, "_UNRESOLVED_GLOBALS",
+                        nat._UNRESOLVED_GLOBALS | {probe})
     with pytest.raises(NativeNotSupported):
-        compile_to_exe('输出(MathaIOError)')
+        compile_to_exe(f"输出({probe})")

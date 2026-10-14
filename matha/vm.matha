@@ -377,7 +377,7 @@ module 字节码虚拟机 {
     else if 名 = "错误" and len(参数) >= 1 then
       抛错返回(参数[0])
     else if 名 = "MathaIOError" and len(参数) = 1 then
-      值返回(["__MathaIOError__", 参数[0]])
+      值返回(["MathaIOError", 参数[0]])
     else 部分返回(名, 参数)
 
   (* ===== 调用分发 =====

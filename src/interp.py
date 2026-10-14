@@ -859,6 +859,8 @@ BUILTINS: dict[str, object] = {
     # ---------- 与 VM 后端对齐的原语（src/mbc/vm.py::_default_builtins） ----------
     # 空字典常量：{} 在 Matha 语法中是空集合构造，故空字典须由宿主提供。
     "_empty_dict": {},
+    # IO 错误构造：["MathaIOError", msg]（与 VM / 原生 / 自举 vm.matha 统一为列表）。
+    "MathaIOError": lambda m: ["MathaIOError", m],
     # 注意：typeof 不在此处注册——它是关键字（tokens.py: KW_TYPEOF），
     # 由 _eval 的 TypeOfExpr 分支直接调用 builtin_typeof。VM 侧把它做成函数
     # 是因为那边按 LOAD_GLOBAL + CALL 1 编译；解释器走语法层，函数项不可达。

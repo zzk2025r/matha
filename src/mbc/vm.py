@@ -338,7 +338,7 @@ def _default_builtins() -> dict:
     b.setdefault("encode_decimal", _builtin_encode_decimal)
     b.setdefault("decode_decimal", _builtin_decode_decimal)
     b.setdefault("错误", _raise_builtin)
-    b.setdefault("MathaIOError", lambda m: ("MathaIOError", str(m)))
+    b.setdefault("MathaIOError", lambda m: ["MathaIOError", m])
     b.setdefault("真", True)
     b.setdefault("假", False)
     b.setdefault("null", None)

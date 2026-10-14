@@ -130,6 +130,11 @@ PARITY_CASES = {
     "typeof_dict": '输出(typeof({"a": 1}))',
     "typeof_bool": "输出(typeof(true))",
     "typeof_null": "输出(typeof(null))",
+    # MathaIOError：三端统一为 2 元素列表（VM 原元组）
+    "ioerror_direct": '输出(MathaIOError("boom"))',
+    "ioerror_structural": ('let e = MathaIOError("boom")\n输出(len(e))\n'
+                           "输出(get(e)(0))\n输出(get(e)(1))\n"
+                           "输出(typeof(e))"),
     # 去重（解释器与 VM 双向补齐）
     "dedup": "输出(去重([1, 2, 2, 3]))",
     # 位移 / is

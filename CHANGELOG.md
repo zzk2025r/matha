@@ -1,5 +1,44 @@
 # Matha 变更摘要
 
+## 原生后端：MathaIOError（三端统一为列表表示）
+
+**日期**：2026-10-14
+
+### 变更范围
+
+`MathaIOError(msg)` 由 VM 的 Python 元组 `("MathaIOError", str(m))` 统一为
+2 元素列表 `["MathaIOError", msg]`，使解释器 / VM / 原生（并含自举 vm.matha）
+表示一致，并补上原本缺失的原生实现（此前引用该名字在编译期抛
+`NativeNotSupported`）。负载保留实参原值（不再做 `str` 归一），与自举
+vm.matha 的列表表示对齐。
+
+### 变更
+
+- 解释器 `src/interp.py`：注册 `MathaIOError` → `["MathaIOError", m]`。
+- VM `src/mbc/vm.py`：`MathaIOError` 由元组改为返回列表 `["MathaIOError", m]`。
+- 原生 `src/mbc/native.py`：
+  - 新增发射器 `_emit_builtin_matha_io_error`（arity 1）：自空列表经
+    `list_append` 追加 `"MathaIOError"` 静态字符串与实参，返回 2 元素列表；
+    中间列表入操作数栈作 GC 根。
+  - 注册进 `NATIVE_BUILTINS` / `_BUILTIN_ARITY`(1) / `_BUILTIN_EMITTERS`，
+    并自 `_UNRESOLVED_GLOBALS` 移除。
+  - 数据段新增静态字符串 `tag_ioerror = "MathaIOError"`。
+- 自举 `matha/vm.matha`：`MathaIOError` 标签由 `"__MathaIOError__"` 统一为
+  `"MathaIOError"`。
+- 现状：`_UNRESOLVED_GLOBALS` 已无真正可达的未实现名字；该编译期拒绝分支
+  转为纯防御性（由测试以 monkeypatch 注入探针名验证）。
+
+### 测试
+
+- `tests/test_native.py`：新增 parity 用例 `ioerror_list` 与
+  `test_matha_io_error_is_two_element_list`；未实现全局拒绝测试改用
+  monkeypatch 探针名。
+- `tests/test_interp_parity.py`：新增 `ioerror_direct` / `ioerror_structural`
+  （解释器 / VM 一致）。
+- `tests/test_native_regex.py`：`test_unresolved_global_rejected` 改用
+  monkeypatch 探针名。
+- 全量 `pytest`：2638 passed。
+
 ## 原生后端：list_push（收尾剩余未实现全局名）
 
 **日期**：2026-10-14

@@ -277,14 +277,19 @@ def test_func_declaration_first_class_in_list():
 
 
 @pytest.mark.parametrize("name", [
-    "MathaIOError",
+    "__native_unresolved_probe__",
 ])
-def test_unimplemented_builtin_rejected_at_compile_time(name):
-    """调用未实现的 VM 内建必须在编译期报错，而非运行期无提示崩溃。
+def test_unimplemented_builtin_rejected_at_compile_time(name, monkeypatch):
+    """引用「VM 能解析、原生未实现」的全局必须在编译期报错，而非运行期崩溃。
 
     回归：LOAD_GLOBAL 对未注册名字载入 0 值，调用时经 apply_rt → ar_plain
     跳到 rax=0，表现为无堆栈的访问违例（0xC0000005），极难定位。
+    已实现 MathaIOError 后真实名字无未实现者，故以 monkeypatch 注入探针名，
+    直接验证该防御分支仍然有效。
     """
+    from src.mbc import native as nat
+    monkeypatch.setattr(nat, "_UNRESOLVED_GLOBALS",
+                        nat._UNRESOLVED_GLOBALS | {name})
     src = f"输出({name}(1))\n"
     with pytest.raises(NativeNotSupported) as ei:
         compile_to_exe(src)
@@ -1261,6 +1266,11 @@ _PARITY_CASES = {
                         '输出(_dict_remove(d)("c"))\n'
                         '输出(_dict_remove(d)("z"))\n',
     "b16s_empty_dict": "输出(_empty_dict)\n输出(type_of(_empty_dict))\n",
+    # MathaIOError：三端统一为 2 元素列表（VM 原返回 Python 元组）。
+    # 结构访问（len/get/typeof）规避嵌套字符串打印差异。
+    "ioerror_list": ('let e = MathaIOError("boom") in\n'
+                     "输出(len(e))\n输出(get(e)(0))\n输出(get(e)(1))\n"
+                     "输出(typeof(e))\n"),
     "b16s_append": "输出(append([1, 2])(3))\n输出(append([])(7))\n"
                    "输出(append([[1], [2]])([3]))\n",
     # list_push 为 VM 端原地追加；原生列表不可变，按线性构建器契约
@@ -1419,8 +1429,23 @@ def test_list_push_builder_matches_append():
         "输出(a3)\n"
     )
     out = _aot(src)
+    out = _aot(src)
     assert out == ["[1, 2, 3]", "[1, 2, 3]"]
     assert out[0] == out[1]
+
+
+def test_matha_io_error_is_two_element_list():
+    """MathaIOError 原生返回 ["MathaIOError", msg] 列表（与 VM/解释器统一）。
+
+    原 VM 返回 Python 元组 ("MathaIOError", str(m))；统一为列表后原生可直接
+    承载。此处对原生端做定点断言（长度/标签/负载/类型名）。
+    """
+    out = _aot('let e = MathaIOError("boom") in\n'
+               "输出(len(e))\n"
+               "输出(get(e)(0))\n"
+               "输出(get(e)(1))\n"
+               "输出(typeof(e))\n")
+    assert out == ["2", "MathaIOError", "boom", "列表"]
 
 
 def test_file_io_roundtrip(tmp_path):
