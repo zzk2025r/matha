@@ -161,8 +161,11 @@ module 编译器 {
   func _编译程序(tree: Dict) -> Dict =
     let decls = tree["声明"] in
     let bc1 = _bc元数表(_新bc(), _预扫元数(decls)) in
-    let bc2f = _编译全部函数(decls, bc1) in
-    let (主码, sc, bc2) = _编译声明列表(decls, [], _新主作用域(), bc2f) in
+    (* 与宿主 compile_program 一致：顶层声明**按源码顺序**单遍编译
+       （宿主 `for decl in program.decls: _compile_top_decl(...)`）。
+       函数体在其声明出现处才编译，故常量池次序与宿主逐位一致。
+       函数间互引（含前向引用）经 LOAD_GLOBAL 在运行期解析，编译顺序无关。 *)
+    let (主码, sc, bc2) = _编译声明列表(decls, [], _新主作用域(), bc1) in
     {"常量": bc2["常量"], "函数": bc2["函数"],
      "主码": append(主码)([OP_HALT]), "模块名": _取模块名(decls)}
 
@@ -174,13 +177,26 @@ module 编译器 {
     decls = [] ? acc :
     _取模块名走(decls[1:], (decls[0]["类型"] = "模块" ? decls[0]["名"] : acc))
 
-  (* 第一遍：所有顶层函数定义编译入函数表（VM 启动时统一注册为全局闭包，
-     故函数间互引经 LOAD_GLOBAL 即可，编译顺序无关） *)
-  func _编译全部函数(decls: List, bc: Dict) -> Dict =
+  (* 模块声明：与宿主 ModuleDecl 分支一致——先把模块内**直接**函数定义编译入
+     函数表（支持函数间互引），再按序编译其余顶层声明。仅处理直接子函数，
+     嵌套模块在其后随非函数声明递归处理（与宿主一致）。 *)
+  func _编译直接函数(decls: List, bc: Dict) -> Dict =
     decls = [] ? bc :
-    let bc2 = decls[0]["类型"] = "函数定义" ? _编译函数(decls[0], bc) :
-              decls[0]["类型"] = "模块" ? _编译全部函数(decls[0]["声明"], bc) : bc in
-    _编译全部函数(decls[1:], bc2)
+    let bc2 = decls[0]["类型"] = "函数定义" ? _编译函数(decls[0], bc) : bc in
+    _编译直接函数(decls[1:], bc2)
+
+  func _编译模块(decl: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let inner = decl["声明"] in
+    let bc2 = _编译直接函数(inner, bc) in
+    _编译非函数列表(inner, code, sc, bc2)
+
+  func _编译非函数列表(decls: List, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    decls = [] ? (code, sc, bc) :
+    decls[0]["类型"] = "函数定义" ? _编译非函数列表(decls[1:], code, sc, bc) :
+    let (c2, sc2, bc2) = _编译声明(decls[0], code, sc, bc) in
+    _编译非函数列表(decls[1:], c2, sc2, bc2)
 
   func _编译函数(fdef: Dict, bc: Dict) -> Dict = (fdef, bc) =>
     (* parser 的函数定义语法已消费外层 (params)=>，fdef.体 为裸表达式；
@@ -222,8 +238,8 @@ module 编译器 {
 
   func _编译声明(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
-    decl["类型"] = "函数定义" ? (code, sc, bc) :
-    decl["类型"] = "模块" ? _编译声明列表(decl["声明"], code, sc, bc) :
+    decl["类型"] = "函数定义" ? (code, sc, _编译函数(decl, bc)) :
+    decl["类型"] = "模块" ? _编译模块(decl, code, sc, bc) :
     decl["类型"] = "导入" ? _编译导入(decl, code, sc, bc) :
     (* 以下各分支宿主均以「全新 main 作用域」编译：临时槽计数从 0 起算 *)
     decl["类型"] = "机械单元" ? _编译机械单元(decl, code, _重置主作用域计数(sc), bc) :

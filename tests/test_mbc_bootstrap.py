@@ -1402,3 +1402,51 @@ def test_m8_ternary_list_stage3_runs(compiler_boot_vm, name, src, expect):
     """M8：自举链路编译三元分支列表字面量，运行结果与宿主一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M9：let 函数绑定显式 lambda + 顶层常量次序 ====================
+# 1) 自举 parser 曾把 `let [rec] f(params) -> T = (params) => body` 里的显式
+#    lambda 再包一层签名参数，形成双层 lambda（值变成「返回函数的函数」），
+#    `let rec f ... = (n) => ...` 因而产出闭包而非计算结果。修复：与
+#    解析函数定义 一致，`=` 后若为显式 lambda 则直接采用之。
+# 2) 自举 compiler 曾先「一遍编译全部函数定义」再编译主码，导致「顶层 let
+#    （带常量）出现在 func 之前」时常量池次序与宿主不同。修复：与宿主
+#    compile_program 一致，顶层声明按源码顺序单遍编译。
+_M9_LET_LAMBDA_CASES = [
+    ("letrec_explicit_lambda",
+     "let rec f(n: Int) -> Int = (n) => n <= 0 ? 1 : g(n - 1)\n"
+     "and g(n: Int) -> Int = (n) => n <= 0 ? 2 : f(n - 1)\n"
+     "#：[f(3)]\n", [2]),
+    ("let_func_explicit_lambda",
+     "let f(n: Int) -> Int = (n) => n * 2\n#：[f(4)]\n", [8]),
+    ("let_before_func_order",
+     "let f = (n) => n + 1\n"
+     "func g(x: Int) -> Int = (x) => x * 2\n"
+     "#：[f(1) + g(2)]\n", [6]),
+    ("rec_simple_explicit",
+     "let rec fact(n: Int) -> Int = (n) => n <= 1 ? 1 : n * fact(n - 1)\n"
+     "#：[fact(5)]\n", [120]),
+]
+
+_M9_LET_LAMBDA_IDS = [c[0] for c in _M9_LET_LAMBDA_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M9_LET_LAMBDA_CASES, ids=_M9_LET_LAMBDA_IDS)
+def test_m9_let_lambda_host_runs(name, src, expect):
+    """M9：宿主解析 let 函数绑定显式 lambda 与 let/func 次序，语义正确。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M9_LET_LAMBDA_CASES, ids=_M9_LET_LAMBDA_IDS)
+def test_m9_let_lambda_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M9：stage2 ≡ stage3（含常量池次序逐位一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M9_LET_LAMBDA_CASES, ids=_M9_LET_LAMBDA_IDS)
+def test_m9_let_lambda_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M9：自举链路编译 let 函数绑定显式 lambda 与 let/func 次序，运行一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect

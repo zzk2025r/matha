@@ -1,5 +1,52 @@
 # Matha 变更摘要
 
+## 自举让函数显式 lambda 与顶层常量次序（四端一致修复）
+
+**日期**：2026-10-14
+
+### 变更范围
+
+自举链路（`matha/parser.matha` + `matha/compiler_matha.matha`）与宿主在两个
+用例上不一致，均通过 `corpus_probe` 扫描发现：
+
+1. **`let [rec] f(params) -> T = (params) => body` 双层 lambda**：自举 parser
+   的 `解析let表达式` 在函数式绑定分支里，把 `=` 之后的显式 lambda 又用签名
+   参数包了一层，得到 `(params) => ((params) => body)`——值成了「返回函数的
+   函数」。于是 `let rec f ... = (n) => …` 产出的是闭包而非计算结果（宿主
+   产出正确值，例如 `f(3)` 得 `2`，自举得一个 `Closure`）。
+2. **顶层常量池次序**：自举 compiler 的 `_编译程序` 先「一遍编译**全部**函数
+   定义」再编译主码；而宿主 `compile_program` 是**按源码顺序单遍**编译
+   （`for decl in program.decls: _compile_top_decl(...)`）。因此当带常量的顶层
+   `let` 出现在 `func` 之前时，两者的常量池栈次序不同（如
+   `let f = (n) => n + 1` 先于 `func g`，宿主常量 `[1,'+','f', 2,'*','f'…]`，
+   自举为 `[2,'*', 1,'+','f','f'…]`），stage2 ≢ stage3。
+
+修复：与 `解析函数定义` / 宿主 `compile_program` 对齐。函数间互引（含前向
+引用）经 `LOAD_GLOBAL` 在运行期解析，故编译顺序无关。修复后上述用例
+宿主 / 自举产物逐位一致（stage2 ≡ stage3）且运行结果一致。
+
+### 变更
+
+- `matha/parser.matha`：`解析let表达式` 函数式绑定分支——`=` 后若为显式
+  lambda `(params) => body`，则直接采用该 lambda（其参数即函数参数），不再
+  用签名参数包一层；否则维持原签名参数路径。
+- `matha/compiler_matha.matha`：
+  - `_编译程序` 去掉「一遍编译全部函数」预扫，顶层声明**按源码顺序单遍**编译。
+  - `_编译声明`：`函数定义` 分支就地编译（`_编译函数`）；`模块` 分支改走
+    新 `_编译模块`。
+  - 原 `_编译全部函数` 替换为 `_编译直接函数`（仅直接子函数，不再递归嵌套
+    模块，对齐宿主 `ModuleDecl` 分支），新增 `_编译模块` / `_编译非函数列表`。
+
+### 测试
+
+- `tests/test_mbc_bootstrap.py`：新增 M9 段 `_M9_LET_LAMBDA_CASES`
+  （4 例：`let rec … and …` 显式 lambda 互递归、非递归 `let f(params)=(p)=>…`、
+  `let` 先于 `func` 的常量次序、`let rec fact`）× 3（宿主运行 /
+  stage2 ≡ stage3 / 自举运行）= 12 用例。
+- `corpus_probe` 分歧数 9 → 8（`letrec_and` 转 OK）。
+- 已验证 `test_mbc_vm_matha.py`（含 slow 完全自举不动点）与
+  `test_mbc_bootstrap.py` 全通过；ruff 无新增告警。
+
 ## 宿主解析器：三元分支中的单元素列表字面量（四端一致修复）
 
 **日期**：2026-10-14

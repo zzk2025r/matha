@@ -1284,8 +1284,22 @@ module 语法器 {
         let p7 = 期望(p6, 类型.箭头) in
         let (忽略, p8) = 跳过返回类型(p7) in
         let p9 = 期望(p8, 类型.等于) in
-        let (body, p10) = 解析表达式(p9) in
-        let lam = 做Lambda(params, body) in
+        (* 与 解析函数定义 一致：若 `=` 后为显式 lambda `(params) => body`，
+           则直接采用该 lambda（其参数即函数参数），不再用签名参数包一层，
+           否则会形成双层 lambda（值变成返回函数的函数）。 *)
+        let (lam, p10) = if 匹配(p9, 类型.左括号) then
+          let q1 = 推进(p9) in
+          let (lam_params, q2) = if 匹配(q1, 类型.右括号) then ([], q1)
+            else
+              let (lparam, q1b) = 解析_lambda_param(q1) in
+              解析_lambda_params_rest([], lparam, q1b) in
+          let q3 = 期望(q2, 类型.右括号) in
+          let q4 = 期望(q3, 类型.胖箭头) in
+          let (lbody, q5) = 解析表达式(q4) in
+          (做Lambda(lam_params, lbody), q5)
+        else
+          let (dbody, q5) = 解析表达式(p9) in
+          (做Lambda(params, dbody), q5) in
         if 匹配关键字文本(p10, "in") then
           let p11 = 推进(p10) in
           let (体expr, p12) = 解析表达式(p11) in
