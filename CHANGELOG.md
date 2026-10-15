@@ -1,5 +1,67 @@
 # Matha 变更摘要
 
+## 符号常量 / 前缀 √∛ / 中缀 ÷ / 单位后缀 °℃℉（四端一致）
+
+**日期**：2026-10-15
+
+### 变更范围
+
+Phase ②：为「源码出现中文/运算/学科符号即报错」补齐**符号常量与符号运算符**，
+（解释器 / 宿主 VM / native / 自托管链）四端一致：
+
+- 符号常量：`π`=pi、`τ`=tau、`φ`=(1+√5)/2、`∞`=inf，以及空集字面量 `∅`=[]。
+- 前缀一元：`√`=平方根（`√9`=3）、`∛`=立方根（`∛27`=3、`∛-8`=-2）。
+- 中缀：`÷`=除（`6÷2`=3）。
+- 单位后缀：`° ℃ ℉` 与既有 CJK 汉字一致，作**纯字符串标签**并入数值字面量
+  （`90°`→数值 90 + 标签 `"°"`；运行期丢弃单位、仅取值，不做量纲/角度换算）。
+
+### 变更
+
+- `src/mathlib.py`：`CONSTANTS` 增 `π τ φ ∞`。
+- `src/lexer.py`：`_SINGLE_CHAR_MAP` 加 `"÷"→OP_SLASH`；新增 `_UNIT_SYMBOLS={"°","℃","℉"}`，
+  `_number()` 单位循环由「仅 is_cjk」扩为「is_cjk 或 _UNIT_SYMBOLS」。
+- `src/parser.py`：`_parse_unary`/`_parse_unary_operand` 增前缀 `√`/`∛`（→`UnaryOp("sqrt"/"cbrt")`）；
+  `_parse_primary` 增 `∅`→空列表字面量；`_parse_mul_expr` 把 `÷` 归一为 `/`。
+- `src/interp.py`：`_eval_unary` 增 `cbrt`。
+- `src/mbc/compiler.py`：`_UNARY_OPS` 增 `cbrt`/`∛`；`_fold_unary` 增 `cbrt` 折叠
+  （整数完全立方回退 int）。
+- `src/mbc/vm.py`：新增 `_builtin_cbrt`，`_UNARYOPS` 增 `cbrt`。
+- `src/mbc/native.py`：新增 `cvtsd2si`、`cbrt` UNARYOP 分支、`f_cbrt` 标签块；修
+  `∛2` 误输出 `2.0`（`box_float` 覆盖 xmm0，须先恢复结果位模式）。
+- 自托管第四端：
+  - `matha/lexer.matha`：`映射单符` 加 `÷→除`；新增 `是单位码`（CJK 与 `° ℃ ℉`），
+    `扫描数字续` 在最终 emit 前折入单位码。
+  - `matha/parser.matha`：新增 `去单位`（`整数值`/`浮点值` 剥离单位后缀）、
+    `是开方号`/`是立方根号`，`解析一元`/`解析一元操作数` 增 `√`/`∛`，`解析主要` 增
+    `符号` 分支（`∅`→空列表，余→变量）。
+  - `matha/compiler_matha.matha`：`一元运算表` 增 `cbrt`；新增 `_折叠立方根`/`_立方回退`。
+  - `matha/vm.matha`：`应用一元` 增 `cbrt`；新增 `立方根完美`；`引导` 注册
+    `π τ φ ∞`（`∞` 用 `_to_float("inf")`，因自举 `float` 实现不解析 `"inf"`）。
+- 测试：`tests/test_new_features.py` 新增 6 例；`tests/test_native.py` `_PARITY_CASES`
+  新增 6 例（VM/AOT 逐行一致）；`tests/test_mbc_vm_matha.py` `_CASES` 新增 9 例；
+  `tests/test_mbc_bootstrap.py` 新增 M14 段（23 例 × {宿主运行 / stage2≡stage3 /
+  自举运行}，共 69）。
+
+### 测试
+
+- `test_new_features.py` 54 passed；`test_native.py -k phase2` 6 passed。
+- M14：69 passed；`test_mbc_bootstrap.py` 全量 **509 passed + 2 xfailed**。
+- `test_mbc_vm_matha.py` **88 passed**（含 slow 完全自举不动点）。
+- 全量 `pytest tests/ -m "not slow"`：**2985 passed** + 2 xfailed。
+- 四端一致：`π τ φ ∞ ∅ √9 √16 ∛27 ∛8 ∛64 ∛-8 ∛2 6÷2 90° 30℃ 98℉ 100米` 值全等，
+  `stage2 ≡ stage3` 保持。
+- ruff：`test_mbc_bootstrap.py` 维持基线 21；本次改动无新增告警。
+
+### 修复
+
+- 自举 `是单位码` 的 `℉` 码位写错（`8459`=ℋ → 正确 `8457`=U+2109），曾致
+  `98℉` 的 stage2≠stage3。
+
+### 已知遗留（本次未处理）
+
+- 聚合 `∑`/`∏` 尚未实现；**全符号资源库**（Phase ③）未做。
+- native 集合运算符假定操作数为 list（标量操作数读越界，与集合内建同限）。
+
 ## 集合运算符自托管第四端（∪∩⊖~×⊆）+ 宿主集合链结合性修复（四端一致）
 
 **日期**：2026-10-15

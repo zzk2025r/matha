@@ -1765,6 +1765,10 @@ class Parser:
         left = self._parse_pow_expr()
         while self._check(TokenType.OP_STAR, TokenType.OP_SLASH, TokenType.OP_FDIV, TokenType.OP_MOD):
             op = self._advance().value
+            # Phase ②：除法符号 ÷ 词法归一到 OP_SLASH，此处再归一 op 文本为 "/"，
+            # 使下游（interp / compiler / vm）无需知晓 ÷。
+            if op == "÷":
+                op = "/"
             right = self._parse_pow_expr()
             left = ast.BinaryOp(op=op, left=left, right=right)
         return left
@@ -1803,6 +1807,11 @@ class Parser:
         if self._check(TokenType.OP_BIT_NOT):
             self._advance()
             return ast.UnaryOp(op="~", operand=self._parse_unary_operand())
+        # Phase ②：符号前缀一元 √（平方根）/ ∛（立方根），对齐语言既有 ^ 前缀开方
+        if self._check(TokenType.SYMBOL) and self._current().value in ("√", "∛"):
+            op = "sqrt" if self._current().value == "√" else "cbrt"
+            self._advance()
+            return ast.UnaryOp(op=op, operand=self._parse_unary_operand())
         return self._parse_postfix()
 
     def _parse_unary(self):
@@ -1832,6 +1841,12 @@ class Parser:
             self._advance()
             operand = self._parse_unary_operand()
             return ast.UnaryOp(op="~", operand=operand)
+        # Phase ②：符号前缀一元 √（平方根）/ ∛（立方根）
+        if self._check(TokenType.SYMBOL) and self._current().value in ("√", "∛"):
+            op = "sqrt" if self._current().value == "√" else "cbrt"
+            self._advance()
+            operand = self._parse_unary_operand()
+            return ast.UnaryOp(op=op, operand=operand)
         # 前缀自增 / 自减
         if self._check(TokenType.OP_INCR, TokenType.OP_DECR):
             op = self._advance().value
@@ -2188,6 +2203,11 @@ class Parser:
         if tok.type in (TokenType.KW_NULL, TokenType.KW_NONE, TokenType.KW_UNDEFINED):
             self._advance()
             return ast.UnaryOp(op="null", operand=None)
+
+        # Phase ②：空集符号 ∅ → 空集合字面量 []（不参与变量解析，避免 KeyError）
+        if tok.type == TokenType.SYMBOL and tok.value == "∅":
+            self._advance()
+            return ast.ListLiteral(elements=[])
 
         # 变量 / 占位符
         if tok.type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):

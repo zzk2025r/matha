@@ -83,6 +83,7 @@ _BIN_OPS = {
 }
 _UNARY_OPS = {"-": "neg", "not": "not", "非": "not",
               "sqrt": "sqrt", "^": "sqrt", "√": "sqrt",
+              "cbrt": "cbrt", "∛": "cbrt",
               # 位取反：解释器 src/interp.py:1730 已实现（仅整数），MBC 此前缺失。
               "~": "~",
               # << 前缀角度（docs/06 级 6）：度数 → 弧度，三端语义一致。
@@ -119,6 +120,13 @@ def _fold_unary(op: str, operand):
                 return _NO_FOLD
             r = v ** 0.5
             return int(r) if isinstance(v, int) and r == int(r) else r
+        if op == "cbrt":
+            r = -((-v) ** (1 / 3)) if v < 0 else v ** (1 / 3)
+            if isinstance(v, int):
+                ri = round(r)
+                if ri * ri * ri == v:
+                    return ri
+            return r
         if op == "++":
             return v + 1
         if op == "--":

@@ -102,6 +102,7 @@ module 词法器 {
     c = "-" ? 减 :
     c = "*" ? 乘 :
     c = "/" ? 除 :
+    c = "÷" ? 除 :
     c = "%" ? 取模 :
     c = "^" ? 次方 :
     c = "=" ? 等于 :
@@ -207,11 +208,22 @@ module 词法器 {
             扫描(src)(pos)(line)(col)(append(toks)(做Token(整数, 缓存, line, 起列)))) :
         (是科学尾(get(src)(pos)) and pos + 1 < len(src) and (是数字码(ord(get(src)(pos + 1))) or get(src)(pos + 1) = "+" or get(src)(pos + 1) = "-")) ?
           扫描尾数指数(src)(pos)(line)(col)(toks)(起列)(缓存) :
-          扫描(src)(pos)(line)(col)(append(toks)(做Token(有小数点 ? 浮点 : 整数, 缓存, line, 起列))))
+        (是单位码(ord(get(src)(pos))) ?
+          (* 单位后缀：CJK 汉字 / ° ℃ ℉ 并入字面量文本（运行期丢弃）
+             ——对齐宿主 _number 的 is_cjk + _UNIT_SYMBOLS 折入策略。 *)
+          扫描数字续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))(有小数点) :
+          扫描(src)(pos)(line)(col)(append(toks)(做Token(有小数点 ? 浮点 : 整数, 缓存, line, 起列)))))
 
   (* 科学计数法尾数 e/E；与宿主 src/lexer.py _lex_number 的 Xe[+|-]Y 同构。 *)
   func 是科学尾(c: String) -> Bool = (c) =>
     (c = "e" or c = "E") ? 真 : 假
+
+  (* 单位码：可作为数值后缀并入字面量的字符（纯字符串标签，运行期丢弃——
+     对齐宿主 src/lexer.py 的 is_cjk 单位 + _UNIT_SYMBOLS）。
+     含 CJK 基本区(0x4E00–0x9FFF)、扩展 A(0x3400–0x4DBF) 与 ° ℃ ℉。 *)
+  func 是单位码(c: Int) -> Bool = (c) =>
+    ((c >= 19968 and c <= 40869) or (c >= 13312 and c <= 19903) or
+     c = 176 or c = 8451 or c = 8457) ? 真 : 假
 
   func 扫描尾数指数(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
     (src, pos, line, col, toks, 起列, 缓存) =>

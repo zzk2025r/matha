@@ -131,8 +131,8 @@
     BINOP 已实现：+ - * // % ** == != < > <= >= in << >>
      （编译器 _BIN_OPS 另有 '/'，其中 and/or
        已被改写为 JZ/JNZ 短路，'/' 见砖块 11）
-   UNARYOP 已实现：neg not sqrt
-   sqrt 前缀 '√' 解析器未产出（VM 侧同样 KeyError），仅 ^ / ** 生效。
+   UNARYOP 已实现：neg not sqrt cbrt
+   sqrt 前缀由 '^' / '**' / '√' 产出；cbrt 由 '∛' 产出。
      内建函数：NATIVE_BUILTINS（len/输出/print/get/错误/调用捕获 + 砖块
        15/16 阶段一/二/三 + 砖块 17 阶段一/二/三全部内建，另含 构造集合/
        去重/安全索引/安全取属性），mathlib 全部函数已实现。
@@ -641,6 +641,12 @@ class _Emitter:
         """cvttsd2si r64, xmm（截断向零取整；NaN/越界 → 0x8000...0000）。"""
         rex = 0x48 | (0x04 if xmm >= 8 else 0) | (0x01 if reg >= 8 else 0)
         self.emit(bytes([0xF2, rex, 0x0F, 0x2C,
+                         0xC0 | ((reg & 7) << 3) | (xmm & 7)]))
+
+    def cvtsd2si(self, reg: int, xmm: int):
+        """cvtsd2si r64, xmm（按 MXCSR 就近取整，默认 round-half-even，对齐 Python round）。"""
+        rex = 0x48 | (0x04 if xmm >= 8 else 0) | (0x01 if reg >= 8 else 0)
+        self.emit(bytes([0xF2, rex, 0x0F, 0x2D,
                          0xC0 | ((reg & 7) << 3) | (xmm & 7)]))
 
     def addsd(self, dst: int, src: int):
@@ -7951,6 +7957,10 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.read_top_to(0)                       # rax=栈顶（不弹出）
             em.call_rel32("f_sqrt")                 # 完全平方→整数，否则→浮点对象
             em.emit(b"\x49\x89\x44\x24\xF8")        # mov [r12-8],rax（就地替换）
+        elif sym == "cbrt":
+            em.read_top_to(0)                       # rax=栈顶（不弹出）
+            em.call_rel32("f_cbrt")                 # 完全立方→整数，否则→浮点对象
+            em.emit(b"\x49\x89\x44\x24\xF8")        # mov [r12-8],rax（就地替换）
         elif sym == "angle":
             # << 角度前缀（docs/06 级 6）：度数 → 弧度，与 f_deg 同语义。
             # 接受裸整数与浮点对象；bool/字符串/列表等 → 抛可捕获异常（对齐
@@ -8578,6 +8588,57 @@ def _emit_float_runtime(em: _Emitter):
     em.jcc_rel32(0x85, "f_sqrt_box")                # jne：非完全平方 → 装箱
     em.emit(b"\x48\x89\xEC\x5D\xC3")                # 返回整数（rax）
     em.label_here("f_sqrt_box")
+    em.call_rel32("box_float")
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- f_cbrt(rax) → rax（对齐 vm._builtin_cbrt：整数完全立方回退整数）----
+    # 立方根符号随被开方数：cbrt(-8) = -cbrt(8)。先对 |x| 用 CRT pow(x,1/3)，
+    # 再按 x 的符号位翻回；x 为整数且完全立方时回退为整数（round 就近 + 立方校验，
+    # 与 VM 的 round(r) 一致，避开 64**(1/3)=3.9999999999999996 的截断陷阱）。
+    em.label_here("f_cbrt")
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x48\x83\xE4\xF0")                    # and rsp,-16
+    em.emit(b"\x48\x83\xEC\x40")                    # sub rsp,0x40
+    em.mov_mem_r(4, 0x20, 0)                        # [rsp+0x20]=原值
+    em.call_rel32("is_float")
+    em.mov_mem_r(4, 0x28, 0)                        # [rsp+0x28]=是否浮点(0/1)
+    em.mov_rd_mem(0, 4, 0x20)                       # rax=原值
+    em.call_rel32("as_double")                      # xmm0=x
+    em.movq_r_xmm(0, 0)                             # rax=x 的位模式
+    em.mov_rr(1, 0)                                 # rcx=位模式（取符号）
+    em.shl_ri(0, 1)
+    em.shr_ri(0, 1)                                 # rax=|x| 位模式（清符号位）
+    em.movq_xmm_r(0, 0)                             # xmm0=|x|
+    em.shr_ri(1, 63)
+    em.shl_ri(1, 63)                                # rcx=符号掩码（0 或 0x8000…）
+    em.mov_mem_r(4, 0x30, 1)                        # [rsp+0x30]=符号掩码
+    em.mov_r_imm64(2, 0x3FD5555555555555)           # 1/3 的位模式
+    em.movq_xmm_r(1, 2)                             # xmm1=1/3
+    em.call_rip_indirect("crt_pow")                 # xmm0=|x|**(1/3)
+    em.movq_r_xmm(0, 0)                             # rax=结果位模式
+    em.mov_rd_mem(2, 4, 0x30)                       # rdx=符号掩码
+    em.emit(b"\x48\x31\xD0")                        # xor rax,rdx → 应用符号
+    em.movq_xmm_r(0, 0)                             # xmm0=带符号结果
+    em.mov_mem_r(4, 0x30, 0)                        # [rsp+0x30]=最终结果位模式（复用槽）
+    em.mov_rd_mem(2, 4, 0x28)                       # 原值是浮点？
+    em.test_rr(2, 2)
+    em.jcc_rel32(0x85, "f_cbrt_box")                # 浮点 → 结果恒浮点
+    em.cvtsd2si(0, 0)                               # rax=ri（就近取整，对齐 round）
+    em.mov_mem_r(4, 0x38, 0)                        # [rsp+0x38]=ri
+    em.cvtsi2sd(1, 0)                               # xmm1=(double)ri
+    em.cvtsi2sd(2, 0)                               # xmm2=(double)ri
+    em.mulsd(1, 2)                                  # xmm1=ri^2
+    em.mulsd(1, 2)                                  # xmm1=ri^3
+    em.mov_rd_mem(0, 4, 0x20)                       # rax=原值
+    em.call_rel32("as_double")                      # xmm0=x
+    em.ucomisd(0, 1)                                # x == ri^3 ?
+    em.jcc_rel32(0x8A, "f_cbrt_box")                # jp：NaN → 装箱
+    em.jcc_rel32(0x85, "f_cbrt_box")                # jne：非完全立方 → 装箱
+    em.mov_rd_mem(0, 4, 0x38)                       # rax=ri（返回整数）
+    em.emit(b"\x48\x89\xEC\x5D\xC3")                # mov rsp,rbp; pop rbp; ret
+    em.label_here("f_cbrt_box")
+    em.mov_rd_mem(0, 4, 0x30)                       # rax=结果位模式（as_double 曾改 xmm0）
+    em.movq_xmm_r(0, 0)                             # xmm0=结果（恢复，供 box_float）
     em.call_rel32("box_float")
     em.emit(b"\x48\x89\xEC\x5D\xC3")
 

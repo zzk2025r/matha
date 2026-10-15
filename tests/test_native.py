@@ -1399,6 +1399,15 @@ _PARITY_CASES = {
                       "输出(1 < a**b)\n输出(a**b == 1)\n输出(a**b < 1)\n",
     "bigint_str_type": "a=2\nb=100\n输出(str(a**b))\n输出(type_of(a**b))\n",
     "bigint_neg": "a=2\nb=100\n输出(-(a**b))\n",
+    # ---- Phase ②：符号常量 / 前缀 √∛ / 中缀 ÷ / 单位后缀 ----
+    "phase2_consts": "输出(π)\n输出(τ)\n输出(φ)\n输出(∞)\n",
+    "phase2_empty_set": "输出(∅)\n",
+    "phase2_prefix_sqrt": "输出(√9)\n输出(√16)\n输出(√2)\n",
+    "phase2_prefix_cbrt": "输出(∛27)\n输出(∛8)\n输出(∛64)\n输出(∛-8)\n"
+                          "输出(∛2)\n",
+    "phase2_divide": "输出(6 ÷ 2)\n输出(2 ÷ 4)\n输出(12 ÷ 2 ÷ 3)\n",
+    "phase2_units": "输出(90°)\n输出(30℃)\n输出(98℉)\n输出(100米)\n"
+                    "输出(90° + 10)\n",
 }
 
 

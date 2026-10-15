@@ -64,7 +64,7 @@ module 编译器 {
   }
   let 一元运算表 = {"-": "neg", "not": "not", "非": "not",
     "sqrt": "sqrt", "^": "sqrt", "~": "~", "angle": "angle",
-    "++": "++", "--": "--"}
+    "++": "++", "--": "--", "cbrt": "cbrt", "∛": "cbrt"}
 
   (* ===== 字节码容器 =====
      「元数表」为顶层函数 name -> 元数 的预扫描结果，在编译任何函数体之前
@@ -639,7 +639,18 @@ module 编译器 {
     let r = v ^ 0.5 in
     _是整数字面量(operand) ? ((int_of_num(r) = r) ? int_of_num(r) : r) : r
 
-  (* op 为一元运算表的值（neg not sqrt ~ angle ++ --）
+  (* cbrt 折叠：与宿主 _fold_unary 的 cbrt 分支对齐。负底数取 -((-v)**(1/3))
+     （Matha 的 ^ 对负底数分数指数会得复数，故需按符号分支）；整数完全立方回退
+     整型（64**(1/3)=3.9999… 需就近取整：±0.5 后由 int_of_num 向零截断）。 *)
+  func _折叠立方根(operand: Dict, v: Value) -> Value =
+    let r = (v < 0) ? (0 - ((0 - v) ^ (1.0 / 3.0))) : (v ^ (1.0 / 3.0)) in
+    _是整数字面量(operand) ? _立方回退(v, r) : r
+
+  func _立方回退(v: Value, r: Value) -> Value =
+    let ri = (r < 0) ? int_of_num(r - 0.5) : int_of_num(r + 0.5) in
+    (ri * ri * ri = v) ? ri : r
+
+  (* op 为一元运算表的值（neg not sqrt cbrt ~ angle ++ --）
      ~ / angle 不折叠，与宿主 _fold_unary 一致（→ 发射 OP_UNARYOP）。 *)
   func _折叠一元(op: String, operand: Dict) -> Value =
     let v = _字面量数值(operand) in
@@ -647,6 +658,7 @@ module 编译器 {
     op = "neg" ? -v :
     op = "not" ? (not v) :
     op = "sqrt" ? _折叠开方(operand, v) :
+    op = "cbrt" ? _折叠立方根(operand, v) :
     op = "++" ? v + 1 :
     op = "--" ? v - 1 :
     不折叠

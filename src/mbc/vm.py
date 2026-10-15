@@ -154,6 +154,16 @@ def _builtin_sqrt(a):
     return int(r) if isinstance(a, int) and r == int(r) else r
 
 
+def _builtin_cbrt(a):
+    """前缀 ∛ 立方根：∛27 → 3，∛8 → 2（整数完全立方回退为整数）。"""
+    r = -((-a) ** (1 / 3)) if a < 0 else a ** (1 / 3)
+    if isinstance(a, int):
+        ri = round(r)
+        if ri * ri * ri == a:
+            return ri
+    return r
+
+
 def _builtin_bitnot(a):
     """一元 `~` 位取反：仅整数，语义对齐解释器 src/interp.py:1730。
 
@@ -193,6 +203,7 @@ _UNARYOPS = {
     "neg": lambda a: -a,
     "not": lambda a: not a,
     "sqrt": _builtin_sqrt,
+    "cbrt": _builtin_cbrt,
     "~": _builtin_bitnot,
     "angle": _builtin_angle,
     "++": _builtin_incr,

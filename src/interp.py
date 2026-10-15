@@ -2048,6 +2048,16 @@ class Interpreter:
                     r = int(r)
                 self._log_exit("eval Unary", r)
                 return r
+            if expr.op == "cbrt":
+                # 前缀 ∛ 立方根：∛27 → 3，∛8 → 2（整数完全立方回退为整数）。
+                # 规则与 src/mbc/vm.py::_builtin_cbrt 保持一致。
+                r = -((-v) ** (1 / 3)) if v < 0 else v ** (1 / 3)
+                if isinstance(v, int) and not isinstance(v, bool):
+                    ri = round(r)
+                    if ri * ri * ri == v:
+                        r = ri
+                self._log_exit("eval Unary", r)
+                return r
             if expr.op == "++":
                 if isinstance(v, (int, float)):
                     r = v + 1

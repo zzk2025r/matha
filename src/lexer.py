@@ -19,6 +19,7 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "-": TokenType.OP_MINUS,
     "*": TokenType.OP_STAR,
     "/": TokenType.OP_SLASH,
+    "÷": TokenType.OP_SLASH,    # Phase ②：除法符号（等价 /）
     "%": TokenType.OP_MOD,
     "^": TokenType.OP_BIT_XOR,
     "=": TokenType.OP_ASSIGN,
@@ -161,6 +162,10 @@ _SINGLE_CHAR_MAP: dict[str, TokenType] = {
     "℅": TokenType.SYMBOL,
     "№": TokenType.SYMBOL,
 }
+# 可作为数值单位后缀的非 CJK 符号（Phase ②）：与 CJK 单位同等——纯字符串标签，
+# 不加量纲换算。90° / 30℃ / 98℉ 中紧邻数字的单个符号并入字面量（对齐「100米」）。
+_UNIT_SYMBOLS: frozenset[str] = frozenset({"°", "℃", "℉"})
+
 # 集合运算符子集（与原 set_ops 保持一致）
 _SINGLE_SET_OPS: dict[str, TokenType] = {
     "∪": TokenType.OP_SET_UNION,
@@ -582,14 +587,19 @@ class Lexer:
                     num_parts.append(self._advance())
                 num_str = "".join(num_parts)
 
-        # 可选 CJK 单位（紧邻的 CJK 字符序列）
+        # 可选单位：紧邻的 CJK 字符序列，或单个单位符号（° ℃ ℉）
         unit_parts = []
-        while self.pos < self.n and is_cjk(self.src[self.pos]):
-            # 注意：全角冒号/中文逗号不属于单位，需排除
+        while self.pos < self.n:
             ch = self.src[self.pos]
-            if ch in ("：", "，"):
+            if is_cjk(ch):
+                # 注意：全角冒号/中文逗号不属于单位，需排除
+                if ch in ("：", "，"):
+                    break
+                unit_parts.append(self._advance())
+            elif ch in _UNIT_SYMBOLS:
+                unit_parts.append(self._advance())
+            else:
                 break
-            unit_parts.append(self._advance())
         unit = "".join(unit_parts)
 
         value = num_str + unit

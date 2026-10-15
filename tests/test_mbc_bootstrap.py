@@ -9,6 +9,7 @@
   - VM 上 Matha 求值 能正确求值算术/三元/变量/Lambda/函数应用
   - and/or 短路语义在字节码层正确（数字/空白判定依赖）
 """
+import math
 import os
 import sys
 
@@ -1686,3 +1687,62 @@ def test_m13_setop_ascii_tilde_is_unary_bitnot(boot_vm):
     assert isinstance(tree, dict) and tree["类型"] == "程序"
     # 宿主侧重：~5 = -6（位取反）；#：[~5] 输出列表 [~5]
     assert VM(_host_compile("#：[~5]\n")).run() == [-6]
+
+
+# ==================== M14：符号常量/前缀/单位（Phase ②，自举 chain）====================
+# Phase ②：符号常量 π τ φ ∞、空集字面量 ∅、前缀 √/∛、中缀 ÷、单位后缀 ° ℃ ℉。
+# 宿主：mathlib CONSTANTS 增 π τ φ ∞；lexer 把 ÷ 归 OP_SLASH、单位 °℃℉ 折入数字
+# 字面量；parser 把前缀 √/∛ 建成 UnaryOp(sqrt/cbrt)、∅ 建成空列表字面量；compiler
+# _UNARY_OPS/_fold_unary 增 cbrt。自举：lexer.matha ÷→除、单位码折入数字文本；
+# parser.matha 增 是开方号/是立方根号、解析主要 增 符号分支（∅→空列表，余→变量）；
+# compiler_matha 一元运算表/折叠 增 cbrt；vm.matha 应用一元 增 cbrt、引导 注册
+# π τ φ ∞（∞ 用 _to_float("inf")，因自举 float 实现不解析 "inf"）。
+# 语义：单位纯字符串标签（运行期丢弃，仅取值）；√/∛ 整数完全平方/立方回退整型。
+_M14_SYMBOL_CASES = [
+    ("pi", "#：[π]\n", [math.pi]),
+    ("tau", "#：[τ]\n", [math.tau]),
+    ("phi", "#：[φ]\n", [(1 + 5 ** 0.5) / 2]),
+    ("inf", "#：[∞]\n", [math.inf]),
+    ("empty_set", "#：[∅]\n", [[]]),
+    ("empty_set_len", "#：[len(∅)]\n", [0]),
+    ("sqrt_int", "#：[√9]\n", [3]),
+    ("sqrt_int2", "#：[√16]\n", [4]),
+    ("sqrt_float", "#：[√2]\n", [2 ** 0.5]),
+    ("sqrt_in_expr", "#：[√9 + 1]\n", [4]),
+    ("cbrt_perfect", "#：[∛27]\n", [3]),
+    ("cbrt_perfect2", "#：[∛8]\n", [2]),
+    ("cbrt_perfect3", "#：[∛64]\n", [4]),
+    ("cbrt_neg", "#：[∛-8]\n", [-2]),
+    ("cbrt_float", "#：[∛2]\n", [2 ** (1 / 3)]),
+    ("div_symbol", "#：[6 ÷ 2]\n", [3.0]),
+    ("div_symbol2", "#：[2 ÷ 4]\n", [0.5]),
+    ("div_chained", "#：[12 ÷ 2 ÷ 3]\n", [2.0]),
+    ("unit_deg", "#：[90°]\n", [90]),
+    ("unit_celsius", "#：[30℃]\n", [30]),
+    ("unit_fahrenheit", "#：[98℉]\n", [98]),
+    ("unit_cjk", "#：[100米]\n", [100]),
+    ("unit_in_expr", "#：[90° + 10]\n", [100]),
+]
+
+_M14_SYMBOL_IDS = [c[0] for c in _M14_SYMBOL_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M14_SYMBOL_CASES, ids=_M14_SYMBOL_IDS)
+def test_m14_symbol_host_runs(name, src, expect):
+    """M14：宿主编译执行符号常量/前缀/单位，语义正确。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M14_SYMBOL_CASES, ids=_M14_SYMBOL_IDS)
+def test_m14_symbol_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M14：stage2 ≡ stage3（符号常量/前缀/单位逐字节一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M14_SYMBOL_CASES, ids=_M14_SYMBOL_IDS)
+def test_m14_symbol_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M14：自举链路编译符号常量/前缀/单位，运行一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect

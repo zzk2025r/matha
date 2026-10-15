@@ -449,6 +449,61 @@ def test_set_union_in_expr():
     print('  ✓ 集合并在变量表达式中')
 
 
+# ─── Phase ②：符号常量 π τ φ ∞ ∅ ────────────────────────────────────────────
+
+def test_symbol_constants():
+    import math
+    assert get_out('#1：[π]') == math.pi
+    assert get_out('#1：[τ]') == math.tau
+    assert get_out('#1：[φ]') == (1 + 5 ** 0.5) / 2
+    assert get_out('#1：[∞]') == math.inf
+    assert get_out('#1：[π, ∛8]') == [math.pi, 2]
+    print('  ✓ 符号常量: π τ φ ∞')
+
+def test_empty_set_literal():
+    assert get_out('#1：[∅]') == []
+    assert get_out('#1：[len(∅)]') == 0
+    print('  ✓ 空集字面量: ∅ = []')
+
+
+# ─── Phase ②：前缀 √ ∛ ──────────────────────────────────────────────────────
+
+def test_sqrt_symbol_prefix():
+    assert get_out('#1：[√9]') == 3
+    assert get_out('#1：[√16]') == 4
+    assert get_out('#1：[√2]') == 2 ** 0.5
+    assert get_out('#1：[√9 + 1]') == 4
+    print('  ✓ 符号开方: √9 = 3')
+
+def test_cbrt_symbol_prefix():
+    assert get_out('#1：[∛27]') == 3
+    assert get_out('#1：[∛8]') == 2
+    assert get_out('#1：[∛64]') == 4
+    assert get_out('#1：[∛-8]') == -2
+    assert get_out('#1：[∛2]') == 2 ** (1 / 3)
+    print('  ✓ 符号立方根: ∛27 = 3')
+
+
+# ─── Phase ②：中缀 ÷ ────────────────────────────────────────────────────────
+
+def test_divide_symbol():
+    assert get_out('#1：[6 ÷ 2]') == 3.0
+    assert get_out('#1：[2 ÷ 4]') == 0.5
+    assert get_out('#1：[12 ÷ 2 ÷ 3]') == 2.0
+    print('  ✓ 除号 ÷: 6 ÷ 2 = 3.0')
+
+
+# ─── Phase ②：单位后缀 ° ℃ ℉（纯字符串标签，只取值） ────────────────────────
+
+def test_unit_suffix_symbols():
+    assert get_out('#1：[90°]') == 90
+    assert get_out('#1：[30℃]') == 30
+    assert get_out('#1：[98℉]') == 98
+    assert get_out('#1：[90° + 10]') == 100
+    assert get_out('#1：[100米]') == 100
+    print('  ✓ 单位后缀: 90° 30℃ 98℉')
+
+
 # ─── 主入口 ─────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -479,6 +534,9 @@ if __name__ == '__main__':
         test_safe_path_expr_none, test_safe_path_expr_attr,
         test_struct_field_access, test_struct_dict_access,
         test_bit_in_expr_context, test_set_union_in_expr,
+        test_symbol_constants, test_empty_set_literal,
+        test_sqrt_symbol_prefix, test_cbrt_symbol_prefix,
+        test_divide_symbol, test_unit_suffix_symbols,
     ]
     passed = 0
     failed = 0

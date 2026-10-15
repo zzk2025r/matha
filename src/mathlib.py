@@ -32,9 +32,13 @@ import random
 
 CONSTANTS: dict[str, float] = {
     "pi": math.pi,           # 圆周率 ≈ 3.14159
+    "π": math.pi,            # 圆周率符号别名（Phase ②：符号常量可用）
     "e": math.e,             # 自然对数底 ≈ 2.71828
     "tau": math.tau,         # 2π ≈ 6.28318
+    "τ": math.tau,           # 2π 符号别名
     "phi": (1 + math.sqrt(5)) / 2,  # 黄金比例 ≈ 1.61803
+    "φ": (1 + math.sqrt(5)) / 2,    # 黄金比例符号别名
+    "∞": math.inf,           # 正无穷（#：[∞] 不再 KeyError）
 }
 
 # 物理常量（SI 单位）
