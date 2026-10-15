@@ -696,6 +696,19 @@ def builtin_列表去重(lst) -> list:
     return _dedup_ordered(lst)
 
 
+def _set_seq(v) -> list:
+    """将集合运算操作数归一化为有序元素列表（保序）。
+
+    集合字面量以 list 承载（见 _dedup_ordered）；真 set 无序，退化为 list(v)。
+    与 VM（src/mbc/vm.py::_set_seq）、原生后端语义一致。
+    """
+    if isinstance(v, (list, tuple, str)):
+        return list(v)
+    if isinstance(v, set):
+        return list(v)
+    return [v]
+
+
 def _dedup_ordered(values) -> list:
     """按 == 去重并保序，返回普通 list。
 
@@ -2767,28 +2780,26 @@ class Interpreter:
                     result = l >> r
                 else:
                     raise MathaRuntimeError(f">> 操作数需为整数，actual left={type(l).__name__}, right={type(r).__name__}")
-            # 集合运算
+            # 集合运算（与集合字面量一致：返回有序去重列表）。
+            # 语义对齐 VM/native/自举：∪ 并、∩ 交、⊖ 差、~ 右关于左的补、
+            # × 笛卡尔积、⊆ 子集。见 docs/06-表达式与运算符.md:126-132。
             elif op == "∪":
-                result = set(self._ensure_set(l)) | set(self._ensure_set(r))
+                result = _dedup_ordered(_set_seq(l) + _set_seq(r))
             elif op == "∩":
-                result = set(self._ensure_set(l)) & set(self._ensure_set(r))
+                rb = _dedup_ordered(_set_seq(r))
+                result = [x for x in _dedup_ordered(_set_seq(l)) if x in rb]
             elif op == "⊖":
-                result = set(self._ensure_set(l)) - set(self._ensure_set(r))
+                rb = _dedup_ordered(_set_seq(r))
+                result = [x for x in _dedup_ordered(_set_seq(l)) if x not in rb]
             elif op == "~":
-                s = set(self._ensure_set(l))
-                u = self.env.get("U")
-                if u is not None:
-                    result = set(self._ensure_set(u)) - s
-                else:
-                    result = frozenset() - s
+                # 补集：左操作数在右操作数（全集）中的补 —— B \ A。
+                lb = _dedup_ordered(_set_seq(l))
+                result = [x for x in _dedup_ordered(_set_seq(r)) if x not in lb]
             elif op == "×":
-                ls = self._ensure_set(l)
-                rs = self._ensure_set(r)
-                result = [(a, b) for a in ls for b in rs]
+                result = [(a, b) for a in _set_seq(l) for b in _set_seq(r)]
             elif op == "⊆":
-                ls = set(self._ensure_set(l))
-                rs = set(self._ensure_set(r))
-                result = ls <= rs
+                rb = _dedup_ordered(_set_seq(r))
+                result = all(x in rb for x in _dedup_ordered(_set_seq(l)))
             # 空值合并
             elif op == "??":
                 result = l if l is not None else r

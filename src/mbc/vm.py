@@ -63,6 +63,53 @@ def _bitop(sym: str, fn):
     return apply
 
 
+def _set_seq(v) -> list:
+    """集合运算操作数 → 有序元素列表（保序）。与解释器 interp.py::_set_seq 一致。"""
+    if isinstance(v, (list, tuple, str)):
+        return list(v)
+    if isinstance(v, set):
+        return list(v)
+    return [v]
+
+
+def _dedup_ordered(values) -> list:
+    """按 == 去重并保序，返回普通 list（与集合字面量 _builtin_make_set 一致）。"""
+    seen: list = []
+    for x in values:
+        if x not in seen:
+            seen.append(x)
+    return seen
+
+
+def _set_union(a, b) -> list:
+    return _dedup_ordered(_set_seq(a) + _set_seq(b))
+
+
+def _set_inter(a, b) -> list:
+    rb = _dedup_ordered(_set_seq(b))
+    return [x for x in _dedup_ordered(_set_seq(a)) if x in rb]
+
+
+def _set_diff(a, b) -> list:
+    rb = _dedup_ordered(_set_seq(b))
+    return [x for x in _dedup_ordered(_set_seq(a)) if x not in rb]
+
+
+def _set_comp(a, b) -> list:
+    """补集：A 在 B（全集）中的补 —— B \\ A（对齐 docs/06 补集语义）。"""
+    lb = _dedup_ordered(_set_seq(a))
+    return [x for x in _dedup_ordered(_set_seq(b)) if x not in lb]
+
+
+def _set_prod(a, b) -> list:
+    return [(x, y) for x in _set_seq(a) for y in _set_seq(b)]
+
+
+def _set_subset(a, b) -> bool:
+    rb = _dedup_ordered(_set_seq(b))
+    return all(x in rb for x in _dedup_ordered(_set_seq(a)))
+
+
 _BINOPS = {
     "+": lambda a, b: a + b,
     "-": lambda a, b: a - b,
@@ -91,6 +138,14 @@ _BINOPS = {
     "&": _bitop("&", operator.and_),
     "|": _bitop("|", operator.or_),
     "⊕": _bitop("⊕", operator.xor),
+    # 集合运算：与集合字面量（list 承载）及解释器 interp.py 一致，
+    # 返回有序去重列表。interp 参考实现见 src/interp.py:2771-2791。
+    "∪": lambda a, b: _set_union(a, b),
+    "∩": lambda a, b: _set_inter(a, b),
+    "⊖": lambda a, b: _set_diff(a, b),
+    "~": lambda a, b: _set_comp(a, b),
+    "×": lambda a, b: _set_prod(a, b),
+    "⊆": lambda a, b: _set_subset(a, b),
 }
 
 def _builtin_sqrt(a):

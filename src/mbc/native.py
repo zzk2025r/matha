@@ -6282,6 +6282,165 @@ def _emit_builtin_subset(em: _Emitter):
     _emit_epilogue(em)
 
 
+# ---------------------------------------------------------------- 集合运算符运行时
+# 源码可用二元运算符 ∪（并）∩（交）⊖（差）～/¬（补）×(积) ⊆(子集)。
+# 语义对齐 src/interp.py 的 _set_seq/_dedup_ordered 与 src/mbc/vm.py 的
+# _set_union 等：结果一律为「按首次出现保序去重」的普通列表（与集合字面量
+# 构造集合 / list_dedup 一致），**不是** ml_setify 的去重升序；⊆ 返回布尔对象。
+# 调用约定同 seq_contains：rax=左、rcx=右 → rax=结果。由 _emit_setop_runtime
+# 统一发射，BINOP 分派按 _SET_BINOPS 直接 call_rel32（与 `in` 同形）。
+_SET_BINOPS = {
+    "∪": "set_union", "∩": "set_inter", "⊖": "set_diff",
+    "~": "set_comp", "×": "set_prod", "⊆": "set_subset",
+}
+
+
+def _emit_setop_concat(em: _Emitter, name: str, swap: bool):
+    """raw = dedup(左 ++ 右)（保序）。并集用 swap=False。"""
+    a, b = (-16, -8) if swap else (-8, -16)
+    em.label_here(name)
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x48\x83\xEC\x60")                    # sub rsp,0x60
+    em.mov_mem_r(5, -8, 0)                          # [rbp-8]=左
+    em.mov_mem_r(5, -16, 1)                         # [rbp-16]=右
+    _emit_alloc_empty_list(em)
+    em.mov_mem_r(5, -24, 0)                         # [rbp-24]=raw
+    _emit_append_all(em, f"{name}a", a, -24, -32, -40, -48)
+    _emit_append_all(em, f"{name}b", b, -24, -32, -40, -48)
+    em.mov_rd_mem(0, 5, -24)
+    em.call_rel32("list_dedup")                     # 保序去重
+    em.emit(b"\xC9\xC3")                            # leave; ret
+
+
+def _emit_setop_filter(em: _Emitter, name: str, keep: bool, swap: bool):
+    """raw = dedup([x for x in src if (x in cont) == keep])（保序）。
+    交/差 swap=False（src=左）；补（右 \\ 左）swap=True。"""
+    src, cont = (-16, -8) if swap else (-8, -16)
+    em.label_here(name)
+    em.emit(b"\x55\x48\x89\xE5")
+    em.emit(b"\x48\x83\xEC\x60")
+    em.mov_mem_r(5, -8, 0)
+    em.mov_mem_r(5, -16, 1)
+    _emit_alloc_empty_list(em)
+    em.mov_mem_r(5, -24, 0)
+    _emit_append_filtered(em, name, src, cont, -24, -32, -40, -48, keep)
+    em.mov_rd_mem(0, 5, -24)
+    em.call_rel32("list_dedup")
+    em.emit(b"\xC9\xC3")
+
+
+def _emit_setop_prod(em: _Emitter):
+    """raw = [[x,y] for x in 左 for y in 右]（保序，不去重：保留全部配对）。"""
+    iloop, jloop, jdone, idone = ("sp_iloop", "sp_jloop", "sp_jdone", "sp_idone")
+    em.label_here("set_prod")
+    em.emit(b"\x55\x48\x89\xE5")
+    em.emit(b"\x48\x83\xEC\x80")                    # sub rsp,0x80
+    em.mov_mem_r(5, -8, 0)                          # [rbp-8]=左
+    em.mov_mem_r(5, -16, 1)                         # [rbp-16]=右
+    em.mov_rd_mem(1, 0, 8)                          # rcx=len(左)
+    em.mov_mem_r(5, -24, 1)                         # n
+    em.mov_rd_mem(0, 5, -16)                        # rax=右
+    em.mov_rd_mem(1, 0, 8)                          # rcx=len(右)
+    em.mov_mem_r(5, -32, 1)                         # m
+    _emit_alloc_empty_list(em)
+    em.mov_mem_r(5, -56, 0)                         # raw
+    em.xor_rr32(0, 0)
+    em.mov_mem_r(5, -40, 0)                         # i=0
+    em.label_here(iloop)
+    em.mov_rd_mem(0, 5, -40)
+    em.mov_rd_mem(1, 5, -24)
+    em.cmp_rr(0, 1)
+    em.jcc_rel32(0x8D, idone)                       # i>=n
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_rd_mem(2, 5, -40)
+    em.mov_rd_mem(8, 0, 16, index=2, scale=8)       # r8=左[i]
+    em.mov_mem_r(5, -72, 8)                         # [rbp-72]=x
+    em.xor_rr32(0, 0)
+    em.mov_mem_r(5, -48, 0)                         # j=0
+    em.label_here(jloop)
+    em.mov_rd_mem(0, 5, -48)
+    em.mov_rd_mem(1, 5, -32)
+    em.cmp_rr(0, 1)
+    em.jcc_rel32(0x8D, jdone)                       # j>=m
+    _emit_alloc_empty_list(em)
+    em.mov_mem_r(5, -64, 0)                         # pair=[]
+    em.mov_rd_mem(0, 5, -64)
+    em.mov_rd_mem(1, 5, -72)
+    em.call_rel32("list_append")                    # pair+=[x]
+    em.mov_mem_r(5, -64, 0)
+    em.mov_rd_mem(0, 5, -16)
+    em.mov_rd_mem(2, 5, -48)
+    em.mov_rd_mem(8, 0, 16, index=2, scale=8)       # r8=右[j]
+    em.mov_rd_mem(0, 5, -64)
+    em.mov_rr(1, 8)
+    em.call_rel32("list_append")                    # pair+=[y]
+    em.mov_mem_r(5, -64, 0)
+    em.mov_rd_mem(0, 5, -56)
+    em.mov_rd_mem(1, 5, -64)
+    em.call_rel32("list_append")                    # raw+=[pair]
+    em.mov_mem_r(5, -56, 0)
+    em.mov_rd_mem(0, 5, -48)
+    em.inc_r(0)
+    em.mov_mem_r(5, -48, 0)
+    em.jcc_rel32(None, jloop)
+    em.label_here(jdone)
+    em.mov_rd_mem(0, 5, -40)
+    em.inc_r(0)
+    em.mov_mem_r(5, -40, 0)
+    em.jcc_rel32(None, iloop)
+    em.label_here(idone)
+    em.mov_rd_mem(0, 5, -56)
+    em.emit(b"\xC9\xC3")
+
+
+def _emit_setop_subset(em: _Emitter):
+    """左 ⊆ 右 → 布尔对象（对齐 interp 的 all(x in 右)）。"""
+    loop, tlab, flab, done = ("ss_loop", "ss_true", "ss_false", "ss_done")
+    em.label_here("set_subset")
+    em.emit(b"\x55\x48\x89\xE5")
+    em.emit(b"\x48\x83\xEC\x50")                    # sub rsp,0x50
+    em.mov_mem_r(5, -8, 0)                          # A
+    em.mov_mem_r(5, -16, 1)                         # B
+    em.mov_rd_mem(1, 0, 8)                          # rcx=len(A)
+    em.mov_mem_r(5, -24, 1)                         # n
+    em.xor_rr32(0, 0)
+    em.mov_mem_r(5, -32, 0)                         # i=0
+    em.label_here(loop)
+    em.mov_rd_mem(0, 5, -32)
+    em.mov_rd_mem(1, 5, -24)
+    em.cmp_rr(0, 1)
+    em.jcc_rel32(0x8D, tlab)                        # i>=n → 真
+    em.mov_rd_mem(0, 5, -8)
+    em.mov_rd_mem(2, 5, -32)
+    em.mov_rd_mem(0, 0, 16, index=2, scale=8)       # rax=A[i]
+    em.mov_rd_mem(1, 5, -16)                        # rcx=B
+    em.call_rel32("seq_contains")
+    em.emit(b"\x85\xC0")                            # test eax,eax
+    em.jcc_rel32(0x84, flab)                        # 未命中 → 假
+    em.mov_rd_mem(0, 5, -32)
+    em.inc_r(0)
+    em.mov_mem_r(5, -32, 0)
+    em.jcc_rel32(None, loop)
+    em.label_here(tlab)
+    em.mov_r_imm32(0, 1)
+    em.jcc_rel32(None, done)
+    em.label_here(flab)
+    em.xor_rr32(0, 0)
+    em.label_here(done)
+    _emit_rax_to_bool(em, "ss", "0")
+    em.emit(b"\xC9\xC3")
+
+
+def _emit_setop_runtime(em: _Emitter):
+    """发射全部集合运算符运行时子程序（BINOP 直接 call）。"""
+    _emit_setop_concat(em, "set_union", swap=False)
+    _emit_setop_filter(em, "set_inter", keep=True, swap=False)
+    _emit_setop_filter(em, "set_diff", keep=False, swap=False)
+    _emit_setop_filter(em, "set_comp", keep=False, swap=True)
+    _emit_setop_prod(em)
+    _emit_setop_subset(em)
+
+
 def _emit_builtin_cardinality(em: _Emitter):
     """集合基数(s) → len(set(s))。"""
     em.label_here("fn:集合基数")
@@ -7637,6 +7796,9 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         elif sym == "in":
             em.call_rel32("seq_contains")              # rax=左元素 rcx=右容器
             _emit_rax_to_bool(em, tag, f"{idx}m")
+        elif sym in _SET_BINOPS:
+            # 集合运算符：rax=左 rcx=右 → rax=结果（有序去重列表；⊆ 为布尔对象）。
+            em.call_rel32(_SET_BINOPS[sym])
         elif sym in _BIT_BINOPS:
             # 位运算 `&` `|` `⊕`：两侧都必须是整数。语义对齐 vm._BINOPS 的
             # _bitop 与解释器 src/interp.py:2376-2395（均强制整数）。
@@ -8138,6 +8300,7 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     _emit_mathlib_runtime(ec)                      # mathlib 数论/集合运行时
     _emit_slice(ec)                                # 切片运行时（BUILD_SLICE）
     _emit_in_rt(ec)                                # 成员判断运行时（BINOP 'in'）
+    _emit_setop_runtime(ec)                        # 集合运算符运行时（BINOP ∪∩⊖~×⊆）
     _emit_apply_runtime(ec)                     # 函数值分派（闭包/偏应用）
     _emit_exception_runtime(ec, guard)          # 异常运行时（raise/错误/调用捕获）
     _emit_load_crt(ec)                          # CRT 加载（浮点格式化）

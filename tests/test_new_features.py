@@ -129,15 +129,15 @@ def test_angle_rejects_non_numeric():
 # ─── 集合运算 ────────────────────────────────────────────────────────────────
 
 def test_set_union():
-    assert get_out('#1：[1,2,3] ∪ [3,4,5]') == {1, 2, 3, 4, 5}
+    assert get_out('#1：[1,2,3] ∪ [3,4,5]') == [1, 2, 3, 4, 5]
     print('  ✓ 集合并: [1,2,3] ∪ [3,4,5]')
 
 def test_set_inter():
-    assert get_out('#1：[1,2,3] ∩ [2,3,4]') == {2, 3}
+    assert get_out('#1：[1,2,3] ∩ [2,3,4]') == [2, 3]
     print('  ✓ 集合交: [1,2,3] ∩ [2,3,4]')
 
 def test_set_diff():
-    assert get_out('#1：[1,2,3] ⊖ [2,3,4]') == {1}
+    assert get_out('#1：[1,2,3] ⊖ [2,3,4]') == [1]
     print('  ✓ 集合差: [1,2,3] ⊖ [2,3,4]')
 
 def test_set_subset():
@@ -149,6 +149,17 @@ def test_set_prod():
     result = get_out('#1：[1,2] × ["a","b"]')
     assert sorted(result) == [(1, 'a'), (1, 'b'), (2, 'a'), (2, 'b')]
     print('  ✓ 笛卡尔积: [1,2] × [a,b]')
+
+def test_set_op_single_element_operand():
+    # 回归：集合运算符右值为单元素列表 [x] 时，曾被 _parse_primary 误判为
+    # 输出语句 Output(x)（因 OP_SET_* 未列入「运算符右值」token 集合），
+    # 导致 [1,2] ∪ [5] 变成 BinaryOp(∪, [1,2], Output(5))，四端结果错乱。
+    assert get_out('#1：[[1,2] ∪ [5]]') == [1, 2, 5]
+    assert get_out('#1：[[1,2,3] ∩ [3]]') == [3]
+    assert get_out('#1：[[1,2,3] ⊖ [3]]') == [1, 2]
+    assert get_out('#1：[[3,1] ∪ [2]]') == [3, 1, 2]
+    assert get_out('#1：[[5] ∪ [1,2]]') == [5, 1, 2]
+    print('  ✓ 集合运算符右值单元素列表（解析器回归）')
 
 # ─── 严格比较 ───────────────────────────────────────────────────────────────
 
@@ -434,7 +445,7 @@ def test_bit_in_expr_context():
     print('  ✓ 位与优先级: 1*2 & 3 = 2')
 
 def test_set_union_in_expr():
-    assert get_out('let s = [1,2]; #1：[s ∪ [3,4]]') == {1, 2, 3, 4}
+    assert get_out('let s = [1,2]; #1：[s ∪ [3,4]]') == [1, 2, 3, 4]
     print('  ✓ 集合并在变量表达式中')
 
 

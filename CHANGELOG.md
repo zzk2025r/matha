@@ -1,5 +1,50 @@
 # Matha 变更摘要
 
+## 集合运算符 ∪∩⊖~×⊆ 支持 + 运算符右值 `[x]` 解析修复（三端一致）
+
+**日期**：2026-10-15
+
+### 变更范围
+
+用户反馈：源码出现中文/运算/学科符号即报错。定位到集合运算符 `∪ ∩ ⊖ ~ × ⊆` 原本
+**仅解释器**支持——VM/native 在编译期直接拒绝（`src/mbc/compiler.py:1209`
+`raise RuntimeError("字节码编译：不支持的二元运算符 …")`）。同时发现一处**四端共享的
+解析器 bug**：集合运算符右值为单元素列表 `[x]` 时被误判为输出语句。
+
+### 变更
+
+- `src/parser.py`（四端共享）：`_parse_primary` 的「运算符右值」token 集合
+  （`src/parser.py:2238-2254`）补入 `OP_SET_UNION/INTER/DIFF/COMP/PROD/SUBSET`。
+  此前 `A ∪ [5]` 会解析成 `BinaryOp(op='∪', left=A, right=Output(5))`，四端结果错乱
+  （native 端 `Output` 被当作表达式值 → 访问违例崩溃）。
+- `src/interp.py`（参考语义）：集合运算符统一返回**有序去重列表**（与集合字面量一致，
+  非升序）；新增模块级 `_set_seq`；`∪` 去重保序拼接、`∩`/`⊖` 保左序、
+  `~` = `B \ A`（右操作数作全集，对齐 `docs/06-表达式与运算符.md`「补集（相对全集）」）、
+  `×` 保序笛卡尔积（list of tuple）、`⊆` 布尔。
+- `src/mbc/vm.py`：新增 `_set_seq/_dedup_ordered/_set_union/_set_inter/_set_diff/
+  _set_comp/_set_prod/_set_subset`，并在 `_BINOPS` 挂载 `∪∩⊖~×⊆`。
+- `src/mbc/compiler.py`：`_BIN_OPS` 增加集合运算符（透传，交由 VM/native）。
+- `src/mbc/native.py`：新增 `_emit_setop_runtime`（`set_union/set_inter/set_diff/
+  set_comp/set_prod/set_subset` 六个 x86-64 运行时子程序，复用
+  `list_dedup`/`list_append`/`seq_contains`，语义=保序去重列表）、`_SET_BINOPS`
+  分派（`OP.BINOP` 内，与 `in` 同形）、尾段 `_emit_setop_runtime(ec)` 注册。
+- 测试：`tests/test_new_features.py` 新增「集合运算符右值单元素列表（解析器回归）」；
+  `tests/test_native.py` 新增 `test_native_set_operators`（10 例）。
+
+### 测试
+
+- interp↔VM↔native 三端 8 例集合表达式逐例一致（含 `[3,1] ∪ [2]`→`[3,1,2]` 保序）。
+- `test_new_features.py` 48 passed；`test_native.py` 568 passed（含 10 新增）。
+- 全量 `pytest tests/ -m "not slow"` 2828 passed + 2 xfailed。
+- ruff：`src/parser.py` 等改动无新增告警。
+
+### 已知遗留（本次未处理）
+
+- **自托管链**（`matha/lexer.matha` / `parser.matha` / `compiler_matha.matha` /
+  `vm.matha`）尚不支持集合运算符与本次解析修复（第四端），待后续补齐。
+- **符号常量/函数**（`√ π ∞ e ° ℃ ∑ …`）仍会 `KeyError`（Phase ②）；**全符号资源库**
+  （Phase ③）未做。
+
 ## `#：` 输出括号内文本回退（四端一致修复）
 
 **日期**：2026-10-14

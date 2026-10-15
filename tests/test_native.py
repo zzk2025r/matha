@@ -1566,3 +1566,25 @@ def test_native_optional_chaining():
     assert _run('let l = [10, 20] in\n输出(l?.[1])\n') == (0, "20")
     assert _run('let l = [10, 20] in\n输出(l?.[9])\n') == (0, "None")
     assert _run('let l = null in\n输出(l?.[0])\n') == (0, "None")
+
+
+# ---------- 集合运算符 ∪ ∩ ⊖ ~ × ⊆（对齐 interp/VM：有序去重列表） ----------
+
+@pytest.mark.parametrize("expr,expected", [
+    ("[1,2,3] ∪ [3,4,5]", "[1, 2, 3, 4, 5]"),
+    ("[1,2,3] ∩ [2,3,4]", "[2, 3]"),
+    ("[1,2,3] ⊖ [2,3,4]", "[1]"),
+    ("[1,2] ⊆ [1,2,3]", "True"),
+    ("[1,2,4] ⊆ [1,2,3]", "False"),
+    ('[1,2] × ["a","b"]', "[[1, 'a'], [1, 'b'], [2, 'a'], [2, 'b']]"),
+    ("[1,2,3] ～ [1,2,3,4]", "[4]"),
+    # 保序（非升序）：对齐集合字面量
+    ("[3,1] ∪ [2]", "[3, 1, 2]"),
+    # 回归：右值单元素列表 [5] 曾被误判为输出
+    ("[1,2] ∪ [5]", "[1, 2, 5]"),
+    ("[1,2,3] ⊖ [3]", "[1, 2]"),
+])
+def test_native_set_operators(expr, expected):
+    """集合运算符原生端（此前编译期直接 NativeNotSupported）。"""
+    rc, out = _run(f"#1：[{expr}]\n")
+    assert rc == 0 and out == expected

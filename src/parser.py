@@ -2247,6 +2247,11 @@ class Parser:
                     TokenType.PUNCT_COMMA, TokenType.PUNCT_LPAREN,
                     TokenType.PUNCT_LBRACKET, TokenType.PUNCT_LBRACE,
                     TokenType.KW_IN,
+                    # 集合运算符右值：`A ∪ [x]` 中的 `[x]` 为列表字面量，
+                    # 单元素 [x] 亦不可误判为输出（此前遗漏 → `[5]` 变成 Output(5)）。
+                    TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
+                    TokenType.OP_SET_DIFF, TokenType.OP_SET_COMP,
+                    TokenType.OP_SET_PROD, TokenType.OP_SET_SUBSET,
                 ) or (
                     _prev_tok.type == TokenType.IDENTIFIER
                     and _prev_tok.value in ("then", "else", "in", "do")
