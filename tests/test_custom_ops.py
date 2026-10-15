@@ -2,11 +2,14 @@
 
 语法：`@define_op: <符号> = <优先级> | <结合性>  [ => <函数名> ]`
 运算符绑定到具名函数；求值 `a <符号> b` 时调用该函数。
-覆盖：解析注册、解释器求值、字节码/VM 求值、优先级、未绑定/缺实现报错。
+覆盖：解析注册、解释器求值、字节码/VM 求值、原生求值、优先级、未绑定/缺实现报错。
 """
 
 import os
+import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,6 +18,7 @@ import pytest
 from src import custom_ops
 from src.interp import MathaRuntimeError, interpret
 from src.mbc import compile_source
+from src.mbc.native import compile_to_exe
 from src.mbc.vm import VM
 from src.parser import parse
 
@@ -145,6 +149,38 @@ def test_vm_custom_op_false():
 def test_vm_matches_interp():
     src = _APPROX + "a = 5\nb = 6\nc = 20\n#：[a ≈ b]\n#：[a ≈ c]\n"
     assert _vm(src) == _interp(src)
+
+
+# ─── 原生（x86-64 PE64）─────────────────────────────────────────────────────
+# 编译器对自定义运算符发射 LOAD_GLOBAL handler + CALL 2，原生端复用既有闭包
+# 调用路径，无需改 native.py；此处仅端到端锁定行为。
+
+def _native(src):
+    """编译为 exe 并运行，返回 stdout 文本（原生 OUTPUT 打印整数/布尔）。"""
+    exe = os.path.join(tempfile.gettempdir(), "test_custom_ops_native.exe")
+    Path(exe).write_bytes(compile_to_exe(src))
+    r = subprocess.run([exe], capture_output=True, timeout=30)
+    assert r.returncode & 0xFFFFFFFF == 0, r.stderr.decode("utf-8", "replace")
+    return r.stdout.decode("utf-8", "replace").strip()
+
+
+_NAT_ADD = (
+    "@define_op: ≈ = 5 | left => 加\n"
+    "func 加(a: Int, b: Int) -> Int = a + b\n"
+)
+
+
+def test_native_custom_op_add():
+    assert _native(_NAT_ADD + "#1：[2 ≈ 3]\n") == "5"
+
+
+def test_native_custom_op_vars():
+    assert _native(_NAT_ADD + "x = 10\ny = 20\n#1：[x ≈ y]\n") == "30"
+
+
+def test_native_matches_vm():
+    src = _NAT_ADD + "a = 5\nb = 6\n#1：[a ≈ b]\n"
+    assert _native(src) == str(_vm(src)[-1])
 
 
 # ─── 注册表工具 ──────────────────────────────────────────────────────────────
