@@ -1,5 +1,53 @@
 # Matha 变更摘要
 
+## 全符号资源库（Matha 源 + 宿主查询接入）
+
+**日期**：2026-10-15
+
+### 变更范围
+
+Phase ③：新增**数据驱动**的全符号资源库。单一数据来源为 Matha 源文件
+`matha/stdlib_symbols.matha`：分类登记 Matha 可用 / 可识别符号的
+码位、中英文名、别名、类别与语义；运算符另带 **优先级 / 结合性**，可生成
+`@define_op` 声明。宿主 `src/symbol_registry.py` **编译并运行同一文件**读取
+其全局 `符号表`，再以 Python API 提供等价查询。**不改变词法器行为**，不注册运算符。
+
+- 主类别（7 类）：`中文标点 / 全角 / ASCII / 运算符 / 数学 / 希腊 / 学科`。
+- 一个符号只登记一次；跨类别归属用 `标签` 表达（如 `π` 主类=数学、标签含 `希腊`）。
+- `按类别` 同时匹配 `类别` 与 `标签`，因此 `按类别("希腊")` 也会返回 `π`/`τ`/`φ`。
+- 条目字段：`符号 / 码位 / 中文名 / 英文名 / 别名 / 类别 / 标签 / 语义 / 优先级 / 结合性`。
+- 当前登记 **200** 条；其中带优先级（可经 `@define_op` 表达）的运算符 **65** 个。
+
+### 变更
+
+- 新增 `matha/stdlib_symbols.matha`：
+  - 构造器 `码位`（`ord` 取各字符 Unicode 码点）、`符号(...)`（普通符号，优先级 0）、
+    `运算符号(...)`（主类别=运算符，带优先级 / 结合性）。
+  - 数据 `符号表`（200 条，按类别分组标注）。
+  - 查询函数：`类别列表 / 全部符号 / 符号数目 / 按类别 / 按码位 / 按符号 / 按名 /
+    取语义 / 运算符声明 / 可定义运算符`。
+- 新增 `src/symbol_registry.py`：加载（`compile_source` + `VM` 运行，读 `符号表`）、
+  进程内缓存（`clear_cache`）与 Python 查询 API（`all_symbols / count / categories /
+  by_category / by_symbol / by_codepoint / by_name / semantics / operator_declaration /
+  definable_operators`），只读取、不改变词法器。
+- 新增 `tests/test_symbol_registry.py`（8 项）。
+
+### 测试
+
+- `pytest tests/test_symbol_registry.py`：**8 passed**。
+- 全量 `pytest tests/ -m "not slow"`：**3035 passed** + 3 deselected + 2 xfailed
+  （较 Phase ② 的 3027 增 8）。
+- 全量 `pytest tests/ -m "slow"`：**3 passed**（自举不动点保持）。
+- ruff：`src/symbol_registry.py` 与 `tests/test_symbol_registry.py` **All checks passed**。
+
+### 备注
+
+- Matha 源写法约束：布尔条件的续行**不能以 `or`/`and` 等二元运算符开头**
+  （宿主解析器不识别行首运算符续行，会报 `期望 =`）——条件须写在同一行。
+- 非内置的数学 / 逻辑 / 集合关系符号（如 `≈ ≠ ≡ ≤ ≥ ∝ ∈ ∉ ⊂ ⊃ ⊇ ⊄ ∧ ∨ ¬ ⇒ ⇔ ∘ ⊗ ⊙ ⊥ ∥`）
+  以「运算符」登记并带优先级，供 `@define_op` 参考；它们目前**仍是登记数据**，
+  宿主 / 自托管**均未启用**这些自定义运算符。
+
 ## 聚合前缀 ∑ ∏（列表求和 / 求积，四端一致）
 
 **日期**：2026-10-15
@@ -53,10 +101,10 @@ Phase ② 收尾：补齐**聚合前缀** `∑`（列表求和）与 `∏`（列
   `∑[7]` 非「单元素列表求和」；写作 `∑[7,]`（尾逗号）方为列表。测试用尾逗号形式。
 - `∑`/`∏` 作为前缀运算符，仅接受单个操作数；多元素需列表字面量 `∑[a, b, c]`。
 
-### 已知遗留（Phase ③，未做）
+### 已知遗留（Phase ③）
 
-- **全符号资源库** `matha/stdlib_symbols.matha`：分类登记中文标点/全角/ASCII/运算/
-  数学/希腊/学科符号的码位、中英文名、别名、类别与语义，可查询并供 `@define_op` 调用。
+- 全符号资源库 `matha/stdlib_symbols.matha` + 宿主接入 `src/symbol_registry.py`。
+  **本条目发布时未做，后已实现，见顶部「全符号资源库」节。**
 
 ## 符号常量 / 前缀 √∛ / 中缀 ÷ / 单位后缀 °℃℉（四端一致）
 
