@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src import ast_nodes as ast
+from src import custom_ops
 from src import formula_schema as _fs
 from src.mbc import opcodes as OP
 
@@ -1218,7 +1219,19 @@ class Compiler:
                 return
             op = _BIN_OPS.get(node.op)
             if op is None:
-                raise RuntimeError(f"字节码编译：不支持的二元运算符 {node.op!r}")
+                # 用户自定义运算符（@define_op）：调用绑定的具名函数 fn(left, right)
+                _cop = custom_ops.get(node.op)
+                if _cop is None:
+                    raise RuntimeError(f"字节码编译：不支持的二元运算符 {node.op!r}")
+                if _cop.handler is None:
+                    raise RuntimeError(
+                        f"字节码编译：运算符 {node.op!r} 未绑定实现"
+                        f"（用 @define_op: {node.op} = … | … => 函数名 绑定）")
+                code.append((OP.LOAD_GLOBAL, self.sconst(_cop.handler)))
+                self._emit_expr(node.left, scope, code)
+                self._emit_expr(node.right, scope, code)
+                code.append((OP.CALL, 2))
+                return
             folded = _fold_bin(op, node.left, node.right)
             if folded is not _NO_FOLD:
                 code.append((OP.PUSH_CONST, self.const(folded)))

@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import Any
 
 from src import ast_nodes as ast
+from src import custom_ops
 from src import formula_schema as _fs
 from src import text_encoding as _te
 
@@ -2604,9 +2605,31 @@ class Interpreter:
             return set(v)
         return {v}
 
+    def _eval_custom_op(self, node: ast.BinaryOp) -> object:
+        """求值用户自定义运算符：左右操作数求值后交给绑定的具名函数。"""
+        defn = custom_ops.get(node.op)
+        lhs = self._eval(node.left)
+        rhs = self._eval(node.right)
+        if defn is None or defn.handler is None:
+            raise MathaRuntimeError(
+                f"运算符 {node.op} 未绑定实现"
+                f"（用 @define_op: {node.op} = … | … => 函数名 绑定）")
+        fn = (self.funcs.get(defn.handler)
+              or self.builtins.get(defn.handler)
+              or self.env.get(defn.handler))
+        if fn is None:
+            raise MathaRuntimeError(
+                f"运算符 {node.op} 的实现函数未定义: {defn.handler}")
+        return self._call_func_or_closure(fn, [lhs, rhs])
+
     def _eval_binary(self, node: ast.BinaryOp) -> object:
         self._log_enter("eval Binary", f"'{node.op}'")
         op = node.op
+        # 用户自定义运算符（@define_op）：绑定到具名函数后调用
+        if custom_ops.is_custom_op(op):
+            result = self._eval_custom_op(node)
+            self._log_exit("eval Binary", result)
+            return result
         # 短路求值：&& || and or 仅在有需要时求值右操作数
         if op == "&&" or op == "and":
             l = self._eval(node.left)

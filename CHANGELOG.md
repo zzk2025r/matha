@@ -1,5 +1,58 @@
 # Matha 变更摘要
 
+## 用户自定义运算符 `@define_op` 可用（宿主解析器 + 解释器 + 字节码/VM）
+
+**日期**：2026-10-15
+
+### 变更范围
+
+让 `@define_op` 声明**真正可用**。运算符语义 = **绑定到具名函数**：
+`@define_op: <符号> = <优先级> | <结合性>  [ => <函数名> ]`，之后 `a <符号> b`
+求值时调用该全局函数（左右操作数作实参）。**起步范围**：宿主解析器 + 解释器 +
+字节码编译器/VM；native / 自托管后续跟进。
+
+关键决策：**不改词法器**。`≈` 等非内置符号在词法层仍是 `SYMBOL`；解析器在
+**二元运算符位置**检查当前 `SYMBOL` 是否为已注册自定义运算符，若是则按注册的
+优先级/结合性做**优先级爬升**，产出 `ast.BinaryOp(op=<符号>)`。
+
+### 变更
+
+- 新增 `src/custom_ops.py`：注册表（`CustomOp(symbol, precedence, assoc, handler)`
+  + `REGISTRY` + `register/get/is_custom_op/clear`）。**进程级全局**，`parse()` 会写入，
+  测试须用 fixture `clear()` 隔离。
+- `src/parser.py`：
+  - `_parse_define_op` 增**可选 handler 后缀** `=> <函数名>`（`OP_FATARROW`；兼容 `->`），
+    解析后 `custom_ops.register(...)`。
+  - 新增 `_parse_custom_op_expr` / `_parse_custom_op_rest`：优先级爬升
+    （left→`prec+1`、right→`prec`），包住 `_parse_or_expr`；`_parse_expr` 两处入口
+    改为调用它（空注册表时是零开销透传）。
+- `src/interp.py`：`_eval_binary` 顶部增自定义运算符分支 → `_eval_custom_op`
+  （求值左右操作数 → 查全局函数 funcs/builtins/env → `_call_func_or_closure`）。
+  未绑定实现 → `MathaRuntimeError("运算符 … 未绑定实现…")`；实现函数不存在 →
+  `MathaRuntimeError("… 实现函数未定义: …")`。
+- `src/mbc/compiler.py`：`_emit_expr` 的 `BinaryOp` 兜底分支（`_BIN_OPS` 未命中时）
+  增自定义运算符发射：`LOAD_GLOBAL <handler>` + 求值左右 + `CALL 2`；未绑定 →
+  `RuntimeError("字节码编译：运算符 … 未绑定实现…")`。**VM 路径与解释器结果一致**。
+- 新增 `tests/test_custom_ops.py`（16 项，ruff-clean）：注册、解释器求值（真/假、
+  优先级、left/right 结合性）、报错（未绑定/缺实现/编译期未绑定）、字节码/VM
+  与解释器一致性、注册表工具。
+
+### 测试
+
+- `pytest tests/test_custom_ops.py`：**16 passed**。
+- 全量 `pytest tests/ -m "not slow"`：**3051 passed** + 3 deselected + 2 xfailed
+  （较 Phase ③ 的 3035 增 16）。
+- 全量 `pytest tests/ -m "slow"`：**3 passed**（自举不动点保持）。
+- ruff：`src/custom_ops.py` 与 `tests/test_custom_ops.py` **All checks passed**；
+  `interp.py`/`compiler.py` 中本次新增块无新增告警（存量 E741/E702/B905 等为既有债）。
+
+### 备注 / 后续
+
+- 仅对**词法层为 `SYMBOL`** 的符号生效（已是原生 token 的如 `⊕` 不能再注册）。
+- `custom_ops.REGISTRY` 是进程级全局：跨 `interpret()` 调用会残留，同进程多程序须 `clear()`。
+- 后续跟进：native 发射器与自托管 `matha/parser.matha`（让自举链也支持自定义运算符）。
+
+
 ## 全符号资源库（Matha 源 + 宿主查询接入）
 
 **日期**：2026-10-15
@@ -45,8 +98,9 @@ Phase ③：新增**数据驱动**的全符号资源库。单一数据来源为 
 - Matha 源写法约束：布尔条件的续行**不能以 `or`/`and` 等二元运算符开头**
   （宿主解析器不识别行首运算符续行，会报 `期望 =`）——条件须写在同一行。
 - 非内置的数学 / 逻辑 / 集合关系符号（如 `≈ ≠ ≡ ≤ ≥ ∝ ∈ ∉ ⊂ ⊃ ⊇ ⊄ ∧ ∨ ¬ ⇒ ⇔ ∘ ⊗ ⊙ ⊥ ∥`）
-  以「运算符」登记并带优先级，供 `@define_op` 参考；它们目前**仍是登记数据**，
-  宿主 / 自托管**均未启用**这些自定义运算符。
+  以「运算符」登记并带优先级，供 `@define_op` 参考。**宿主解析器 + 解释器 +
+  字节码/VM 现已支持**用 `@define_op: <符号> = … | … => <函数名>` 绑定并使用
+  （见顶部「用户自定义运算符」节）；native 与自托管仍为登记数据、未启用。
 
 ## 聚合前缀 ∑ ∏（列表求和 / 求积，四端一致）
 

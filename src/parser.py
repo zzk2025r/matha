@@ -24,6 +24,7 @@ from enum import auto
 from typing import Any
 
 from src import ast_nodes as ast
+from src import custom_ops
 from src.lexer import Lexer
 from src.tokens import Token, TokenType
 
@@ -805,6 +806,13 @@ class Parser:
             setattr(TokenType, op_name, auto())
         custom_type = getattr(TokenType, op_name)
         GLOBAL_CUSTOM_OPS[symbol] = custom_type
+        # 可选绑定：=> <函数名>（把运算符绑定到具名全局函数；无则求值时报未绑定）
+        handler = None
+        if self._check(TokenType.OP_FATARROW) or self._check(TokenType.OP_ARROW):
+            self._advance()
+            handler = self._expect(TokenType.IDENTIFIER, "运算符实现函数名").value
+        # 注册到运行时运算符表：供表达式解析（优先级/结合性）与求值（handler）使用
+        custom_ops.register(symbol, precedence, assoc, handler)
         # 返回定义节点
         return ast.DefineOp(symbol=symbol, precedence=precedence, assoc=assoc, token_type=custom_type)
 
@@ -1507,7 +1515,7 @@ class Parser:
         # 注意：在控制流语境中，if 由 _parse_if 处理，不在 _parse_expr 中处理
         if not self._in_control_flow and self._check(TokenType.KW_IF):
             return self._parse_if_expr()
-        exprs = [self._parse_or_expr()]
+        exprs = [self._parse_custom_op_expr()]
         # 全角逗号分隔的多表达式序列（如 @(...) 项语境 stop_at_comma=False 时）。
         # 注意：ASCII `;` 不在此处分隔表达式——它是「语句分隔符」，
         # 由语句级循环（代码块/顶层）在 _skip_semicolon 消费，保证
@@ -1528,7 +1536,7 @@ class Parser:
             if (self._check(TokenType.NEWLINE) or (self._current().line != _sep_line)) and not self._in_lambda_body:
                 break
             if self._is_primary_start():
-                exprs.append(self._parse_or_expr())
+                exprs.append(self._parse_custom_op_expr())
             else:
                 break
         if len(exprs) == 1:
@@ -1569,6 +1577,30 @@ class Parser:
                 return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
             return then_expr
         return cond
+
+    # ---------- 用户自定义运算符（@define_op）的解析 ----------
+    def _parse_custom_op_expr(self) -> ast.AST:
+        """带自定义运算符的表达式：先按常规 or 链解析左操作数，
+        再用优先级爬升把 `@define_op` 注册的自定义运算符接上。"""
+        left = self._parse_or_expr()
+        return self._parse_custom_op_rest(left, 0)
+
+    def _parse_custom_op_rest(self, left: ast.AST, min_prec: int) -> ast.AST:
+        while True:
+            tok = self._current()
+            if tok.type != TokenType.SYMBOL:
+                break
+            defn = custom_ops.get(tok.value)
+            if defn is None or defn.precedence < min_prec:
+                break
+            self._advance()
+            self._skip_newlines()
+            right = self._parse_or_expr()
+            # 结合性：left 绑定更紧（右操作数至少高一级）；right 允许同级
+            nxt = defn.precedence if defn.assoc == "right" else defn.precedence + 1
+            right = self._parse_custom_op_rest(right, nxt)
+            left = ast.BinaryOp(op=defn.symbol, left=left, right=right)
+        return left
 
     def _parse_or_expr(self):
         """<or_expr> = <and_expr> , { "or" , <and_expr> }"""
