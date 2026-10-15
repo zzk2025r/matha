@@ -328,13 +328,13 @@ module 语法器 {
 
   (* 比较：= <> != < > <= >=（左结合循环） *)
   func 解析比较(p: 解析器) -> (Dict, 解析器) =
-    let (left, p2) = 解析加减(p) in
+    let (left, p2) = 解析集合(p) in
     解析比较_续(left, p2)
 
   func 解析比较_续(left: Dict, p: 解析器) -> (Dict, 解析器) =
     let (op_tok, p3) = 解析比较_op(p) in
     if op_tok != "" then
-      let (right, p4) = 解析加减(p3) in
+      let (right, p4) = 解析集合(p3) in
       解析比较_续(做BinaryOp(op_tok, left, right), p4)
     else (left, p)
 
@@ -346,6 +346,34 @@ module 语法器 {
     else if 匹配(p, 类型.大于) then (">", 推进(p))
     else if 匹配(p, 类型.小于) then ("<", 推进(p))
     else ("", p)
+
+  (* 集合表达式：∪ ∩ ⊖ × ⊆ 与补 ～/〜/¬（左结合）。层级在比较之下、加减之上，
+     对齐宿主 src/parser.py：rel → set → add（_parse_set_expr 夹在 _parse_rel_expr
+     与 _parse_add_expr 之间）。运算符为「符号」token（自举词法器无专属类型），
+     按文本判定。注意 ASCII `~` 不在此列——它是前缀位取反（见 是位取反）。 *)
+  func 集合运算文本(s: String) -> String = (s) =>
+    s = "∪" ? "∪" :
+    s = "∩" ? "∩" :
+    (s = "⊖" or s = "＼") ? "⊖" :
+    (s = "×" or s = "＄") ? "×" :
+    s = "⊆" ? "⊆" :
+    (s = "～" or s = "〜" or s = "¬") ? "~" :
+    ""
+
+  func 是集合运算符(p: 解析器) -> Bool =
+    当前(p).类型 = 类型.符号 and 集合运算文本(当前(p).文本) != ""
+
+  func 解析集合(p: 解析器) -> (Dict, 解析器) =
+    let (left, p2) = 解析加减(p) in
+    解析集合_续(left, p2)
+
+  func 解析集合_续(left: Dict, p: 解析器) -> (Dict, 解析器) =
+    if 是集合运算符(p) then
+      let op = 集合运算文本(当前(p).文本) in
+      let p3 = 推进(p) in
+      let (right, p4) = 解析加减(p3) in
+      解析集合_续(做BinaryOp(op, left, right), p4)
+    else (left, p)
 
   (* 加减：+ -（左结合循环） *)
   func 解析加减(p: 解析器) -> (Dict, 解析器) =

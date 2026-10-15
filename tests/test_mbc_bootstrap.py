@@ -1618,3 +1618,71 @@ def test_m12_fallback_stage3_runs(compiler_boot_vm, name, src, expect):
     """M12：自举链路编译 `#：` 文本回退，运行一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M13：集合运算符 ∪ ∩ ⊖ × ⊆ ~（自举 chain）====================
+# 宿主 src/lexer.py 把 ∪∩×⊆ 及别名 ⊖/＼（差）、～/〜/¬（补）、＄（积）分别归为
+# OP_SET_UNION/INTER/PROD/SUBSET/DIFF/COMP；ASCII `~` 归 OP_BIT_NOT（一元位取反，
+# 与 _SINGLE_CHAR_MAP 同键胜出于 _SINGLE_SET_OPS，故 `~` 不作二元补集）。宿主
+# src/parser.py 的 _parse_set_expr 夹在 _parse_rel_expr 与 _parse_add_expr 之间
+# （rel → set → add），compiler 的 _BIN_OPS 与 vm 的 _BINOPS 增补六个运算符。
+# 自举侧：lexer.matha 不设专属类型，集合符号落入「符号」（按文本判定即可，无 lexer
+# 改动）；parser.matha 新增 解析集合/解析集合_续 层插在 解析比较 与 解析加减 之间，
+# 集合运算文本 把上述字形归一为 ∪∩⊖×⊆~；compiler_matha.matha 的 二元运算表 增补；
+# vm.matha 的 应用运算 委托宿主原语 _set_*（有序去重列表），避免自引用。
+# 语义：结果一律为有序去重 list（对齐集合字面量，非内建 sorted）；补集 A ~ B = B \ A
+# （右操作数作全集，对齐 docs/06 与 api_reference set_complement）。ASCII `~` 仍是
+# 前缀位取反，故补集用例只用全角 ～/〜/¬。
+_M13_SETOP_CASES = [
+    ("union", "s = [1,2,3] ∪ [3,4]\n#：[s]\n", [[1, 2, 3, 4]]),
+    ("union_order", "s = [3,1] ∪ [2]\n#：[s]\n", [[3, 1, 2]]),
+    ("union_scalar_r", "s = [1,2] ∪ [5]\n#：[s]\n", [[1, 2, 5]]),
+    ("union_dedup", "s = [1,2,2] ∪ [2]\n#：[s]\n", [[1, 2]]),
+    ("inter", "s = [1,2,3] ∩ [3,4]\n#：[s]\n", [[3]]),
+    ("diff", "s = [1,2,3] ⊖ [3]\n#：[s]\n", [[1, 2]]),
+    ("diff_alias", "s = [1,2,3] ＼ [2]\n#：[s]\n", [[1, 3]]),
+    ("prod", "s = [1,2] × [3,4]\n#：[s]\n", [[(1, 3), (1, 4), (2, 3), (2, 4)]]),
+    ("prod_alias", "s = [1,2] ＄ [3]\n#：[s]\n", [[(1, 3), (2, 3)]]),
+    ("subset_true", "s = [1,2] ⊆ [1,2,3]\n#：[s]\n", [True]),
+    ("subset_false", "s = [1,2] ⊆ [1,3]\n#：[s]\n", [False]),
+    ("comp", "s = [2,3] ～ [1,2,3]\n#：[s]\n", [[1]]),
+    ("comp_neg", "s = [1] ¬ [1,2,3]\n#：[s]\n", [[2, 3]]),
+    ("comp_wave", "s = [1,2] 〜 [1,2,3]\n#：[s]\n", [[3]]),
+    ("chained_left_assoc", "s = [1,2,3] ⊖ [3] ⊖ [1]\n#：[s]\n", [[2]]),
+]
+
+_M13_SETOP_IDS = [c[0] for c in _M13_SETOP_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M13_SETOP_CASES, ids=_M13_SETOP_IDS)
+def test_m13_setop_host_runs(name, src, expect):
+    """M13：宿主编译执行集合运算符，语义正确（有序去重；补集 B\\A）。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M13_SETOP_CASES, ids=_M13_SETOP_IDS)
+def test_m13_setop_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M13：stage2 ≡ stage3（集合运算符逐字节一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M13_SETOP_CASES, ids=_M13_SETOP_IDS)
+def test_m13_setop_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M13：自举链路编译集合运算符，运行一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
+
+
+def test_m13_setop_ascii_tilde_is_unary_bitnot(boot_vm):
+    """ASCII `~` 仍是前缀位取反（OP_BIT_NOT），不作二元补集；自举 parser 同判。
+
+    宿主 `_SINGLE_CHAR_MAP["~"] = OP_BIT_NOT` 先于 `_SINGLE_SET_OPS` 命中；自举
+    parser 的 是位取反（类型.符号 且 文本 "~"）同理，集合层不将 `~` 视为运算符。
+    """
+    _, tree = _parse_on_vm(boot_vm, "~1")
+    # 前缀解析为一元位取反节点
+    assert isinstance(tree, dict) and tree["类型"] == "程序"
+    # 宿主侧重：~5 = -6（位取反）；#：[~5] 输出列表 [~5]
+    assert VM(_host_compile("#：[~5]\n")).run() == [-6]

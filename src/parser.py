@@ -2577,7 +2577,9 @@ class Parser:
                 self._in_func_app = saved_app
             self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
             result: Any = ast.ListLiteral(elements=elements)
-            # 支持 [a,b] ∪ [c,d] 等形式：列表后跟集合运算符
+            # 支持 [a,b] ∪ [c,d] 等形式：列表后跟集合运算符（左结合；右操作数用
+            # _parse_add_expr 而非 _parse_expr，避免经 _parse_set_expr 再次进入集合层
+            # → 右结合，与 _parse_set_expr 的左结合不一致）。
             while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
                               TokenType.OP_SET_DIFF, TokenType.OP_SET_PROD,
                               TokenType.OP_SET_SUBSET):
@@ -2590,7 +2592,7 @@ class Parser:
                     TokenType.OP_SET_SUBSET: "⊆",
                 }
                 op = op_map.get(tok.type, tok.value)
-                right = self._parse_expr()
+                right = self._parse_add_expr()
                 result = ast.BinaryOp(op=op, left=result, right=right)
             return ast.Output(expr=result)
 
@@ -2598,7 +2600,8 @@ class Parser:
         saved_pos = self.pos
         try:
             expr = self._parse_expr(stop_at_comma=True)
-            # 支持输出内的集合运算符：[a,b] ∪ [c,d] 等
+            # 支持输出内的集合运算符：[a,b] ∪ [c,d] 等（左结合；右操作数用
+            # _parse_add_expr，避免右结合——见上）。
             while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
                               TokenType.OP_SET_DIFF, TokenType.OP_SET_COMP,
                               TokenType.OP_SET_PROD, TokenType.OP_SET_SUBSET):
@@ -2612,7 +2615,7 @@ class Parser:
                     TokenType.OP_SET_SUBSET: "⊆",
                 }
                 op = op_map.get(tok.type, tok.value)
-                right = self._parse_expr()
+                right = self._parse_add_expr()
                 expr = ast.BinaryOp(op=op, left=expr, right=right)
             self._expect(TokenType.PUNCT_RBRACKET, "输出右括号 ]")
             return ast.Output(expr=expr)
@@ -2653,7 +2656,14 @@ class Parser:
 
     def _parse_list_literal(self) -> Any:
         """<list_literal> = [ <expr> , { , <expr> } ]
-        末尾支持集合运算符链：[1,2] ∪ [3,4] → BinaryOp"""
+
+        集合运算符链（`[a,b] ∪ [c,d]` 等）不再在此处自持尾链——统一由上层
+        `_parse_set_expr` 处理（左结合）。此前此处另有 `right=_parse_expr()` 的
+        尾链，与 `_parse_set_expr` 重复：当左操作数是列表字面量时它抢先行动，
+        且因 `_parse_expr` 会再次进入 `_parse_set_expr`/本函数而呈**右结合**，
+        与左操作数非列表时（走 `_parse_set_expr`，左结合）不一致，并导致
+        `[1,2] ⊖ [3] ⊖ [1]` 的 stage2 ≠ stage3。移除后唯一链点即 `_parse_set_expr`。
+        """
         self._expect(TokenType.PUNCT_LBRACKET, "列表左括号 [")
         elements: list[Any] = []
         if not self._check(TokenType.PUNCT_RBRACKET):
@@ -2666,23 +2676,7 @@ class Parser:
                 elements.append(self._parse_expr())
         self._skip_newlines()
         self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
-        result: Any = ast.ListLiteral(elements=elements)
-        # 支持 [a,b] ∪ [c,d] 等形式：列表后跟集合运算符
-        while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
-                          TokenType.OP_SET_DIFF, TokenType.OP_SET_PROD,
-                          TokenType.OP_SET_SUBSET):
-            tok = self._advance()
-            op_map = {
-                TokenType.OP_SET_UNION: "∪",
-                TokenType.OP_SET_INTER: "∩",
-                TokenType.OP_SET_DIFF: "⊖",
-                TokenType.OP_SET_PROD: "×",
-                TokenType.OP_SET_SUBSET: "⊆",
-            }
-            op = op_map.get(tok.type, tok.value)
-            right = self._parse_expr()
-            result = ast.BinaryOp(op=op, left=result, right=right)
-        return result
+        return ast.ListLiteral(elements=elements)
 
     def _parse_placeholder_var(self) -> ast.Variable:
         """`？` 或 `？name` → 占位变量。

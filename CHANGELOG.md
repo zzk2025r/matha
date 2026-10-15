@@ -1,5 +1,59 @@
 # Matha 变更摘要
 
+## 集合运算符自托管第四端（∪∩⊖~×⊆）+ 宿主集合链结合性修复（四端一致）
+
+**日期**：2026-10-15
+
+### 变更范围
+
+上一提交补齐了集合运算符 `∪ ∩ ⊖ ~ × ⊆` 的**三端**（解释器 / 宿主 VM / native），
+遗留「自托管链」第四端。本次补齐自托管端，过程中发现并修复一处**宿主集合运算符链
+的结合性不一致**：
+
+- 宿主 `_parse_set_expr`（`src/parser.py:1602`）为**左结合**（while 循环），但
+  `_parse_list_literal` / `_parse_output` 在列表字面量后另有自持尾链，右操作数用
+  `_parse_expr()`（会再次进入 `_parse_set_expr`），故当**左操作数为列表字面量**时
+  呈**右结合**。结果 `[1,2] ∪ b ∪ [4]` 解析为 `[1,2] ∪ (b ∪ [4])`，而 `a ∪ b ∪ c`
+  解析为 `(a ∪ b) ∪ c` —— 前后不一致，并令 `[1,2,3] ⊖ [3] ⊖ [1]` 的 stage2 ≠ stage3。
+
+### 变更
+
+- `src/parser.py`（宿主，四端共享）：
+  - `_parse_list_literal` 移除冗余的集合运算符尾链（`right=_parse_expr()`），让唯一
+    链点回归 `_parse_set_expr`（左结合）。修前左操作数为列表字面量时右结合、否则左
+    结合；修后四端一致左结合。
+  - `_parse_output` 两处尾链 `right=_parse_expr()` → `_parse_add_expr()`（同理避免右结合）。
+- `src/mbc/vm.py`：暴露集合原语 `_set_union/_set_inter/_set_diff/_set_comp/_set_prod/
+  _set_subset`（语义复用 `_BINOPS` 的 `_set_*`，有序去重列表），供自举 `vm.matha`
+  委托调用，避免自引用。
+- `matha/parser.matha`：新增 `集合运算文本`/`是集合运算符`/`解析集合`/`解析集合_续`
+  （插在 `解析比较` 与 `解析加减` 之间，对齐宿主 `rel → set → add`；操作数用
+  `解析加减`）；`解析比较`/`解析比较_续` 改调 `解析集合`。词法器无专属类型，集合
+  符号落「符号」，按文本判定：`∪∩`、`⊖/＼`、`×/＄`、`⊆`、`～/〜/¬` 归一为
+  `∪∩⊖×⊆~`；**ASCII `~` 不列入**（它仍是前缀位取反，见 `是位取反`）。
+- `matha/compiler_matha.matha`：`二元运算表` 增补 `∪ ∩ ⊖ ~ × ⊆`。
+- `matha/vm.matha`：`应用运算` 增补六个集合分支，委托宿主 `_set_*`。
+- 测试：
+  - `tests/test_mbc_bootstrap.py` 新增 M13 段（15 例 × {宿主运行 / stage2≡stage3 /
+    自举运行}，另含 ASCII `~` 一元判定 1 例，共 46）。
+  - `tests/test_mbc_vm_matha.py` 新增集合运算符用例（自举编译 7 例 + 宿主编译 3 例），
+    覆盖自托管 `vm.matha` 的 `应用运算`。
+
+### 测试
+
+- M13：46 passed；`test_mbc_bootstrap.py` 全量 440 passed + 2 xfailed。
+- `test_mbc_vm_matha.py` 79 passed（含 slow 完全自举不动点）。
+- 全量 `pytest tests/ -m "not slow"`：**2885 passed** + 2 xfailed；`-m slow`：3 passed。
+- 四端（解释器 / 宿主 VM / native / 自托管链）集合运算符语义一致；`stage2 ≡ stage3`
+  保持（`[1,2,3] ⊖ [3] ⊖ [1]` → `[2]`，左结合）。
+- ruff：本次改动无新增告警（存量为既有 baseline）。
+
+### 已知遗留（本次未处理）
+
+- native 集合运算符假定操作数为 list（标量操作数读越界，与集合内建同限）。
+- **符号常量/函数**（`√ π ∞ e ° ℃ ∑ …`）仍会 `KeyError`（Phase ②）；**全符号资源库**
+  （Phase ③）未做。
+
 ## 集合运算符 ∪∩⊖~×⊆ 支持 + 运算符右值 `[x]` 解析修复（三端一致）
 
 **日期**：2026-10-15

@@ -388,6 +388,15 @@ def _default_builtins() -> dict:
     b.setdefault("_bit_or", _curry2(_BINOPS["|"]))
     b.setdefault("_bit_xor", _curry2(_BINOPS["⊕"]))
     b.setdefault("_bit_not", _UNARYOPS["~"])
+    # 集合运算原语（供自举 vm.matha 的 应用运算 使用）：自举源码不宜书写集合运算符
+    # （会与「解释自身字节码」形成自引用，并阻碍 vm.matha 自解析），故以宿主原语
+    # 暴露；语义逐条复用 _BINOPS 的 _set_*（有序去重列表），确保与宿主 VM 逐字节一致。
+    b.setdefault("_set_union", _curry2(_BINOPS["∪"]))
+    b.setdefault("_set_inter", _curry2(_BINOPS["∩"]))
+    b.setdefault("_set_diff", _curry2(_BINOPS["⊖"]))
+    b.setdefault("_set_comp", _curry2(_BINOPS["~"]))
+    b.setdefault("_set_prod", _curry2(_BINOPS["×"]))
+    b.setdefault("_set_subset", _curry2(_BINOPS["⊆"]))
     # 空字典常量（{} 在 Matha 语法中为空集合构造，故用 VM 值提供空字典）
     b.setdefault("_empty_dict", {})
     # 列表去重：与宿主解释器 builtin_列表去重 同语义（按 == 去重、保序），

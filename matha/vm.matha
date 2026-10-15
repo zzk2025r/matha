@@ -130,6 +130,13 @@ module 字节码虚拟机 {
     op = "&" ? _bit_and(l)(r) :
     op = "|" ? _bit_or(l)(r) :
     op = "⊕" ? _bit_xor(l)(r) :
+    (* 集合运算：委托宿主原语（有序去重列表，与宿主 VM 逐字节一致），避免自引用 *)
+    op = "∪" ? _set_union(l)(r) :
+    op = "∩" ? _set_inter(l)(r) :
+    op = "⊖" ? _set_diff(l)(r) :
+    op = "~" ? _set_comp(l)(r) :
+    op = "×" ? _set_prod(l)(r) :
+    op = "⊆" ? _set_subset(l)(r) :
     错误("未知运算符: " + op)
 
   func 整数化(r) -> Int = _to_int(r)
