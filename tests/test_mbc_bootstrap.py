@@ -273,6 +273,28 @@ def test_interp_lambda(full_boot_vm):
     assert full_boot_vm.call("求值", expr, env2) == 6
 
 
+def test_interp_custom_op_eval(full_boot_vm):
+    """自举解释器（interp.matha）求值自定义运算符：查具名实现并 f(l)(r) 两参调用。"""
+    env = full_boot_vm.call("注册内建", full_boot_vm.call("空环境"))
+    src = ("func 孪加(a: Int, b: Int) -> Int = (a, b) => a + b + 1\n"
+           "@define_op: ∝ = 5 | left => 孪加\n"
+           "2 ∝ 3\n")
+    toks = full_boot_vm.call("tokenize", src)
+    tree = full_boot_vm.call("parse", toks)
+    result, _ = full_boot_vm.call("执行语句", tree, env)
+    assert result == 6
+
+
+def test_interp_custom_op_ast_has_impl(full_boot_vm):
+    """自举解析器把自定义运算符产为「自定义二元」节点，携带「实现」函数名。"""
+    _, tree = _parse_on_vm(full_boot_vm,
+                           "@define_op: ∝ = 5 | left => 孪加\n2 ∝ 3\n")
+    node = tree["声明"][-1]
+    assert node["类型"] == "自定义二元"
+    assert node["运算符"] == "∝"
+    assert node["实现"] == "孪加"
+
+
 # ---------- M3：try/catch/raise（自举层） ----------
 
 def _run_interp_src(vm, src):
@@ -1202,14 +1224,17 @@ _M4_HOST_FIX_IDS = [c[0] for c in _M4_HOST_FIX_CASES]
 # 无待办 xfail。保留本字典作为「新增节点须在此登记」的清单（空 = 全覆盖）。
 _M4_STAGE3_PENDING: dict[str, str] = {}
 
-# M4-2：@define_op。宿主 _parse_define_op 注册 GLOBAL_CUSTOM_OPS 后返回
-# ast.DefineOp（编译期 NOOP）；宿主自身尚不支持**使用**自定义运算符
-# （写 `1 ∝ 2` 报未知运算符），故 stage3 只需按同一次序消费、不产码。
+# M4-2：@define_op。宿主/自举 _parse_define_op 均返回 NOOP 声明节点（编译期不产
+# 码），并把绑定登记进运算符表；声明可绑定具名实现 `=> fn`。绑定后该运算符即可在
+# 表达式中使用——两侧编译器均发 `LOAD_GLOBAL fn; left; right; CALL 2`。
 _M4_DEFINE_OP_CASES = [
     ("dop_symbol", "@define_op : ∝ = 5 | left\n#：[1]\n", [1]),
     ("dop_halfcolon", "@define_op: ≈ = 5 | left\n#：[1 + 1]\n", [2]),
     ("dop_right_assoc", "@define_op : ≡ = 3 | right\n#：[2]\n", [2]),
     ("dop_two_decls", "@define_op : ∝ = 5 | left\n@define_op : ≡ = 3 | right\n#：[3]\n", [3]),
+    ("dop_use_left",
+     "func 孪加(a: Int, b: Int) -> Int = (a, b) => a + b + 1\n"
+     "@define_op: ∝ = 5 | left => 孪加\n#：[2 ∝ 3]\n", [6]),
 ]
 
 _M4_DEFINE_OP_IDS = [c[0] for c in _M4_DEFINE_OP_CASES]
@@ -1232,11 +1257,12 @@ def test_m4_define_op_stage3_runs(compiler_boot_vm, name, src, expect):
     assert VM(dict_to_module(compiler_boot_vm.call("编译", src))).run() == expect
 
 
-def test_m4_define_op_symbol_not_usable_either_side():
-    """自定义运算符**使用**在宿主与自举侧同样不支持。
+def test_m4_define_op_unbound_use_raises():
+    """使用**未绑定实现**的自定义运算符 → 编译期报错（宿主）。
 
-    解析与编译都通过（`1 ∝ 2` 落到未知 BINOP），VM 求值时才因未知运算符
-    报错——故这里断言运行期失败，而非解析期失败。
+    宿主 _parse_define_op 注册（handler=None）后返回 NOOP；使用该符号时具名
+    实现为空，宿主编译器在编译期即拒绝（`未绑定实现`），故断言抛异常。
+    绑定实现（`=> fn`）后的可用性由 dop_use_left 用例覆盖。
     """
     src = "@define_op : ∝ = 5 | left\nx = 1 ∝ 2\n#：[x]\n"
     with pytest.raises(Exception):

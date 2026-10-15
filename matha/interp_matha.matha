@@ -52,6 +52,7 @@ module 解释器 {
     expr["类型"] = "布尔" ? expr["值"] :
     expr["类型"] = "变量" ? 查找环境(env, expr["名"]) :
     expr["类型"] = "二元运算" ? 求值二元(expr["运算符"], expr["左"], expr["右"], env) :
+    expr["类型"] = "自定义二元" ? 求值自定义二元(expr["实现"], expr["左"], expr["右"], env) :
     expr["类型"] = "一元运算" ? 求值一元(expr["运算符"], expr["操作数"], env) :
     expr["类型"] = "if" ? 求值if(expr["条件"], expr["真分支"], expr["假分支"], env) :
     expr["类型"] = "lambda" ? 求值lambda(expr["参数"], expr["体"], env) :
@@ -71,6 +72,15 @@ module 解释器 {
     let l = 求值(left, env) in
     let r = 求值(right, env) in
     应用运算(op, l, r)
+
+  (* 自定义运算符求值：查环境得到具名实现函数，以 [l, r] 两参调用
+     （对齐宿主 _eval_custom_op：处理器绑定在节点上，无需注册表）。 *)
+  func 求值自定义二元(实现: String, left: Dict, right: Dict, env: List) -> Value =
+    (实现, left, right, env) =>
+    let l = 求值(left, env) in
+    let r = 求值(right, env) in
+    let f = 查找环境(env, 实现) in
+    应用多参数函数(f, [l, r], env)
 
   (* 一元运算求值 ===== *)
   func 求值一元(op: String, operand: Dict, env: List) -> Value = (op, operand, env) =>
@@ -149,7 +159,10 @@ module 解释器 {
       let captured = f[3] in
       let rec _bind(i: Int, env: List) -> List =
         i >= 标准库.len(args) ? env
-        : _bind(i + 1, 绑定环境(env, params[i], args[i]))
+        : let 名 = if type_of(params[i]) = "Dict" then
+                    (if params[i]["类型"] = "变量" then params[i]["名"] else params[i])
+                  else params[i] in
+          _bind(i + 1, 绑定环境(env, 名, args[i]))
       in
       let new_env = _bind(0, captured) in
       求值(body, new_env)
@@ -253,6 +266,9 @@ module 解释器 {
       (closure, 绑定环境(env, decl["名"], closure))
     else if decl["类型"] = "程序" then
       执行声明列表(decl["声明"], env)
+    else if decl["类型"] = "定义运算符" then
+      (* 自定义运算符声明：编译期 / 解析期已登记，运行期无副作用（对齐宿主 NOOP） *)
+      (None, env)
     else
       (* 裸表达式：直接求值并返回结果 *)
       (求值(decl, env), env)

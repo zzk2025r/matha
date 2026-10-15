@@ -54,6 +54,20 @@ def test_bootstrap_interpret_arithmetic(boot):
     print("  ✓ 自举解释 3+5→8 / 2*(3+4)→14")
 
 
+def test_bootstrap_interpret_custom_op(boot):
+    """自举解释器执行自定义运算符（@define_op 绑定具名函数，f(l)(r) 两参调用）。
+
+    Matha 自举路径返回末语句值 [6]；若该路径出错会静默回退 Python 解释器，
+    而 Python 路径对无 # 输出的裸表达式返回 []，故 [6] 可确证自举路径生效。
+    """
+    out, _ = mb.interpret(
+        "func 孪加(a: Int, b: Int) -> Int = (a, b) => a + b + 1\n"
+        "@define_op: ∝ = 5 | left => 孪加\n"
+        "2 ∝ 3\n")
+    assert out == [6], out
+    print("  ✓ 自举解释自定义运算符 2 ∝ 3 → 6")
+
+
 def test_bootstrap_interpret_empty(boot):
     """空输入：自举路径返回 [None]（区别于 Python 路径的 []）。"""
     out, _ = mb.interpret("")

@@ -74,9 +74,9 @@ module 语法器 {
      标注体形如 【*/自主成长：从源码学习/*】，词法上是 乘/除 夹一串 token。 *)
   func 做自然语言块(标注: String, 正文: String) -> Dict =
     {"类型": "自然语言块", "标注": 标注, "正文": 正文}
-  (* @define_op : <符号> = <优先级> | <结合性> —— 宿主 ast.DefineOp，
-     编译期 NOOP（_NOOP_STMTS）。宿主尚不支持**使用**自定义运算符
-     （写 1 ∝ 2 会报未知运算符），故自举侧同样只消费指令、不产码。 *)
+  (* @define_op : <符号> = <优先级> | <结合性> [ => <处理函数> ] —— 对应宿主
+     ast.DefineOp，编译期 NOOP（_NOOP_STMTS）。绑定信息累积进解析器状态 自定义表，
+     使自定义运算符可在表达式中使用（二元节点携带「实现」函数名）。 *)
   func 做定义运算符() -> Dict = {"类型": "定义运算符"}
   (* 通道构造 chan T → 降级为 {"缓冲": [], "容量": n, "关闭": False}
      （对应宿主 ast.ChanExpr；容量宿主固定 None → 编译为 0）。
@@ -91,6 +91,10 @@ module 语法器 {
   func 做Match(scrutinee: Dict, branches: List) -> Dict = {"类型": "match", " scrutinee": scrutinee, "分支": branches}
   func 做Lambda(params: List, body: Dict) -> Dict = {"类型": "lambda", "参数": params, "体": body}
   func 做BinaryOp(op: String, left: Dict, right: Dict) -> Dict = {"类型": "二元运算", "运算符": op, "左": left, "右": right}
+  (* 自定义运算符二元节点：@define_op 绑定具名函数时使用独立节点类型，
+     携带「实现」函数名供解释器 / 编译器调用（普通二元运算无此节点）。 *)
+  func 做自定义二元(op: String, left: Dict, right: Dict, 实现: String) -> Dict =
+    {"类型": "自定义二元", "运算符": op, "左": left, "右": right, "实现": 实现}
   func 做UnaryOp(op: String, operand: Dict) -> Dict = {"类型": "一元运算", "运算符": op, "操作数": operand}
   func 做FuncApp(func: Dict, arg: Dict) -> Dict = {"类型": "函数应用", "函数": func, "参数": arg}
   func 做IntLit(n: Int) -> Dict = {"类型": "整数", "值": n}
@@ -138,6 +142,11 @@ module 语法器 {
     (* 禁止并列：输出括号 [ … ] 内解析时置真，禁用并列应用（juxtaposition），
        以对齐宿主 parser（无并列应用语法）。缺省 / 假 表示允许并列。 *)
     禁止并列: Bool
+    (* 自定义运算符表：@define_op 声明累积的 [信息] 列表，供表达式层优先级爬升
+       与二元节点「实现」字段使用。每项为
+       {"符号": ..., "优先级": ..., "结合性": ..., "处理函数": ...}。
+       缺省为空表（宿主 src/custom_ops.REGISTRY 的自举对应物）。 *)
+    自定义: List
   }
 
   (* ===== 解析器辅助 ===== *)
@@ -145,17 +154,17 @@ module 语法器 {
      使解析器状态的 pos 始终指向非换行 token。 *)
   func 规范(p: 解析器) -> 解析器 = (p) =>
     (p.pos < len(p.tokens) and p.tokens[p.pos].类型 = 类型.换行) ?
-      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1, 禁止并列: p.禁止并列 }) : p
+      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1, 禁止并列: p.禁止并列, 自定义: p.自定义 }) : p
 
   (* 推进：消费当前 token，并规范化到下一个非换行 token *)
   func 推进(p: 解析器) -> 解析器 =
-    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列 })
+    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义 })
 
   (* 推进原样：消费当前 token 但**不**跳过换行。
      自然语言块需区分「】后紧跟换行」（正文为空）与「】后同行还有正文」，
      而 推进 会吞掉换行，故单列一个原样版本。 *)
   func 推进原样(p: 解析器) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列 }
+    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义 }
 
   func 当前(p: 解析器) -> Token = (p) =>
     (p.pos < len(p.tokens)) ? p.tokens[p.pos] : 做Token(类型.结束, "", p.line, p.col)
@@ -260,7 +269,7 @@ module 语法器 {
      当 then 分支为 if-expr 时，else 可能属于内层 if 而非外层三元——
      此时 else 后跟 then/else/in 则视为内层，不消费。 *)
   func 解析三元(p: 解析器) -> (Dict, 解析器) =
-    let (cond, p2) = 解析或(p) in
+    let (cond, p2) = 解析自定义(p) in
     if 匹配(p2, 类型.问号) then
       let p3 = 推进(p2) in
       let (then_expr, p4) = 解析三元(p3) in
@@ -281,6 +290,36 @@ module 语法器 {
       else
         (做If(cond, then_expr, null), p4)
     else (cond, p2)
+
+  (* ===== 用户自定义运算符（@define_op）=====
+     查询：按符号在解析器状态 自定义表 中查找（未注册返回 null）。 *)
+  func 查自定义(p: 解析器, 符: String) -> Dict =
+    过滤自定义(p.自定义, 符, 0)
+
+  func 过滤自定义(表: List, 符: String, i: Int) -> Dict =
+    if i >= len(表) then null
+    else if 表[i]["符号"] = 符 then 表[i]
+    else 过滤自定义(表, 符, i + 1)
+
+  (* 自定义运算符表达式层：先按常规 or 链解析左操作数，再优先级爬升接入
+     @define_op 注册的运算符（对齐宿主 _parse_custom_op_expr/_rest）。 *)
+  func 解析自定义(p: 解析器) -> (Dict, 解析器) =
+    let (left, p2) = 解析或(p) in
+    解析自定义_续(left, p2, 0)
+
+  func 解析自定义_续(left: Dict, p: 解析器, 最低: Int) -> (Dict, 解析器) =
+    let t = 当前(p) in
+    if t.类型 = 类型.符号 then
+      let 信息 = 查自定义(p, t.文本) in
+      if 信息 = null then (left, p)
+      else if 信息["优先级"] < 最低 then (left, p)
+      else
+        let p1 = 推进(p) in
+        let (right0, p2) = 解析或(p1) in
+        let 次最低 = 信息["结合性"] = "right" ? 信息["优先级"] : 信息["优先级"] + 1 in
+        let (right, p3) = 解析自定义_续(right0, p2, 次最低) in
+        解析自定义_续(做自定义二元(信息["符号"], left, right, 信息["处理函数"]), p3, 最低)
+    else (left, p)
 
   (* 逻辑或：a or b or c ...（左结合循环） *)
   func 解析或(p: 解析器) -> (Dict, 解析器) =
@@ -1140,20 +1179,30 @@ module 语法器 {
     let p3 = 匹配(p2, 类型.左括号花) ? 推进(p2) : p2 in
     跳过大括号块(p3, 1)
 
-  (* @define_op : <符号> = <优先级> | <结合性>
+  (* @define_op : <符号> = <优先级> | <结合性>  [ => <处理函数> ]
      对齐宿主 _parse_define_op 的消费次序：@ → define_op → 冒号 → 符号 → =
-     → 优先级 → | → 结合性。宿主在此注册 GLOBAL_CUSTOM_OPS 并返回 NOOP 节点，
-     编译期不产字节码；自举侧无须注册（宿主本身也还不支持使用自定义运算符）。 *)
+     → 优先级 → | → 结合性；随后可选 `=> 函数名`（兼容 `->`）绑定实现函数。
+     宿主登记进 GLOBAL_CUSTOM_OPS 并返回 NOOP 节点，编译期不产字节码；自举侧
+     把绑定累积进解析器状态 自定义表，供表达式层优先级爬升与二元节点「实现」字段。 *)
   func 解析定义运算符(p: 解析器) -> (Dict, 解析器) =
     let p1 = 推进(p) in                            (* 消费 @ *)
     let p2 = 推进(p1) in                           (* 消费 define_op 标识符 *)
     let p3 = (匹配(p2, 类型.全角冒号) or 匹配(p2, 类型.冒号)) ? 推进(p2) : p2 in
+    let 符号 = 当前(p3).文本 in
     let p4 = 推进(p3) in                           (* 运算符符号 *)
     let p5 = 推进(p4) in                           (* = *)
+    let 优先级 = 整数值(当前(p5).文本) in
     let p6 = 推进(p5) in                           (* 优先级 *)
     let p7 = 推进(p6) in                           (* | *)
+    let 结合性 = 当前(p7).文本 in
     let p8 = 推进(p7) in                           (* left / right *)
-    (做定义运算符(), p8)
+    let 有处理 = 匹配(p8, 类型.胖箭头) or 匹配(p8, 类型.箭头) in
+    let 处理函数 = 有处理 ? 当前(推进(p8)).文本 : "" in
+    let p9 = 有处理 ? 推进(推进(p8)) : p8 in
+    let 信息 = {"符号": 符号, "优先级": 优先级, "结合性": 结合性, "处理函数": 处理函数} in
+    let p10 = { tokens: p9.tokens, pos: p9.pos, line: p9.line, col: p9.col,
+                禁止并列: p9.禁止并列, 自定义: p9.自定义 + [信息] } in
+    (做定义运算符(), p10)
 
   (* ===== 自然语言块【…】=====
      对齐宿主 _parse_nl_block：消费 【 与 】；】后若紧跟换行/EOF 则正文为空
@@ -1275,7 +1324,7 @@ module 语法器 {
 
   (* 禁并列：构造禁用并列应用的解析器副本（供输出括号内解析使用）。 *)
   func 禁并列(p: 解析器) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: 真 }
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: 真, 自定义: p.自定义 }
 
   (* 文本回退：拼接当前至 ] 之间的原始记号文本（含换行 "\n"，不跳过换行），
      与宿主回退的 _advance().value 逐 token 拼接一致。
@@ -1356,7 +1405,7 @@ module 语法器 {
       解析导入名列表(推进(p), acc + [名])
 
   func 解析程序(tokens: List) -> Dict =
-    let p = 规范({ tokens: tokens, pos: 0, line: 1, col: 1 }) in
+    let p = 规范({ tokens: tokens, pos: 0, line: 1, col: 1, 自定义: [] }) in
     解析声明列表(p, [])
 
   func 解析声明列表(p: 解析器, acc: List) -> Dict =

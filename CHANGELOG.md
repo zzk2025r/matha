@@ -1,5 +1,65 @@
 # Matha 变更摘要
 
+## 用户自定义运算符 `@define_op`：原生端 + 自托管端可用（四端一致）
+
+**日期**：2026-10-15
+
+### 变更范围
+
+把 `@define_op`（运算符绑定具名函数：`a <符号> b` ⇒ `fn(a, b)`）从宿主端补齐到
+**原生端**与**自托管端**，达成**四端一致**：
+
+- **原生端**（`src/mbc/native.py`）：编译器既发 `LOAD_GLOBAL handler + CALL 2`，
+  native **零改动**即复用既有闭包调用路径（多参 CALL + `LOAD_GLOBAL` 闭包记录）。
+- **自托管端**：`matha/parser.matha`（产节点）+ `matha/compiler_matha.matha`（发码）+
+  `matha/interp.matha` / `matha/interp_matha.matha`（求值）。
+
+设计：把 handler 放在**节点**上（`{"类型":"自定义二元",…,"实现":<函数名>}`），
+后端无需注册表——解析器产带 `实现` 的节点；解释器查具名函数调用；编译器发
+`LOAD_GLOBAL + CALL 2`；VM 零改动。
+
+### 变更
+
+- **原生端（`c69a73a`）**：仅补 `tests/test_custom_ops.py` 原生端到端测试
+  （编译为 PE64 exe 运行，校验 stdout：`2 ≈ 3 → 5`、变量参与、与 VM 结果一致）。
+- **自托管解析器 `matha/parser.matha`**：
+  - `解析器` struct 增 `自定义: List` 字段（`@define_op` 绑定：符号/优先级/结合性/
+    处理函数），各 record 重建点同步该字段。
+  - `解析定义运算符` 增可选 `=> <函数名>`（兼容 `-> <函数名>`）后缀，把绑定累积进
+    `自定义` 表；声明节点仍为 `做定义运算符()`（编译期 NOOP）。
+  - 新增 `查自定义/过滤自定义` 与 `解析自定义/解析自定义_续`（优先级爬升，镜像宿主
+    `_parse_custom_op_rest`：left→`prec+1`、right→`prec`）；新增 `做自定义二元` 产
+    **`自定义二元`** 节点；`解析三元` 接入 `解析自定义`。
+- **自托管编译器 `matha/compiler_matha.matha`**：`_发射表达式` 增 `自定义二元` 分支 →
+  `_发射自定义二元`（`LOAD_GLOBAL <实现>; <左>; <右>; CALL 2`，常量池次序与宿主一致）。
+- **自托管解释器 `matha/interp.matha`**：`求值` 增 `自定义二元` 分支 → `求值自定义二元`
+  （查具名实现，柯里化 `f(l)(r)` 调用）；`执行语句` 增 `定义运算符` NOOP。顺带修复
+  `应用函数` 柯里化缺陷：多参函数在**最后一个参数**绑定前不提前求值体（原实现首参处
+  即求值体 → `未定义变量`）。
+- **`matha/interp_matha.matha`（`matha_bootstrap` 路径）**：`求值` 增 `自定义二元` 分支 →
+  `求值自定义二元`（`应用多参数函数(f, [l, r], env)`）；`执行声明` 增 `定义运算符` NOOP；
+  修复 `应用多参数函数` 形参名解析（形参为 Variable 节点时取其 `.名`）。
+
+### 测试
+
+- `pytest tests/test_mbc_bootstrap.py`：**550 passed + 2 xfailed**——含 `dop_use_left`
+  （`@define_op … => 孪加` + `2 ∝ 3`）的 host / stage2≡stage3 / stage3 三态；
+  `test_interp_custom_op_eval`（自举解释器求值 → 6）、`test_interp_custom_op_ast_has_impl`
+  （AST 为 `自定义二元` 且携带 `实现`）。
+- `pytest tests/test_bootstrap_host.py`：**8 passed**——含 `test_bootstrap_interpret_custom_op`
+  （`matha_bootstrap` 走自举解释器，`2 ∝ 3 → [6]`）。
+- 全量 `pytest tests/ -m "not slow"`：**3060 passed** + 3 deselected + 2 xfailed。
+- 全量 `pytest tests/ -m "slow"`：**3 passed**（自举不动点保持）。
+- 自举定点：`test_m2_boot_source_stage2_equals_stage3` 对
+  `lexer/stdlib/parser/interp/compiler_matha` 全通过（宿主编译 ≡ 自举编译）。
+- ruff：改动测试文件**仅存量债**，本次新增行无新告警。
+
+### 备注
+
+- 运算符语义仅绑定**全局具名函数**；未绑定（无 `=>`）时使用该符号，宿主在编译期报
+  `未绑定实现`，自举端落到运行期报未定义。
+
+
 ## 用户自定义运算符 `@define_op` 可用（宿主解析器 + 解释器 + 字节码/VM）
 
 **日期**：2026-10-15
@@ -50,7 +110,8 @@
 
 - 仅对**词法层为 `SYMBOL`** 的符号生效（已是原生 token 的如 `⊕` 不能再注册）。
 - `custom_ops.REGISTRY` 是进程级全局：跨 `interpret()` 调用会残留，同进程多程序须 `clear()`。
-- 后续跟进：native 发射器与自托管 `matha/parser.matha`（让自举链也支持自定义运算符）。
+- 后续跟进：native 发射器与自托管 `matha/parser.matha`——**均已在后续提交落地**，
+  见顶部「原生端 + 自托管端可用（四端一致）」章节。
 
 
 ## 全符号资源库（Matha 源 + 宿主查询接入）

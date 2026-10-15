@@ -530,6 +530,7 @@ module 编译器 {
       let (c1, sc1, bc1) = _发射表达式(e["操作数"], _发(code, [OP_LOAD_GLOBAL, n0]), sc, bc0) in
       (_发(c1, [OP_CALL, 1]), sc1, bc1) :
     e["类型"] = "尖括号" ? _发射表达式(e["内"], code, sc, bc) :
+    e["类型"] = "自定义二元" ? _发射自定义二元(e, code, sc, bc) :
     e["类型"] = "安全路径" ? _发射安全路径(e, code, sc, bc) :
     e["类型"] = "元组" ? _发射列表(e["元素"], code, sc, bc) :
     e["类型"] = "下标" ?
@@ -692,6 +693,15 @@ module 编译器 {
       let (c2, sc2, bc2) = _发射表达式(e["右"], c1, sc1, bc1) in
       let (idx, bc3) = _加常量(bc2, op) in
       (_发(c2, [OP_BINOP, idx]), sc2, bc3)
+
+  (* 自定义运算符：LOAD_GLOBAL <实现>; <左>; <右>; CALL 2，与宿主编译器一致。
+     实现在编译期已绑定为具名全局函数；未绑定（空串）时运行期报未定义全局。 *)
+  func _发射自定义二元(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let (n0, bc0) = _加常量(bc, e["实现"]) in
+    let (c1, sc1, bc1) = _发射表达式(e["左"], _发(code, [OP_LOAD_GLOBAL, n0]), sc, bc0) in
+    let (c2, sc2, bc2) = _发射表达式(e["右"], c1, sc1, bc1) in
+    (_发(c2, [OP_CALL, 2]), sc2, bc2)
 
   func _发射一元(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =

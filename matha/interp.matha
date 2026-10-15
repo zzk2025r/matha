@@ -79,6 +79,7 @@ module 解释器 {
     expr.类型 = "布尔" ? expr.值 :
     expr.类型 = "变量" ? 查找环境(env, expr.名) :
     expr.类型 = "二元运算" ? 求值二元(expr.运算符, expr.左, expr.右, env) :
+    expr.类型 = "自定义二元" ? 求值自定义二元(expr.实现, expr.左, expr.右, env) :
     expr.类型 = "一元运算" ? 求值一元(expr.运算符, expr.操作数, env) :
     expr.类型 = "if" ? 求值if(expr.条件, expr.真分支, expr.假分支, env) :
     expr.类型 = "lambda" ? 求值lambda(expr.参数, expr.体, env) :
@@ -148,6 +149,14 @@ module 解释器 {
       let r = 求值(right, env) in
       应用运算(op, l, r)
 
+  (* 自定义运算符求值：查环境得到具名实现函数，按柯里化两次应用 f(l)(r)
+     （对齐宿主 _eval_custom_op：处理器绑定在节点「实现」字段，无需注册表）。 *)
+  func 求值自定义二元(实现: String, left: Dict, right: Dict, env: List) -> Value =
+    let l = 求值(left, env) in
+    let r = 求值(right, env) in
+    let f = 查找环境(env, 实现) in
+    应用函数(应用函数(f, l, env), r, env)
+
   (* 一元运算求值 ===== *)
   func 求值一元(op: String, operand: Dict, env: List) -> Value =
     let v = 求值(operand, env) in
@@ -194,12 +203,13 @@ module 解释器 {
       let p0 = params[0] in
       let pname = p0.名 in
       let new_env = 绑定环境(captured, pname, arg) in
-      let result = 求值(body, new_env) in
-      (* 柯里化：若还有多余参数，返回部分应用闭包 *)
+      (* 柯里化：若还有多余参数，返回部分应用闭包。
+         注意不可在此提前求值 body——多参函数在首个参数处后续参数尚未绑定，
+         提前求值会报「未定义变量」；应留到最后一个参数绑定后再求值。 *)
       if len(params) > 1 then
         let remaining_params = params[1:] in
         ["__closure__", remaining_params, body, new_env]
-      else result
+      else 求值(body, new_env)
     else if f[0] = "builtin" then
       f[1](arg)
     else if f[0] = "__struct工厂__" then
@@ -247,6 +257,9 @@ module 解释器 {
       执行语句列表(stmt, env) :
     stmt.类型 = "try" ?
       执行try(stmt, env) :
+    stmt.类型 = "定义运算符" ?
+      (* 自定义运算符声明：解析期已登记，运行期无副作用（对齐宿主 NOOP） *)
+      (None, env) :
     (* 其余节点视为表达式语句（顶层裸表达式，如 是偶数(10)） *)
     let v = 求值(stmt, env) in
     (v, env)
