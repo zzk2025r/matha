@@ -683,10 +683,17 @@ def builtin_列表展平(nested) -> list:
 
 
 def builtin_列表求和(lst) -> float:
-    """求和(列表) → 数值和。"""
+    """求和(列表) → 数值和；空表 → 0。聚合前缀 `∑` 复用此实现。"""
     if not isinstance(lst, (list, tuple)):
         raise MathaRuntimeError("求和() 需要列表")
     return sum(lst)
+
+
+def builtin_列表求积(lst) -> float:
+    """求积(列表) → 数值积；空表 → 1。聚合前缀 `∏` 复用此实现。"""
+    if not isinstance(lst, (list, tuple)):
+        raise MathaRuntimeError("求积() 需要列表")
+    return math.prod(lst)
 
 
 def builtin_列表去重(lst) -> list:
@@ -2056,6 +2063,16 @@ class Interpreter:
                     ri = round(r)
                     if ri * ri * ri == v:
                         r = ri
+                self._log_exit("eval Unary", r)
+                return r
+            if expr.op == "sum":
+                # 聚合前缀 ∑：列表求和（空表 → 0）；非列表报可捕获异常。
+                r = builtin_列表求和(v)
+                self._log_exit("eval Unary", r)
+                return r
+            if expr.op == "prod":
+                # 聚合前缀 ∏：列表求积（空表 → 1）；非列表报可捕获异常。
+                r = builtin_列表求积(v)
                 self._log_exit("eval Unary", r)
                 return r
             if expr.op == "++":

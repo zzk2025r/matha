@@ -1,5 +1,63 @@
 # Matha 变更摘要
 
+## 聚合前缀 ∑ ∏（列表求和 / 求积，四端一致）
+
+**日期**：2026-10-15
+
+### 变更范围
+
+Phase ② 收尾：补齐**聚合前缀** `∑`（列表求和）与 `∏`（列表求积），
+（解释器 / 宿主 VM / native / 自托管链）四端一致。二者实现为**前缀一元运算符**
+（op 名 `"sum"`/`"prod"`，与既有 `√`/`∛` 同模式）：
+
+- 语义：操作数须为 list/tuple；`∑`=求和（空表 → `0`）、`∏`=求积（空表 → `1`）。
+- 非列表操作数 → 抛**可捕获**异常（`求和() 需要列表` / `求积() 需要列表`）。
+- 整数列表保持整数结果；出现浮点则整体转浮点（与内建 `sum` 一致）。
+
+### 变更
+
+- `src/interp.py`：新增 `builtin_列表求积`（`math.prod`，空表→1，非列表报错）；
+  `builtin_列表求和` 文档补充 `∑`；`_eval_unary` 增 `sum`/`prod` 分支。
+- `src/parser.py`：`_parse_unary`/`_parse_unary_operand` 前缀号集合由 `√ ∛` 扩为
+  `√ ∛ ∑ ∏`（→`UnaryOp("sum"/"prod")`）。
+- `src/mbc/compiler.py`：`_UNARY_OPS` 增 `sum`/`∑`/`prod`/`∏`（列表操作数不折叠）。
+- `src/mbc/vm.py`：新增 `_builtin_list_sum`/`_builtin_list_prod`，`_UNARYOPS` 增
+  `sum`/`prod`；默认内建新增 `_list_sum`/`_list_prod`（供自举 vm.matha 委托）。
+- `src/mbc/native.py`：新增发射器 `imul_rr`（`imul r64,r/m64`，注意 reg 字段是**目标**，
+  REX.R 由 dst 决定，与 `add_rr` 相反）；UNARYOP 增 `sum`/`prod` 分派；新增叶例程
+  `f_list_sum`/`f_list_prod`（镜像 `_emit_builtin_sum` 循环体：整数 `add`/`imul` 保持
+  整数、遇浮点转 `f_add`/`f_mul`，r8-r11 跨调用保留）；错误串增 `err_sum`/`err_prod`。
+- 自托管第四端：
+  - `matha/parser.matha`：新增 `是求和号`/`是求积号`，`解析一元`/`解析一元操作数`
+    增 `∑`/`∏` 分支。
+  - `matha/compiler_matha.matha`：`一元运算表` 增 `sum`/`∑`/`prod`/`∏`。
+  - `matha/vm.matha`：`应用一元` 增 `sum`/`prod`，委托宿主原语 `_list_sum`/`_list_prod`。
+- 测试：`tests/test_new_features.py` 新增 `test_aggregate_prefix_symbols`（11 断言）；
+  `tests/test_native.py` `_PARITY_CASES` 新增 `phase2_aggregate`/`phase2_aggregate_var`；
+  `tests/test_mbc_vm_matha.py` `_CASES` 新增 3 例；`tests/test_mbc_bootstrap.py` 新增
+  M15 段（12 例 × {宿主运行 / stage2≡stage3 / 自举运行}，共 36）。
+
+### 测试
+
+- `test_mbc_bootstrap.py -k m15`：**36 passed**（含 `stage2 ≡ stage3`）。
+- `test_mbc_vm_matha.py`：**91 passed**（含 slow 完全自举不动点）。
+- 全量 `pytest tests/ -m "not slow"`：**3027 passed** + 2 xfailed（较 Phase ② 的 2985 增 42）。
+- 全量 `pytest tests/ -m "slow"`：**3 passed**（自举不动点保持）。
+- ruff：`test_mbc_bootstrap.py` 维持基线 21；本次改动在 native.py / compiler.py / vm.py /
+  测试新增行 **无新增告警**（interp 新增 `builtin_列表求积` 的 N802 与既有
+  `builtin_列表*` 家族一致）。
+
+### 备注
+
+- 单元素列表字面量 `[7]` 在本语言中被解析为 `Output` 节点（非列表），故
+  `∑[7]` 非「单元素列表求和」；写作 `∑[7,]`（尾逗号）方为列表。测试用尾逗号形式。
+- `∑`/`∏` 作为前缀运算符，仅接受单个操作数；多元素需列表字面量 `∑[a, b, c]`。
+
+### 已知遗留（Phase ③，未做）
+
+- **全符号资源库** `matha/stdlib_symbols.matha`：分类登记中文标点/全角/ASCII/运算/
+  数学/希腊/学科符号的码位、中英文名、别名、类别与语义，可查询并供 `@define_op` 调用。
+
 ## 符号常量 / 前缀 √∛ / 中缀 ÷ / 单位后缀 °℃℉（四端一致）
 
 **日期**：2026-10-15

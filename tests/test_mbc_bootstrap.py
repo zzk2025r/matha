@@ -1746,3 +1746,50 @@ def test_m14_symbol_stage3_runs(compiler_boot_vm, name, src, expect):
     """M14：自举链路编译符号常量/前缀/单位，运行一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M15：聚合前缀 ∑/∏（Phase ②，自举 chain）====================
+# 聚合前缀 ∑（列表求和，空表→0）/ ∏（列表求积，空表→1）；操作数须为列表，
+# 非列表抛可捕获异常（对齐解释器 builtin_列表求和/求积）。
+# 宿主：parser _parse_unary/_parse_unary_operand 增 ∑/∏ → UnaryOp(sum/prod)；
+# compiler _UNARY_OPS 增 sum/prod；vm _UNARYOPS 增 → _builtin_list_sum/prod。
+# 自举：parser.matha 增 是求和号/是求积号、解析一元(_操作数) 增分支；
+# compiler_matha 一元运算表 增 sum/prod；vm.matha 应用一元 委托宿主
+# _list_sum/_list_prod（在 src/mbc/vm.py 默认内建注册）。
+_M15_AGG_CASES = [
+    ("sum_int", "#：[∑[1,2,3,4]]\n", [10]),
+    ("sum_empty", "#：[∑[]]\n", [0]),
+    ("sum_single", "#：[∑[7,]]\n", [7]),
+    ("prod_int", "#：[∏[1,2,3,4]]\n", [24]),
+    ("prod_empty", "#：[∏[]]\n", [1]),
+    ("prod_single", "#：[∏[7,]]\n", [7]),
+    ("sum_float", "#：[∑[1, 2.5, 3]]\n", [6.5]),
+    ("sum_float2", "#：[∑[1.5, 2.5]]\n", [4.0]),
+    ("prod_float", "#：[∏[1.5, 2]]\n", [3.0]),
+    ("sum_in_expr", "#：[∑[1,2,3] + 10]\n", [16]),
+    ("sum_with_sqrt", "#：[∑[√9, √16]]\n", [7]),
+    ("sum_of_prod", "#：[∑[∏[1,2], ∏[3,4]]]\n", [14]),
+]
+
+_M15_AGG_IDS = [c[0] for c in _M15_AGG_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M15_AGG_CASES, ids=_M15_AGG_IDS)
+def test_m15_agg_host_runs(name, src, expect):
+    """M15：宿主编译执行聚合前缀 ∑/∏，语义正确。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M15_AGG_CASES, ids=_M15_AGG_IDS)
+def test_m15_agg_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M15：stage2 ≡ stage3（聚合前缀 ∑/∏ 逐字节一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M15_AGG_CASES, ids=_M15_AGG_IDS)
+def test_m15_agg_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M15：自举链路编译聚合前缀 ∑/∏，运行一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect

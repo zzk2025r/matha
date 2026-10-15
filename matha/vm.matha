@@ -152,6 +152,12 @@ module 字节码虚拟机 {
     (* cbrt：完全立方回退为整数，对齐宿主 _builtin_cbrt *)
     op = "cbrt" ?
       立方根完美(v) :
+    (* 聚合 ∑/∏：委托宿主原语 _list_sum/_list_prod（含非列表报错），
+       语义复用宿主一元内建实现，确保逐字节一致。 *)
+    op = "sum" ?
+      _list_sum(v) :
+    op = "prod" ?
+      _list_prod(v) :
     (* 位取反：委托宿主原语 _bit_not（含非整数报错），对齐宿主 _UNARYOPS["~"] *)
     op = "~" ?
       _bit_not(v) :

@@ -607,6 +607,15 @@ class _Emitter:
         rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
         self.emit(bytes([rex, 0x01, 0xC0 | ((src & 7) << 3) | (dst & 7)]))
 
+    def imul_rr(self, dst: int, src: int):
+        """imul r64, r/m64（二操作数，低 64 位；dst *= src）。
+
+        注意操作数方向与 add_rr（opcode 01 /r）相反：imul 的 reg 字段是**目标**、
+        r/m 字段是源，故 REX.R 由 dst 决定、REX.B 由 src 决定。
+        """
+        rex = 0x48 | (0x04 if dst >= 8 else 0) | (0x01 if src >= 8 else 0)
+        self.emit(bytes([rex, 0x0F, 0xAF, 0xC0 | ((dst & 7) << 3) | (src & 7)]))
+
     # ---- SSE2 双精度 ----
     def _sse_rm(self, opcode: bytes, xmm: int, base: int, disp: int):
         # opcode = 强制前缀(F2) + 0F xx。REX 必须紧随强制前缀、且在 0F 之前
@@ -7961,6 +7970,14 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.read_top_to(0)                       # rax=栈顶（不弹出）
             em.call_rel32("f_cbrt")                 # 完全立方→整数，否则→浮点对象
             em.emit(b"\x49\x89\x44\x24\xF8")        # mov [r12-8],rax（就地替换）
+        elif sym == "sum":
+            em.read_top_to(0)                       # rax=栈顶（不弹出）
+            em.call_rel32("f_list_sum")             # 列表求和（非列表→抛可捕获异常）
+            em.emit(b"\x49\x89\x44\x24\xF8")        # mov [r12-8],rax（就地替换）
+        elif sym == "prod":
+            em.read_top_to(0)
+            em.call_rel32("f_list_prod")            # 列表求积（非列表→抛可捕获异常）
+            em.emit(b"\x49\x89\x44\x24\xF8")
         elif sym == "angle":
             # << 角度前缀（docs/06 级 6）：度数 → 弧度，与 f_deg 同语义。
             # 接受裸整数与浮点对象；bool/字符串/列表等 → 抛可捕获异常（对齐
@@ -8641,6 +8658,100 @@ def _emit_float_runtime(em: _Emitter):
     em.movq_xmm_r(0, 0)                             # xmm0=结果（恢复，供 box_float）
     em.call_rel32("box_float")
     em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- f_list_sum(rax) → rax（聚合 ∑：列表求和；空表→0，非列表→抛异常）----
+    # 循环体照搬 _emit_builtin_sum：整数累加保持整数（add），出现浮点则整体转浮点
+    # （f_add）。r8=acc、r9=base、r10=n、r11=i 跨 is_float/f_add 均被保留（同 sum）。
+    em.label_here("f_list_sum")
+    em.mov_rr(2, 0)                                 # rdx=操作数
+    em.lea_rip(1, "heap_base")
+    em.sub_rr(2, 1)
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x83, "fls_bad")                   # jae 非堆对象 → 非列表
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))   # cmp qword[rax],TYPE_LIST
+    em.jcc_rel32(0x85, "fls_bad")
+    em.lea_mem(9, 0, 16)                            # r9=base（首个元素）
+    em.mov_rd_mem(10, 0, 8)                         # r10=n
+    em.xor_rr32(8, 8)                               # r8=acc=0
+    em.xor_rr32(11, 11)                             # r11=i=0
+    em.test_rr(10, 10)
+    em.jcc_rel32(0x84, "fls_done")                  # 空表 → 0
+    em.label_here("fls_loop")
+    em.mov_rd_mem(0, 9, 0, index=11, scale=8)       # rax=elem
+    em.mov_rr(7, 0)                                 # rdi=elem
+    em.mov_rr(0, 8)                                 # rax=acc
+    em.call_rel32("is_float")
+    em.emit(b"\x85\xC0")
+    em.jcc_rel32(0x85, "fls_fadd")                  # 累加器是浮点 → 浮点加
+    em.mov_rr(0, 7)
+    em.call_rel32("is_float")
+    em.emit(b"\x85\xC0")
+    em.jcc_rel32(0x85, "fls_fadd")                  # 元素是浮点 → 浮点加
+    em.add_rr(8, 7)                                 # 双整数：acc += elem
+    em.jcc_rel32(None, "fls_next")
+    em.label_here("fls_fadd")
+    em.mov_rr(0, 8)
+    em.mov_rr(1, 7)
+    em.call_rel32("f_add")
+    em.mov_rr(8, 0)                                 # acc=浮点结果
+    em.label_here("fls_next")
+    em.inc_r(11)
+    em.cmp_rr(11, 10)
+    em.jcc_rel32(0x82, "fls_loop")                  # jb
+    em.label_here("fls_done")
+    em.mov_rr(0, 8)
+    em.emit(b"\xC3")                                # ret（rax=结果）
+    em.label_here("fls_bad")
+    em.lea_rip(0, "err_sum")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
+
+    # ---- f_list_prod(rax) → rax（聚合 ∏：列表求积；空表→1，非列表→抛异常）----
+    # 与 f_list_sum 同构：整数累乘保持整数（imul），出现浮点则整体转浮点（f_mul）；
+    # 单位元为 1。
+    em.label_here("f_list_prod")
+    em.mov_rr(2, 0)
+    em.lea_rip(1, "heap_base")
+    em.sub_rr(2, 1)
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x83, "flp_bad")
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))
+    em.jcc_rel32(0x85, "flp_bad")
+    em.lea_mem(9, 0, 16)                            # r9=base
+    em.mov_rd_mem(10, 0, 8)                         # r10=n
+    em.mov_r_imm32(8, 1)                            # r8=acc=1
+    em.xor_rr32(11, 11)                             # r11=i=0
+    em.test_rr(10, 10)
+    em.jcc_rel32(0x84, "flp_done")                  # 空表 → 1
+    em.label_here("flp_loop")
+    em.mov_rd_mem(0, 9, 0, index=11, scale=8)       # rax=elem
+    em.mov_rr(7, 0)                                 # rdi=elem
+    em.mov_rr(0, 8)                                 # rax=acc
+    em.call_rel32("is_float")
+    em.emit(b"\x85\xC0")
+    em.jcc_rel32(0x85, "flp_fmul")                  # 累加器是浮点 → 浮点乘
+    em.mov_rr(0, 7)
+    em.call_rel32("is_float")
+    em.emit(b"\x85\xC0")
+    em.jcc_rel32(0x85, "flp_fmul")                  # 元素是浮点 → 浮点乘
+    em.imul_rr(8, 7)                                # 双整数：acc *= elem
+    em.jcc_rel32(None, "flp_next")
+    em.label_here("flp_fmul")
+    em.mov_rr(0, 8)
+    em.mov_rr(1, 7)
+    em.call_rel32("f_mul")
+    em.mov_rr(8, 0)                                 # acc=浮点结果
+    em.label_here("flp_next")
+    em.inc_r(11)
+    em.cmp_rr(11, 10)
+    em.jcc_rel32(0x82, "flp_loop")                  # jb
+    em.label_here("flp_done")
+    em.mov_rr(0, 8)
+    em.emit(b"\xC3")                                # ret（rax=结果）
+    em.label_here("flp_bad")
+    em.lea_rip(0, "err_prod")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
 
     # ---- f_neg(rax) → rax ----
     em.label_here("f_neg")
@@ -10034,6 +10145,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_index_list", "list index out of range"),
                      ("err_index_str", "string index out of range"),
                      ("err_dedup", "去重() 需要列表"),
+                     ("err_sum", "求和() 需要列表"),
+                     ("err_prod", "求积() 需要列表"),
                      ("err_bigintop", "大整数不支持该运算"),
                      ("err_attr", "属性访问失败: 非字典对象")):
         raw = s.encode("utf-8")

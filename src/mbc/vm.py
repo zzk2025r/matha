@@ -164,6 +164,23 @@ def _builtin_cbrt(a):
     return r
 
 
+def _builtin_list_sum(a):
+    """聚合前缀 ∑：列表求和（空表 → 0）；非列表报错（对齐解释器 builtin_列表求和）。"""
+    if not isinstance(a, (list, tuple)):
+        raise RuntimeError("求和() 需要列表")
+    return sum(a)
+
+
+def _builtin_list_prod(a):
+    """聚合前缀 ∏：列表求积（空表 → 1）；非列表报错（对齐解释器 builtin_列表求积）。"""
+    if not isinstance(a, (list, tuple)):
+        raise RuntimeError("求积() 需要列表")
+    r = 1
+    for x in a:
+        r = r * x
+    return r
+
+
 def _builtin_bitnot(a):
     """一元 `~` 位取反：仅整数，语义对齐解释器 src/interp.py:1730。
 
@@ -204,6 +221,8 @@ _UNARYOPS = {
     "not": lambda a: not a,
     "sqrt": _builtin_sqrt,
     "cbrt": _builtin_cbrt,
+    "sum": _builtin_list_sum,
+    "prod": _builtin_list_prod,
     "~": _builtin_bitnot,
     "angle": _builtin_angle,
     "++": _builtin_incr,
@@ -408,6 +427,10 @@ def _default_builtins() -> dict:
     b.setdefault("_set_comp", _curry2(_BINOPS["~"]))
     b.setdefault("_set_prod", _curry2(_BINOPS["×"]))
     b.setdefault("_set_subset", _curry2(_BINOPS["⊆"]))
+    # 聚合原语（供自举 vm.matha 的 应用一元 使用）：∑/∏ 直接复用一元内建实现，
+    # 确保与宿主 VM 逐字节一致（含非列表报错）。
+    b.setdefault("_list_sum", _builtin_list_sum)
+    b.setdefault("_list_prod", _builtin_list_prod)
     # 空字典常量（{} 在 Matha 语法中为空集合构造，故用 VM 值提供空字典）
     b.setdefault("_empty_dict", {})
     # 列表去重：与宿主解释器 builtin_列表去重 同语义（按 == 去重、保序），

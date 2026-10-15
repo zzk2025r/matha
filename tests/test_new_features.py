@@ -504,6 +504,23 @@ def test_unit_suffix_symbols():
     print('  ✓ 单位后缀: 90° 30℃ 98℉')
 
 
+# ─── Phase ②：聚合前缀 ∑ ∏（列表求和/求积，非列表报错） ─────────────────────
+
+def test_aggregate_prefix_symbols():
+    assert get_out('#1：[∑[1,2,3,4]]') == 10
+    assert get_out('#1：[∑[]]') == 0
+    assert get_out('#1：[∏[1,2,3,4]]') == 24
+    assert get_out('#1：[∏[]]') == 1
+    assert get_out('#1：[∑[7,]]') == 7
+    assert get_out('#1：[∏[7,]]') == 7
+    assert get_out('#1：[∑[1, 2.5, 3]]') == 6.5
+    assert get_out('#1：[∏[1.5, 2]]') == 3.0
+    assert get_out('#1：[∑[1,2,3] + 10]') == 16
+    assert get_out('#1：[∑[√9, √16]]') == 7
+    assert get_out('#1：[∑[∏[1,2], ∏[3,4]]]') == 14
+    print('  ✓ 聚合前缀: ∑[1,2,3,4] = 10, ∏[1,2,3,4] = 24')
+
+
 # ─── 主入口 ─────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -537,6 +554,7 @@ if __name__ == '__main__':
         test_symbol_constants, test_empty_set_literal,
         test_sqrt_symbol_prefix, test_cbrt_symbol_prefix,
         test_divide_symbol, test_unit_suffix_symbols,
+        test_aggregate_prefix_symbols,
     ]
     passed = 0
     failed = 0

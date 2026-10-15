@@ -1807,9 +1807,10 @@ class Parser:
         if self._check(TokenType.OP_BIT_NOT):
             self._advance()
             return ast.UnaryOp(op="~", operand=self._parse_unary_operand())
-        # Phase ②：符号前缀一元 √（平方根）/ ∛（立方根），对齐语言既有 ^ 前缀开方
-        if self._check(TokenType.SYMBOL) and self._current().value in ("√", "∛"):
-            op = "sqrt" if self._current().value == "√" else "cbrt"
+        # Phase ②：符号前缀一元 √（平方根）/ ∛（立方根）/ ∑（求和）/ ∏（求积），
+        # 对齐语言既有 ^ 前缀开方。
+        if self._check(TokenType.SYMBOL) and self._current().value in ("√", "∛", "∑", "∏"):
+            op = {"√": "sqrt", "∛": "cbrt", "∑": "sum", "∏": "prod"}[self._current().value]
             self._advance()
             return ast.UnaryOp(op=op, operand=self._parse_unary_operand())
         return self._parse_postfix()
@@ -1841,9 +1842,9 @@ class Parser:
             self._advance()
             operand = self._parse_unary_operand()
             return ast.UnaryOp(op="~", operand=operand)
-        # Phase ②：符号前缀一元 √（平方根）/ ∛（立方根）
-        if self._check(TokenType.SYMBOL) and self._current().value in ("√", "∛"):
-            op = "sqrt" if self._current().value == "√" else "cbrt"
+        # Phase ②：符号前缀一元 √（平方根）/ ∛（立方根）/ ∑（求和）/ ∏（求积）
+        if self._check(TokenType.SYMBOL) and self._current().value in ("√", "∛", "∑", "∏"):
+            op = {"√": "sqrt", "∛": "cbrt", "∑": "sum", "∏": "prod"}[self._current().value]
             self._advance()
             operand = self._parse_unary_operand()
             return ast.UnaryOp(op=op, operand=operand)

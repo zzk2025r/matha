@@ -84,6 +84,9 @@ _BIN_OPS = {
 _UNARY_OPS = {"-": "neg", "not": "not", "非": "not",
               "sqrt": "sqrt", "^": "sqrt", "√": "sqrt",
               "cbrt": "cbrt", "∛": "cbrt",
+              # 聚合前缀：∑ 列表求和、∏ 列表求积（操作数为列表，不做常量折叠）。
+              "sum": "sum", "∑": "sum",
+              "prod": "prod", "∏": "prod",
               # 位取反：解释器 src/interp.py:1730 已实现（仅整数），MBC 此前缺失。
               "~": "~",
               # << 前缀角度（docs/06 级 6）：度数 → 弧度，三端语义一致。
