@@ -99,6 +99,9 @@ module 语法器 {
      字段为子模式列表（按位置对应）。 *)
   func 做构造子模式(name: String, fields: List) -> Dict =
     {"类型": "构造子模式", "名": name, "字段": fields}
+  (* go <expr>：宿主 ast.GoStmt(expr=…)。仅块内可用（宿主 _parse_statement 有
+     go 分支，顶层 _parse_decl 无）。VM 无抢占式调度，编译为「求值后丢弃」。 *)
+  func 做Go(expr: Dict) -> Dict = {"类型": "go", "expr": expr}
   func 做Lambda(params: List, body: Dict) -> Dict = {"类型": "lambda", "参数": params, "体": body}
   func 做BinaryOp(op: String, left: Dict, right: Dict) -> Dict = {"类型": "二元运算", "运算符": op, "左": left, "右": right}
   (* 自定义运算符二元节点：@define_op 绑定具名函数时使用独立节点类型，
@@ -1693,6 +1696,7 @@ module 语法器 {
       else if tok.文本 = "for" then 解析for_stmt(p)
       else if tok.文本 = "match" then 解析match_stmt(p)
       else if tok.文本 = "switch" then 解析switch(p)
+      else if tok.文本 = "go" then 解析go语句(p)
       else if tok.文本 = "try" then 解析try语句(p)
       else if tok.文本 = "module" then 解析模块声明(p)
       else if tok.文本 = "use" then 解析导入声明(p)
@@ -2061,6 +2065,14 @@ module 语法器 {
       解析switch分支(p5, cases + [[case_val, body]], 默认)
     else
       (reverse(cases), 默认, p)
+
+  (* go 语句：go <expr>（宿主 _parse_statement 的 KW_GO 分支）。
+     本解析器 解析声明 同时服务块/顶层；顶层宿主 _parse_decl 无 go，
+     故 go 实际仅在块内出现（测试用例亦然）。 *)
+  func 解析go语句(p: 解析器) -> (Dict, 解析器) =
+    let p2 = 期望(p, 类型.关键字) in  (* go *)
+    let (expr, p3) = 解析表达式(p2) in
+    (做Go(expr), p3)
 
   (* 语句列表 *)
   func 解析语句列表(p: 解析器) -> (Dict, 解析器) =

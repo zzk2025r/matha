@@ -2042,3 +2042,91 @@ def test_m18_switch_stage3_runs(compiler_boot_vm, name, src, expect):
     """M18：自举链路编译执行 switch，输出与宿主一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M19：go 语句 ====================
+# 自托管链路此前不支持 `go <expr>`：宿主 parser 在**块内**把 `go` 解析为
+# ast.GoStmt（_parse_statement 的 KW_GO 分支；顶层 _parse_decl 无此分支），
+# compiler 降级为「立即求值 + POP」（VM 无抢占式调度）；自举 parser 无 go
+# 分派（落到 解析表达式 报错）。现补齐：
+#   - parser：新增 做Go + 解析go语句；解析声明 增 go 分派。
+#   - compiler：_编译声明 增 `go` 分支（_发射表达式 + OP_POP）；并登记进
+#     _是语句类型（宿主 GoStmt ∈ _STMT_NODES：块末留值时走语句路径，再由
+#     _emit_block 的 leave_last 尾巴补 PUSH_NULL）。
+_M19_GO_CASES = [
+    ("after_ret",  'func g(x: Int) -> Int = (x) => x + 1\nfunc f() -> Int = () => {\n  go g(1)\n  42\n}\n#1：[f()]\n', [42]),
+    ("tail_null",  'func g(x: Int) -> Int = (x) => x + 1\nfunc f() -> Int = () => {\n  go g(1)\n}\n#1：[f()]\n', [None]),
+    ("call_value", 'func g(x: Int) -> Int = (x) => x\nfunc f() -> Int = () => {\n  go g(5)\n  7\n}\n#1：[f()]\n', [7]),
+    ("in_while",   'func g(x: Int) -> Int = (x) => x\nfunc f(n: Int) -> Int = (n) => {\n  i = 0\n  while i < n {\n    go g(i)\n    i = i + 1\n  }\n  i\n}\n#1：[f(3)]\n', [3]),
+    ("in_if",      'func g(x: Int) -> Int = (x) => x\nfunc f(n: Int) -> Int = (n) => {\n  if n > 0 {\n    go g(n)\n  }\n  n\n}\n#1：[f(2)]\n', [2]),
+    ("in_if_more", 'func g(x: Int) -> Int = (x) => x\nfunc f(n: Int) -> Int = (n) => {\n  if n > 0 {\n    go g(n)\n    0\n  }\n  n\n}\n#1：[f(2)]\n', [2]),
+    ("var_expr",   'func f() -> Int = () => {\n  x = 5\n  go x\n  9\n}\n#1：[f()]\n', [9]),
+    ("arith_expr", 'func f() -> Int = () => {\n  go 1 + 2\n  9\n}\n#1：[f()]\n', [9]),
+]
+
+_M19_GO_IDS = [c[0] for c in _M19_GO_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M19_GO_CASES, ids=_M19_GO_IDS)
+def test_m19_go_host_runs(name, src, expect):
+    """M19：宿主 go 语句语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M19_GO_CASES, ids=_M19_GO_IDS)
+def test_m19_go_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M19：stage2 ≡ stage3（go 字节级一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M19_GO_CASES, ids=_M19_GO_IDS)
+def test_m19_go_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M19：自举链路编译执行 go，输出与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
+
+
+# ==================== M20：语句位置 if 的形态对齐 ====================
+# 缺陷：自举 _编译平衡（语句位置 if）恒以「值形态 + POP」发射（_发射if 恒
+# 留值，再 OP_POP），而宿主对**块形态** if（IfStmt/IfElseStmt）用语句形态
+# _emit_if_stmt(leave_value=False)：各分支块 leave_last=假、无 else 不补
+# PUSH_NULL、整体无 POP；仅对 then/else **表达式形态**（IfExpr）才用
+# 「值形态 + POP」。故语句位置块形态 if 的字节码两侧不一致（执行结果相同，
+# 隐藏已久：自举源自身不含语句位置 if，M2 定点未暴露）。
+# 修复：_发射if 增 留值 参数；_编译平衡 按真分支是否为 Program 区分形态：
+#   块形态 → _发射if(…, 假)（语句形态）；表达式形态 → _发射if(…, 真) + OP_POP。
+_M20_IF_STMT_CASES = [
+    ("top_block",    'x = 0\nif x > 0 {\n  x = 1\n}\n#：[x]\n', [0]),
+    ("block_else",   'func f(n: Int) -> Int = (n) => {\n  if n > 0 {\n    1\n  } else {\n    2\n  }\n  n\n}\n#1：[f(1)]\n', [1]),
+    ("block_noelse", 'func f(n: Int) -> Int = (n) => {\n  if n > 0 {\n    n\n  }\n  n\n}\n#1：[f(2)]\n', [2]),
+    ("tail_block",   'func f(n: Int) -> Int = (n) => {\n  if n > 0 {\n    n\n  }\n}\n#1：[f(2)]\n', [2]),
+    ("two_blocks",   'func f(n: Int) -> Int = (n) => {\n  if n > 0 {\n    1\n  }\n  if n > 1 {\n    2\n  }\n  n\n}\n#1：[f(5)]\n', [5]),
+    ("expr_stmt",    'func f(n: Int) -> Int = (n) => {\n  if n > 0 then 1 else 2\n  n\n}\n#1：[f(1)]\n', [1]),
+    ("expr_tail",    'func f(n: Int) -> Int = (n) => {\n  if n > 0 then 1 else 2\n}\n#1：[f(1)]\n', [1]),
+    ("mech_block",   '#1：{ if 1 > 0 { 5 } else { 6 } }\n', []),
+]
+
+_M20_IF_STMT_IDS = [c[0] for c in _M20_IF_STMT_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M20_IF_STMT_CASES, ids=_M20_IF_STMT_IDS)
+def test_m20_if_stmt_host_runs(name, src, expect):
+    """M20：宿主语句位置 if 语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M20_IF_STMT_CASES, ids=_M20_IF_STMT_IDS)
+def test_m20_if_stmt_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M20：stage2 ≡ stage3（语句位置 if 字节级一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M20_IF_STMT_CASES, ids=_M20_IF_STMT_IDS)
+def test_m20_if_stmt_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M20：自举链路编译执行语句位置 if，输出与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect

@@ -265,6 +265,11 @@ module 编译器 {
     decl["类型"] = "try" ? _编译try平衡(decl, code, _重置主作用域计数(sc), bc) :
     decl["类型"] = "match" ? _发射match(decl, code, _重置主作用域计数(sc), bc, 假) :
     decl["类型"] = "switch" ? _发射switch(decl, code, _重置主作用域计数(sc), bc, 假) :
+    (* go <expr>：宿主 _compile_stmt GoStmt 分支——_emit_expr(expr) + POP（VM 无
+       抢占式调度，降级为「立即求值并丢弃返回值」）。 *)
+    decl["类型"] = "go" ?
+      let (cgo, scgo, bcgo) = _发射表达式(decl["expr"], code, _重置主作用域计数(sc), bc) in
+      (_发(cgo, [OP_POP]), scgo, bcgo) :
     (* throw/raise：宿主把 RaiseExpr 列入 _STMT_NODES，语句位置走 _compile_stmt
        的 RaiseExpr 分支（求值 + RAISE），**不补 POP**——RAISE 不返回，栈上
        也不会残留值。裸表达式兜底会多发一条 POP，与宿主产物不一致。 *)
@@ -398,10 +403,19 @@ module 编译器 {
     let (idx, bc3) = _加常量名(bc2, names[0]) in
     (_发(c2, [OP_STORE_GLOBAL, idx]), bc3)
 
-  (* 把留值发射（if/try）的结果 POP 掉，用于语句位置 *)
+  (* 语句位置的 if。宿主对两种形态区别对待：
+     - 块形态（宿主 IfStmt/IfElseStmt：`if c { }`，真分支为 Program）→
+       _emit_if_stmt(leave_value=False) 的**语句形态**：各分支 leave_last=假、
+       无 else 不补 PUSH_NULL、整体无 POP。
+     - 表达式形态（宿主 IfExpr：`if c then a else b`，真分支为普通表达式）→
+       宿主把它当非语句表达式（_emit_block 末尾分支 _emit_expr + POP），
+       即「值形态 + POP」。
+     以真分支是否 Program 区分（假分支在无 else 时为 null，不可用）。 *)
   func _编译平衡(decl, code, sc, bc) -> (List, List, Dict) =
-    let (c2, sc2, bc2) = _发射if(decl, code, sc, bc) in
-    (_发(c2, [OP_POP]), sc2, bc2)
+    decl["真分支"]["类型"] = "程序" ?
+      _发射if(decl, code, sc, bc, 假) :
+      let (c2, sc2, bc2) = _发射if(decl, code, sc, bc, 真) in
+      (_发(c2, [OP_POP]), sc2, bc2)
   func _编译try平衡(decl, code, sc, bc) -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射try(decl, code, sc, bc) in
     (_发(c2, [OP_POP]), sc2, bc2)
@@ -582,7 +596,7 @@ module 编译器 {
   func _发射块末条(decl: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
       -> (List, List, Dict) =
     留值 ?
-      (decl["类型"] = "if" ? _发射if(decl, code, sc, bc) :
+      (decl["类型"] = "if" ? _发射if(decl, code, sc, bc, 真) :
        decl["类型"] = "try" ? _发射try(decl, code, sc, bc) :
        decl["类型"] = "match" ? _发射match(decl, code, sc, bc, 真) :
        decl["类型"] = "switch" ? _发射switch(decl, code, sc, bc, 真) :
@@ -613,7 +627,10 @@ module 编译器 {
     (* 宿主 _STMT_NODES 含 RaiseExpr：块末留值时走 _compile_stmt 收尾路径，
        再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。缺此项则 try 体
        （末句 throw/raise）少发 PUSH_NULL，__lam_1 字节码与宿主不一致。 *)
-    (t = "抛出")
+    (t = "抛出") or
+    (* 宿主 _STMT_NODES 含 GoStmt：块末留值时走语句路径（expr+POP），
+       再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL（与 go 尾句一致）。 *)
+    (t = "go")
 
   (* ===== 表达式发射 =====
      返回 (新码, 新作用域, 新bc) *)
@@ -659,7 +676,7 @@ module 编译器 {
     e["类型"] = "函数应用" ? _发射应用(e, code, sc, bc) :
     e["类型"] = "二元运算" ? _发射二元(e, code, sc, bc) :
     e["类型"] = "一元运算" ? _发射一元(e, code, sc, bc) :
-    e["类型"] = "if" ? _发射if(e, code, sc, bc) :
+    e["类型"] = "if" ? _发射if(e, code, sc, bc, 真) :
     e["类型"] = "match" ? _发射match(e, code, sc, bc, 真) :
     e["类型"] = "switch" ? _发射switch(e, code, sc, bc, 真) :
     e["类型"] = "let绑定" ? _发射let(e, code, sc, bc) :
@@ -1015,16 +1032,20 @@ module 编译器 {
 
 
   (* if 表达式（始终留值）：条件; JZ else; 真体; JMP end; else: 假体; end *)
-  func _发射if(e: Dict, code: List, sc: List, bc: Dict)
+  (* 留值=真（表达式/块末）→ 各分支 leave_last=真、无 else 补 PUSH_NULL，
+     整体留一值（宿主 _emit_if_stmt(leave_value=True)）。
+     留值=假（语句位）→ 各分支 leave_last=假、无 else 不补，即宿主
+     _emit_if_stmt(leave_value=False) 的语句形态。 *)
+  func _发射if(e: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
       -> (List, List, Dict) =
     let (c1, sc1, bc1) = _发射表达式(e["条件"], code, sc, bc) in
     let jz = len(c1) in
     let c2 = _发(c1, [OP_JZ, 0]) in
-    let (c3, sc2, bc2) = _发射体(e["真分支"], c2, sc1, bc1, 真) in
+    let (c3, sc2, bc2) = _发射体(e["真分支"], c2, sc1, bc1, 留值) in
     let jmp = len(c3) in
     let c4 = _发(c3, [OP_JMP, 0]) in
     let c5 = _补丁(c4, jz, [OP_JZ, len(c4)]) in
-    let (c6, sc3, bc3) = _发射体(e["假分支"], c5, sc2, bc2, 真) in
+    let (c6, sc3, bc3) = _发射体(e["假分支"], c5, sc2, bc2, 留值) in
     (_补丁(c6, jmp, [OP_JMP, len(c6)]), sc3, bc3)
 
   (* ===== let（局部槽 / rec 盒）===== *)

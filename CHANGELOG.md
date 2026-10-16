@@ -1,5 +1,61 @@
 # Matha 变更摘要
 
+## `go` 语句 + 语句位置 `if` 形态对齐自托管端可用（四端一致）
+
+**日期**：2026-10-16
+
+### 变更范围
+
+**`go`**：宿主 parser 在**块内**把 `go <expr>` 解析为 `ast.GoStmt`（`_parse_statement`
+的 `KW_GO` 分支；顶层 `_parse_decl` 无此分支），宿主编译降级为「立即求值 + `POP`」
+（`GoStmt ∈ _STMT_NODES`，VM 无抢占式调度）。自举侧缺陷：
+
+- 自举 `解析声明` 无 `go` 分派（`go` 已是自举 lexer 关键字）→ 落入 `解析表达式`，
+  链接口报 `KeyError('go')`。
+- `compiler_matha.matha` 无 `go` 发射，落到兜底「未支持的表达式类型」。
+
+**语句位置 `if` 的形态对齐（潜伏缺陷）**：自举 `_编译平衡`（语句位置 `if`）恒以
+「值形态 + `POP`」发射（`_发射if` 恒留值，再 `OP_POP`）。但宿主对两种形态区别对待：
+
+- **块形态** `if c { … }`（`IfStmt`/`IfElseStmt`，∈ `_STMT_NODES`）→ 语句形态
+  `_emit_if_stmt(leave_value=False)`：各分支块 `leave_last=假`、无 `else` 不补
+  `PUSH_NULL`、整体**无 `POP`**。
+- **表达式形态** `if c then a else b`（`IfExpr`，∉ `_STMT_NODES`）→ 宿主按非语句表达式
+  处理（`_emit_block` 末尾分支 `_emit_expr` + `POP`）＝「值形态 + `POP`」。
+
+故语句位置块形态 `if` 的字节码两侧不一致。该缺陷执行结果相同、隐藏已久：自举源自身
+不含语句位置 `if`，M2 定点未暴露（新增 `go` 的 `if` 内用例才将其触发）。
+
+### 变更
+
+- **`matha/lexer.matha`**：`go` 关键字早已存在，无改动。
+- **`matha/parser.matha`**：
+  - 新增 `做Go(expr) = {"类型":"go","expr":expr}`。
+  - 新增 `解析go语句(p)`（`期望(p, 类型.关键字)` 消费 `go` → `解析表达式`）。
+  - `解析声明` 增 `go` 分派。
+- **`matha/compiler_matha.matha`**：
+  - `_编译声明` 增 `go` 分支：`_发射表达式(expr) + OP_POP`（对齐宿主 `_compile_stmt`
+    的 `GoStmt` 分支）；并登记进 `_是语句类型`（`GoStmt ∈ _STMT_NODES`：块末留值时走
+    语句路径，再由 `_emit_block` 的 `leave_last` 尾巴补 `PUSH_NULL`）。
+  - `_发射if` 增 `留值: Bool` 形参（真/假分支体均以 `留值` 调 `_发射体`）。
+  - `_编译平衡`（语句位置 `if`）改为按真分支是否为 `Program` 区分：块形态 →
+    `_发射if(…, 假)`（语句形态）；表达式形态 → `_发射if(…, 真)` + `OP_POP`
+    （假分支在无 `else` 时为 `null`，故以真分支判定）。
+  - 值位调用点：`_发射块末条`（留值分支）、`_发射表达式` 均改以 `留值=真` 调 `_发射if`。
+
+### 测试
+
+- 新增 **M19：`go` 语句**（`_M19_GO_CASES` 8 例 × 3 = 24 例：宿主基准 /
+  stage2 ≡ stage3 / 自举执行），覆盖 `go` 后接返回后语句、块末 `go`（值为 `null`）、
+  `go` 作函数调用/变量/算术表达式、`while`/`if` 块内的 `go`（含非块尾）。
+- 新增 **M20：语句位置 `if` 形态对齐**（`_M20_IF_STMT_CASES` 8 例 × 3 = 24 例），
+  覆盖顶层/函数体语句位块形态 `if`（有/无 `else`、连续两块、块尾留值）、表达式形态
+  `if … then … else …`（语句位 / 块尾）、mechanics 代码块内块形态 `if`。
+- 探针 host ≡ self（字节码 canon + 执行逐例一致）。
+- `tests/test_mbc_bootstrap.py + tests/test_bootstrap_host.py`：763 passed
+  （含 `matha/parser.matha`/`matha/compiler_matha.matha` 的自举定点保持）。
+- 全量 `pytest tests/`：3268 passed。
+
 ## match / switch 语句自托管端可用（四端一致）
 
 **日期**：2026-10-16
