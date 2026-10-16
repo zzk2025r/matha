@@ -444,6 +444,51 @@ def test_output_single_value_unaffected(compiler_boot_vm):
         assert _set_outputs(compiler_boot_vm, src) == want, src
 
 
+# ---------- M4：输出括号内的列表前瞻与集合运算符链 ----------
+# 宿主 _parse_output 的 is_list_lookahead 除「紧跟逗号」外还用 _bracket_has_comma
+# （括号内深度 1 的任意逗号）判定，列表分支在 ] 后另接集合运算符链（[a,b] ∪ [c,d]）。
+# 自举 parser 此前仅看紧邻逗号、且不接集合链，故 #：[1 + 1, 2] 回退为文本、
+# #：[[1], 2] 报错、#：[1, 2] ∪ [3] 把 ∪ 当变量名 + [3] 下标。
+_M4_OUTPUT_LIST_CASES = [
+    ("expr_then_comma", "#：[1 + 1, 2]\n", [[2, 2]]),
+    ("nested_list_then_comma", "#：[[1], 2]\n", [[[1], 2]]),
+    ("tuple_then_comma", "#：[(1, 2), 3]\n", [[[1, 2], 3]]),
+    ("call_then_comma", "f = (x, y) => x + y\n#：[f(1, 2), 3]\n", [[3, 3]]),
+    ("nested_lists", "#：[[1], [2]]\n", [[[1], [2]]]),
+    ("three_values", "#：[1 + 1, 2, 3]\n", [[2, 2, 3]]),
+    ("bracket_union", "#：[1, 2] ∪ [3]\n", [[1, 2, 3]]),
+    ("bracket_union_trailing", "#：[1, 2] ∪ [3, 4]\n", [[1, 2, 3, 4]]),
+    ("bracket_union_expr", "#：[1 + 1, 2] ∪ [3]\n", [[2, 3]]),
+    ("bracket_union_order", "#：[3, 1] ∪ [2]\n", [[3, 1, 2]]),
+    ("bracket_diff", "#：[1, 2, 3] ⊖ [2]\n", [[1, 3]]),
+    ("bracket_inter", "#：[1, 2] ∩ [2, 3]\n", [[2]]),
+    ("bracket_prod", "#：[1, 2] × [3, 4]\n", [[(1, 3), (1, 4), (2, 3), (2, 4)]]),
+]
+
+_M4_OUTPUT_LIST_IDS = [c[0] for c in _M4_OUTPUT_LIST_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_OUTPUT_LIST_CASES, ids=_M4_OUTPUT_LIST_IDS)
+def test_m4_output_list_host_runs(name, src, expect):
+    """M4：宿主对 #：[…] 列表前瞻 + 集合运算符链的语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_OUTPUT_LIST_CASES, ids=_M4_OUTPUT_LIST_IDS)
+def test_m4_output_list_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M4：stage2 ≡ stage3（输出括号列表前瞻 + 集合链逐字节一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M4_OUTPUT_LIST_CASES, ids=_M4_OUTPUT_LIST_IDS)
+def test_m4_output_list_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M4：自举链路编译执行，输出与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
+
+
 def test_belongs_operator(compiler_boot_vm):
     """a ∈ b 成员判定：编译为 BINOP "in"，与宿主逐字节一致。"""
     cases = [
