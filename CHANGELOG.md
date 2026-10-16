@@ -1,5 +1,36 @@
 # Matha 变更摘要
 
+## `@：` 设定项多行列表「未消费完整」误回退修复（四端一致）
+
+**日期**：2026-10-17
+
+### 变更范围
+
+**宿主 `@：` 设定项值的完整性判定应接受 DEDENT**（`src/parser.py`）
+
+- `_parse_set_up_item` 解析 `@：名 = 值` 时，先以 `_parse_expr(stop_at_comma=True)`
+  取值，再校验「值消费完整」——当前 token 须为逗号 / 换行 / EOF / `|` / `)`。
+  多行值（如多行列表 `["a",\n   "b"]`）消费完时，紧随其后的是 **`DEDENT`**
+  （其后才是 `NEWLINE`），不在上述集合内 → 误判「设定值未消费完整」而进入文本
+  回退分支（`except ParseError`），把 `[` 起的内容按文本收集到第一个逗号处截断，
+  导致 `@：名 = [a, b, c]` 这类多行列表解析错位（后续元素被当作新设定项 →
+  「期望变量名或占位符」）。
+- 修复：完整性判定同时接受 `TokenType.DEDENT`。单行值（如 `windows.iso` 文本）
+  收尾为 NEWLINE，不受影响；多行值（多行列表 / 跨行表达式）现正确判为完整。
+- 影响：`matha/firewall_rules.matha`（含 `@：沙箱允许 = […多行…]` 等多行列表
+  设定）现宿主可解析，且与自举编译结果一致（identical=True）。
+
+### 效果
+
+- 语料 `corpus_parity.py`（67 文件）：**ok 55→56**、diverge 0、self_fail 0、
+  host_parse_fail 12→11。
+
+### 测试
+
+- `pytest tests/` → **3268 passed**（无回归）。
+
+---
+
 ## `[expr]` 归类忽略缩进记号 + bootstrap_matha 缺 let 笔误（四端一致，diverge=0）
 
 **日期**：2026-10-17

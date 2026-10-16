@@ -389,9 +389,12 @@ class Parser:
                 value = self._parse_expr(stop_at_comma=True)
                 # 检查值是否消费完整：当前应为逗号/换行/EOF/|(分格)/右括号)
                 # （`@(...)` 括号形式以 `)` 收尾，漏掉它会让回退分支吞掉 `)`）
+                # 跨行值（如多行列表 `[...\n...]`）消费完时紧随 DEDENT（其后才是
+                # NEWLINE），故 DEDENT 亦视为完整收尾；否则会误回退为文本并错位。
                 if not (self._is_comma() or self._check(
                         TokenType.NEWLINE, TokenType.EOF,
-                        TokenType.OP_PIPE, TokenType.PUNCT_RPAREN)):
+                        TokenType.OP_PIPE, TokenType.PUNCT_RPAREN,
+                        TokenType.DEDENT)):
                     raise ParseError("设定值未消费完整，回退为文本", self._current())
                 # 裸标识符作为配置值（字符串），不当作变量引用
                 if isinstance(value, ast.Variable) and not value.is_placeholder:
