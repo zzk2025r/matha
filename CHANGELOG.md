@@ -1,5 +1,69 @@
 # Matha 变更摘要
 
+## 集合理解 `{输出 | v >> S | 条件}`：自托管端可用（四端一致）
+
+**日期**：2026-10-16
+
+### 变更范围
+
+补齐**自托管端**集合理解。宿主早已支持集合构造
+`{输出 | 生成子句|条件 | …}`（含 `v >> S` 生成子句、过滤条件、映射输出，以及由
+`1 <= v <= n` 链式比较推断有界整数域），而自举链路此前把整个 `{…}` 回退为输出文本
+（`StringLit('{x|x>>s}')`）。现自举 parser 产 `comprehension` 节点、自举 compiler 降级为
+嵌套循环 + 过滤 + append，产物与宿主逐项一致。至此**四端**（解释器 / 宿主 VM / 原生 /
+自托管）集合理解一致，测试套件**最后一个 xfail 消除**。
+
+### 变更
+
+- **自托管解析器 `matha/parser.matha`**：
+  - `解析器` struct 增 `在理解头: Bool`（各 record 重建点同步；`窥视走` 故意未加）；
+    新增 `置在理解头`；`解析移位_续` 的 `是位或` 分支加 `not p.在理解头` 守卫——理解头内
+    `|` 作子句分隔符而非位或（对齐宿主 `_parse_bit_expr` 的 `_in_comp_head` 抑制）。
+  - 检测：`是理解头` / `有顶层理解管道` / `存在生成子句` / `首管道后有条件` / `首个管道` /
+    `是条件运算符`（对齐宿主 `_is_comprehension_head` / `_has_top_level_comprehension_pipe`）。
+  - `解析集合构造` 改为：`}`→枚举空、`是理解头 或 有顶层理解管道`→`解析集合理解`、否则枚举
+    + `解析集合元素_rest`；`做集合构造` 改 5 参 `(form, variables, conditions, literals, output)`。
+  - 新增 `解析集合理解` / `解析理解子句循环` / `解析理解子句`（`v >> S`→gen，否则 cond）/
+    `必须推断` / `推断理解生成` 及界推断辅助：`_收集界` `_收集条件界` `_收集合取` `_合取子句`
+    `_是比较` `_变量名` `_常量整` `_取负` `_镜像` `_记录比较` `_记界` `_界索引` `_界更新`
+    `_收上界` `_收下界` `_替换` `_候选界` `_展开域` `_整数序列`（对齐宿主
+    `_parse_set_comprehension` / `_parse_comprehension_clause` / `_infer_comprehension_generator`，
+    含 100000 跨度上限、非整数/无界返回 null→抛错）。
+  - **链式比较**：`解析比较_续` 增关系运算符链式分支——`a <= b <= c` 解析为
+    `and(a<=b, b<=c)`（`解析关系链_续` 右嵌套 and 累积、中间项复用），对齐宿主
+    `_parse_rel_expr`；此前自举侧把 `1 <= x <= 5` 误作 `(1<=x)<=5`，致有界域推断失效、
+    理解回退文本。
+  - **两处宿主-自举解析差异修正**（自举源须同时满足宿主解析器）：`_合取子句` 由
+    `if/then/else … else [c]` 改写为**无括号三元** `cond ? … : [c]`——宿主把函数体 if/else
+    分支当**语句**解析，`else [c]` 会被当成输出单元（`OutputStmt(expr=c, target="printf")`）；
+    且函数体不能以 `(` 开头（被当 lambda 形参表），故条件不加括号。
+- **自托管编译器 `matha/compiler_matha.matha`**：
+  - `_发射集合构造` 增 `e["form"]="comprehension"` → `_发射集合理解` 路由。
+  - 新增 `_发射集合理解`（`BUILD_LIST 0` → 存 acc 临时 → 逐层循环 → `LOAD_GLOBAL 构造集合`
+    + `"enumeration"` + `BUILD_LIST 0` + acc + `CALL 3`）、`_发射理解层级`（递归嵌套循环，
+    复刻宿主 `_emit_comp_level`：iterable→存 xs/i→`len(xs)`/`<` 判断→`get(xs,i)`→存循环变量
+    →递归→i+1→`JMP`）、`_发射理解产出`（逐条件 `JZ` 记跳过点 + `append(acc, output)`）、
+    `_发射理解条件`、`_补丁列表`。仅用既有操作码，常量池/字节码次序与宿主一致。
+
+### 测试
+
+- `pytest tests/test_mbc_bootstrap.py -k comprehension`：**8 passed**——`test_m10_comprehension_host_runs`
+  + `test_m10_comprehension` 各 4 例：`gen_clause`（`{x|x>>s}`）、`ident_head`（`{a|b}`→文本回退）、
+  `top_pipe_gen`（`{1+1|x>>s}`）、`bounded`（`{x|1<=x<=5}`，链式比较 + 有界域推断）；自举链路
+  产物与宿主逐项一致。
+- `pytest tests/test_mbc_bootstrap.py tests/test_bootstrap_host.py`：**565 passed**。
+- `pytest -k boot_source`（自举不动点）：**5 passed**（宿主编译 ≡ 自举编译）。
+- 全量 `pytest tests/ -m "not slow"`：**3067 passed** + 3 deselected（原最后一个 xfail 消除）。
+- 全量 `pytest tests/ -m "slow"`：**3 passed**（自举不动点保持）。
+- ruff：改动测试文件**仅存量债**，本次新增行无新告警。
+
+### 备注
+
+- 集合理解节点仅走**编译器路径**（自举 compiler 降级 → host VM 执行），两个自托管解释器
+  （`interp.matha` / `interp_matha.matha`）无需改动。
+- 自举 parser 现支持链式比较，与宿主一致；此为集合理解有界域推断的前提。
+
+
 ## 用户自定义运算符 `@define_op`：原生端 + 自托管端可用（四端一致）
 
 **日期**：2026-10-15

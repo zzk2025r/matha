@@ -727,10 +727,11 @@ module 编译器 {
     let (c2, sc2, bc2) = _发射表达式(elements[0], code, sc, bc) in
     _发射表达式列表(elements[1:], c2, sc2, bc2)
 
-  (* 集合构造 {1,2} / {x | cond}：编译为构造集合(form, [names], [tail...])。
-     发射序列与宿主 _emit_set_construct_args 逐条对齐：
-     LOAD_GLOBAL 构造集合; PUSH_CONST form; PUSH_CONST name*; BUILD_LIST n;
-     <tail 表达式>; BUILD_LIST m; CALL 3 *)
+  (* 集合构造 {1,2} / {输出 | 生成 | 条件}：
+     - 枚举形式编译为构造集合(form, [names], [tail...])（与宿主
+       _emit_set_construct_args 逐条对齐）；
+     - 理解形式降级为嵌套循环 + append，末尾 构造集合("enumeration", [], acc)
+       去重保序（与宿主 _emit_comprehension 逐条对齐）。 *)
   func _集合变量名(e: Dict) -> String =
     e["类型"] = "变量" ? e["名"] :
     e["类型"] = "布尔" ? (e["值"] ? "真" : "假") :
@@ -744,6 +745,7 @@ module 编译器 {
 
   func _发射集合构造(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
+    e["form"] = "comprehension" ? _发射集合理解(e, code, sc, bc) :
     let (c1, sc1, bc1) = _发射变量("构造集合", code, sc, bc) in
     let (fidx, bc2) = _加常量(bc1, e["form"] = null ? "set" : e["form"]) in
     let c2 = _发(c1, [OP_PUSH_CONST, fidx]) in
@@ -756,6 +758,90 @@ module 编译器 {
     let (c5, sc5, bc5) = _发射表达式列表(tail, c4, sc1, bc3) in
     let c6 = _发(c5, [OP_BUILD_LIST, len(tail)]) in
     (_发(c6, [OP_CALL, 3]), sc5, bc5)
+
+  (* ===== 集合理解降级（对齐宿主 _emit_comprehension / _emit_comp_level）=====
+     仅用既有操作码：BUILD_LIST / LOAD-STORE_(LOCAL|GLOBAL) / JMP / JZ / CALL /
+     BINOP，故字节码 VM 与原生后端共享本实现。acc = []；嵌套循环迭代各生成子句，
+     到底后按条件过滤并 append(acc)(输出)；末尾 构造集合("enumeration", [], acc)
+     去重保序，留一个值于栈上。 *)
+  func _发射集合理解(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let c0 = _发(code, [OP_BUILD_LIST, 0]) in
+    let (acc位置, sc1, bc1) = _分配临时(sc, bc, "comp_acc") in
+    let (c1, bc2) = _存临时(acc位置, c0, bc1) in
+    let (c2, sc2, bc3) = _发射理解层级(
+      e["variables"], 0, e["conditions"], e["output"], acc位置, c1, sc1, bc2) in
+    let (c3, bc4) = _压全局名(c2, bc3, "构造集合") in
+    let (fidx, bc5) = _加常量(bc4, "enumeration") in
+    let c4 = _发(c3, [OP_PUSH_CONST, fidx]) in
+    let c5 = _发(c4, [OP_BUILD_LIST, 0]) in
+    let (c6, bc6) = _压临时(c5, acc位置, bc5) in
+    (_发(c6, [OP_CALL, 3]), sc2, bc6)
+
+  (* 递归发射第 idx 个生成子句（嵌套循环）；到底（idx = len）发射过滤 + 追加。 *)
+  func _发射理解层级(gens: List, idx: Int, conds: List, output, acc位置, code, sc, bc)
+      -> (List, List, Dict) =
+    if idx >= len(gens) then
+      _发射理解产出(conds, output, acc位置, code, sc, bc)
+    else
+      let 子 = gens[idx] in
+      let (c1, sc1, bc1) = _发射表达式(子["集合"], code, sc, bc) in
+      let (xs位置, sc2, bc2) = _分配临时(sc1, bc1, "comp_xs") in
+      let (c2, bc3) = _存临时(xs位置, c1, bc2) in
+      let (i位置, sc3, bc4) = _分配临时(sc2, bc3, "comp_i") in
+      let (zero, bc5) = _加常量(bc4, 0) in
+      let (c3, bc6) = _存临时(i位置, _发(c2, [OP_PUSH_CONST, zero]), bc5) in
+      let (v位置, sc4, bc7) = _分配循环变量(sc3, bc6, 子["名"]) in
+      let top = len(c3) in
+      let (c4, bc8) = _压临时(c3, i位置, bc7) in
+      let (c5, bc9) = _压全局名(c4, bc8, "len") in
+      let (c6, bca) = _压临时(c5, xs位置, bc9) in
+      let c7 = _发(c6, [OP_CALL, 1]) in
+      let (lt, bcb) = _加常量(bca, "<") in
+      let c8 = _发(c7, [OP_BINOP, lt]) in
+      let jz = len(c8) in
+      let c9 = _发(c8, [OP_JZ, 0]) in
+      let (ca, bcc) = _压全局名(c9, bcb, "get") in
+      let (cb, bcd) = _压临时(ca, xs位置, bcc) in
+      let cc = _发(cb, [OP_CALL, 1]) in
+      let (cd, bce) = _压临时(cc, i位置, bcd) in
+      let ce = _发(cd, [OP_CALL, 1]) in
+      let (cf, bcf) = _存临时(v位置, ce, bce) in
+      let (cg, sc5, bcg) = _发射理解层级(
+        gens, idx + 1, conds, output, acc位置, cf, sc4, bcf) in
+      let (ch, bch) = _压临时(cg, i位置, bcg) in
+      let (one, bci) = _加常量(bch, 1) in
+      let ci = _发(ch, [OP_PUSH_CONST, one]) in
+      let (plus, bcj) = _加常量(bci, "+") in
+      let cj = _发(ci, [OP_BINOP, plus]) in
+      let (ck, bck) = _存临时(i位置, cj, bcj) in
+      let cl = _发(ck, [OP_JMP, top]) in
+      (_补丁(cl, jz, [OP_JZ, len(cl)]), sc5, bck)
+
+  (* 过滤（条件全部为真才产出，失败跳到 skips）后 acc = append(acc)(输出)。 *)
+  func _发射理解产出(conds: List, output, acc位置, code, sc, bc)
+      -> (List, List, Dict) =
+    let (c1, sc1, bc1, skips) = _发射理解条件(conds, code, sc, bc, []) in
+    let (c2, bc2) = _压全局名(c1, bc1, "append") in
+    let (c3, bc3) = _压临时(c2, acc位置, bc2) in
+    let c4 = _发(c3, [OP_CALL, 1]) in
+    let (c5, sc2, bc4) = _发射表达式(output, c4, sc1, bc3) in
+    let c6 = _发(c5, [OP_CALL, 1]) in
+    let (c7, bc5) = _存临时(acc位置, c6, bc4) in
+    (_补丁列表(c7, skips, len(c7)), sc2, bc5)
+
+  func _发射理解条件(conds: List, code: List, sc: List, bc: Dict, skips: List)
+      -> (List, List, Dict, List) =
+    conds = [] ? (code, sc, bc, skips) :
+    let (c1, sc1, bc1) = _发射表达式(conds[0], code, sc, bc) in
+    let j = len(c1) in
+    let c2 = _发(c1, [OP_JZ, 0]) in
+    _发射理解条件(conds[1:], c2, sc1, bc1, skips + [j])
+
+  func _补丁列表(code: List, 位置: List, 目标: Int) -> List =
+    位置 = [] ? code :
+    _补丁列表(_补丁(code, 位置[0], [OP_JZ, 目标]), 位置[1:], 目标)
+
 
   (* if 表达式（始终留值）：条件; JZ else; 真体; JMP end; else: 假体; end *)
   func _发射if(e: Dict, code: List, sc: List, bc: Dict)

@@ -1527,18 +1527,30 @@ def test_m10_bitops_stage3_runs(compiler_boot_vm, name, src, expect):
     assert VM(stage3_mod).run() == expect
 
 
-@pytest.mark.parametrize("name,src,pending", [
-    ("gen_clause", "s = [1, 2]\n#：[{x | x >> s}]\n", "自举 parser 尚不支持集合理解（回退为文本，宿主为 [[1, 2]]）"),
-    ("ident_head", "s = [1, 2]\n#：[{a | b}]\n", None),
-    ("top_pipe_gen", "s = [1, 2, 3]\n#：[{1 + 1 | x >> s}]\n", "自举 parser 尚不支持集合理解（回退为文本，宿主为 [[2]]）"),
-], ids=["gen_clause", "ident_head", "top_pipe_gen"])
-def test_m10_comprehension_unsupported(compiler_boot_vm, name, src, pending):
-    """M10：`#：[{…}]` 集合构造。自举 parser 尚不支持集合理解，但已由输出文本回退
-    兜底（不再静默误解析为位或）：非理解形式（ident_head）与宿主一致；理解形式
-    待补 → xfail。"""
-    if pending:
-        pytest.xfail(pending)
-    assert _set_outputs(compiler_boot_vm, src) == VM(_host_compile(src)).run()
+@pytest.mark.parametrize("name,src,expect", [
+    ("gen_clause", "s = [1, 2]\n#：[{x | x >> s}]\n", [[1, 2]]),
+    ("ident_head", "s = [1, 2]\n#：[{a | b}]\n", ['{a|b}']),
+    ("top_pipe_gen", "s = [1, 2, 3]\n#：[{1 + 1 | x >> s}]\n", [[2]]),
+    ("bounded", "#：[{x | 1 <= x <= 5}]\n", [[1, 2, 3, 4, 5]]),
+], ids=["gen_clause", "ident_head", "top_pipe_gen", "bounded"])
+def test_m10_comprehension_host_runs(name, src, expect):
+    """M10：宿主解析集合理解 `{输出 | v >> S | 条件}`，语义正确。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", [
+    ("gen_clause", "s = [1, 2]\n#：[{x | x >> s}]\n", [[1, 2]]),
+    ("ident_head", "s = [1, 2]\n#：[{a | b}]\n", ['{a|b}']),
+    ("top_pipe_gen", "s = [1, 2, 3]\n#：[{1 + 1 | x >> s}]\n", [[2]]),
+    ("bounded", "#：[{x | 1 <= x <= 5}]\n", [[1, 2, 3, 4, 5]]),
+], ids=["gen_clause", "ident_head", "top_pipe_gen", "bounded"])
+def test_m10_comprehension(compiler_boot_vm, name, src, expect):
+    """M10：自举链路编译集合理解并运行，产物与宿主逐项一致。
+
+    自举 parser 产出 comprehension 节点（`|` 分隔、`v >> S` 生成子句、可由
+    `1 <= v <= n` 推断整数域），自举 compiler 降级为嵌套循环 + 过滤 + append，
+    末尾 构造集合("enumeration", [], acc) 去重保序；不再回退为输出文本。"""
+    assert _set_outputs(compiler_boot_vm, src) == expect
 
 
 # ==================== M11：前缀一元运算符 ~ ^ ** << ++ -- ====================

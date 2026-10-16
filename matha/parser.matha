@@ -48,12 +48,14 @@ module 语法器 {
   func 做空输出() -> Dict = {"类型": "空输出"}
   (* raise <expr>：抛出异常（作为表达式，与宿主 RaiseExpr 对齐） *)
   func 做抛出(值: Dict) -> Dict = {"类型": "抛出", "值": 值}
-  (* { } 集合构造：枚举形式 {1, 2} / 理解形式 {x | cond}。
+  (* { } 集合构造：枚举形式 {1, 2} / 理解形式 {输出 | 生成子句 | 条件}。
      form 为 "enumeration" 或 "comprehension"；未使用的槽位传 null，
-     与宿主 SetConstruct(form, variables, conditions, literals) 对齐。 *)
-  func 做集合构造(form: String, variables, conditions, literals) -> Dict =
+     与宿主 SetConstruct(form, variables, conditions, literals, output) 对齐：
+     理解形式 variables 为生成子句列表（每项 {"名": 名, "集合": 可迭代表达式}），
+     conditions 为过滤条件列表，output 为输出表达式；枚举形式只用 literals。 *)
+  func 做集合构造(form: String, variables, conditions, literals, output) -> Dict =
     {"类型": "集合构造", "form": form, "variables": variables,
-     "conditions": conditions, "literals": literals}
+     "conditions": conditions, "literals": literals, "output": output}
   (* a ∈ b：成员判定（对应宿主 ast.Belongs） *)
   func 做属于(left: Dict, right: Dict) -> Dict =
     {"类型": "属于", "左": left, "右": right}
@@ -147,6 +149,10 @@ module 语法器 {
        {"符号": ..., "优先级": ..., "结合性": ..., "处理函数": ...}。
        缺省为空表（宿主 src/custom_ops.REGISTRY 的自举对应物）。 *)
     自定义: List
+    (* 在理解头：集合理解 `{ 输出 | 子句 | ... }` 的头部/子句解析期间置真，
+       使 `|` 作为子句分隔符而非位或（对齐宿主 _in_comp_head / _parse_bit_expr）。
+       缺省 假。 *)
+    在理解头: Bool
   }
 
   (* ===== 解析器辅助 ===== *)
@@ -154,17 +160,17 @@ module 语法器 {
      使解析器状态的 pos 始终指向非换行 token。 *)
   func 规范(p: 解析器) -> 解析器 = (p) =>
     (p.pos < len(p.tokens) and p.tokens[p.pos].类型 = 类型.换行) ?
-      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1, 禁止并列: p.禁止并列, 自定义: p.自定义 }) : p
+      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头 }) : p
 
   (* 推进：消费当前 token，并规范化到下一个非换行 token *)
   func 推进(p: 解析器) -> 解析器 =
-    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义 })
+    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头 })
 
   (* 推进原样：消费当前 token 但**不**跳过换行。
      自然语言块需区分「】后紧跟换行」（正文为空）与「】后同行还有正文」，
      而 推进 会吞掉换行，故单列一个原样版本。 *)
   func 推进原样(p: 解析器) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义 }
+    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头 }
 
   func 当前(p: 解析器) -> Token = (p) =>
     (p.pos < len(p.tokens)) ? p.tokens[p.pos] : 做Token(类型.结束, "", p.line, p.col)
@@ -372,10 +378,29 @@ module 语法器 {
 
   func 解析比较_续(left: Dict, p: 解析器) -> (Dict, 解析器) =
     let (op_tok, p3) = 解析比较_op(p) in
-    if op_tok != "" then
+    if op_tok = "" then (left, p)
+    else
       let (right, p4) = 解析集合(p3) in
-      解析比较_续(做BinaryOp(op_tok, left, right), p4)
-    else (left, p)
+      if 是关系运算符(op_tok) then
+        解析关系链_续(做BinaryOp(op_tok, left, right), null, right, p4)
+      else
+        解析比较_续(做BinaryOp(op_tok, left, right), p4)
+
+  (* 关系运算符（可链式比较）判定：< > <= >=（对齐宿主 _parse_rel_expr 的链式分支） *)
+  func 是关系运算符(op: String) -> Bool =
+    op = "<" or op = ">" or op = "<=" or op = ">="
+
+  (* 链式比较：`a <= b <= c` → `(a <= b) and (b <= c)`，中间项复用。
+     对齐宿主 chain 累积：chain 为右嵌套 and，末置于 `and(first, chain)`。 *)
+  func 解析关系链_续(first: Dict, chain, 前右: Dict, p: 解析器) -> (Dict, 解析器) =
+    let (op_tok, p2) = 解析比较_op(p) in
+    if 是关系运算符(op_tok) then
+      let (right2, p3) = 解析集合(p2) in
+      let cmp2 = 做BinaryOp(op_tok, 前右, right2) in
+      let chain2 = chain = null ? cmp2 : 做BinaryOp("and", chain, cmp2) in
+      解析关系链_续(first, chain2, right2, p3)
+    else
+      (chain = null ? first : 做BinaryOp("and", first, chain), p)
 
   func 解析比较_op(p: 解析器) -> (String, 解析器) =
     if 匹配(p, 类型.等于) then ("=", 推进(p))
@@ -446,7 +471,7 @@ module 语法器 {
       let p3 = 推进(p) in
       let (right, p4) = 解析乘除(p3) in
       解析移位_续(做BinaryOp("&", left, right), p4)
-    else if 是位或(p) then
+    else if not p.在理解头 and 是位或(p) then
       let p3 = 推进(p) in
       let (right, p4) = 解析乘除(p3) in
       解析移位_续(做BinaryOp("|", left, right), p4)
@@ -875,9 +900,9 @@ module 语法器 {
 
   func 解析集合构造(p: 解析器) -> (Dict, 解析器) =
     if 匹配(p, 类型.右括号花) then
-      (做集合构造("enumeration", null, null, []), 推进(p))
+      (做集合构造("enumeration", null, null, [], null), 推进(p))
     else if 是理解头(p) or 有顶层理解管道(p) then
-      错误("集合理解暂不支持")
+      解析集合理解(p)
     else
       let (first, p2) = 解析表达式(p) in
       解析集合元素_rest(p2, [first])
@@ -887,8 +912,163 @@ module 语法器 {
       let (e, p2) = 解析表达式(推进(p)) in
       解析集合元素_rest(p2, literals + [e])
     else
-      (做集合构造("enumeration", null, null, literals),
+      (做集合构造("enumeration", null, null, literals, null),
        期望(p, 类型.右括号花))
+
+  (* ===== 集合理解 { 输出 | 子句 | 子句 ... }（`|` 分隔）=====
+     对齐宿主 _parse_set_comprehension：先解析输出表达式，再按 `|` 解析生成子句
+     `v >> S` 与过滤条件；末逗号后为输出映射（映射写法）。头部/子句解析期间把
+     在理解头 置真，使 `|` 作为子句分隔符而非位或。 *)
+  func 解析集合理解(p: 解析器) -> (Dict, 解析器) =
+    let 原 = p.在理解头 in
+    let p头 = 置在理解头(p, 真) in
+    let (output, p2) = 解析表达式(p头) in
+    let p3 = 期望(p2, 类型.管道) in
+    let (gens, conds, out2, p4) = 解析理解子句循环(p3, [], [], output) in
+    let p5 = 期望(p4, 类型.右括号花) in
+    let 生成 = gens != [] ? gens : 必须推断(conds) in
+    (做集合构造("comprehension", 生成, conds, null, out2), 置在理解头(p5, 原))
+
+  (* 无生成子句时按条件推断有界整数域，失败即抛错（对齐宿主错误信息）。 *)
+  func 必须推断(conds: List) -> List =
+    let 推 = 推断理解生成(conds) in
+    推 = null ? 错误("集合理解需带生成子句 `v >> 集合`，或可由条件推断有界整数域") : [推]
+
+  func 解析理解子句循环(p: 解析器, gens: List, conds: List, output: Dict)
+      -> (List, List, Dict, 解析器) =
+    let (项, p2) = 解析理解子句(p) in
+    let gens2 = 项[0] = "gen" ? gens + [项[1]] : gens in
+    let conds2 = 项[0] = "cond" ? conds + [项[1]] : conds in
+    if 是逗号(p2) then
+      let (out2, p3) = 解析表达式(推进(p2)) in
+      (gens2, conds2, out2, p3)
+    else if 匹配(p2, 类型.管道) then
+      解析理解子句循环(推进(p2), gens2, conds2, output)
+    else
+      (gens2, conds2, output, p2)
+
+  (* 生成子句 `v >> S`（当前为标识符/占位符且后继 `>>`）→ ["gen", {"名","集合"}]；
+     其余按过滤条件表达式 → ["cond", 表达式]。 *)
+  func 解析理解子句(p: 解析器) -> (List, 解析器) =
+    let t = 当前(p) in
+    if (t.类型 = 类型.标识符 or t.类型 = 类型.占位符) and
+       窥视(p, 1).类型 = 类型.右移 then
+      let 名 = t.文本 in
+      let p2 = 推进(推进(p)) in
+      let (it, p3) = 解析表达式(p2) in
+      (["gen", {"名": 名, "集合": it}], p3)
+    else
+      let (c, p2) = 解析表达式(p) in
+      (["cond", c], p2)
+
+  (* ===== 有界整数域推断（对齐宿主 _infer_comprehension_generator）=====
+     从 `1 <= x <= 10`（展平为 and(1<=x, x<=10)）或分开的 `1 <= x` / `x <= 10`
+     条件，为唯一自由变量推断整数域，返回 {"名","集合"}（集合为枚举列表字面量）
+     或 null。仅接受整数常量边界，跨度上限 100000。 *)
+  func 推断理解生成(conds: List) -> Dict =
+    let 表 = _收集界(conds, []) in
+    let cands = _候选界(表, []) in
+    len(cands) = 1 ? _展开域(cands[0]) : null
+
+  func _收集界(conds: List, 表: List) -> List =
+    conds = [] ? 表 :
+    _收集界(conds[1:], _收集条件界(conds[0], 表))
+
+  func _收集条件界(c: Dict, 表: List) -> List =
+    _收集合取(_合取子句(c), 表)
+
+  func _收集合取(cs: List, 表: List) -> List =
+    cs = [] ? 表 :
+    let conj = cs[0] in
+    let 表2 = (conj["类型"] = "二元运算" and _是比较(conj["运算符"])) ?
+      _记录比较(表, conj) : 表 in
+    _收集合取(cs[1:], 表2)
+
+  (* 顶层 and 二叉树展平为合取子句列表。
+     注意：宿主把函数体的 if/else 分支当语句解析，`else [c]` 会被当成输出单元；
+     且函数体不能以 `(` 开头（被当 lambda 形参表），故用无括号三元表达式，
+     使 `[c]` 处于表达式位置，两端解析一致。 *)
+  func _合取子句(c: Dict) -> List =
+    c["类型"] = "二元运算" and c["运算符"] = "and" ?
+      _合取子句(c["左"]) + _合取子句(c["右"]) :
+      [c]
+
+  func _是比较(op: String) -> Bool =
+    op = "<" or op = "<=" or op = ">" or op = ">="
+
+  func _变量名(n) -> Any =
+    n["类型"] = "变量" ? n["名"] : null
+
+  func _常量整(n) -> Any =
+    n["类型"] = "整数" ? n["值"] :
+    (n["类型"] = "一元运算" and (n["运算符"] = "-" or n["运算符"] = "neg")) ?
+      _取负(_常量整(n["操作数"])) :
+    null
+
+  func _取负(v) -> Any = v = null ? null : 0 - v
+
+  func _镜像(op: String) -> String =
+    op = "<" ? ">" : op = "<=" ? ">=" : op = ">" ? "<" : ">="
+
+  (* 记录一条比较代入界表：变量在左/右均可（右为变量时镜像运算符）。 *)
+  func _记录比较(表: List, conj: Dict) -> List =
+    let lvar = _变量名(conj["左"]) in
+    let rvar = _变量名(conj["右"]) in
+    let rconst = _常量整(conj["右"]) in
+    let lconst = _常量整(conj["左"]) in
+    if lvar != null and rconst != null then
+      _记界(表, lvar, conj["运算符"], rconst)
+    else if rvar != null and lconst != null then
+      _记界(表, rvar, _镜像(conj["运算符"]), lconst)
+    else 表
+
+  (* 界表：[[变量名, 下界项, 上界项]]，界项为 null 或 [值, 含端点]。 *)
+  func _记界(表: List, var: String, op: String, 常数: Int) -> List =
+    let 索引 = _界索引(表, var, 0) in
+    索引 >= 0 ?
+      _界更新(表, 索引, op, 常数) :
+      _界更新(表 + [[var, null, null]], len(表), op, 常数)
+
+  func _界索引(表: List, var: String, i: Int) -> Int =
+    i >= len(表) ? -1 :
+    表[i][0] = var ? i : _界索引(表, var, i + 1)
+
+  func _界更新(表: List, i: Int, op: String, 常数: Int) -> List =
+    let 项 = 表[i] in
+    let 新项 = (op = "<" or op = "<=") ?
+      [项[0], 项[1], _收上界(项[2], 常数, op = "<=")] :
+      [项[0], _收下界(项[1], 常数, op = ">="), 项[2]] in
+    _替换(表, i, 新项)
+
+  func _收上界(hi, 常数: Int, 含: Bool) -> List =
+    hi = null ? [常数, 含] :
+    (常数 < hi[0] or (常数 = hi[0] and not 含)) ? [常数, 含] : hi
+
+  func _收下界(lo, 常数: Int, 含: Bool) -> List =
+    lo = null ? [常数, 含] :
+    (常数 > lo[0] or (常数 = lo[0] and not 含)) ? [常数, 含] : lo
+
+  func _替换(表: List, i: Int, 值) -> List =
+    i = 0 ? [值] + 表[1:] :
+    [表[0]] + _替换(表[1:], i - 1, 值)
+
+  func _候选界(表: List, acc: List) -> List =
+    表 = [] ? acc :
+    (表[0][1] != null and 表[0][2] != null) ?
+      _候选界(表[1:], acc + [表[0]]) :
+      _候选界(表[1:], acc)
+
+  func _展开域(项: List) -> Dict =
+    let lo项 = 项[1] in
+    let hi项 = 项[2] in
+    let lo = lo项[0] + (lo项[1] ? 0 : 1) in
+    let hi = hi项[0] - (hi项[1] ? 0 : 1) in
+    (hi - lo + 1) > 100000 ? null :
+      {"名": 项[0], "集合": 做ListLit(_整数序列(lo, hi))}
+
+  func _整数序列(lo: Int, hi: Int) -> List =
+    lo > hi ? [] : [做IntLit(lo)] + _整数序列(lo + 1, hi)
+
 
   (* 字典字面量 {k: v, k: v, ...}：p 指向 { 之后。
      空 {} → 空字典；否则解析 key : value 对，逗号分隔，尾逗号可选。 *)
@@ -1201,7 +1381,7 @@ module 语法器 {
     let p9 = 有处理 ? 推进(推进(p8)) : p8 in
     let 信息 = {"符号": 符号, "优先级": 优先级, "结合性": 结合性, "处理函数": 处理函数} in
     let p10 = { tokens: p9.tokens, pos: p9.pos, line: p9.line, col: p9.col,
-                禁止并列: p9.禁止并列, 自定义: p9.自定义 + [信息] } in
+                禁止并列: p9.禁止并列, 自定义: p9.自定义 + [信息], 在理解头: p9.在理解头 } in
     (做定义运算符(), p10)
 
   (* ===== 自然语言块【…】=====
@@ -1324,7 +1504,11 @@ module 语法器 {
 
   (* 禁并列：构造禁用并列应用的解析器副本（供输出括号内解析使用）。 *)
   func 禁并列(p: 解析器) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: 真, 自定义: p.自定义 }
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: 真, 自定义: p.自定义, 在理解头: p.在理解头 }
+
+  (* 置在理解头：构造（不）处于集合理解头部的解析器副本，控制 `|` 是否作位或。 *)
+  func 置在理解头(p: 解析器, v: Bool) -> 解析器 =
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: v }
 
   (* 文本回退：拼接当前至 ] 之间的原始记号文本（含换行 "\n"，不跳过换行），
      与宿主回退的 _advance().value 逐 token 拼接一致。
@@ -1405,7 +1589,7 @@ module 语法器 {
       解析导入名列表(推进(p), acc + [名])
 
   func 解析程序(tokens: List) -> Dict =
-    let p = 规范({ tokens: tokens, pos: 0, line: 1, col: 1, 自定义: [] }) in
+    let p = 规范({ tokens: tokens, pos: 0, line: 1, col: 1, 自定义: [], 在理解头: 假 }) in
     解析声明列表(p, [])
 
   func 解析声明列表(p: 解析器, acc: List) -> Dict =
