@@ -248,6 +248,10 @@ module 编译器 {
     decl["类型"] = "导入" ? _编译导入(decl, code, sc, bc) :
     (* 以下各分支宿主均以「全新 main 作用域」编译：临时槽计数从 0 起算 *)
     decl["类型"] = "机械单元" ? _编译机械单元(decl, code, _重置主作用域计数(sc), bc) :
+    (* >> 链式语句：逐条编译（同一作用域，宿主 _compile_stmt ChainStmt 同构） *)
+    decl["类型"] = "链式语句" ? _编译链式(decl["语句"], code, sc, bc) :
+    (* @：… 设值（setUp）：宿主 _compile_stmt SetUp 分支（全新 main 作用域） *)
+    decl["类型"] = "设值" ? _发射设值(decl, code, _重置主作用域计数(sc), bc) :
     (* 语句位置的输出单元：求值后 OP_OUTPUT，不 DUP、不 POP *)
     decl["类型"] = "输出" ? _编译生成语句链(decl, code, _重置主作用域计数(sc), bc) :
     decl["类型"] = "结构体" ? (code, sc, bc) :
@@ -307,12 +311,40 @@ module 编译器 {
       -> (List, List, Dict) =
     n["类型"] = "生成语句" ? _编译生成语句链(n["content"], code, sc, bc) :
     n["类型"] = "输出追踪" ? _编译生成语句链(n["输出"], code, sc, bc) :
+    (* >> 链式：宿主 _compile_stmt ChainStmt 分支——逐条编译（同一作用域，不重置） *)
+    n["类型"] = "链式语句" ? _编译链式(n["语句"], code, sc, bc) :
     n["类型"] = "输出" ?
       (* []：空输出，不发射任何指令（宿主 Output(expr=None) 同构）*)
       (n["expr"]["类型"] = "空输出" ? (code, sc, bc) :
        let (c2, sc2, bc2) = _发射表达式(n["expr"], code, sc, bc) in
        (_发(c2, [OP_OUTPUT]), sc2, bc2)) :
       _编译声明(n, code, sc, bc)
+
+  func _编译链式(items: List, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    items = [] ? (code, sc, bc) :
+    let (c2, sc2, bc2) = _编译生成语句链(items[0], code, sc, bc) in
+    _编译链式(items[1:], c2, sc2, bc2)
+
+  (* ===== 设值 @：…（setUp）=====
+     对齐宿主 _emit_setup：逐项编译，无值项与「？」占位目标项跳过；main 作用域
+     写全局（STORE_GLOBAL），函数帧内写局部槽（STORE_LOCAL）。 *)
+  func _发射设值(decl: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    _发射设值项(decl["项"], code, sc, bc)
+
+  func _发射设值项(items: List, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    items = [] ? (code, sc, bc) :
+    let it = items[0] in
+    it["值"] = null ? _发射设值项(items[1:], code, sc, bc) :
+    it["目标"]["名"] = "？" ? _发射设值项(items[1:], code, sc, bc) :
+    let (c2, sc2, bc2) = _发射表达式(it["值"], code, sc, bc) in
+    sc2[3] = 真 ?
+      let (gidx, bc3) = _加常量名(bc2, it["目标"]["名"]) in
+      _发射设值项(items[1:], _发(c2, [OP_STORE_GLOBAL, gidx]), sc2, bc3) :
+      let (sc3, slot) = _绑定槽(sc2, it["目标"]["名"]) in
+      _发射设值项(items[1:], _发(c2, [OP_STORE_LOCAL, slot]), sc3, bc2)
 
   func _加常量名(bc: Dict, name: String) -> (Int, Dict) =
     _加常量(bc, name)
@@ -634,7 +666,10 @@ module 编译器 {
     (t = "抛出") or
     (* 宿主 _STMT_NODES 含 GoStmt：块末留值时走语句路径（expr+POP），
        再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL（与 go 尾句一致）。 *)
-    (t = "go")
+    (t = "go") or
+    (* 宿主 _STMT_NODES 含 ChainStmt：块末留值时走语句路径，再由
+       _emit_block 的 leave_last 尾巴补 PUSH_NULL。 *)
+    (t = "链式语句") or (t = "设值")
 
   (* ===== 表达式发射 =====
      返回 (新码, 新作用域, 新bc) *)
