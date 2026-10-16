@@ -2330,7 +2330,8 @@ class Parser:
             # 运算符右值语境：[ 的前一个有效 token 是二元运算符 / 逗号 / 左括号 /
             # => / then / else / in 等，说明处于表达式中途（如 lst + [x]），必为列表
             _j = self.pos - 1
-            while _j >= 0 and self.tokens[_j].type == TokenType.NEWLINE:
+            while _j >= 0 and self.tokens[_j].type in (
+                    TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT):
                 _j -= 1
             _prev_tok = self.tokens[_j] if _j >= 0 else None
             if _prev_tok is not None and (

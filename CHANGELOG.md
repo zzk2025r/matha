@@ -1,5 +1,42 @@
 # Matha 变更摘要
 
+## `[expr]` 归类忽略缩进记号 + bootstrap_matha 缺 let 笔误（四端一致，diverge=0）
+
+**日期**：2026-10-17
+
+### 变更范围
+
+**宿主 `[expr]` 归类应忽略缩进记号**（`src/parser.py`）
+
+- `_parse_primary` 判定 `[expr]` 为「列表字面量 / 输出」时向前扫描「前一有效 token」：
+  若为二元运算符 / `in` / `=>` 等则判为表达式位（列表），否则视为语句位（输出）。
+  该扫描原先只跳过 `NEWLINE`，**未跳过 `INDENT`/`DEDENT`**。当 `let … in` 体与
+  `[expr]` 之间夹有注释（或空行）时，词法器会插入一个 `INDENT` 记号，使「前一有效
+  token」落到 `INDENT` 而非 `in` → 表达式位的 `[expr]` 被误判为输出。
+- 修复：扫描同时跳过 `NEWLINE`/`INDENT`/`DEDENT`（与 `_skip_newlines` 一致；缩进记号
+  是结构记号，不应改变表达式位判定）。注释/空行因而不再影响 `[expr]` 归类。
+- 影响：`matha/bootstrap_matha.matha` 中 `let (result, env2) = … in`（其后隔注释）
+  `[result]` 现正确判为列表字面量——宿主此前生成 `DUP; OUTPUT`，自举生成
+  `BUILD_LIST 1; RET`，修复后两端一致。
+
+**`bootstrap_matha.matha` 缺 `let` 笔误**（`matha/bootstrap_matha.matha`）
+
+- `测试模块加载` 第 88 行 `toks = 词法器.扫描("42 + 1") in` 缺 `let`（与第 86/87 行
+  的 `let … in` 不一致）。该笔误使解析器把后续语句当作模块顶层
+  （宿主 `in; [标准库.len(toks)]`、自举 `in[标准库.len(toks)]`），两端归类不同。
+- 修复：补回 `let`。修复后宿主与自举对该模块编译完全一致。
+
+### 效果
+
+- 语料 `corpus_parity.py`（67 文件）：**ok 54→55、diverge 1→0**、self_fail 0、
+  host_parse_fail 12（不变）。两端均可解析的文件现 **100% 一致**。
+
+### 测试
+
+- `pytest tests/` → **3268 passed**。
+
+---
+
 ## 并列函数应用 `f x`（juxtaposition）宿主解析 + 自举禁并列泄漏修复（四端一致）
 
 **日期**：2026-10-17

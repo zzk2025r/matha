@@ -85,7 +85,7 @@ module 自举加载器 {
   func 测试模块加载() -> List = () =>
     let before = 标准库.len(标准库.range(0, 0)) in
     let loaded = 加载模块("词法器") in
-    toks = 词法器.扫描("42 + 1") in
+    let toks = 词法器.扫描("42 + 1") in
     [标准库.len(toks)]
 
 }
