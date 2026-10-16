@@ -86,6 +86,9 @@ module 词法器 {
         (* 前缀自增/自减 ++ / --（宿主 tokens.py MULTI_CHAR_OPS 的 OP_INCR/OP_DECR） *)
         (c1 = "+" and c2 = "+") ? (加加, "++") :
         (c1 = "-" and c2 = "-") ? (减减, "--") :
+        (* 双省略号 ……（两个 …）：宿主 tokens.MULTI_CHAR_OPS 中 …… 优先于 …，
+           须消费 2 字符；否则 #：[x]……（0/？）【f】 的全局循环后缀被当成两个单省略号。 *)
+        (c1 = "…" and c2 = "…") ? (双省略号, "……") :
         (* 全角运算符 *)
         (c1 = "：" and c2 = ":") ? (全角冒号, "：:") :
         (* 中文标点归一化 *)
@@ -136,6 +139,10 @@ module 词法器 {
     (* 全角逗号 ，：宿主 lexer 映射为 MATHA_COMMA（与 、 同型）。
        此前缺此条 → ， 降级为 符号，设值 @：…，k=v 的逗号分隔无法识别。 *)
     c = "，" ? 中文逗号 :
+    (* 全角括号 （）：宿主 lexer 与半角 () 同映射 PUNCT_LPAREN/RPAREN，
+       循环分数 …（x/y） 使用全角括号。 *)
+    c = "（" ? 左括号 :
+    c = "）" ? 右括号 :
     c = "*/" ? 标注开 :
     c = "/*" ? 标注闭 :
     (* 角度括号 ⟨ … ⟩：AngleExpr 单值包装（宿主 lexer 已映射 OP_ANGLE）*)
@@ -380,7 +387,8 @@ module 词法器 {
       (let (t, txt) = 检测多符(src, pos) in
         (t = 不等于 or t = 大于等于 or t = 小于等于 or t = 胖箭头 or
          t = 箭头 or t = 发送 or t = 整除 or t = 等于 or t = 次方 or
-         t = 左移 or t = 右移 or t = 可选链 or t = 加加 or t = 减减) ?
+         t = 左移 or t = 右移 or t = 可选链 or t = 加加 or t = 减减 or
+         t = 双省略号) ?
           扫描(src)(pos + 2)(line)(col + 2)(append(toks)(做Token(t, txt, line, col))) :
       (* 单字符 *)
         扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(映射单符(get(src)(pos)), get(src)(pos), line, col))))))))

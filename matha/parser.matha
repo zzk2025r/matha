@@ -45,6 +45,16 @@ module 语法器 {
   func 做链式语句(语句: List) -> Dict = {"类型": "链式语句", "语句": 语句}
   func 做输出追踪(expr: Dict) -> Dict =
     {"类型": "输出追踪", "输出": 做Output(expr)}
+  (* 带段/全局循环后缀的输出追踪（…（x/y）【子文件】[编号]……（x/y）【文件】）。
+     循环字段仅元数据，宿主编译期不产字节码。 *)
+  func 做输出追踪环(expr: Dict, 段循环: Dict, 子文件: List, 编号: Int,
+    全局循环: Dict, 文件: String) -> Dict =
+    {"类型": "输出追踪", "输出": 做Output(expr), "段循环": 段循环,
+     "子文件": 子文件, "全局编号": 编号, "全局循环": 全局循环, "文件": 文件}
+  func 做循环分数(当前次数: Int, 最大次数: Int) -> Dict =
+    {"类型": "循环分数", "当前": 当前次数, "最大": 最大次数}
+  func 做段循环(段号: Int, 分数: Dict) -> Dict =
+    {"类型": "段循环", "段号": 段号, "分数": 分数}
   (* []：空输出。用独立节点类型标记，使编译器可识别为「不发射任何指令」，
      避免与真实表达式节点混淆。 *)
   func 做空输出() -> Dict = {"类型": "空输出"}
@@ -127,6 +137,12 @@ module 语法器 {
     {"类型": "设值", "项": 项列表, "形式": 形式}
   func 做设值项(目标: Dict, 标注: Dict, 值: Dict) -> Dict =
     {"类型": "设值项", "目标": 目标, "标注": 标注, "值": 值}
+  (* 代码编号前缀 ？#：{ / N#：{ / 纯数字行 → 宿主 ast.GlobalIdStmt（编译期 NOOP）*)
+  func 做全局标识(编号: String, 是占位: Bool) -> Dict =
+    {"类型": "全局标识", "编号": 编号, "是占位": 是占位}
+  (* 裸 # 行（宿主 _parse_foreign_decl）：整行惰性收集为外来源码，编译期 NOOP *)
+  func 做外来声明(文本: String) -> Dict =
+    {"类型": "外来声明", "文本": 文本}
   func 做StructDef(name: String, fields: List) -> Dict = {"类型": "结构体", "名": name, "字段": fields}
   func 做EnumDef(name: String, ctors: List) -> Dict = {"类型": "枚举", "名": name, "构造子": ctors}
   (* 属性访问 a.b —— obj 为对象表达式（通常是变量节点），name 为属性名 *)
@@ -1414,6 +1430,30 @@ module 语法器 {
                 禁止并列: p9.禁止并列, 自定义: p9.自定义 + [信息], 在理解头: p9.在理解头 } in
     (做定义运算符(), p10)
 
+  (* ===== 全局代码编号（宿主 _parse_global_id_stmt）=====
+     ？#：{ / N#：{ / 纯数字行：仅消费编号本身，随后的 #：{…} 仍按机械单元解析。
+     GlobalIdStmt 属 _NOOP_STMTS，编译期不产字节码。 *)
+  func 解析全局标识(p: 解析器) -> (Dict, 解析器) =
+    let tok = 当前(p) in
+    (做全局标识(tok.文本, tok.类型 = 类型.占位符), 推进(p))
+
+  (* 生成头判定（宿主 _parse_mech_stmt 的 # 分支）：`#` 后须紧跟冒号，
+     或「整数 + 冒号」（段号 #N：）。否则是裸 # 外来行。用原始 token 前瞻。 *)
+  func 是生成头(p: 解析器) -> Bool =
+    let i = p.pos + 1 in
+    let j = p.pos + 2 in
+    if i >= len(p.tokens) then 假
+    else if p.tokens[i].类型 = 类型.全角冒号 or p.tokens[i].类型 = 类型.冒号 then 真
+    else if p.tokens[i].类型 = 类型.整数 and j < len(p.tokens) and
+      (p.tokens[j].类型 = 类型.全角冒号 or p.tokens[j].类型 = 类型.冒号) then 真
+    else 假
+
+  (* 裸 # 行（宿主 _parse_foreign_decl）：整行惰性收集为外语源码，编译期 NOOP。
+     例：# Matha 示例 10：网页应用开发（普通注释行）。 *)
+  func 解析裸井号行(p: 解析器) -> (Dict, 解析器) =
+    let (文本, p2) = 收集到行尾(推进原样(p), "") in
+    (做外来声明(文本), 规范(p2))
+
   (* ===== 设值 @：…（setUp）=====
      对齐宿主 _parse_set_up：
        cmd 形式   @：【文本】，k=v，…
@@ -1570,6 +1610,73 @@ module 语法器 {
     let p3 = 规范(p2) in
     (len(语句) = 1 ? 首 : 做链式语句(语句), p3)
 
+  (* ===== 输出行循环后缀（宿主 _parse_output_trail/_parse_loop_fraction）=====
+     #：[输出]…（x/y）【子文件|子文件】[全局编号]……（x/y）【文件/路径】
+     模板形式 #：[输出]……（x/y）【文件】（仅全局循环，无段级循环）。
+     循环与文件引用仅为元数据：宿主编译期不产字节码，自举同样只消费不发射。
+     ？ 表示待定次数，存储为 -1（宿主 _parse_loop_fraction 同构）。 *)
+  func 读开匹配(p: 解析器) -> Bool = (p) =>
+    匹配(p, 类型.读取开) or 匹配(p, 类型.读取开2)
+
+  func 解析循环数(p: 解析器) -> (Int, 解析器) =
+    当前(p).类型 = 类型.占位符 ? (-1, 推进(p)) : (整数值(当前(p).文本), 推进(p))
+
+  func 解析循环分数(p: 解析器) -> (Dict, 解析器) =
+    let p1 = 期望(p, 类型.左括号) in
+    let (cur, p2) = 解析循环数(p1) in
+    let p3 = 期望(p2, 类型.除) in
+    let (mx, p4) = 解析循环数(p3) in
+    (做循环分数(cur, mx), 期望(p4, 类型.右括号))
+
+  func 解析段循环后缀(p: 解析器) -> (Dict, 解析器) =
+    let p1 = 期望(p, 类型.省略号) in
+    if 当前(p1).类型 = 类型.整数 then
+      let p2 = 推进(p1) in
+      let (分数, p3) = 解析循环分数(p2) in
+      (做段循环(整数值(当前(p1).文本), 分数), p3)
+    else
+      let (分数, p2) = 解析循环分数(p1) in
+      (做段循环(null, 分数), p2)
+
+  func 解析全局循环后缀(p: 解析器) -> (Dict, 解析器) =
+    解析循环分数(期望(p, 类型.双省略号))
+
+  func 解析文件列表(p: 解析器, acc: List, cur: String) -> (List, 解析器) =
+    if 匹配(p, 类型.读取闭) or 匹配(p, 类型.读取闭2) then (acc + [cur], 推进(p))
+    else if 匹配(p, 类型.结束) then (acc + [cur], p)
+    else if 匹配(p, 类型.管道) then 解析文件列表(推进(p), acc + [cur], "")
+    else 解析文件列表(推进原样(p), acc, cur + 当前(p).文本)
+
+  func 解析子文件引用(p: 解析器) -> (List, 解析器) =
+    解析文件列表(推进原样(p), [], "")
+
+  func 解析文件引用(p: 解析器) -> (String, 解析器) =
+    let (表, p2) = 解析文件列表(推进原样(p), [], "") in
+    (表 = [] ? "" : 表[0], p2)
+
+  func 解析输出后缀(p: 解析器, 输出: Dict) -> (Dict, 解析器) =
+    if 匹配(p, 类型.省略号) then
+      let (段循环, p1) = 解析段循环后缀(p) in
+      let (子文件, p2) = 读开匹配(p1) ? 解析子文件引用(p1) : (null, p1) in
+      当前(p2).类型 = 类型.整数 ?
+        解析输出后缀_全局(推进(p2), 输出, 段循环, 子文件, 整数值(当前(p2).文本)) :
+        解析输出后缀_全局(p2, 输出, 段循环, 子文件, null)
+    else if 匹配(p, 类型.双省略号) then
+      let (全局循环, p1) = 解析全局循环后缀(p) in
+      let (文件, p2) = 读开匹配(p1) ? 解析文件引用(p1) : (null, p1) in
+      (做输出追踪环(输出, null, null, null, 全局循环, 文件), p2)
+    else
+      (做输出追踪(输出), p)
+
+  func 解析输出后缀_全局(p: 解析器, 输出: Dict, 段循环: Dict, 子文件: List,
+    编号: Int) -> (Dict, 解析器) =
+    if 匹配(p, 类型.双省略号) then
+      let (全局循环, p1) = 解析全局循环后缀(p) in
+      let (文件, p2) = 读开匹配(p1) ? 解析文件引用(p1) : (null, p1) in
+      (做输出追踪环(输出, 段循环, 子文件, 编号, 全局循环, 文件), p2)
+    else
+      (做输出追踪环(输出, 段循环, 子文件, 编号, null, null), p)
+
   (* ===== 机械单元（#N：…）=====
      与宿主 parser._parse_mech_unit 对齐：先消费 # 与可选全角冒号，
      再按首个 token 判定内容形态。 *)
@@ -1588,11 +1695,12 @@ module 语法器 {
       let (body, p4) = 收尾链(p3, 做生成语句(cmd)) in
       (做机械单元(body), p4)
     else if 匹配(p2, 类型.左括号方) then
-      (* #N：[输出] → 生成语句 + 输出追踪；内容可能是多值列表 *)
+      (* #N：[输出] → 生成语句 + 输出追踪；可带 …（x/y）【文件】循环后缀 *)
       let (expr, p3) = 解析括号内输出(推进(p2)) in
       let p4 = 匹配(p3, 类型.右括号方) ? 推进(p3) : p3 in
-      let (body, p5) = 收尾链(p4, 做生成语句(做输出追踪(expr))) in
-      (做机械单元(body), p5)
+      let (tr, p5) = 解析输出后缀(p4, expr) in
+      let (body, p6) = 收尾链(p5, 做生成语句(tr)) in
+      (做机械单元(body), p6)
     else if 匹配(p2, 类型.占位符) then
       (* #N：？expr → 生成语句 + 表达式 *)
       let (expr, p3) = 解析表达式(推进(p2)) in
@@ -1818,13 +1926,24 @@ module 语法器 {
     let p0 = 跳过分号(p) in
     if 匹配(p0, 类型.结束) then
       做Program(reverse(acc))
+    else if 当前(p0).类型 = 类型.占位符 and 窥视(p0, 1).类型 = 类型.段号 then
+      (* 顶层？#：{ 代码编号前缀（宿主 _parse_statement 的 MATHA_PLACEHOLDER+HASH）。
+         块体内不适用（宿主 _parse_mech_stmt 无此规则），故仅在顶层列表分派。 *)
+      let (decl, p2) = 解析全局标识(p0) in
+      解析声明列表(p2, acc + [decl])
+    else if 当前(p0).类型 = 类型.整数 and 窥视(p0, 1).类型 = 类型.段号 then
+      let (decl, p2) = 解析全局标识(p0) in
+      解析声明列表(p2, acc + [decl])
     else
       let (decl, p2) = 解析声明(p0) in
       解析声明列表(p2, acc + [decl])
 
   func 解析声明(p: 解析器) -> (Dict, 解析器) =
-    if 匹配(p, 类型.段号) then
+    if 匹配(p, 类型.段号) and 是生成头(p) then
       解析机械单元(p)
+    else if 匹配(p, 类型.段号) then
+      (* 裸 # 行（如 # 注释）：宿主按外来声明整行吞掉。 *)
+      解析裸井号行(p)
     else if 匹配(p, 类型.读取开) then
       (* 自然语言标注块（宿主 _parse_statement 的 MATHA_READ_OPEN 分支）*)
       解析自然语言块(p)

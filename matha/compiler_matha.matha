@@ -259,6 +259,10 @@ module 编译器 {
     decl["类型"] = "自然语言块" ? (code, sc, bc) :
     (* 命令字面量：宿主 ast.CommandLiteral 属 _NOOP_STMTS，编译期不产任何字节码 *)
     decl["类型"] = "命令文字" ? (code, sc, bc) :
+    (* 全局代码编号 ？# / N# / 纯数字行：宿主 ast.GlobalIdStmt 属 _NOOP_STMTS *)
+    decl["类型"] = "全局标识" ? (code, sc, bc) :
+    (* 裸 # 外来行：宿主 ast.ForeignDecl 属 _NOOP_STMTS，编译期不产字节码 *)
+    decl["类型"] = "外来声明" ? (code, sc, bc) :
     (* @define_op：宿主 ast.DefineOp 属 _NOOP_STMTS *)
     decl["类型"] = "定义运算符" ? (code, sc, bc) :
     decl["类型"] = "枚举" ? _编译枚举(decl, code, sc, bc) :
@@ -669,7 +673,7 @@ module 编译器 {
     (t = "go") or
     (* 宿主 _STMT_NODES 含 ChainStmt：块末留值时走语句路径，再由
        _emit_block 的 leave_last 尾巴补 PUSH_NULL。 *)
-    (t = "链式语句") or (t = "设值")
+    (t = "链式语句") or (t = "设值") or (t = "全局标识") or (t = "外来声明")
 
   (* ===== 表达式发射 =====
      返回 (新码, 新作用域, 新bc) *)
