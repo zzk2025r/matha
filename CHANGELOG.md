@@ -1,5 +1,42 @@
 # Matha 变更摘要
 
+## 参数名 / 类型名接受符号（SYMBOL）——与自举对齐（四端一致）
+
+**日期**：2026-10-17
+
+### 变更范围
+
+**宿主参数名 / 类型名解析接受 SYMBOL token**（`src/parser.py`）
+
+- EBNF `<variable> = <placeholder> | <identifier> | <symbol>`，宿主 `_parse_variable`
+  已接受 SYMBOL（emoji / 数学符号 / 控制符等），但**参数位置与类型位置**未跟进：
+  lambda 参数、`func` / `and` 显式 lambda 体参数、`let` 显式 lambda 体参数、带类型
+  参数（`_parse_typed_param`）、命名类型（`_parse_type_expr`）等处的「参数名 /
+  类型名可用 token」集合缺 SYMBOL，导致 `(★) => ★`、`func f(★: Int)`、`x: ★` 等
+  宿主报「期望 参数名 / 类型表达式」，而自举可解析 → 两端发散。
+- 修复：
+  - 10 处「参数名 / 类型名可用 token」集合统一加入 `TokenType.SYMBOL`
+    （`_parse_lambda_param`、`_parse_typed_param`、`_parse_func_def` /
+    `_parse_and_func_def` 的显式 lambda 体参数、`_parse_let` 的两处显式 lambda 体
+    参数、`let (` 函数定义前瞻、`_parse_type_expr` 命名类型）。
+  - `_parse_paren_dispatch` 的独立 lambda 试探门禁加入 `TokenType.SYMBOL`，使
+    `(★) => …` 作为 lambda 解析（无 `=>` 时仍回退为分组，`(★)` 分组不受影响）。
+
+### 效果
+
+- 语料 `corpus_parity.py`（67 文件）：**ok 56→57**、diverge 0、self_fail 0、
+  host_parse_fail 11→10。剩余 10 个文件宿主与自举**双方均解析失败**
+  （遗留 / 非规范写法，非发散）。
+- `matha/library/core/计算球体积.matha`（自举生成、含杂散 `\x01` 字节）现宿主可
+  解析，且宿主与自举编译一致（identical=True）。
+
+### 测试
+
+- `pytest tests/` → **3268 passed**（无回归）。
+- 符号参数 / 符号类型名 / let 符号 lambda 各例 host==self（identical=True）。
+
+---
+
 ## `@：` 设定项多行列表「未消费完整」误回退修复（四端一致）
 
 **日期**：2026-10-17

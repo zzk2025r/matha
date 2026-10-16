@@ -2450,7 +2450,7 @@ class Parser:
         # 试探：参数列表（标识符/占位符，逗号分隔，可带 :Type）后跟 => body
         # 关键：=> 在 ) 之后，故先消费 ) 再判 =>。若不是 lambda 则整体回退。
         # 在控制流语境中，跳过 lambda/元组试探，直接解析为分组表达式
-        if not self._in_control_flow and self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER):
+        if not self._in_control_flow and self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):
             saved = self.pos
             try:
                 params = [self._parse_lambda_param()]
@@ -2615,7 +2615,7 @@ class Parser:
             # 与表达式位置同规则：`？sum` 即变量 sum。
             return self._parse_placeholder_var()
         # 参数名可以是关键字（如 func、and、or）
-        if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+        if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                         TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                         TokenType.KW_IN, TokenType.KW_WHILE,
                         TokenType.KW_NULL, TokenType.KW_NONE, TokenType.KW_UNDEFINED):
@@ -2921,7 +2921,7 @@ class Parser:
                 return elem_types[0]
             return ast.TupleType(types=elem_types)
         # 命名类型：内置基本类型或用户自定义类型（含关键字作为类型名）
-        if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+        if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                         TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                         TokenType.KW_IN, TokenType.KW_WHILE):
             self._advance()
@@ -2995,7 +2995,7 @@ class Parser:
             # 注意：self._current() 是函数名（或 let rec 后的 (），因此需要偏移 +2 检查 :
             _peek1 = self._peek(1)
             _is_typed_param = (
-                _peek1.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                _peek1.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                                 TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                                 TokenType.KW_IN, TokenType.KW_WHILE)
                 and self._peek(2).type == TokenType.OP_COLON
@@ -3034,7 +3034,7 @@ class Parser:
                         self._advance()  # consume (
                         if not self._check(TokenType.PUNCT_RPAREN):
                             tok = self._current()
-                            if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                            if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                                             TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                                             TokenType.KW_IN, TokenType.KW_WHILE):
                                 self._advance()
@@ -3044,7 +3044,7 @@ class Parser:
                             while self._is_comma():
                                 self._advance()
                                 tok = self._current()
-                                if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                                if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                                                 TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                                                 TokenType.KW_IN, TokenType.KW_WHILE):
                                     self._advance()
@@ -3836,7 +3836,7 @@ class Parser:
         if not self._check(TokenType.PUNCT_RPAREN):
             # 参数名可以是关键字（如 func、and、or）
             tok = self._current()
-            if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+            if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                             TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                             TokenType.KW_IN, TokenType.KW_WHILE):
                 self._advance()
@@ -3847,7 +3847,7 @@ class Parser:
                 self._advance()
                 self._skip_newlines()
                 tok = self._current()
-                if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                                 TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                                 TokenType.KW_IN, TokenType.KW_WHILE):
                     self._advance()
@@ -3923,7 +3923,7 @@ class Parser:
         lam_params: list[Any] = []
         if not self._check(TokenType.PUNCT_RPAREN):
             tok = self._current()
-            if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+            if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                             TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                             TokenType.KW_IN, TokenType.KW_WHILE):
                 self._advance()
@@ -3934,7 +3934,7 @@ class Parser:
                 self._advance()
                 self._skip_newlines()
                 tok = self._current()
-                if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+                if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                                 TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                                 TokenType.KW_IN, TokenType.KW_WHILE):
                     self._advance()
@@ -3969,7 +3969,7 @@ class Parser:
         self._skip_newlines()
         # 参数名可以是关键字（如 func、and、or），作为标识符使用
         tok = self._current()
-        if tok.type in (TokenType.IDENTIFIER, TokenType.KW_FUNC, TokenType.KW_AND,
+        if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                         TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
                         TokenType.KW_IN, TokenType.KW_WHILE):
             self._advance()
