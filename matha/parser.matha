@@ -76,6 +76,11 @@ module 语法器 {
      标注体形如 【*/自主成长：从源码学习/*】，词法上是 乘/除 夹一串 token。 *)
   func 做自然语言块(标注: String, 正文: String) -> Dict =
     {"类型": "自然语言块", "标注": 标注, "正文": 正文}
+  (* 命令字面量：【文字】(形式 "bracket") 或 《文字》(形式 "cn")，对应宿主
+     ast.CommandLiteral。宿主列入 _NOOP_STMTS（编译期不产任何字节码），故这里
+     只承载文本与形式，发射阶段为空操作。 *)
+  func 做命令文字(文本: String, 形式: String) -> Dict =
+    {"类型": "命令文字", "文本": 文本, "形式": 形式}
   (* @define_op : <符号> = <优先级> | <结合性> [ => <处理函数> ] —— 对应宿主
      ast.DefineOp，编译期 NOOP（_NOOP_STMTS）。绑定信息累积进解析器状态 自定义表，
      使自定义运算符可在表达式中使用（二元节点携带「实现」函数名）。 *)
@@ -1148,8 +1153,8 @@ module 语法器 {
         解析自然语言块(p)
       else if 匹配关键字文本(p, "chan") then
         (* chan T：降级为通道 dict（宿主 _parse_primary 的 KW_CHAN 分支）*)
-        let (类型名, p2) = 解析类型名(推进(p)) in
-        (做通道(类型名), p2)
+        let (通道元素类型, p2) = 解析类型名(推进(p)) in
+        (做通道(通道元素类型), p2)
     else if 匹配(p, 类型.标识符) then
       let tok = 当前(p) in
       (做Variable(tok.文本), 推进(p))
@@ -1424,6 +1429,27 @@ module 语法器 {
       let (正文, p4) = 收集到行尾(p3, "") in
       (做自然语言块(标注, 正文), 规范(p4))
 
+  (* ===== 命令字面量（【文字】/《文字》）=====
+     对齐宿主 parser._parse_command_literal + _parse_command_text：
+     《…》→ 形式 "cn"（命令闭 》），【…】→ 形式 "bracket"（读取闭 】）。
+     文本收集到任一闭括号或 EOF 为止（宿主 _parse_command_text 同构）。 *)
+  func 解析命令文字(p: 解析器) -> (Dict, 解析器) =
+    if 匹配(p, 类型.命令开) then
+      let p1 = 推进原样(p) in                      (* 消费 《 *)
+      let (文本, p2) = 收集命令文本(p1, "") in
+      let p3 = 匹配(p2, 类型.命令闭) ? 推进原样(p2) : p2 in
+      (做命令文字(文本, "cn"), p3)
+    else
+      let p1 = 推进原样(p) in                      (* 消费 【 *)
+      let (文本, p2) = 收集命令文本(p1, "") in
+      let p3 = 匹配(p2, 类型.读取闭) ? 推进原样(p2) : p2 in
+      (做命令文字(文本, "bracket"), p3)
+
+  func 收集命令文本(p: 解析器, acc: String) -> (String, 解析器) = (p, acc) =>
+    (匹配(p, 类型.结束) or 匹配(p, 类型.读取闭) or 匹配(p, 类型.命令闭)) ?
+      (acc, p) :
+      收集命令文本(推进原样(p), acc + 当前(p).文本)
+
   (* ===== 机械单元（#N：…）=====
      与宿主 parser._parse_mech_unit 对齐：先消费 # 与可选全角冒号，
      再按首个 token 判定内容形态。 *)
@@ -1436,8 +1462,8 @@ module 语法器 {
       let (block, p3) = 解析语句列表(推进(p2)) in
       let p4 = 匹配(p3, 类型.右括号花) ? 推进(p3) : p3 in
       (做机械单元(block), p4)
-    else if 匹配(p2, 类型.读取开) then
-      (* #N：【命令】→ 生成语句 + 命令字面量 *)
+    else if 匹配(p2, 类型.读取开) or 匹配(p2, 类型.命令开) then
+      (* #N：【命令】/《命令》→ 生成语句 + 命令字面量 *)
       let (cmd, p3) = 解析命令文字(p2) in
       (做机械单元(做生成语句(cmd)), p3)
     else if 匹配(p2, 类型.左括号方) then

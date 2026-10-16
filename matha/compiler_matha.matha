@@ -253,6 +253,8 @@ module 编译器 {
     decl["类型"] = "结构体" ? (code, sc, bc) :
     (* 自然语言块：宿主 ast.NLBlock 属 _NOOP_STMTS，编译期不产任何字节码 *)
     decl["类型"] = "自然语言块" ? (code, sc, bc) :
+    (* 命令字面量：宿主 ast.CommandLiteral 属 _NOOP_STMTS，编译期不产任何字节码 *)
+    decl["类型"] = "命令文字" ? (code, sc, bc) :
     (* @define_op：宿主 ast.DefineOp 属 _NOOP_STMTS *)
     decl["类型"] = "定义运算符" ? (code, sc, bc) :
     decl["类型"] = "枚举" ? _编译枚举(decl, code, sc, bc) :
@@ -624,6 +626,8 @@ module 编译器 {
     (* 宿主 _STMT_NODES 含 NLBlock（经 _NOOP_STMTS 引入）：块末留值时走
        _compile_stmt 空操作，再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。 *)
     (t = "自然语言块") or
+    (* 宿主 _STMT_NODES 含 CommandLiteral（经 _NOOP_STMTS 引入），同上。 *)
+    (t = "命令文字") or
     (* 宿主 _STMT_NODES 含 RaiseExpr：块末留值时走 _compile_stmt 收尾路径，
        再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。缺此项则 try 体
        （末句 throw/raise）少发 PUSH_NULL，__lam_1 字节码与宿主不一致。 *)
