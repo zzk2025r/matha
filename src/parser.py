@@ -113,6 +113,9 @@ class Parser:
         # 正在解析集合理解 { 输出 | 生成 | 条件 }：此语境 `|` 是**子句分隔符**
         # 而非位或，否则 `{x | x >> S | x > 1}` 的 `|` 会被 _parse_bit_expr 吞掉。
         self._in_comp_head = False
+        # 正在解析输出括号 [ … ] 内容：此语境禁用并列函数应用（juxtaposition，
+        # 见 EBNF <postfix>），使 `#：[Hello world]` 回退为文本而非 FuncApp。
+        self._no_juxtaposition = False
         # 段内步骤追踪（用于 5 步固定顺序校验，M3.1/M3.2）
         self._current_seg: int | None = None
         self._seg_step: int = 0
@@ -2038,6 +2041,19 @@ class Parser:
                 else:
                     self.pos = saved
                     break
+            # 并列函数应用（juxtaposition，EBNF <postfix> = <primary> { <primary> }）：
+            # f x → FuncApp(f, x)，左结合（f x y → ((f x) y)）。与自举
+            # 解析应用链 的并列分支一致：当前 token 须为原子起点（字面量/变量），
+            # 且不位于行首（前一 token 非换行，对齐自举 是行首关键字），
+            # 且非中缀 is；输出括号 [ … ] 语境（_no_juxtaposition）禁用并列，
+            # 以保留 `#：[Hello world]` 的文本回退。
+            if (not self._no_juxtaposition
+                    and self._is_juxtaposition_start()
+                    and not (self.pos > 0
+                             and self.tokens[self.pos - 1].type == TokenType.NEWLINE)):
+                arg = self._parse_primary()
+                expr = ast.FuncApp(func=expr, arg=arg)
+                continue
             # 函数应用：expr(arg) — 仅当 expr 是 Variable/PathExpr/Literal 时
             # 不将 ( 消费为函数参数如果 expr 是 Lambda（已由 _parse_paren_dispatch 处理）
             # 也不将 ( 消费为分组如果 expr 是 BinaryOp（如 p = 推进(p)）
@@ -2199,6 +2215,35 @@ class Parser:
             TokenType.KW_IF, TokenType.KW_NULL, TokenType.KW_NONE, TokenType.KW_UNDEFINED,
             TokenType.SYMBOL,
         )
+
+    # 自举词法器归为 关键字 但宿主词法器归为 IDENTIFIER 的词：并列应用
+    # （见 _is_juxtaposition_start）须排除，否则 `f let` / `a is b` 等宿主会
+    # 误并而自举不会，两端发散。
+    _JUXTAPOSITION_EXCLUDE = frozenset({
+        "let", "else", "then", "rec", "not",
+        "Int", "Float", "String", "Bool", "Unit", "List", "Option",
+        "模块", "结构体", "枚举", "常量", "返回", "断言",
+    })
+
+    def _is_juxtaposition_start(self) -> bool:
+        """当前 Token 是否可作为并列函数应用的实参起点（EBNF <postfix>：f x）。
+
+        与自举 `是原子起点` 对齐：仅字面量/变量类 token（整数/浮点/字符串/
+        布尔/占位符/标识符）。宿主词法器把自举的关键字（let/not/Int/…）归为
+        IDENTIFIER，故显式排除；中缀 is（标识符 "is" 且其后为表达式起点）亦除外。
+        """
+        t = self._current()
+        if t.type not in (
+            TokenType.LIT_INTEGER, TokenType.LIT_FLOAT, TokenType.LIT_STRING,
+            TokenType.LIT_BOOL, TokenType.MATHA_PLACEHOLDER, TokenType.IDENTIFIER,
+        ):
+            return False
+        if t.type == TokenType.IDENTIFIER:
+            if t.value in self._JUXTAPOSITION_EXCLUDE:
+                return False
+            if t.value == "is" and self._is_primary_start_after(1):
+                return False
+        return True
 
     def _parse_primary(self):
         """<primary> = <integer> | <float> | <string> | <bool> | <variable>
@@ -2650,6 +2695,10 @@ class Parser:
             return ast.Output(expr=result)
 
         # 尝试解析为 表达式 + ]；失败则回退为文本
+        # 此语境禁用并列应用（对齐自举 试解析输出 的 禁并列）：否则
+        # `#：[Hello world]` 会被吞成 FuncApp 而不回退为文本。
+        saved_nj = self._no_juxtaposition
+        self._no_juxtaposition = True
         saved_pos = self.pos
         try:
             expr = self._parse_expr(stop_at_comma=True)
@@ -2681,6 +2730,7 @@ class Parser:
             return ast.Output(expr=ast.StringLit(value="".join(parts)))
         finally:
             self._in_output = False
+            self._no_juxtaposition = saved_nj
 
     def _bracket_has_comma(self, lb: int) -> bool:
         """从 lb（'[' 的下标）起括号配对扫描，判断配对 ']' 之前是否有顶层逗号。

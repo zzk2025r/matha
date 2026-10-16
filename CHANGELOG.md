@@ -1,5 +1,50 @@
 # Matha 变更摘要
 
+## 并列函数应用 `f x`（juxtaposition）宿主解析 + 自举禁并列泄漏修复（四端一致）
+
+**日期**：2026-10-17
+
+### 变更范围
+
+EBNF（`docs/17` §postfix）与 `docs/06` 定义并列函数应用
+`<postfix> = <primary> , { <primary> }`（`f e` → `f(e)`，`f a + b` → `(f a) + b`，
+优先级 7）。宿主 `src/parser.py` 的 `_parse_postfix` docstring 虽同述该规则，但实现
+只处理 `f(...)`，**缺失 `{ <primary> }` 循环** → `x = f y` 被解析为 `Binding(x=f)` +
+独立语句 `y`。自举 `解析应用链` 早已支持并列，两端因此发散（语料 11 例，如
+`v1 = 乘 a b`、`结果 = 软件_构建 "…"`、`h = compose inc double`）。
+
+**宿主**：
+
+- `src/parser.py`：`_parse_postfix` 新增并列应用分支（左结合 `f x y → ((f x) y)`）。
+  新增 `_is_juxtaposition_start`（对齐自举 `是原子起点`：整数/浮点/字符串/布尔/
+  占位符/标识符；排除中缀 `is`，以及自举词法器归为关键字、宿主归为标识符的词
+  `let/not/Int/Float/…`）；分支要求当前 token 非行首（`tokens[pos-1]` 非 `NEWLINE`，
+  对齐自举 `是行首关键字`）。新增 `_no_juxtaposition` 字段，并在 `_parse_output`
+  的表达式回退路径置真（try/finally 恢复），使 `#：[Hello world]` 仍回退为文本
+  而非被吞成 `FuncApp`（对齐自举 `试解析输出` 的 `禁并列`）。
+
+**自举**：
+
+- `matha/parser.matha`：修复 `禁止并列` 标志**泄漏**缺陷。`试解析输出` 解析成功后
+  返回的解析器副本带 `禁止并列=真`，该标志经 `规范`/`推进` 等一路传播到后续所有
+  解析 → **首个 `#：[…]` 之后的并列应用全部失效**（此前因宿主无并列而无从暴露，
+  本轮修宿主后被暴露）。新增 `置禁并列(p, v)`；`试解析输出` 成功分支改为
+  `置禁并列(p2, p.禁止并列)`，恢复调用方原值。
+
+### 效果
+
+- 语料 `corpus_parity.py`（67 文件）：**diverge 11→1、ok 44→54**（self_fail 0、
+  host_parse_fail 12 不变）。
+- 唯一剩余 DIFF：`matha/bootstrap_matha.matha`（缩进 lambda 体裸 `[expr]` 语句位
+  判定，正交于本轮）。
+
+### 测试
+
+- `pytest tests/` → **3268 passed**；`pytest tests/test_mbc_bootstrap.py` → **755 passed**。
+- `ruff check src/parser.py`：无新增告警（既有 SIM/B007/E402 为历史项）。
+
+---
+
 ## 输出行循环后缀 + 全局代码编号 + 裸 `#` 行 + 双省略号（四端一致）
 
 **日期**：2026-10-16
