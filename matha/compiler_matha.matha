@@ -436,8 +436,16 @@ module 编译器 {
       _发射表达式(decl, code, sc, bc)
 
   func _是语句类型(t: String) -> Bool = (t) =>
-    (t = "绑定") or (t = "let绑定") or (t = "while") or (t = "for") or
-    (t = "函数定义") or
+    (t = "绑定") or (t = "let绑定") or (t = "let元组绑定") or
+    (t = "while") or (t = "for") or (t = "函数定义") or
+    (* 输出单元链：宿主 _STMT_NODES 含 MechUnit/GenStmt/OutputTrail/Output。
+       块末留值时须走「编译为语句 + 补 PUSH_NULL」，否则旧实现落到
+       _发射表达式：机械单元 直接报「未支持的表达式类型」，输出 会 DUP 留值，
+       均与宿主不一致（try/catch/finally 体末句为 #：[…] 时即触发）。 *)
+    (t = "机械单元") or (t = "生成语句") or (t = "输出追踪") or (t = "输出") or
+    (* 声明类：宿主 _STMT_NODES 含 ModuleDecl/ImportDecl/StructDef/EnumDef/DefineOp *)
+    (t = "模块") or (t = "导入") or (t = "结构体") or (t = "枚举") or
+    (t = "定义运算符") or
     (* 宿主 _STMT_NODES 含 NLBlock（经 _NOOP_STMTS 引入）：块末留值时走
        _compile_stmt 空操作，再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。 *)
     (t = "自然语言块") or

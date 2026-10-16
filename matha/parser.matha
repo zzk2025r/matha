@@ -1909,32 +1909,37 @@ module 语法器 {
     let p6 = 期望(p5, 类型.右括号花) in
     (做While(cond, body), p6)
 
-  (* try 语句：try { 块 } catch [(e)] { 块 } [finally { 块 }]
-     catch 变量可选（catch (e) {} 或 catch {}），finally 可选 *)
+  (* try 语句：try { 块 } [catch [(e)] { 块 }] [finally { 块 }]
+     catch 变量可选（catch (e) {} 或 catch {}），catch/finally 均可选（宿主允许 try/finally 或 bare try） *)
   func 解析try语句(p: 解析器) -> (Dict, 解析器) =
     let p1 = 期望(p, 类型.关键字) in  (* try *)
     let p2 = 期望(p1, 类型.左括号花) in
     let (try体, p3) = 解析语句列表(p2) in
     let p4 = 期望(p3, 类型.右括号花) in
-    let p5 = 期望关键字文本(p4, "catch") in
-    let (捕获变量, p6) =
-      if 匹配(p5, 类型.左括号) then
-        let 变量tok = 当前(推进(p5)) in
-        let p5b = 期望(推进(p5), 类型.标识符) in
-        let p5c = 期望(p5b, 类型.右括号) in
-        (变量tok.文本, p5c)
-      else ("", p5) in
-    let p7 = 期望(p6, 类型.左括号花) in
-    let (捕获体, p8) = 解析语句列表(p7) in
-    let p9 = 期望(p8, 类型.右括号花) in
-    if 匹配关键字文本(p9, "finally") then
-      let p10 = 推进(p9) in
-      let p11 = 期望(p10, 类型.左括号花) in
-      let (fin体, p12) = 解析语句列表(p11) in
-      let p13 = 期望(p12, 类型.右括号花) in
-      (做Try(try体, 捕获变量, 捕获体, fin体), p13)
+    let (捕获变量, 捕获体, p5) =
+      if 匹配关键字文本(p4, "catch") then
+        let p4a = 推进(p4) in
+        let (捕获变量, p4b) =
+          if 匹配(p4a, 类型.左括号) then
+            let 变量tok = 当前(推进(p4a)) in
+            let p4c = 期望(推进(p4a), 类型.标识符) in
+            let p4d = 期望(p4c, 类型.右括号) in
+            (变量tok.文本, p4d)
+          else ("", p4a) in
+        let p4e = 期望(p4b, 类型.左括号花) in
+        let (捕获体, p4f) = 解析语句列表(p4e) in
+        let p4g = 期望(p4f, 类型.右括号花) in
+        (捕获变量, 捕获体, p4g)
+      else
+        ("", 做Program([]), p4) in
+    if 匹配关键字文本(p5, "finally") then
+      let p5a = 推进(p5) in
+      let p5b = 期望(p5a, 类型.左括号花) in
+      let (fin体, p5c) = 解析语句列表(p5b) in
+      let p5d = 期望(p5c, 类型.右括号花) in
+      (做Try(try体, 捕获变量, 捕获体, fin体), p5d)
     else
-      (做Try(try体, 捕获变量, 捕获体, 做Program([])), p9)
+      (做Try(try体, 捕获变量, 捕获体, 做Program([])), p5)
 
   (* for 语句：for var in expr { body } *)
   func 解析for_stmt(p: 解析器) -> (Dict, 解析器) =

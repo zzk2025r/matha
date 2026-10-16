@@ -1854,6 +1854,7 @@ _M15_AGG_CASES = [
     ("sum_of_prod", "#：[∑[∏[1,2], ∏[3,4]]]\n", [14]),
 ]
 
+
 _M15_AGG_IDS = [c[0] for c in _M15_AGG_CASES]
 
 
@@ -1874,5 +1875,53 @@ def test_m15_agg_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
 @pytest.mark.parametrize("name,src,expect", _M15_AGG_CASES, ids=_M15_AGG_IDS)
 def test_m15_agg_stage3_runs(compiler_boot_vm, name, src, expect):
     """M15：自举链路编译聚合前缀 ∑/∏，运行一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
+
+
+# ==================== M16：try/catch/finally ====================
+# 自托管编译器新增 try/catch/finally 支持（_发射try/catch、块末尾机械单元修正）。
+# 覆盖基础、catch 变量绑定、finally、嵌套、函数体内 try、catch-only、finally-only。
+_M16_TRY_CASES = [
+    ("basic",        "try { #：[1] } catch (e) { #：[2] }\n", [1]),
+    ("catch_msg",    'try { throw "boom" } catch (e) { #：[e] }\n', ["boom"]),
+    ("catch_int",    "try { throw 1 } catch (e) { #：[e] }\n", ["1"]),
+    ("finally",      "try { #：[7] } catch (e) { #：[8] } finally { #：[9] }\n", [7, 9]),
+    ("all",          "try { #：[1] } catch (e) { #：[2] } finally { #：[3] }\n", [1, 3]),
+    ("finally_only", "try { #：[1] } finally { #：[2] }\n", [1, 2]),
+    ("val_tail",     "try { #：[1] 2 } catch (e) { 3 }\n", [1]),
+    ("nested",       "try { try { #：[1] } catch (e) { #：[2] } } catch (e) { #：[3] }\n", [1]),
+    ("multi_units",  "try { #：[1] #：[2] } catch (e) { #：[3] }\n", [1, 2]),
+    ("assign_in_try","x = 0\ntry { x = 5 } catch (e) { x = 9 }\n#：[x]\n", [0]),
+    ("assign_catch", "x = 0\ntry { throw 1 } catch (e) { x = 9 }\n#：[x]\n", [0]),
+    ("catch_runs",   "try { throw 5 } catch (e) { #：[10] }\n", [10]),
+    ("fn_body_try",  "f = () => { try { throw 1 } catch (e) { 42 } }\n#：[f()]\n", [42]),
+    ("fn_try_out",   "f = (n) => { try { n + 1 } catch (e) { 0 } }\n#：[f(3)]\n", [4]),
+    ("try_then_out", "try { #：[1] } catch (e) { #：[2] }\n#：[99]\n", [1, 99]),
+    ("throw_recover","try { throw 1 } catch (e) { #：[e] }\n#：[100]\n", ["1", 100]),
+    ("nested_fin",   "try { try { #：[1] } finally { #：[2] } } catch (e) { #：[3] }\n", [1, 2]),
+]
+
+
+_M16_TRY_IDS = [c[0] for c in _M16_TRY_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M16_TRY_CASES, ids=_M16_TRY_IDS)
+def test_m16_try_host_runs(name, src, expect):
+    """M16：宿主 try/catch/finally 语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M16_TRY_CASES, ids=_M16_TRY_IDS)
+def test_m16_try_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M16：stage2 ≡ stage3（try/catch/finally 字节级一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M16_TRY_CASES, ids=_M16_TRY_IDS)
+def test_m16_try_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M16：自举链路编译执行 try/catch/finally，输出与宿主一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
