@@ -90,7 +90,15 @@ module 语法器 {
   func 做While(cond: Dict, body: Dict) -> Dict = {"类型": "while", "条件": cond, "体": body}
   func 做For(var_name: String, iterable: Dict, body: Dict) -> Dict =
     {"类型": "for", "变量": var_name, "迭代": iterable, "体": body}
-  func 做Match(scrutinee: Dict, branches: List) -> Dict = {"类型": "match", " scrutinee": scrutinee, "分支": branches}
+  func 做Match(scrutinee: Dict, branches: List) -> Dict = {"类型": "match", "scrutinee": scrutinee, "分支": branches}
+  (* switch 节点：与宿主 ast_nodes.SwitchStmt 对应（值 / 分支[[case_val,body]] / 默认）。
+     默认分支无则传 null。 *)
+  func 做Switch(value: Dict, branches: List, 默认: Dict) -> Dict =
+    {"类型": "switch", "值": value, "分支": branches, "默认": 默认}
+  (* 构造子模式 Some(x) / None()：宿主 pattern 用字典 {"Some": 值} 匹配，
+     字段为子模式列表（按位置对应）。 *)
+  func 做构造子模式(name: String, fields: List) -> Dict =
+    {"类型": "构造子模式", "名": name, "字段": fields}
   func 做Lambda(params: List, body: Dict) -> Dict = {"类型": "lambda", "参数": params, "体": body}
   func 做BinaryOp(op: String, left: Dict, right: Dict) -> Dict = {"类型": "二元运算", "运算符": op, "左": left, "右": right}
   (* 自定义运算符二元节点：@define_op 绑定具名函数时使用独立节点类型，
@@ -1684,6 +1692,7 @@ module 语法器 {
       else if tok.文本 = "while" then 解析while_stmt(p)
       else if tok.文本 = "for" then 解析for_stmt(p)
       else if tok.文本 = "match" then 解析match_stmt(p)
+      else if tok.文本 = "switch" then 解析switch(p)
       else if tok.文本 = "try" then 解析try语句(p)
       else if tok.文本 = "module" then 解析模块声明(p)
       else if tok.文本 = "use" then 解析导入声明(p)
@@ -1961,34 +1970,97 @@ module 语法器 {
     let p8 = 期望(p7, 类型.右括号花) in
     (做For(var_tok.文本, iterable, body), p8)
 
-  (* match 语句 *)
+  (* match 语句：match <expr> { | <pat> [if <guard>] => <body> ... }
+     与宿主 _parse_match_stmt 对齐：分支以 | 前导；支持守卫；模式支持
+     字面量 / 变量绑定 / 构造子 / 下划线通配。分支元组为 [模式, 守卫, 体]
+     （守卫缺省为 null），与宿主 (pattern, guard, body) 一致。 *)
   func 解析match_stmt(p: 解析器) -> (Dict, 解析器) =
     let p2 = 期望(p, 类型.关键字) in  (* match *)
     let (scrutinee, p3) = 解析表达式(p2) in
     let p4 = 期望(p3, 类型.左括号花) in
-    解析match分支(p4, [], scrutinee)
+    let (acc, p5) = 解析match分支(p4, []) in
+    let p6 = 期望(p5, 类型.右括号花) in
+    (做Match(scrutinee, acc), p6)
 
-  func 解析match分支(p: 解析器, acc: List, scrutinee: Dict) -> (Dict, 解析器) =
-    if 匹配(p, 类型.右括号花) or 匹配(p, 类型.结束) then
-      (做Match(scrutinee, reverse(acc)), p)
-    else
+  func 解析match分支(p: 解析器, acc: List) -> (List, 解析器) =
+    if 匹配(p, 类型.管道) then
       let p2 = 推进(p) in  (* 消费 | *)
       let (pattern, p3) = 解析match模式(p2) in
-      let p4 = 期望(p3, 类型.胖箭头) in
-      let (body, p5) = 解析表达式(p4) in
-      解析match分支(p5, acc + [(pattern, body)], scrutinee)
+      let (guard, p4) =
+        if 匹配关键字文本(p3, "if") then
+          let (g, pg) = 解析表达式(推进(p3)) in (g, pg)
+        else (null, p3) in
+      let p5 = 期望(p4, 类型.胖箭头) in
+      (* 体表达式置「在理解头」：复用该旗标抑制 `|` 作位或——宿主表达式止于
+         换行，而本解析器的 推进 会跳过换行，否则下一行行首的 `|` 会被续接成
+         位或运算，多分支 match 的分支分隔符随之丢失。 *)
+      let 原 = p5.在理解头 in
+      let (body, p6) = 解析表达式(置在理解头(p5, 真)) in
+      解析match分支(置在理解头(p6, 原), acc + [[pattern, guard, body]])
+    else
+      (reverse(acc), p)
 
   func 解析match模式(p: 解析器) -> (Dict, 解析器) =
-    if 匹配(p, 类型.占位符) then
-      let tok = 当前(p) in
-      (做Variable(tok.文本), 推进(p))
+    if 匹配(p, 类型.下划线) or 匹配(p, 类型.占位符) then
+      (做Variable("_"), 推进(p))
     else if 匹配(p, 类型.整数) then
       let tok = 当前(p) in
       (做IntLit(整数值(tok.文本)), 推进(p))
+    else if 匹配(p, 类型.浮点) then
+      let tok = 当前(p) in
+      (做FloatLit(浮点值(tok.文本)), 推进(p))
+    else if 匹配(p, 类型.字符串) then
+      let tok = 当前(p) in
+      (做StringLit(tok.文本), 推进(p))
+    else if 匹配(p, 类型.布尔) then
+      let tok = 当前(p) in
+      (做BoolLit(tok.文本 = "真" or tok.文本 = "true"), 推进(p))
     else if 匹配(p, 类型.标识符) then
       let tok = 当前(p) in
-      (做Variable(tok.文本), 推进(p))
+      let p2 = 推进(p) in
+      if 匹配(p2, 类型.左括号) then
+        let (字段, p3) = 解析模式字段列表(推进(p2), []) in
+        let p4 = 期望(p3, 类型.右括号) in
+        (做构造子模式(tok.文本, 字段), p4)
+      else
+        (做Variable(tok.文本), p2)
     else (做Variable("_"), p)
+
+  (* 构造子模式字段：(pat, pat, ...) —— 逗号分隔；空列表返回 []。
+     与宿主 _parse_pattern 构造子分支一致，按位置对应字段。 *)
+  func 解析模式字段列表(p: 解析器, acc: List) -> (List, 解析器) =
+    if 匹配(p, 类型.右括号) then
+      (reverse(acc), p)
+    else
+      let p1 = acc = [] ? p : 期望(p, 类型.逗号) in
+      let (pat, p2) = 解析match模式(p1) in
+      解析模式字段列表(p2, acc + [pat])
+
+  (* switch 语句：switch <expr> { case <val>: <body> ... default: <body> }
+     与宿主 _parse_switch_stmt 对齐。无 default 时 默认 为 null。 *)
+  func 解析switch(p: 解析器) -> (Dict, 解析器) =
+    let p2 = 期望(p, 类型.关键字) in  (* switch *)
+    let (value, p3) = 解析表达式(p2) in
+    let p4 = 期望(p3, 类型.左括号花) in
+    let (分支, 默认, p5) = 解析switch分支(p4, [], null) in
+    let p6 = 期望(p5, 类型.右括号花) in
+    (做Switch(value, 分支, 默认), p6)
+
+  func 解析switch分支(p: 解析器, cases: List, 默认: Dict) -> (List, Dict, 解析器) =
+    if 匹配(p, 类型.右括号花) or 匹配(p, 类型.结束) then
+      (reverse(cases), 默认, p)
+    else if 匹配关键字文本(p, "default") then
+      let p2 = 期望(推进(p), 类型.冒号) in
+      let (body, p3) = 解析表达式(p2) in
+      解析switch分支(p3, cases, body)
+    else if 匹配关键字文本(p, "case") then
+      let p2 = 推进(p) in
+      let (case_val, p3) = 解析表达式(p2) in
+      let p4 = 期望(p3, 类型.冒号) in
+      let (body, p5) = 解析表达式(p4) in
+      解析switch分支(p5, cases + [[case_val, body]], 默认)
+    else
+      (reverse(cases), 默认, p)
 
   (* 语句列表 *)
   func 解析语句列表(p: 解析器) -> (Dict, 解析器) =

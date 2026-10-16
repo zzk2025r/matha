@@ -1,5 +1,78 @@
 # Matha 变更摘要
 
+## match / switch 语句自托管端可用（四端一致）
+
+**日期**：2026-10-16
+
+### 变更范围
+
+自托管链路此前完全不支持 `match`/`switch`（宿主早已支持：`MatchStmt`/`SwitchStmt`
+由 `_parse_match_stmt`@3584 / `_parse_switch_stmt`@3620 构造，由 `_emit_match`@904 /
+`_emit_switch`@996 发射）。自举侧缺陷：
+
+- `解析match_stmt` **不消费收尾 `}`**（宿主末尾 `_expect(RBRACE)`）→ 分支解析后
+  残留 `}` 被当作块尾/顶层收尾，报 `VM：不可调用的值 None`。
+- `解析match分支` 盲目前进当 `|`、不支持守卫、不支持换行；分支元组仅
+  `(pattern, body)`（宿主为 `(pattern, guard, body)`）。
+- `解析match模式` 用 `类型.占位符`（全角 `？`）判 `_`（应为 `类型.下划线`）→ `_`
+  不被消费报 `期望 =>`；且仅支持整数，缺字符串/浮点/布尔/构造子。
+- **完全没有 `解析switch`**，`解析声明` 无 `switch` 分派。
+- `做Match` 键名误写 `" scrutinee"`（多前导空格）。
+- `matha/lexer.matha` 的 `是关键字` 漏 `switch`/`case`/`default`（宿主 `tokens.KEYWORDS`
+  含此三者）。
+- `compiler_matha.matha` 无 match/switch 发射，落到兜底
+  `错误("自举编译器：未支持的表达式类型 …")`。
+
+### 变更
+
+- **`matha/lexer.matha`（`是关键字`）**：补 `switch`/`case`/`default` 三条，与宿主
+  `tokens.KEYWORDS`（KW_SWITCH/KW_CASE/KW_DEFAULT）对齐。
+- **`matha/parser.matha`**：
+  - 修正 `做Match` 键名 `" scrutinee"` → `"scrutinee"`；新增 `做Switch`、
+    `做构造子模式`（`{"类型":"构造子模式","名":name,"字段":[...]}`）。
+  - `解析match_stmt`：末尾 `期望(类型.右括号花)` 消费 `}`，返回 `(做Match(...), p)`。
+  - `解析match分支`：校验并消费 `类型.管道`；支持 `if <guard>` 守卫；分支元组改为
+    `[模式, 守卫, 体]`（守卫缺省 `null`）。体表达式的解析**临时置「在理解头」**
+    （复用该旗标抑制 `|` 作位或）——本解析器的 `推进` 会跳过换行，否则下一行行首的
+    `|` 会被续接成位或，多分支 match 的分支分隔符随之丢失（宿主表达式止于换行，
+    无此问题）；解析后恢复原值。
+  - `解析match模式`：`_` 判定改用 `类型.下划线`（并保留 `类型.占位符`）→ `做Variable("_")`；
+    补 浮点/字符串/布尔 字面量；新增构造子 `Name(fields)` → `做构造子模式`；
+    新增 `解析模式字段列表`（逗号分隔，按位置对应）。
+  - 新增 `解析switch` / `解析switch分支`（`case <val>: <body>` 冒号分隔、
+    `default: <body>` 可选，返回 `做Switch(value, 分支, 默认)`）；`解析声明` 增
+    `switch` 分派。
+- **`matha/compiler_matha.matha`**：新增
+  `_发射match` / `_发射match分支` / `_发射模式测试` / `_发射模式于值` /
+  `_发射构造子字段` / `_发射模式绑定` / `_发射switch` / `_发射switch分支` /
+  `_补丁列表跳转`，逐条对齐宿主：
+  - `_发射match`：`_分配临时 "match_s"` → 求值 scrutinee → `_存临时`；逐分支
+    `[模式,守卫,体]`：载临时 + 模式测试（失败点记入 `fails`）→ 守卫（`JZ` 记入
+    `fails`）→ `_发射体(…, 真)` →（语句位补 `POP`）→ `JMP end` → 把 `fails` 补到
+    分支末尾；留值位末尾 `PUSH_NULL`；最后把各 `end` 跳补到末尾。
+  - `_发射模式于值`：构造子（`PUSH_CONST 名; LOAD; BINOP "in"; JZ` → 取 `名` 字段 →
+    单字段递归 / 多字段 `pat_box` 按位递归）；变量（`_` 通配恒真不绑定；否则载
+    `pat_v` + `_发射模式绑定`）；字面量（载 `pat_v` + 表达式 + `BINOP "=="` + `JZ`）。
+  - `_发射模式绑定`：main → `STORE_GLOBAL`；否则对齐宿主 `_emit_pattern_bind` +
+    `_declare_slot`（解析为 global 时新声明局部槽并 `STORE_LOCAL`，否则复用现有槽）。
+  - `_发射switch`：`_分配临时 "switch_v"` → 求值 → 存临时；逐 `case`：载临时 +
+    case 值 + `BINOP "=="` + `JZ` → 体 →（语句位补 `POP`）→ `JMP end`；重写 `JZ`
+    目标；`default` 分支；无 default 且留值时 `PUSH_NULL`。
+  - 接线：`_编译声明` 增 `match`/`switch`（语句位、`_重置主作用域计数`、`留值=假`）；
+    `_发射块末条` 留值分支增 `match`/`switch`（`留值=真`）；`_发射表达式` 增
+    `match`/`switch`（`留值=真`）。
+
+### 测试
+
+- 新增 **M18：match / switch**（`_M18_MATCH_CASES` 9 例 × 3 + `_M18_SWITCH_CASES`
+  4 例 × 3 = 39 例：宿主基准 / stage2 ≡ stage3 / 自举执行），覆盖整数/字符串/布尔/
+  浮点字面量模式、变量绑定、`_` 通配、守卫、构造子（单/多构造子）、match/switch 的
+  语句位与块尾留值位、`switch` 有/无 `default`。
+- 探针 host ≡ self（字节码 canon + 执行逐例一致）。
+- `tests/test_mbc_bootstrap.py + tests/test_bootstrap_host.py`：715 passed
+  （含 `matha/parser.matha` 的自举 parser 自身定点保持）。
+- 全量 `pytest tests/`：3220 passed。
+
 ## 块内裸 `let` 常量池泄漏修复 + `;` 语句分隔符（四端一致）
 
 **日期**：2026-10-16

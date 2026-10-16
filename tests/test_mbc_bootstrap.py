@@ -1967,3 +1967,78 @@ def test_m17_block_let_stage3_runs(compiler_boot_vm, name, src, expect):
     """M17：自举链路编译执行块内裸 let / 分号分隔，输出与宿主一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M18：match / switch 语句 ====================
+# 自托管链路此前完全不支持 match/switch：parser 无 switch 分派、match 分支
+# 不消费收尾 `}`、`_` 通配误用占位符类型、无守卫/构造子模式；compiler 无
+# match/switch 发射。现补齐：parser 的 做Match 键名修正、解析match_stmt 消费
+# `}`、解析match分支 支持守卫并置「在理解头」抑制 `|` 作位或、解析match模式
+# 支持 下划线/字符串/布尔/浮点/构造子；新增 解析switch；lexer 关键字补
+# switch/case/default；compiler 新增 _发射match/_发射switch 与模式发射，按
+# 宿主 _emit_match/_emit_switch 逐字节对齐（scrutinee 临时槽 + 逐分支 JZ/JMP）。
+_M18_MATCH_CASES = [
+    ("lit_chain", 'func 分类(n: Int) -> String = (n) => {\n  match n {\n    | 0 => "零"\n    | 1 => "一"\n    | _ => "多"\n  }\n}\n#1：[分类(0)]\n#1：[分类(1)]\n#1：[分类(7)]\n', ["零", "一", "多"]),
+    ("var_bind",  'func 加一(n: Int) -> Int = (n) => {\n  match n {\n    | x => x + 1\n  }\n}\n#1：[加一(9)]\n', [10]),
+    ("guard",     'func 档(n: Int) -> String = (n) => {\n  match n {\n    | x if x > 10 => "大"\n    | x if x > 3 => "中"\n    | _ => "小"\n  }\n}\n#1：[档(20)]\n#1：[档(5)]\n#1：[档(1)]\n', ["大", "中", "小"]),
+    ("ctor",      'func 解(o: Any) -> String = (o) => {\n  match o {\n    | Some(x) => "有" + str(x)\n    | None => "无"\n  }\n}\n#1：[解({"Some": 5})]\n#1：[解({"None": 1})]\n', ["有5", "无"]),
+    ("two_ctors", 'func 解(o: Any) -> String = (o) => {\n  match o {\n    | Some(x) => "s" + str(x)\n    | Err(y) => "e" + str(y)\n    | _ => "?"\n  }\n}\n#1：[解({"Some": 1})]\n#1：[解({"Err": 2})]\n#1：[解({"Other": 3})]\n', ["s1", "e2", "?"]),
+    ("str_pat",   'func 应(s: String) -> Int = (s) => {\n  match s {\n    | "a" => 1\n    | "b" => 2\n    | _ => 0\n  }\n}\n#1：[应("a")]\n#1：[应("b")]\n#1：[应("z")]\n', [1, 2, 0]),
+    ("bool_pat",  'func 判(b: Bool) -> Int = (b) => {\n  match b {\n    | true => 1\n    | _ => 0\n  }\n}\n#1：[判(true)]\n#1：[判(false)]\n', [1, 0]),
+    ("float_pat", 'func 判(x: Float) -> Int = (x) => {\n  match x {\n    | 1.5 => 1\n    | _ => 0\n  }\n}\n#1：[判(1.5)]\n#1：[判(2.0)]\n', [1, 0]),
+    ("stmt_pos",  'func f(n: Int) -> String = (n) => {\n  match n {\n    | 1 => "a"\n    | _ => "b"\n  }\n  "done"\n}\n#1：[f(1)]\n#1：[f(2)]\n', ["done", "done"]),
+]
+
+
+_M18_SWITCH_CASES = [
+    ("sw_default",   'func 分支(n: Int) -> String = (n) => {\n  switch n {\n    case 1: "一"\n    case 2: "二"\n    default: "其它"\n  }\n}\n#1：[分支(1)]\n#1：[分支(2)]\n#1：[分支(9)]\n', ["一", "二", "其它"]),
+    ("sw_nodefault", 'func 分支(n: Int) -> Int = (n) => {\n  switch n {\n    case 10: 100\n    case 20: 200\n  }\n}\n#1：[分支(10)]\n#1：[分支(20)]\n#1：[分支(30)]\n', [100, 200, None]),
+    ("sw_stmt",      'func f(n: Int) -> String = (n) => {\n  switch n {\n    case 0: "zero"\n    default: "nonzero"\n  }\n  "tail"\n}\n#1：[f(0)]\n', ["tail"]),
+    ("sw_str",       'func f(s: String) -> Int = (s) => {\n  switch s {\n    case "x": 1\n    case "y": 2\n    default: 3\n  }\n}\n#1：[f("x")]\n#1：[f("z")]\n', [1, 3]),
+]
+
+
+_M18_MATCH_IDS = [c[0] for c in _M18_MATCH_CASES]
+_M18_SWITCH_IDS = [c[0] for c in _M18_SWITCH_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M18_MATCH_CASES, ids=_M18_MATCH_IDS)
+def test_m18_match_host_runs(name, src, expect):
+    """M18：宿主 match 语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M18_MATCH_CASES, ids=_M18_MATCH_IDS)
+def test_m18_match_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M18：stage2 ≡ stage3（match 字节级一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M18_MATCH_CASES, ids=_M18_MATCH_IDS)
+def test_m18_match_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M18：自举链路编译执行 match，输出与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M18_SWITCH_CASES, ids=_M18_SWITCH_IDS)
+def test_m18_switch_host_runs(name, src, expect):
+    """M18：宿主 switch 语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M18_SWITCH_CASES, ids=_M18_SWITCH_IDS)
+def test_m18_switch_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M18：stage2 ≡ stage3（switch 字节级一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M18_SWITCH_CASES, ids=_M18_SWITCH_IDS)
+def test_m18_switch_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M18：自举链路编译执行 switch，输出与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect

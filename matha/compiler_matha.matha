@@ -263,6 +263,8 @@ module 编译器 {
     decl["类型"] = "while" ? _编译while(decl, code, _重置主作用域计数(sc), bc, 假) :
     decl["类型"] = "for" ? _编译for(decl, code, _重置主作用域计数(sc), bc, 假) :
     decl["类型"] = "try" ? _编译try平衡(decl, code, _重置主作用域计数(sc), bc) :
+    decl["类型"] = "match" ? _发射match(decl, code, _重置主作用域计数(sc), bc, 假) :
+    decl["类型"] = "switch" ? _发射switch(decl, code, _重置主作用域计数(sc), bc, 假) :
     (* throw/raise：宿主把 RaiseExpr 列入 _STMT_NODES，语句位置走 _compile_stmt
        的 RaiseExpr 分支（求值 + RAISE），**不补 POP**——RAISE 不返回，栈上
        也不会残留值。裸表达式兜底会多发一条 POP，与宿主产物不一致。 *)
@@ -404,6 +406,147 @@ module 编译器 {
     let (c2, sc2, bc2) = _发射try(decl, code, sc, bc) in
     (_发(c2, [OP_POP]), sc2, bc2)
 
+  (* ===== match / switch：与宿主 _emit_match / _emit_switch 对齐 =====
+     match 语句：scrutinee; 存临时 match_s; 逐分支 [模式, 守卫, 体]：
+       载临时; 模式测试（失败跳 end）; 守卫（假跳 end）; 体;
+       语句位补 POP; JMP end; 失败补丁点补到下一分支起点。
+     留值位置（表达式/块末）末尾 PUSH_NULL。 *)
+  func _发射match(e: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
+      -> (List, List, Dict) =
+    let (s位置, sc1, bc1) = _分配临时(sc, bc, "match_s") in
+    let (c1, sc2, bc2) = _发射表达式(e["scrutinee"], code, sc1, bc1) in
+    let (c2, bc3) = _存临时(s位置, c1, bc2) in
+    let (c3, sc3, bc4, end跳) =
+      _发射match分支(e["分支"], s位置, c2, sc2, bc3, 留值, []) in
+    let c4 = 留值 ? _发(c3, [OP_PUSH_NULL]) : c3 in
+    (_补丁列表跳转(c4, end跳, len(c4)), sc3, bc4)
+
+  func _发射match分支(分支: List, s位置: List, code: List, sc: List, bc: Dict,
+                    留值: Bool, end跳: List) -> (List, List, Dict, List) =
+    分支 = [] ? (code, sc, bc, end跳) :
+    let pat = 分支[0][0] in
+    let guard = 分支[0][1] in
+    let body = 分支[0][2] in
+    let (c1, sc1, bc1, fails) = _发射模式测试(pat, s位置, code, sc, bc, []) in
+    let (c2, sc2, bc2, fails2) =
+      guard = null ? (c1, sc1, bc1, fails) :
+        let (cg, scg, bcg) = _发射表达式(guard, c1, sc1, bc1) in
+        let j = len(cg) in
+        (_发(cg, [OP_JZ, 0]), scg, bcg, fails + [j]) in
+    let (c3, sc3, bc3) = _发射体(body, c2, sc2, bc2, 真) in
+    let c4 = 留值 ? c3 : _发(c3, [OP_POP]) in
+    let jmp = len(c4) in
+    let c5 = _发(c4, [OP_JMP, 0]) in
+    let c6 = _补丁列表(c5, fails2, len(c5)) in
+    _发射match分支(分支[1:], s位置, c6, sc3, bc3, 留值, end跳 + [jmp])
+
+  func _发射模式测试(pat: Dict, s位置: List, code: List, sc: List, bc: Dict,
+                   fails: List) -> (List, List, Dict, List) =
+    let (c1, bc1) = _压临时(code, s位置, bc) in
+    _发射模式于值(pat, c1, sc, bc1, fails)
+
+  (* 于栈顶值测试模式；失败时把 JZ 补丁点追加到 fails。
+     构造子：值 ∈ {名: …}？取字段后递归；变量：绑定（_ 通配）；字面量：== 比较。 *)
+  func _发射模式于值(pat: Dict, code: List, sc: List, bc: Dict, fails: List)
+      -> (List, List, Dict, List) =
+    let (v位置, sc1, bc1) = _分配临时(sc, bc, "pat_v") in
+    let (c1, bc2) = _存临时(v位置, code, bc1) in
+    if pat["类型"] = "构造子模式" then
+      let (cn, bc3) = _加常量(bc2, pat["名"]) in
+      let (c2, bc4) = _压临时(_发(c1, [OP_PUSH_CONST, cn]), v位置, bc3) in
+      let (i_in, bc5) = _加常量(bc4, "in") in
+      let c3 = _发(c2, [OP_BINOP, i_in]) in
+      let j = len(c3) in
+      let c4 = _发(c3, [OP_JZ, 0]) in
+      let fails2 = fails + [j] in
+      let (cn2, bc6) = _加常量(bc5, pat["名"]) in
+      let (c5, bc7) = _压临时(c4, v位置, bc6) in
+      let c6 = _发(c5, [OP_PUSH_CONST, cn2]) in
+      let c7 = _发(c6, [OP_INDEX_GET]) in
+      let 字段 = pat["字段"] in
+      if len(字段) = 1 then
+        _发射模式于值(字段[0], c7, sc1, bc7, fails2)
+      else
+        let (box位置, sc2, bc8) = _分配临时(sc1, bc7, "pat_box") in
+        let (c8, bc9) = _存临时(box位置, c7, bc8) in
+        _发射构造子字段(字段, 0, box位置, c8, sc2, bc9, fails2)
+    else if pat["类型"] = "变量" then
+      if pat["名"] = "_" then
+        (c1, sc1, bc2, fails)
+      else
+        let (c2, bc3) = _压临时(c1, v位置, bc2) in
+        let (c3, sc2, bc4) = _发射模式绑定(pat["名"], c2, sc1, bc3) in
+        (c3, sc2, bc4, fails)
+    else
+      let (c2, bc3) = _压临时(c1, v位置, bc2) in
+      let (c3, sc2, bc4) = _发射表达式(pat, c2, sc1, bc3) in
+      let (i_eq, bc5) = _加常量(bc4, "==") in
+      let c4 = _发(c3, [OP_BINOP, i_eq]) in
+      let j = len(c4) in
+      let c5 = _发(c4, [OP_JZ, 0]) in
+      (c5, sc2, bc5, fails + [j])
+
+  func _发射构造子字段(字段: List, k: Int, box位置: List, code: List, sc: List,
+                     bc: Dict, fails: List) -> (List, List, Dict, List) =
+    k >= len(字段) ? (code, sc, bc, fails) :
+    let (ck, bc1) = _加常量(bc, k) in
+    let (c1, bc2) = _压临时(code, box位置, bc1) in
+    let c2 = _发(c1, [OP_PUSH_CONST, ck]) in
+    let c3 = _发(c2, [OP_INDEX_GET]) in
+    let (c4, sc2, bc3, fails2) = _发射模式于值(字段[k], c3, sc, bc2, fails) in
+    _发射构造子字段(字段, k + 1, box位置, c4, sc2, bc3, fails2)
+
+  (* 模式变量绑定：main → STORE_GLOBAL 名；否则对齐宿主 _emit_pattern_bind +
+     _declare_slot——解析为全局时新声明一个局部槽并 STORE_LOCAL，否则复用现有槽。 *)
+  func _发射模式绑定(name: String, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    sc[3] = 真 ?
+      let (idx, bc2) = _加常量(bc, name) in
+      (_发(code, [OP_STORE_GLOBAL, idx]), sc, bc2) :
+      let r = _查找(sc, name, 0) in
+      if r[0] = "global" then
+        let (sc2, slot) = _声明(sc, name, 假) in
+        (_发(code, [OP_STORE_LOCAL, slot]), sc2, bc)
+      else
+        (_发(code, [OP_STORE_LOCAL, r[2]]), sc, bc)
+
+  (* switch 语句：值; 存临时 switch_v; 逐 case：载临时; case值; ==; JZ 下一;
+     体; 语句位补 POP; JMP end; 默认分支；无默认且留值时 PUSH_NULL。 *)
+  func _发射switch(e: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
+      -> (List, List, Dict) =
+    let (v位置, sc1, bc1) = _分配临时(sc, bc, "switch_v") in
+    let (c1, sc2, bc2) = _发射表达式(e["值"], code, sc1, bc1) in
+    let (c2, bc3) = _存临时(v位置, c1, bc2) in
+    let (c3, sc3, bc4, end跳) =
+      _发射switch分支(e["分支"], v位置, c2, sc2, bc3, 留值, []) in
+    if e["默认"] = null then
+      let c4 = 留值 ? _发(c3, [OP_PUSH_NULL]) : c3 in
+      (_补丁列表跳转(c4, end跳, len(c4)), sc3, bc4)
+    else
+      let (c4, sc4, bc5) = _发射体(e["默认"], c3, sc3, bc4, 真) in
+      let c5 = 留值 ? c4 : _发(c4, [OP_POP]) in
+      (_补丁列表跳转(c5, end跳, len(c5)), sc4, bc5)
+
+  func _发射switch分支(分支: List, v位置: List, code: List, sc: List, bc: Dict,
+                     留值: Bool, end跳: List) -> (List, List, Dict, List) =
+    分支 = [] ? (code, sc, bc, end跳) :
+    let (c1, bc1) = _压临时(code, v位置, bc) in
+    let (c2, sc2, bc2) = _发射表达式(分支[0][0], c1, sc, bc1) in
+    let (i_eq, bc3) = _加常量(bc2, "==") in
+    let c3 = _发(c2, [OP_BINOP, i_eq]) in
+    let jz = len(c3) in
+    let c4 = _发(c3, [OP_JZ, 0]) in
+    let (c5, sc3, bc4) = _发射体(分支[0][1], c4, sc2, bc3, 真) in
+    let c6 = 留值 ? c5 : _发(c5, [OP_POP]) in
+    let jmp = len(c6) in
+    let c7 = _发(c6, [OP_JMP, 0]) in
+    let c8 = _补丁(c7, jz, [OP_JZ, len(c7)]) in
+    _发射switch分支(分支[1:], v位置, c8, sc3, bc4, 留值, end跳 + [jmp])
+
+  func _补丁列表跳转(code: List, 位置: List, 目标: Int) -> List =
+    位置 = [] ? code :
+    _补丁列表跳转(_补丁(code, 位置[0], [OP_JMP, 目标]), 位置[1:], 目标)
+
   (* ===== 体发射：Program 走块（留尾值），其余按表达式 ===== *)
   func _发射体(body, code: List, sc: List, bc: Dict, 留值: Bool)
       -> (List, List, Dict) = (body, code, sc, bc, 留值) =>
@@ -441,6 +584,8 @@ module 编译器 {
     留值 ?
       (decl["类型"] = "if" ? _发射if(decl, code, sc, bc) :
        decl["类型"] = "try" ? _发射try(decl, code, sc, bc) :
+       decl["类型"] = "match" ? _发射match(decl, code, sc, bc, 真) :
+       decl["类型"] = "switch" ? _发射switch(decl, code, sc, bc, 真) :
        _编译声明是语句(decl, code, sc, bc)) :
       _编译声明(decl, code, sc, bc)
 
@@ -515,6 +660,8 @@ module 编译器 {
     e["类型"] = "二元运算" ? _发射二元(e, code, sc, bc) :
     e["类型"] = "一元运算" ? _发射一元(e, code, sc, bc) :
     e["类型"] = "if" ? _发射if(e, code, sc, bc) :
+    e["类型"] = "match" ? _发射match(e, code, sc, bc, 真) :
+    e["类型"] = "switch" ? _发射switch(e, code, sc, bc, 真) :
     e["类型"] = "let绑定" ? _发射let(e, code, sc, bc) :
     e["类型"] = "let元组绑定" ? _发射let元组(e, code, sc, bc) :
     e["类型"] = "抛出" ?

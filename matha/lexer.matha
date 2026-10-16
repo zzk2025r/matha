@@ -156,6 +156,10 @@ module 词法器 {
     (tok = "type") or (tok = "import") or (tok = "use") or (tok = "as") or
     (tok = "module") or
     (tok = "go") or (tok = "else") or (tok = "else") or
+    (* switch/case/default：宿主 tokens.KEYWORDS 含此三者（KW_SWITCH/KW_CASE/
+        KW_DEFAULT），parser 有对应分支。此前缺此三条 → 被当作标识符 →
+        与宿主分词不一致。 *)
+    (tok = "switch") or (tok = "case") or (tok = "default") or
     (tok = "真") or (tok = "假") or (tok = "true") or (tok = "false") or
     (tok = "Int") or (tok = "Float") or (tok = "String") or (tok = "Bool") or
     (tok = "Unit") or (tok = "List") or (tok = "Option") or
