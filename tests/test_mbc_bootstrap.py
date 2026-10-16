@@ -1925,3 +1925,45 @@ def test_m16_try_stage3_runs(compiler_boot_vm, name, src, expect):
     """M16：自举链路编译执行 try/catch/finally，输出与宿主一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
+
+
+# ==================== M17：块内裸 let 与分号语句分隔符 ====================
+# 块内裸 let（{ let x = … }）此前总按顶层语义 STORE_GLOBAL + 常量池登记，
+# 使局部名泄漏进常量池、破坏 stage2≡stage3 定点。现 _编译顶层let /
+# _编译顶层let元组 按 is_main 分支：非 main 作用域走 STORE_LOCAL（元组则
+# UNPACK_SEQ + 逆序 STORE_LOCAL），常量池不登记局部名。同时自托管 parser
+# 补齐 `;` 语句分隔符（对应宿主 _skip_semicolon），支持 { let x = 1; x + 1 }
+# 与顶层 `a = 1; b = 2`。
+_M17_BLOCK_LET_CASES = [
+    ("bare_let_chain",  "f = (x) => { let a = 1\n let b = a + x\n a + b }\n#：[f(1)]\n", [3]),
+    ("bare_let_tuple",  "f = (x) => { let (a, b) = (x, x + 1)\n a + b }\n#：[f(2)]\n", [5]),
+    ("bare_let_nested", "f = (x) => { let a = 1\n if true then { let b = a + x\n b * 2 } else { 0 } }\n#：[f(5)]\n", [12]),
+    ("semi_block",      "f = (x) => { let y = x + 1; y * 2 }\n#：[f(3)]\n", [8]),
+    ("semi_chain",      "f = (x) => { let a = 1; let b = a + x; a + b }\n#：[f(1)]\n", [3]),
+    ("semi_top",        "a = 1; b = 2\n#：[a + b]\n", [3]),
+    ("semi_mixed",      "f = (x) => { let a = 1\n let b = 2; a + b + x }\n#：[f(10)]\n", [13]),
+]
+
+
+_M17_BLOCK_LET_IDS = [c[0] for c in _M17_BLOCK_LET_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M17_BLOCK_LET_CASES, ids=_M17_BLOCK_LET_IDS)
+def test_m17_block_let_host_runs(name, src, expect):
+    """M17：宿主块内裸 let / 分号分隔语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M17_BLOCK_LET_CASES, ids=_M17_BLOCK_LET_IDS)
+def test_m17_block_let_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M17：stage2 ≡ stage3（块内裸 let / 分号分隔逐字节一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M17_BLOCK_LET_CASES, ids=_M17_BLOCK_LET_IDS)
+def test_m17_block_let_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M17：自举链路编译执行块内裸 let / 分号分隔，输出与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect

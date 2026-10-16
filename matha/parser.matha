@@ -206,6 +206,13 @@ module 语法器 {
   func 匹配枚举关键字(p: 解析器) -> Bool =
     当前(p).类型 = 类型.关键字 and 当前(p).文本 = "enum"
 
+  (* 跳过分号语句分隔符（ASCII `;`，自举词法器降级为 符号）。宿主
+     _skip_semicolon 在代码块/顶层语句循环里消费它，兼容 Python/C 风格；
+     此处对齐，支持 `{ let x = 1; x + 1 }` 等写法。全角 `；` 已映射为
+     全角冒号，由对应分支处理。 *)
+  func 跳过分号(p: 解析器) -> 解析器 =
+    if 当前(p).类型 = 类型.符号 and 当前(p).文本 = ";" then 跳过分号(推进(p)) else p
+
   (* ===== 类型名映射 ===== *)
   func 类型名(t: 类型) -> String =
     t = 类型.整数 ? "整数" :
@@ -1647,10 +1654,11 @@ module 语法器 {
     解析声明列表(p, [])
 
   func 解析声明列表(p: 解析器, acc: List) -> Dict =
-    if 匹配(p, 类型.结束) then
+    let p0 = 跳过分号(p) in
+    if 匹配(p0, 类型.结束) then
       做Program(reverse(acc))
     else
-      let (decl, p2) = 解析声明(p) in
+      let (decl, p2) = 解析声明(p0) in
       解析声明列表(p2, acc + [decl])
 
   func 解析声明(p: 解析器) -> (Dict, 解析器) =
@@ -1987,10 +1995,11 @@ module 语法器 {
     解析语句列表_rest(p, [])
 
   func 解析语句列表_rest(p: 解析器, acc: List) -> (Dict, 解析器) =
-    if 匹配(p, 类型.右括号花) or 匹配(p, 类型.结束) then
-      (做Program(reverse(acc)), p)
+    let p0 = 跳过分号(p) in
+    if 匹配(p0, 类型.右括号花) or 匹配(p0, 类型.结束) then
+      (做Program(reverse(acc)), p0)
     else
-      let (stmt, p2) = 解析声明(p) in
+      let (stmt, p2) = 解析声明(p0) in
       解析语句列表_rest(p2, acc + [stmt])
 
   (* 结构体定义：struct Name { field1: Type1, field2: Type2 } *)

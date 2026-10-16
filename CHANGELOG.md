@@ -1,5 +1,85 @@
 # Matha 变更摘要
 
+## 块内裸 `let` 常量池泄漏修复 + `;` 语句分隔符（四端一致）
+
+**日期**：2026-10-16
+
+### 变更范围
+
+自托管编译器此前对**块内裸 `let`**（`{ let x = … }`）一律按顶层语义处理：
+`_编译顶层let` / `_编译顶层let元组` 无条件 `STORE_GLOBAL` 并把绑定名登记进常量池。
+于是函数体/嵌套块里的局部名既泄漏进常量池、又占用全局槽位，破坏 stage2 ≡ stage3
+自举定点（例：`f = (x) => { let a = 1\n a + x }` 自举常量池多出 `a`，宿主没有）。
+
+另：自托管 parser 缺 `;` 语句分隔符（宿主 `_skip_semicolon` 支持
+`{ let x = 1; x + 1 }` 与顶层 `a = 1; b = 2`），自举链遇 `;` 报 `KeyError(';')`。
+
+### 变更
+
+- **`matha/compiler_matha.matha`**：
+  - `_编译顶层let`：按 `sc[3]`（is_main）分支——main 保持 `_加常量` + `STORE_GLOBAL`
+    （有体 ? 体 + POP : 无）；非 main 改为 `_声明(sc, 名, 假)` + `STORE_LOCAL`
+    （有体 ? 体 + POP : `PUSH_NULL` + `POP`），对齐宿主 `_emit_let`（走 `scope.declare`）。
+  - `_编译顶层let元组`：main 保持 `_存储元组全局逆序`（有体 ? 体 + POP : 无）；
+    非 main 改用 `_存储元组局部逆序`，**不处理「体」**——对齐宿主 `_emit_binding_stmt`
+    的 `LetTupleBinding` 分支（该分支丢弃 body）。两者均不入常量池。
+- **`matha/parser.matha`**：
+  - 新增 `跳过分号`（当前为 `符号` 且文本 `";"` 时递归 `推进`）；ASCII `;` 由自举
+    词法器降级为 `符号`（全角 `；` 早映射为 `全角冒号`）。
+  - `解析语句列表_rest`（块内）与 `解析声明列表`（顶层）在解析每一步前先 `跳过分号`，
+    对齐宿主 `_skip_semicolon`。
+
+### 测试
+
+- 新增 **M17：块内裸 let 与分号语句分隔符**（`_M17_BLOCK_LET_CASES` 7 例 × 3：
+  宿主基准 / stage2 ≡ stage3 / 自举执行），覆盖块内标量/元组裸 let、嵌套块、
+  `;` 分隔（块内 / 顶层 / 与换行混用）。
+- 探针 host ≡ self（字节码 canon + 执行逐例一致）。
+- `tests/test_mbc_bootstrap.py -k "boot_source or stage2_equals_stage3"`：193 passed
+  （含 `matha/parser.matha` 的自举 parser 自身定点保持）。
+
+## try/catch/finally 自托管端可用（四端一致）
+
+**日期**：2026-10-16
+
+### 变更范围
+
+补齐自托管链路的 `try/catch/finally`：此前自举 parser **强制**要求 `catch`
+（`try { … } finally { … }` 无 catch 即报错），且自举编译器对 try/catch/finally
+体内**块末尾语句**（尤其 `#：[…]` 输出单元 / 机械单元）落到 `_发射表达式`，报
+`自举编译器：未支持的表达式类型 机械单元`；`finally` 语义亦未打通。现三块均可选，
+try 体/捕获体/`finally` 体块尾与宿主行为一致。
+
+### 变更
+
+- **`matha/parser.matha`（`解析try语句`）**：`catch` 由「强制」改为「可选」
+  （对齐宿主 `_parse_try_stmt`）——`try { … } finally { … }`（无 catch）与
+  `try { … }`（无 catch/无 finally）均可解析；保留 `catch [(e)] { … }` 的可选
+  捕获变量语法；`finally { … }` 可选。无块时沿用既有约定（`做Program([])` 空
+  Program 表示「无块」）。
+- **`matha/compiler_matha.matha`（`_是语句类型`）**：补齐宿主 `_STMT_NODES` 对应的
+  自托管语句类型——新增 `机械单元`、`生成语句`、`输出追踪`、`输出`、`let元组绑定`、
+  `模块`、`导入`、`结构体`、`枚举`、`定义运算符`。语句位置的块尾须走「编译为语句 +
+  补 `PUSH_NULL`」，否则落到 `_发射表达式`：机械单元直接报错、输出会 `DUP` 留值，
+  均与宿主不一致（try 体末句为 `#：[…]` 时即触发）。
+- **`matha/compiler_matha.matha`（try 发射）**：沿用既有 `_发射try` / `_发射catch` /
+  `_编译块thunk`，配合上条修复，使 try 体/捕获体/`finally` 体块尾的语句类型（尤其
+  输出单元）与宿主一致；`finally` 体非空时按宿主方式编译 thunk 并丢弃返回值。
+
+### 测试
+
+- 新增 **M16：try/catch/finally**（`_M16_TRY_CASES` 17 例 × 3：宿主基准 /
+  stage2 ≡ stage3 / 自举执行），覆盖基础、catch 变量绑定、finally、嵌套、
+  函数体内 try、catch-only、finally-only、nested_finally 等。
+- 探针 host ≡ self（字节码 canon + 执行逐例一致）。
+- `tests/test_bootstrap_host.py` 8 passed；`tests/test_mbc_bootstrap.py -k try`
+  62 passed。
+
+### 备注
+
+- `finally {}`（空 finally）与 `catch {}`（空 catch）沿用既有约定（空 Program 判定）；
+  精确区分「空块 vs 无块」（需新增 flag）非本轮范围。
+
 ## `#：[…]` 输出括号列表前瞻 + 集合运算符链（四端一致）
 
 **日期**：2026-10-16
@@ -520,6 +600,9 @@ Phase ②：为「源码出现中文/运算/学科符号即报错」补齐**符�
     为 thunk），且对块内裸 `let`（`{ let x = … in …; 后续语句 }`）会把局部名泄漏
     进常量池——二者都会破坏 stage2 ≡ stage3 自举定点。故 fallback 改用
     `调用捕获(() => 试解析输出(p))([])` + 纯 `let … in` 链实现。
+    （**后续已修复**：`try` 自托管支持见「try/catch/finally 自托管端可用」节；
+    块内裸 `let` 泄漏与 `;` 分隔符见顶部「块内裸 `let` 常量池泄漏修复 + `;`
+    语句分隔符」节。）
 - `tests/test_mbc_bootstrap.py`：
   - 新增 M12 段 `_M12_FALLBACK_CASES`（15 例 × 3：宿主运行 / stage2≡stage3 /
     stage3 运行）。

@@ -350,27 +350,43 @@ module 编译器 {
       let (sc3, slot) = _绑定槽(sc2, decl["名"]) in
       (_发(c2, [OP_STORE_LOCAL, slot]), sc3, bc2)
 
+  (* 语句位置的 let：宿主顶层走 _compile_top_decl，块内走 _emit_binding_stmt→
+     _emit_let。前者 main 作用域写全局 + 名入常量池；后者函数帧内声明局部槽
+     并 STORE_LOCAL（**不**入常量池），无体时补 PUSH_NULL+POP 保持栈平衡。
+     旧实现一律 STORE_GLOBAL + _加常量，块内裸 let 会把局部名泄漏进常量池。 *)
   func _编译顶层let(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
-    let (idx, bc3) = _加常量(bc2, decl["名"]) in
-    let c3 = _发(c2, [OP_STORE_GLOBAL, idx]) in
-    decl["有体"] ?
-      let (c4, sc3, bc4) = _发射表达式(decl["体"], c3, sc2, bc3) in
-      (_发(c4, [OP_POP]), sc3, bc4) :
-      (c3, sc2, bc3)
+    sc2[3] = 真 ?
+      let (idx, bc3) = _加常量(bc2, decl["名"]) in
+      let c3 = _发(c2, [OP_STORE_GLOBAL, idx]) in
+      decl["有体"] ?
+        let (c4, sc3, bc4) = _发射表达式(decl["体"], c3, sc2, bc3) in
+        (_发(c4, [OP_POP]), sc3, bc4) :
+        (c3, sc2, bc3) :
+      let (sc3, slot) = _声明(sc2, decl["名"], 假) in
+      let c3 = _发(c2, [OP_STORE_LOCAL, slot]) in
+      decl["有体"] ?
+        let (c4, sc4, bc4) = _发射表达式(decl["体"], c3, sc3, bc2) in
+        (_发(c4, [OP_POP]), sc4, bc4) :
+        (_发(_发(c3, [OP_PUSH_NULL]), [OP_POP]), sc3, bc2)
 
-  (* 顶层 let 元组绑定：求值 → UNPACK_SEQ → 逐个 STORE_GLOBAL（逆序）*)
+  (* 语句位置的 let 元组绑定：宿主顶层走 _compile_top_decl（STORE_GLOBAL 逆序 +
+     可选体/POP），块内走 _emit_binding_stmt 的 LetTupleBinding 分支——**只**
+     声明局部槽 + STORE_LOCAL 逆序，即使有体也不发射（宿主该分支不处理 body），
+     故此处非 main 分支亦不处理「体」。二者均不入常量池。 *)
   func _编译顶层let元组(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
     let names = decl["名字"] in
     let c3 = _发(c2, [OP_UNPACK_SEQ, len(names)]) in
-    let (c4, bc3) = _存储元组全局逆序(names, c3, bc2) in
-    decl["有体"] ?
-      let (c5, sc3, bc4) = _发射表达式(decl["体"], c4, sc2, bc3) in
-      (_发(c5, [OP_POP]), sc3, bc4) :
-      (c4, sc2, bc3)
+    sc2[3] = 真 ?
+      let (c4, bc3) = _存储元组全局逆序(names, c3, bc2) in
+      decl["有体"] ?
+        let (c5, sc3, bc4) = _发射表达式(decl["体"], c4, sc2, bc3) in
+        (_发(c5, [OP_POP]), sc3, bc4) :
+        (c4, sc2, bc3) :
+      _存储元组局部逆序(names, c3, sc2, bc2)
 
   (* 逆序 STORE_GLOBAL：先存 names[n-1]，...，最后 names[0]
      （VM UNPACK_SEQ 正序压栈 [seq0..seqN]，STORE_GLOBAL 逆序弹出）*)
