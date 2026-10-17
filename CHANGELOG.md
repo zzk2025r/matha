@@ -1,5 +1,50 @@
 # Matha 变更摘要
 
+## 解释器两处 bug 修复：闭包捕获环境 + 顶层 match 语句（四端一致）
+
+**日期**：2026-10-17
+
+### 变更范围
+
+**`src/interp.py` `_call_lambda` 保存/恢复 `_matha_env`**
+
+- 背景：`_call_lambda` 只 `save/restore self.env`，未保存/恢复 `self._matha_env`。
+  `_matha_env`（list-of-tuples）是闭包创建时捕获的环境快照。模块内函数以
+  closure 形式存于 `env`，调用它会把 `_matha_env` 替换为该闭包的**全局快照**
+  （不含调用方参数）；返回后不还原，导致其后创建的闭包捕获到缺失外层参数的
+  陈旧环境 → 引用外层参数报「未定义变量」。
+- 修复：`_call_lambda` 入口保存 `saved_matha_env`，在两个出口（部分应用返回、
+  完整应用 `finally`）恢复。与既有 `self.env` 的 save/restore 对称。
+- 复现（修复前报 `未定义变量 '语言'`）：`module M { func 辅助(x)=… ;
+  func 编译(语言)= let t=辅助(语言) in let rec 收集(ts,pos,acc)= … acc+[语言] … }`。
+- 该修复使 `matha/frontends/multi_lang.matha` 的 `收集函数` 无需再显式传参；
+  当前文件已提交的显式传参写法保留（等价，无回归）。
+
+**`src/interp.py` `_exec_decl` 增加 `ast.MatchStmt` 分支**
+
+- 背景：顶层声明执行器 `_exec_decl` 无 `MatchStmt` 分支，落到兜底 `else`
+  → 顶层 `match` 语句被**整个跳过**（输出空）。代码块内 `match` 走 `_exec_stmt`
+  正常，故仅在顶层发散。
+- 修复：顶层 `match` 求值并**丢弃结果**（`self._eval_match(decl)`），与
+  MBC/VM 语句语义一致（编译期 `leave_value=False` → `POP`）；分支体自身副作用
+  （如 `输出(...)`）保留。
+- 验证：`match 10 { | 10 => 输出("hit") | _ => 输出("miss") }` 现 interp==VM==`['hit']`。
+
+### 测试
+
+- 新增回归：`tests/test_interpreter.py`
+  - `test_top_level_match_statement_runs_arm`
+  - `test_closure_captures_caller_env_after_module_func_call`
+  （两者在修复前均失败，修复后通过。）
+- `pytest tests/test_interpreter.py tests/test_interp_parity.py tests/test_mbc_vm_matha.py`
+  → **203 passed**。
+- `pytest tests/test_m1_nodes.py tests/test_mbc_bytecode.py tests/test_mbc_bootstrap.py`
+  → **805 passed**。
+- `corpus_parity.py`（67 文件）→ **ok=63 self_fail=0 diverge=0 host_parse_fail=4**
+  （与上轮一致，无回归）。
+
+---
+
 ## 前端最小可用重写 + basic_examples + parser match 表达式（四端一致）
 
 **日期**：2026-10-17

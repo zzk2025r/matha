@@ -237,6 +237,51 @@ def test_try_catches_runtime_error():
     print("  ✓ get 越界异常被 catch 捕获")
 
 
+# ===== 回归：match 语句 / 闭包捕获环境 =====
+
+def test_top_level_match_statement_runs_arm():
+    """顶层 match 语句必须执行分支体（分支内副作用生效），而非被跳过。
+
+    回归：_exec_decl 原先无 MatchStmt 分支 → 顶层 match 被整个跳过（输出空）。
+    语义对齐 MBC/VM：语句位置求值后丢弃 match 值，但分支体副作用保留。
+    """
+    print("\n--- 顶层 match 语句 ---")
+    src = 'match 10 {\n| 10 => 输出("hit")\n| _ => 输出("miss")\n}\n'
+    out, _ = interpret(src)
+    assert out == ["hit"], out
+    src2 = 'match 3 {\n| 1 => 输出("a")\n| 3 => 输出("b")\n| _ => 输出("c")\n}\n'
+    out2, _ = interpret(src2)
+    assert out2 == ["b"], out2
+    print("  ✓ 顶层 match 执行命中分支：hit / b")
+
+
+def test_closure_captures_caller_env_after_module_func_call():
+    """闭包必须能看到外层函数参数，即使中间调用过模块内函数。
+
+    回归：_call_lambda 只 save/restore self.env，未 save/restore _matha_env。
+    模块内函数以 closure 形式存于 env，调用它会把 _matha_env 换成其
+    全局快照（不含调用方参数）；不还原时，其后创建的闭包捕获到缺失
+    参数的陈旧环境，引用外层参数 → 未定义变量。
+    """
+    print("\n--- 闭包捕获环境还原 ---")
+    src = (
+        'module M {\n'
+        'func 辅助(x: String) -> String = (x) => x + "!"\n'
+        'func 编译(语言: String) -> List = (语言) =>\n'
+        '  let t = 辅助(语言) in\n'
+        '  let rec 收集 = (ts, pos, acc) =>\n'
+        '    if pos >= len(ts) then acc\n'
+        '    else 收集(ts, pos + 1, acc + [语言])\n'
+        '  in\n'
+        '  收集(["a", "b"], 0, [])\n'
+        '}\n'
+        '输出(编译("Z"))\n'
+    )
+    out, _ = interpret(src)
+    assert out == [["Z", "Z"]], out
+    print("  ✓ 闭包仍能引用外层参数：[[Z, Z]]")
+
+
 def _run_all():
     tests = [
         test_arithmetic_and_relation,
@@ -249,6 +294,8 @@ def _run_all():
         test_run_parser_matha,
         test_cross_module_linked,
         test_end_to_end_demo,
+        test_top_level_match_statement_runs_arm,
+        test_closure_captures_caller_env_after_module_func_call,
     ]
     passed = 0
     failed = 0

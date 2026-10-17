@@ -1359,6 +1359,10 @@ class Interpreter:
             self._exec_try(decl)
         elif isinstance(decl, ast.SwitchStmt):
             self._exec_switch_stmt(decl)
+        elif isinstance(decl, ast.MatchStmt):
+            # 顶层 match 语句：求值并丢弃结果，与 MBC/VM 的语句语义一致
+            # （分支体自身的副作用如 输出(...) 仍然生效）。
+            self._eval_match(decl)
         elif isinstance(decl, ast.ImportDecl):
             self._log(logging.INFO,
                       f"use {decl.module_name} {decl.import_list}")
@@ -2931,6 +2935,7 @@ class Interpreter:
 
     def _call_lambda(self, lam: ast.Lambda, captured: dict, args: list) -> object:
         params = lam.params
+        saved_matha_env = getattr(self, '_matha_env', None)
         # 完整应用时也需要拷贝：递归函数会写入局部变量，共享 captured 会导致错误
         # captured 可以是 dict 或 list of tuples（兼容 Matha 自举路径）
         if isinstance(captured, list):
@@ -2980,7 +2985,9 @@ class Interpreter:
                 body = lam.body
             self._log(logging.DEBUG,
                       f"lambda partial apply: bound={len(args)}/{len(params)} → closure")
-            return ("__closure__", remaining, body, self._matha_env)
+            closure = ("__closure__", remaining, body, self._matha_env)
+            self._matha_env = saved_matha_env
+            return closure
         for p, a in zip(params, args):
             local[self._param_name(p)] = a
         # 确保 self._matha_env 包含新绑定的参数，供函数体内创建的闭包使用
@@ -3002,6 +3009,7 @@ class Interpreter:
                 result = e.value
         finally:
             self.env = saved
+            self._matha_env = saved_matha_env
             if self.debug:
                 self._depth = max(0, self._depth - 1)
         self._log(logging.DEBUG,
