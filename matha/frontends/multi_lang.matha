@@ -7,16 +7,19 @@
      - C 前端：C → Matha IR
      - JavaScript 前端：JS → Matha IR
      - 混合前端：原生前端 + Python 回退
-   
+
    调用入口：编译(源码, 语言) → 编译结果
+
+   注：为保持四端（解释器 / 虚拟机 / 原生 / 自举）一致，本实现只使用可移植
+   构造：if / else if / else 替代 match，列表替代字典键枚举，int / float
+   替代 parse_int / parse_float，chr(34) 替代单引号字面量，解析结果以
+   {"值": .., "位置": ..} 字典返回（元组解构在解释器侧不受支持）。
    ============================================================ *)
 
 module 多语言前端 {
 
-  use 词法器 { Token | 类型 | 扫描 | 做Token }
-  use 语法器
-
   (* ===== IR 节点类型 ===== *)
+
   func 做IR节点(类型: String, 值: Any, 操作符: String, 操作数: List, 结果: String) -> Dict =
     (类型, 值, 操作符, 操作数, 结果) =>
     {"类型": "IR节点", "kind": 类型, "值": 值, "op": 操作符, "operands": 操作数, "结果": 结果}
@@ -39,8 +42,21 @@ module 多语言前端 {
   func 做返回(expr: Dict) -> Dict = (expr) =>
     做IR节点("return", null, "", [expr], "")
 
+  func 做块(stmts: List) -> Dict = (stmts) =>
+    {"类型": "块", "语句": stmts}
+
+  func 做If(条件: Any, 真分支: Any, 假分支: Any) -> Dict = (条件, 真分支, 假分支) =>
+    {"类型": "If", "条件": 条件, "那么": 真分支, "否则": 假分支}
+
+  func 做While(条件: Any, 体: Any) -> Dict = (条件, 体) =>
+    {"类型": "While", "条件": 条件, "体": 体}
+
+  func 做Token(类型: String, 文本: String, 行: Int, 列: Int) -> Dict = (类型, 文本, 行, 列) =>
+    {"类型": 类型, "文本": 文本, "行": 行, "列": 列}
+
   (* ===== 编译结果 ===== *)
-  func 做编译结果(语言: String, 源码: String, 函数: Dict, 类型: Dict, 效应: Dict, 错误: List) -> Dict =
+
+  func 做编译结果(语言: String, 源码: String, 函数: List, 类型: List, 效应: List, 错误: List) -> Dict =
     (语言, 源码, 函数, 类型, 效应, 错误) =>
     {
       "类型": "编译结果",
@@ -55,256 +71,253 @@ module 多语言前端 {
 
   (* ===== 类型映射 ===== *)
 
-  (* Rust 类型映射 *)
   func rust_类型映射(ty: String) -> String = (ty) =>
-    match ty with
-    | "i32" | "i64" | "i8" | "i16" | "isize" | "u32" | "u64" | "u8" | "u16" | "usize" | "usize" => "Int"
-    | "f32" | "f64" | "f128" => "Float"
-    | "bool" => "Bool"
-    | "String" | "&str" | "char" => "String"
-    | _ => "Any"
-    end
+    if (ty = "i32") or (ty = "i64") or (ty = "i8") or (ty = "i16") or (ty = "isize") then "Int"
+    else if (ty = "u32") or (ty = "u64") or (ty = "u8") or (ty = "u16") or (ty = "usize") then "Int"
+    else if (ty = "f32") or (ty = "f64") or (ty = "f128") then "Float"
+    else if ty = "bool" then "Bool"
+    else if (ty = "String") or (ty = "&str") or (ty = "char") then "String"
+    else "Any"
 
-  (* Go 类型映射 *)
   func go_类型映射(ty: String) -> String = (ty) =>
-    match ty with
-    | "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "byte" | "rune" => "Int"
-    | "float32" | "float64" => "Float"
-    | "bool" => "Bool"
-    | "string" => "String"
-    | _ => "Any"
-    end
+    if (ty = "int") or (ty = "int8") or (ty = "int16") or (ty = "int32") or (ty = "int64") then "Int"
+    else if (ty = "uint") or (ty = "uint8") or (ty = "uint16") or (ty = "uint32") or (ty = "uint64") then "Int"
+    else if (ty = "byte") or (ty = "rune") then "Int"
+    else if (ty = "float32") or (ty = "float64") then "Float"
+    else if ty = "bool" then "Bool"
+    else if ty = "string" then "String"
+    else "Any"
 
-  (* C 类型映射 *)
   func c_类型映射(ty: String) -> String = (ty) =>
-    match ty with
-    | "int" | "long" | "long long" | "short" | "char" | "signed" | "unsigned" => "Int"
-    | "float" | "double" | "long double" => "Float"
-    | "bool" | "_Bool" => "Bool"
-    | "string" | "char*" => "String"
-    | _ => "Any"
-    end
+    if (ty = "int") or (ty = "long") or (ty = "long long") or (ty = "short") then "Int"
+    else if (ty = "char") or (ty = "signed") or (ty = "unsigned") then "Int"
+    else if (ty = "float") or (ty = "double") or (ty = "long double") then "Float"
+    else if (ty = "bool") or (ty = "_Bool") then "Bool"
+    else if (ty = "string") or (ty = "char*") then "String"
+    else "Any"
 
-  (* JS 类型映射 *)
   func js_类型映射(ty: String) -> String = (ty) =>
-    match ty with
-    | "number" | "float" | "double" => "Float"
-    | "int" | "integer" | "bigint" => "Int"
-    | "boolean" | "bool" => "Bool"
-    | "string" => "String"
-    | "null" | "undefined" => "Any"
-    | _ => "Any"
-    end
+    if (ty = "number") or (ty = "float") or (ty = "double") then "Float"
+    else if (ty = "int") or (ty = "integer") or (ty = "bigint") then "Int"
+    else if (ty = "boolean") or (ty = "bool") then "Bool"
+    else if ty = "string" then "String"
+    else if (ty = "null") or (ty = "undefined") then "Any"
+    else "Any"
 
   (* ===== 词法分析（通用）===== *)
 
   func tokenize(source: String) -> List = (source) =>
     let rec 扫描 = (src, pos, 行, 列, toks) =>
-      pos >= len(src) ? toks :
-      let c = src[pos] in
-      空白(c) ? 扫描(src, pos+1, 行, 列+1, toks) :
-      换行(c) ? 扫描(src, pos+1, 行+1, 1, toks) :
-      数字(c) ? let (num, np) = 读数字(src, pos) in 扫描(src, np, 行, 列+len(num), toks + [做Token("literal", num, 行, 列)]) :
-      字母(c) or c = '_' ? let (ident, np) = 读标识符(src, pos) in 扫描(src, np, 行, 列+len(ident), toks + [做Token("ident", ident, 行, 列)]) :
-      c = '"' ? let (str, np) = 读字符串(src, pos) in 扫描(src, np, 行, 列+len(str)+2, toks + [做Token("string", str, 行, 列)]) :
-      (* 双字符运算符 *)
-      (c = '=' and src[pos+1] = '=') ? 扫描(src, pos+2, 行, 列+2, toks + [做Token("eq", "==", 行, 列)]) :
-      (c = '!' and src[pos+1] = '=') ? 扫描(src, pos+2, 行, 列+2, toks + [做Token("ne", "!=", 行, 列)]) :
-      (c = '<' and src[pos+1] = '=') ? 扫描(src, pos+2, 行, 列+2, toks + [做Token("le", "<=", 行, 列)]) :
-      (c = '>' and src[pos+1] = '=') ? 扫描(src, pos+2, 行, 列+2, toks + [做Token("ge", ">=", 行, 列)]) :
-      (c = '&' and src[pos+1] = '&') ? 扫描(src, pos+2, 行, 列+2, toks + [做Token("and", "&&", 行, 列)]) :
-      (c = '|' and src[pos+1] = '|') ? 扫描(src, pos+2, 行, 列+2, toks + [做Token("or", "||", 行, 列)]) :
-      (c = '-' and src[pos+1] = '>') ? 扫描(src, pos+2, 行, 列+2, toks + [做Token("箭头", "->", 行, 列)]) :
-      (* 单字符 *)
-      扫描(src, pos+1, 行, 列+1, toks + [做Token("符号", c, 行, 列)])
+      if pos >= len(src) then toks
+      else if 空白(src[pos]) then 扫描(src, pos+1, 行, 列+1, toks)
+      else if 换行(src[pos]) then 扫描(src, pos+1, 行+1, 1, toks)
+      else if 数字(src[pos]) then
+        let r = 读数字(src, pos) in
+        扫描(src, r["位置"], 行, 列+len(r["值"]), toks + [做Token("literal", r["值"], 行, 列)])
+      else if (字母(src[pos])) or (src[pos] = "_") then
+        let r = 读标识符(src, pos) in
+        扫描(src, r["位置"], 行, 列+len(r["值"]), toks + [做Token("ident", r["值"], 行, 列)])
+      else if src[pos] = chr(34) then
+        let r = 读字符串(src, pos) in
+        扫描(src, r["位置"], 行, 列+len(r["值"])+2, toks + [做Token("string", r["值"], 行, 列)])
+      else if (pos+1 < len(src)) and (src[pos] = "=") and (src[pos+1] = "=") then
+        扫描(src, pos+2, 行, 列+2, toks + [做Token("eq", "==", 行, 列)])
+      else if (pos+1 < len(src)) and (src[pos] = "!") and (src[pos+1] = "=") then
+        扫描(src, pos+2, 行, 列+2, toks + [做Token("ne", "!=", 行, 列)])
+      else if (pos+1 < len(src)) and (src[pos] = "<") and (src[pos+1] = "=") then
+        扫描(src, pos+2, 行, 列+2, toks + [做Token("le", "<=", 行, 列)])
+      else if (pos+1 < len(src)) and (src[pos] = ">") and (src[pos+1] = "=") then
+        扫描(src, pos+2, 行, 列+2, toks + [做Token("ge", ">=", 行, 列)])
+      else if (pos+1 < len(src)) and (src[pos] = "&") and (src[pos+1] = "&") then
+        扫描(src, pos+2, 行, 列+2, toks + [做Token("and", "&&", 行, 列)])
+      else if (pos+1 < len(src)) and (src[pos] = "|") and (src[pos+1] = "|") then
+        扫描(src, pos+2, 行, 列+2, toks + [做Token("or", "||", 行, 列)])
+      else if (pos+1 < len(src)) and (src[pos] = "-") and (src[pos+1] = ">") then
+        扫描(src, pos+2, 行, 列+2, toks + [做Token("箭头", "->", 行, 列)])
+      else 扫描(src, pos+1, 行, 列+1, toks + [做Token("符号", src[pos], 行, 列)])
     in 扫描(source, 0, 1, 1, [])
 
-  func 空白(c: Char) -> Bool = (c) => (c = ' ' or c = '\t' or c = '\r')
-  func 换行(c: Char) -> Bool = (c) => (c = '\n')
-  func 数字(c: Char) -> Bool = (c) => (c >= '0' and c <= '9' or c = '.')
-  func 字母(c: Char) -> Bool = (c) => ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z'))
+  func 空白(c: String) -> Bool = (c) => (c = " ") or (c = "\t") or (c = "\r")
+  func 换行(c: String) -> Bool = (c) => c = "\n"
+  func 数字(c: String) -> Bool = (c) => ((c >= "0") and (c <= "9")) or (c = ".")
+  func 字母(c: String) -> Bool = (c) => ((c >= "a") and (c <= "z")) or ((c >= "A") and (c <= "Z"))
 
-  func 读数字(src: String, pos: Int) -> (String, Int) = (src, pos) =>
+  func 读数字(src: String, pos: Int) -> Dict = (src, pos) =>
     let rec 扫描 = (p, num) =>
-      p >= len(src) ? (num, p) :
-      let c = src[p] in
-      数字(c) ? 扫描(p+1, num + c) :
-      (num, p)
+      if p >= len(src) then {"值": num, "位置": p}
+      else if 数字(src[p]) then 扫描(p+1, num + src[p])
+      else {"值": num, "位置": p}
     in 扫描(pos+1, src[pos])
 
-  func 读标识符(src: String, pos: Int) -> (String, Int) = (src, pos) =>
+  func 读标识符(src: String, pos: Int) -> Dict = (src, pos) =>
     let rec 扫描 = (p, ident) =>
-      p >= len(src) ? (ident, p) :
-      let c = src[p] in
-      (字母(c) or c = '_' or (数字(c) and len(ident) > 0)) ? 扫描(p+1, ident + c) :
-      (ident, p)
+      if p >= len(src) then {"值": ident, "位置": p}
+      else if (字母(src[p])) or (src[p] = "_") or ((数字(src[p])) and (len(ident) > 0)) then
+        扫描(p+1, ident + src[p])
+      else {"值": ident, "位置": p}
     in 扫描(pos+1, src[pos])
 
-  func 读字符串(src: String, pos: Int) -> (String, Int) = (src, pos) =>
+  func 读字符串(src: String, pos: Int) -> Dict = (src, pos) =>
     let rec 扫描 = (p, s) =>
-      p >= len(src) ? (s, p) :
-      src[p] = '"' ? (s, p+1) :
-      扫描(p+1, s + src[p])
+      if p >= len(src) then {"值": s, "位置": p}
+      else if src[p] = chr(34) then {"值": s, "位置": p+1}
+      else 扫描(p+1, s + src[p])
     in 扫描(pos+1, "")
 
   (* ===== 表达式解析 ===== *)
 
-  func 解析表达式(toks: List, pos: Int) -> (Dict, Int) = (toks, pos) =>
-    if pos >= len(toks) then (做常量(0), pos)
-    else
-      let tok = toks[pos] in
-      tok.类型 = "literal" and 包含数字(tok.文本) ?
-        (做常量(parse_float(tok.文本)), pos+1) :
-      tok.类型 = "literal" and 是整数(tok.文本) ?
-        (做常量(parse_int(tok.文本)), pos+1) :
-      tok.类型 = "string" ?
-        (做常量(tok.文本), pos+1) :
-      tok.类型 = "ident" and tok.文本 = "true" ?
-        (做常量(真), pos+1) :
-      tok.类型 = "ident" and tok.文本 = "false" ?
-        (做常量(假), pos+1) :
-      tok.类型 = "ident" ?
-        (let (args, np) = 解析参数列表(toks, pos+1) in
-         if np < len(toks) and toks[np].文本 = "(" then
-           (* 函数调用 *)
-           let (callee, cp) = 解析表达式(toks, pos) in
-           let (args2, ap) = 解析实参列表(toks, cp) in
-           (做函数调用(tok.文本, args2), ap)
-         else
-           (做变量(tok.文本), pos+1)) :
-      tok.文本 = "(" ?
-        (let (expr, ep) = 解析表达式(toks, pos+1) in
-         if ep < len(toks) and toks[ep].文本 = ")" then (expr, ep+1) else (expr, ep)) :
-      tok.文本 = "!" ?
-        (let (operand, op) = 解析表达式(toks, pos+1) in (做一元运算("not", operand), op)) :
-      tok.文本 = "-" ?
-        (let (operand, op) = 解析表达式(toks, pos+1) in (做一元运算("-", operand), op)) :
-      (做常量(0), pos+1)
+  func 解析表达式(toks: List, pos: Int) -> Dict = (toks, pos) =>
+    if pos >= len(toks) then {"值": 做常量(0), "位置": pos}
+    else if (toks[pos]["类型"] = "literal") and 包含数字(toks[pos]["文本"]) then
+      {"值": 做常量(float(toks[pos]["文本"])), "位置": pos+1}
+    else if (toks[pos]["类型"] = "literal") and 是整数(toks[pos]["文本"]) then
+      {"值": 做常量(int(toks[pos]["文本"])), "位置": pos+1}
+    else if toks[pos]["类型"] = "string" then
+      {"值": 做常量(toks[pos]["文本"]), "位置": pos+1}
+    else if (toks[pos]["类型"] = "ident") and (toks[pos]["文本"] = "true") then
+      {"值": 做常量(真), "位置": pos+1}
+    else if (toks[pos]["类型"] = "ident") and (toks[pos]["文本"] = "false") then
+      {"值": 做常量(假), "位置": pos+1}
+    else if toks[pos]["类型"] = "ident" then
+      if (pos+1 < len(toks)) and (toks[pos+1]["文本"] = "(") then
+        let ae = 解析实参列表(toks, pos+1) in
+        {"值": 做函数调用(toks[pos]["文本"], ae["值"]), "位置": ae["位置"]}
+      else {"值": 做变量(toks[pos]["文本"]), "位置": pos+1}
+    else if toks[pos]["文本"] = "(" then
+      let e = 解析表达式(toks, pos+1) in
+      if (e["位置"] < len(toks)) and (toks[e["位置"]]["文本"] = ")") then {"值": e["值"], "位置": e["位置"]+1}
+      else {"值": e["值"], "位置": e["位置"]}
+    else if toks[pos]["文本"] = "!" then
+      let o = 解析表达式(toks, pos+1) in
+      {"值": 做一元运算("not", o["值"]), "位置": o["位置"]}
+    else if toks[pos]["文本"] = "-" then
+      let o = 解析表达式(toks, pos+1) in
+      {"值": 做一元运算("-", o["值"]), "位置": o["位置"]}
+    else {"值": 做常量(0), "位置": pos+1}
 
-  func 解析参数列表(toks: List, pos: Int) -> (List, Int) = (toks, pos) =>
-    if pos >= len(toks) or toks[pos].文本 != "(" then ([], pos)
+  func 解析参数列表(toks: List, pos: Int) -> Dict = (toks, pos) =>
+    if (pos >= len(toks)) or (toks[pos]["文本"] != "(") then {"值": [], "位置": pos}
     else
       let rec 扫描 = (p, params) =>
-        p >= len(toks) ? (params, p) :
-        toks[p].文本 = ")" ? (params, p+1) :
-        toks[p].文本 = "," ? 扫描(p+1, params) :
-        扫描(p+1, params + [toks[p].文本])
+        if p >= len(toks) then {"值": params, "位置": p}
+        else if toks[p]["文本"] = ")" then {"值": params, "位置": p+1}
+        else if toks[p]["文本"] = "," then 扫描(p+1, params)
+        else 扫描(p+1, params + [toks[p]["文本"]])
       in 扫描(pos+1, [])
 
-  func 解析实参列表(toks: List, pos: Int) -> (List, Int) = (toks, pos) =>
-    if pos >= len(toks) or toks[pos].文本 != "(" then ([], pos)
+  func 解析实参列表(toks: List, pos: Int) -> Dict = (toks, pos) =>
+    if (pos >= len(toks)) or (toks[pos]["文本"] != "(") then {"值": [], "位置": pos}
     else
       let rec 扫描 = (p, args) =>
-        p >= len(toks) ? (args, p) :
-        toks[p].文本 = ")" ? (args, p+1) :
-        toks[p].文本 = "," ? 扫描(p+1, args) :
-        let (arg, ap) = 解析表达式(toks, p) in 扫描(ap, args + [arg])
+        if p >= len(toks) then {"值": args, "位置": p}
+        else if toks[p]["文本"] = ")" then {"值": args, "位置": p+1}
+        else if toks[p]["文本"] = "," then 扫描(p+1, args)
+        else
+          let a = 解析表达式(toks, p) in
+          扫描(a["位置"], args + [a["值"]])
       in 扫描(pos+1, [])
 
   func 包含数字(s: String) -> Bool = (s) =>
     let rec 扫描 = (i) =>
-      i >= len(s) ? 假 :
-      (s[i] >= '0' and s[i] <= '9' or s[i] = '.') ? 真 : 扫描(i+1)
+      if i >= len(s) then 假
+      else if ((s[i] >= "0") and (s[i] <= "9")) or (s[i] = ".") then 真
+      else 扫描(i+1)
     in 扫描(0)
 
   func 是整数(s: String) -> Bool = (s) =>
     let rec 扫描 = (i) =>
-      i >= len(s) ? 真 :
-      (s[i] >= '0' and s[i] <= '9') ? 扫描(i+1) : 假
+      if i >= len(s) then 真
+      else if (s[i] >= "0") and (s[i] <= "9") then 扫描(i+1)
+      else 假
     in 扫描(0)
 
   (* ===== 函数解析（通用）===== *)
 
-  func 解析函数(toks: List, pos: Int, 语言: String, 类型映射: Function) -> (Dict, Int) = (toks, pos, 语言, 类型映射) =>
-    if pos >= len(toks) then ({}, pos)
-    else
-      let tok = toks[pos] in
-      (* 函数关键字检测 *)
-      (tok.类型 = "ident" and (tok.文本 = "fn" or tok.文本 = "func" or tok.文本 = "function")) ?
-        (let (name, np) = 解析函数名(toks, pos+1) in
-         let (params, pp) = 解析参数(toks, np) in
-         let (ret_type, rp) = 解析返回类型(toks, pp, 语言) in
-         let (body, bp) = 解析函数体(toks, rp) in
-         ({"名": name, "参数": params, "返回类型": ret_type, "体": body}, bp)) :
-      (* Python def 兼容 *)
-      (tok.类型 = "ident" and tok.文本 = "def") ?
-        (let (name, np) = 解析函数名(toks, pos+1) in
-         let (params, pp) = 解析参数(toks, np) in
-         let (body, bp) = 解析函数体(toks, pp) in
-         ({"名": name, "参数": params, "返回类型": "Any", "体": body}, bp)) :
-      解析函数(toks, pos+1, 语言, 类型映射)
+  func 解析函数(toks: List, pos: Int, 语言: String, 类型映射: Function) -> Dict = (toks, pos, 语言, 类型映射) =>
+    if pos >= len(toks) then {"值": null, "位置": pos}
+    else if (toks[pos]["类型"] = "ident") and ((toks[pos]["文本"] = "fn") or (toks[pos]["文本"] = "func") or (toks[pos]["文本"] = "function")) then
+      let nm = 解析函数名(toks, pos+1) in
+      let ps = 解析参数(toks, nm["位置"]) in
+      let rt = 解析返回类型(toks, ps["位置"], 语言) in
+      let bd = 解析函数体(toks, rt["位置"]) in
+      {"值": {"名": nm["值"], "参数": ps["值"], "返回类型": rt["值"], "体": bd["值"]}, "位置": bd["位置"]}
+    else if (toks[pos]["类型"] = "ident") and (toks[pos]["文本"] = "def") then
+      let nm = 解析函数名(toks, pos+1) in
+      let ps = 解析参数(toks, nm["位置"]) in
+      let bd = 解析函数体(toks, ps["位置"]) in
+      {"值": {"名": nm["值"], "参数": ps["值"], "返回类型": "Any", "体": bd["值"]}, "位置": bd["位置"]}
+    else 解析函数(toks, pos+1, 语言, 类型映射)
 
-  func 解析函数名(toks: List, pos: Int) -> (String, Int) = (toks, pos) =>
-    if pos < len(toks) and toks[pos].类型 = "ident" then (toks[pos].文本, pos+1)
-    else ("", pos)
+  func 解析函数名(toks: List, pos: Int) -> Dict = (toks, pos) =>
+    if (pos < len(toks)) and (toks[pos]["类型"] = "ident") then {"值": toks[pos]["文本"], "位置": pos+1}
+    else {"值": "", "位置": pos}
 
-  func 解析参数(toks: List, pos: Int) -> (List, Int) = (toks, pos) =>
+  func 解析参数(toks: List, pos: Int) -> Dict = (toks, pos) =>
     let rec 扫描 = (p, params) =>
-      p >= len(toks) ? (params, p) :
-      toks[p].文本 = ")" ? (params, p+1) :
-      toks[p].文本 = "," ? 扫描(p+1, params) :
-      (toks[p].类型 = "ident") ? 扫描(p+1, params + [toks[p].文本]) :
-      扫描(p+1, params)
+      if p >= len(toks) then {"值": params, "位置": p}
+      else if toks[p]["文本"] = ")" then {"值": params, "位置": p+1}
+      else if toks[p]["文本"] = "," then 扫描(p+1, params)
+      else if toks[p]["类型"] = "ident" then 扫描(p+1, params + [toks[p]["文本"]])
+      else 扫描(p+1, params)
     in 扫描(pos+1, [])
 
-  func 解析返回类型(toks: List, pos: Int, 语言: String) -> (String, Int) = (toks, pos, 语言) =>
-    let ty = (if 语言 = "rust" then rust_类型映射 elif 语言 = "go" then go_类型映射 elif 语言 = "c" then c_类型映射 else js_类型映射) in
-    if pos < len(toks) and toks[pos].文本 = "->" then
-      let (name, np) = 解析函数名(toks, pos+1) in
-      (ty(name), np)
-    else ("Any", pos)
+  func 解析返回类型(toks: List, pos: Int, 语言: String) -> Dict = (toks, pos, 语言) =>
+    let ty = (if 语言 = "rust" then rust_类型映射 else if 语言 = "go" then go_类型映射 else if 语言 = "c" then c_类型映射 else js_类型映射) in
+    if (pos < len(toks)) and (toks[pos]["文本"] = "->") then
+      let nm = 解析函数名(toks, pos+1) in
+      {"值": ty(nm["值"]), "位置": nm["位置"]}
+    else {"值": "Any", "位置": pos}
 
-  func 解析函数体(toks: List, pos: Int) -> (Dict, Int) = (toks, pos) =>
+  func 解析函数体(toks: List, pos: Int) -> Dict = (toks, pos) =>
     let rec 扫描 = (p, stmts) =>
-      p >= len(toks) ? (做块(stmts), p) :
-      toks[p].文本 = "}" ? (做块(stmts), p+1) :
-      toks[p].文本 = "return" ?
-        (let (expr, ep) = 解析表达式(toks, p+1) in 扫描(ep, stmts + [做返回(expr)])) :
-      toks[p].文本 = "if" ?
-        (let (cond, cp) = 解析表达式(toks, p+1) in
-         let (then_body, tp) = 解析块(toks, cp) in
-         let (else_body, ep) = 解析else分支(toks, tp) in
-         扫描(ep, stmts + [做If(cond, then_body, else_body)])) :
-      扫描(p+1, stmts)
+      if p >= len(toks) then {"值": 做块(stmts), "位置": p}
+      else if toks[p]["文本"] = "}" then {"值": 做块(stmts), "位置": p+1}
+      else if toks[p]["文本"] = "return" then
+        let e = 解析表达式(toks, p+1) in
+        扫描(e["位置"], stmts + [做返回(e["值"])])
+      else if toks[p]["文本"] = "if" then
+        let c = 解析表达式(toks, p+1) in
+        let tb = 解析块(toks, c["位置"]) in
+        let eb = 解析else分支(toks, tb["位置"]) in
+        扫描(eb["位置"], stmts + [做If(c["值"], tb["值"], eb["值"])])
+      else 扫描(p+1, stmts)
     in 扫描(pos, [])
 
-  func 解析块(toks: List, pos: Int) -> (Dict, Int) = (toks, pos) =>
+  func 解析块(toks: List, pos: Int) -> Dict = (toks, pos) =>
     let rec 扫描 = (p, stmts) =>
-      p >= len(toks) or toks[p].文本 = "}" or toks[p].文本 = "else" ? (做块(stmts), p) :
-      let (stmt, sp) = 解析语句(toks, p) in 扫描(sp, stmts + [stmt])
+      if (p >= len(toks)) or (toks[p]["文本"] = "}") or (toks[p]["文本"] = "else") then {"值": 做块(stmts), "位置": p}
+      else
+        let s = 解析语句(toks, p) in
+        扫描(s["位置"], stmts + [s["值"]])
     in 扫描(pos, [])
 
-  func 解析语句(toks: List, pos: Int) -> (Dict, Int) = (toks, pos) =>
-    let (expr, ep) = 解析表达式(toks, pos) in (expr, ep)
+  func 解析语句(toks: List, pos: Int) -> Dict = (toks, pos) =>
+    解析表达式(toks, pos)
 
-  func 解析else分支(toks: List, pos: Int) -> (Dict, Int) = (toks, pos) =>
-    if pos < len(toks) and toks[pos].文本 = "else" then
-      if pos+1 < len(toks) and toks[pos+1].文本 = "if" then
-        解析块(toks, pos+2)
-      elif pos+1 < len(toks) and toks[pos+1].文本 = "{" then
-        解析块(toks, pos+2)
-      else (做块([]), pos+1)
-    else (做常量(0), pos)
+  func 解析else分支(toks: List, pos: Int) -> Dict = (toks, pos) =>
+    if (pos < len(toks)) and (toks[pos]["文本"] = "else") then
+      if (pos+1 < len(toks)) and (toks[pos+1]["文本"] = "if") then 解析块(toks, pos+2)
+      else if (pos+1 < len(toks)) and (toks[pos+1]["文本"] = "{") then 解析块(toks, pos+2)
+      else {"值": 做块([]), "位置": pos+1}
+    else {"值": 做常量(0), "位置": pos}
 
-  func 做块(stmts: List) -> Dict = (stmts) =>
-    {"类型": "块", "语句": stmts}
-
-  func 解析多行函数体(toks: List, pos: Int, 结束标记: String) -> (List, Int) = (toks, pos, 结束标记) =>
+  func 解析多行函数体(toks: List, pos: Int, 结束标记: String) -> Dict = (toks, pos, 结束标记) =>
     let rec 扫描 = (p, stmts) =>
-      p >= len(toks) ? (stmts, p) :
-      toks[p].文本 = 结束标记 ? (stmts, p+1) :
-      toks[p].文本 = "return" ?
-        (let (expr, ep) = 解析表达式(toks, p+1) in 扫描(ep, stmts + [做返回(expr)])) :
-      toks[p].文本 = "if" ?
-        (let (cond, cp) = 解析表达式(toks, p+1) in
-         let (then_body, tp) = 解析块(toks, cp) in
-         let (else_body, ep) = 解析else分支(toks, tp) in
-         扫描(ep, stmts + [做If(cond, then_body, else_body)])) :
-      toks[p].文本 = "for" or toks[p].文本 = "while" ?
-        (let (cond, cp) = 解析表达式(toks, p+1) in
-         let (body, bp) = 解析块(toks, cp) in
-         扫描(bp, stmts + [做While(cond, body)])) :
-      扫描(p+1, stmts)
+      if p >= len(toks) then {"值": stmts, "位置": p}
+      else if toks[p]["文本"] = 结束标记 then {"值": stmts, "位置": p+1}
+      else if toks[p]["文本"] = "return" then
+        let e = 解析表达式(toks, p+1) in
+        扫描(e["位置"], stmts + [做返回(e["值"])])
+      else if toks[p]["文本"] = "if" then
+        let c = 解析表达式(toks, p+1) in
+        let tb = 解析块(toks, c["位置"]) in
+        let eb = 解析else分支(toks, tb["位置"]) in
+        扫描(eb["位置"], stmts + [做If(c["值"], tb["值"], eb["值"])])
+      else if (toks[p]["文本"] = "for") or (toks[p]["文本"] = "while") then
+        let c = 解析表达式(toks, p+1) in
+        let b = 解析块(toks, c["位置"]) in
+        扫描(b["位置"], stmts + [做While(c["值"], b["值"])])
+      else 扫描(p+1, stmts)
     in 扫描(pos, [])
 
   (* ===== 效应分析 ===== *)
@@ -315,58 +328,69 @@ module 多语言前端 {
 
   func 检查IO(stmts: List) -> Bool = (stmts) =>
     let rec 扫描 = (ss) =>
-      ss = [] ? 假 :
-      let s = ss[0] in
-      let s_str = 序列化(s) in
-      (包含(s_str, "print") or 包含(s_str, "println") or 包含(s_str, "console") or 包含(s_str, "fmt")) ? 真 :
-      扫描(ss[1:])
+      if ss = [] then 假
+      else
+      let s_str = 序列化(ss[0]) in
+      if (含子串(s_str, "print")) or (含子串(s_str, "println")) or (含子串(s_str, "console")) or (含子串(s_str, "fmt")) then 真
+      else 扫描(ss[1:])
     in 扫描(stmts)
 
   func 序列化(node: Any) -> String = (node) =>
-    match node with
-    | {"类型": t, ...} as n => t + ":" + 序列化(n)
-    | list => "[" + (list = [] ? "" else 序列化(list[0]) + "," + 序列化(list[1:])) + "]"
-    | _ => str(node)
-    end
+    if typeof(node) = "列表" then "[" + 序列化列表(node) + "]"
+    else str(node)
+
+  func 序列化列表(xs: List) -> String = (xs) =>
+    let rec 扫描 = (ys, acc) =>
+      if ys = [] then acc
+      else 扫描(ys[1:], acc + (if acc = "" then "" else ",") + 序列化(ys[0]))
+    in 扫描(xs, "")
+
+  func 含子串(s: String, sub: String) -> Bool = (s, sub) =>
+    let rec 扫描 = (i) =>
+      if i + len(sub) > len(s) then 假
+      else if 匹配于(s, i, sub, 0) then 真
+      else 扫描(i+1)
+    in 扫描(0)
+
+  func 匹配于(s: String, si: Int, sub: String, sj: Int) -> Bool = (s, si, sub, sj) =>
+    if sj >= len(sub) then 真
+    else if s[si+sj] = sub[sj] then 匹配于(s, si, sub, sj+1)
+    else 假
 
   (* ===== 主编译入口 ===== *)
 
   func 编译(源码: String, 语言: String) -> Dict = (源码, 语言) =>
     let toks = tokenize(源码) in
-    let 类型映射 = (
-      if 语言 = "rust" then rust_类型映射
-      elif 语言 = "go" then go_类型映射
-      elif 语言 = "c" then c_类型映射
-      else js_类型映射
-    ) in
-    let rec 收集函数 = (toks, pos, funcs) =>
-      pos >= len(toks) ? funcs :
-      let (func, np) = 解析函数(toks, pos, 语言, 类型映射) in
-      if func["名"] != "" then
-        let 效应 = 分析效应(func["体"]["语句"]) in
-        收集函数(toks, np, {**funcs, func["名"]: {"体": func["体"], "返回类型": func["返回类型"], "效应": 效应}})
-      else 收集函数(toks, pos+1, funcs)
+    let 类型映射器 = (if 语言 = "rust" then rust_类型映射 else if 语言 = "go" then go_类型映射 else if 语言 = "c" then c_类型映射 else js_类型映射) in
+    let rec 收集函数 = (ts, pos, acc, lang, tm) =>
+      if pos >= len(ts) then acc
+      else
+        let r = 解析函数(ts, pos, lang, tm) in
+        if r["值"] != null and r["值"]["名"] != "" then
+          let 效 = 分析效应(r["值"]["体"]["语句"]) in
+          收集函数(ts, r["位置"], acc + [{"名": r["值"]["名"], "体": r["值"]["体"], "返回类型": r["值"]["返回类型"], "效应": 效}], lang, tm)
+        else 收集函数(ts, pos+1, acc, lang, tm)
     in
-    let funcs = 收集函数(toks, 0, {}) in
+    let funcs = 收集函数(toks, 0, [], 语言, 类型映射器) in
     let 类型 = 提取类型(funcs) in
     let 效应 = 提取效应(funcs) in
     做编译结果(语言, 源码, funcs, 类型, 效应, [])
 
-  func 提取类型(funcs: Dict) -> Dict = (funcs) =>
+  func 提取类型(funcs: List) -> List = (funcs) =>
     let rec 收集 = (fs, acc) =>
-      fs = {} ? acc :
-      let 名 = fs.keys()[0] in
-      let 函数 = fs[名] in
-      收集({**fs, 名: null}, {**acc, 名: 函数["返回类型"]})
-    in 收集(funcs, {})
+      if fs = [] then acc
+      else
+        let f = fs[0] in
+        收集(fs[1:], acc + [{"名": f["名"], "返回类型": f["返回类型"]}])
+    in 收集(funcs, [])
 
-  func 提取效应(funcs: Dict) -> Dict = (funcs) =>
+  func 提取效应(funcs: List) -> List = (funcs) =>
     let rec 收集 = (fs, acc) =>
-      fs = {} ? acc :
-      let 名 = fs.keys()[0] in
-      let 函数 = fs[名] in
-      收集({**fs, 名: null}, {**acc, 名: 函数["效应"]})
-    in 收集(funcs, {})
+      if fs = [] then acc
+      else
+        let f = fs[0] in
+        收集(fs[1:], acc + [{"名": f["名"], "效应": f["效应"]}])
+    in 收集(funcs, [])
 
   (* ===== 便捷函数 ===== *)
 
@@ -377,6 +401,7 @@ module 多语言前端 {
   func 编译Matha(源码: String) -> Dict = (源码) => 编译(源码, "matha")
 
   (* ===== 语言支持列表 ===== *)
+
   func 支持的语言() -> List = ["rust", "go", "c", "javascript", "matha"]
 }
 

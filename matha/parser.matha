@@ -1201,6 +1201,8 @@ module 语法器 {
       解析花括号消解(p)
     else if 匹配(p, 类型.关键字) and 当前(p).文本 = "if" then
       解析if表达式(p)
+    else if 匹配(p, 类型.关键字) and 当前(p).文本 = "match" then
+      解析match_stmt(p)
     else if 匹配(p, 类型.关键字) and 当前(p).文本 = "let" then
       解析let表达式(p)
     else if 匹配(p, 类型.关键字) and 当前(p).文本 = "raise" then

@@ -2,21 +2,18 @@
    Matha 多语言代码生成器（Matha → 多语言）
    ============================================================
    将 Matha AST 生成为目标语言代码。
-   
+
    支持语言：
      - Python（完整实现）
      - TypeScript（基础实现）
      - Rust（基础实现）
      - Go（基础实现）
      - C（基础实现）
-   
+
    调用入口：生成(语言, 函数名, 参数, 表达式, 返回类型) → 代码
    ============================================================ *)
 
 module 代码生成器 {
-
-  use 词法器 { Token | 类型 | 扫描 | 做Token }
-  use 语法器
 
   (* ===== Python 代码生成 ===== *)
 
@@ -57,82 +54,72 @@ module 代码生成器 {
 
   func 生成(语言: String, 函数名: String, 参数: List, 表达式: String, 返回类型: String) -> String =
     (语言, 函数名, 参数, 表达式, 返回类型) =>
-    match 语言 with
-    | "python" | "py" => 生成Python(函数名, 参数, 表达式, 返回类型)
-    | "typescript" | "ts" => 生成TypeScript(函数名, 参数, 表达式, 返回类型)
-    | "rust" | "rs" => 生成Rust(函数名, 参数, 表达式, 返回类型)
-    | "go" | "go" => 生成Go(函数名, 参数, 表达式, 返回类型)
-    | "c" | "c" => 生成C(函数名, 参数, 表达式, 返回类型)
-    | _ => "# 不支持的语言: " + 语言
-    end
+    if (语言 = "python") or (语言 = "py") then 生成Python(函数名, 参数, 表达式, 返回类型)
+    else if (语言 = "typescript") or (语言 = "ts") then 生成TypeScript(函数名, 参数, 表达式, 返回类型)
+    else if (语言 = "rust") or (语言 = "rs") then 生成Rust(函数名, 参数, 表达式, 返回类型)
+    else if 语言 = "go" then 生成Go(函数名, 参数, 表达式, 返回类型)
+    else if 语言 = "c" then 生成C(函数名, 参数, 表达式, 返回类型)
+    else "# 不支持的语言: " + 语言
 
   (* ===== 辅助函数 ===== *)
 
   func 参数_join(参数: List, 默认类型: String) -> String = (参数, 默认类型) =>
     let rec 扫描 = (ps, acc) =>
-      ps = [] ? acc :
-      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0])
+      if ps = [] then acc
+      else 扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0])
     in 扫描(参数, "")
 
   func 参数_类型标注(参数: List) -> String = (参数) =>
     let rec 扫描 = (ps, acc) =>
-      ps = [] ? acc :
-      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + ": any")
+      if ps = [] then acc
+      else 扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + ": any")
     in 扫描(参数, "")
 
   func rust_参数(参数: List) -> String = (参数) =>
     let rec 扫描 = (ps, acc) =>
-      ps = [] ? acc :
-      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + ": i32")
+      if ps = [] then acc
+      else 扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + ": i32")
     in 扫描(参数, "")
 
   func go_参数(参数: List) -> String = (参数) =>
     let rec 扫描 = (ps, acc) =>
-      ps = [] ? acc :
-      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + " int")
+      if ps = [] then acc
+      else 扫描(ps[1:], acc + (if acc = "" then "" else ", ") + ps[0] + " int")
     in 扫描(参数, "")
 
   func c_参数(参数: List) -> String = (参数) =>
     let rec 扫描 = (ps, acc) =>
-      ps = [] ? acc :
-      扫描(ps[1:], acc + (if acc = "" then "" else ", ") + "int " + ps[0])
+      if ps = [] then acc
+      else 扫描(ps[1:], acc + (if acc = "" then "" else ", ") + "int " + ps[0])
     in 扫描(参数, "")
 
   func rust_类型(ty: String) -> String = (ty) =>
-    match ty with
-    | "Int" | "int" => "i32"
-    | "Float" | "float" => "f64"
-    | "String" | "string" => "String"
-    | "Bool" | "bool" => "bool"
-    | _ => "i32"
-    end
+    if (ty = "Int") or (ty = "int") then "i32"
+    else if (ty = "Float") or (ty = "float") then "f64"
+    else if (ty = "String") or (ty = "string") then "String"
+    else if (ty = "Bool") or (ty = "bool") then "bool"
+    else "i32"
 
   func go_类型(ty: String) -> String = (ty) =>
-    match ty with
-    | "Int" | "int" => "int"
-    | "Float" | "float" => "float64"
-    | "String" | "string" => "string"
-    | "Bool" | "bool" => "bool"
-    | _ => "int"
-    end
+    if (ty = "Int") or (ty = "int") then "int"
+    else if (ty = "Float") or (ty = "float") then "float64"
+    else if (ty = "String") or (ty = "string") then "string"
+    else if (ty = "Bool") or (ty = "bool") then "bool"
+    else "int"
 
   func c_类型(ty: String) -> String = (ty) =>
-    match ty with
-    | "Int" | "int" => "int"
-    | "Float" | "float" => "double"
-    | "String" | "string" => "char*"
-    | "Bool" | "bool" => "int"
-    | _ => "int"
-    end
+    if (ty = "Int") or (ty = "int") then "int"
+    else if (ty = "Float") or (ty = "float") then "double"
+    else if (ty = "String") or (ty = "string") then "char*"
+    else if (ty = "Bool") or (ty = "bool") then "int"
+    else "int"
 
   func ts_类型(ty: String) -> String = (ty) =>
-    match ty with
-    | "Int" | "int" => "number"
-    | "Float" | "float" => "number"
-    | "String" | "string" => "string"
-    | "Bool" | "bool" => "boolean"
-    | _ => "any"
-    end
+    if (ty = "Int") or (ty = "int") then "number"
+    else if (ty = "Float") or (ty = "float") then "number"
+    else if (ty = "String") or (ty = "string") then "string"
+    else if (ty = "Bool") or (ty = "bool") then "boolean"
+    else "any"
 }
 
 (* ===== 测试 ===== *)

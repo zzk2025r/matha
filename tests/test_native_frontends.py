@@ -600,7 +600,7 @@ class TestMathaNativeFrontendFiles:
         content = f.read_text(encoding="utf-8")
         # 应包含完整的模块结构
         assert "module 多语言前端" in content
-        assert "end" in content  # 模块结束
+        assert "}" in content  # 模块以 } 结束（Matha 语法）
         # 应包含所有语言的前端
         assert "编译Rust" in content
         assert "编译Go" in content

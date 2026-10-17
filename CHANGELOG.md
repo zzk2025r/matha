@@ -1,5 +1,59 @@
 # Matha 变更摘要
 
+## 前端最小可用重写 + basic_examples + parser match 表达式（四端一致）
+
+**日期**：2026-10-17
+
+### 变更范围
+
+**`examples/basic_examples.matha` 重写为合法 Matha**（原文件语法已过时）
+
+- 全文重写为规范 Matha（`if/else`、`func`、`let` 等），四端一致：宿主解析+编译、
+  自举字节码 identical、解释器/VM 零错运行。
+
+**`matha/parser.matha` 补 `match` 作表达式**（对齐宿主 parser，中立无回归）
+
+- `解析主要` 在 `if` 分支后加入 `match` 语句解析入口，使自举 parser 能解析
+  `match` 作表达式的用法（此前仅 `if`/`let`/`func` 等），与宿主 parser 对齐。
+  `match` 作**语句**不受影响；补丁只增加入口，不改变既有分支。
+
+**5 个 `matha/frontends/*.matha` 最小可用重写为四端一致**
+
+- 统一去除所有 `use` 导入（interp 会执行被导入模块、VM 忽略 → 发散）与跨模块
+  点号调用（interp 建命名空间、VM 注册裸名 → 发散）；编译/执行逻辑全部内联。
+- 统一用 `if / else if / else` 替代 `match`、`elif`；or 模式改括号 `if`。
+- `multi_lang.matha`：`parse_int/parse_float`→`int()/float()`；单引号字符→
+  双引号/`chr(34)`；`.keys()`/`{**d}`（不支持）→**列表**；解析结果由元组→
+  `{"值":..,"位置":..}`（`let (a,b)` 元组解构在 interp 不可用）；`检查IO` 的
+  `包含(字符串,子串)` 改用本地 `含子串/匹配于`（原 `包含` 是列表成员判断，
+  对空串 `""[0]` 越界）；`解析函数` 未找到函数时返回 `null` 而非 `{}`（空
+  `{}` 在编译后被当列表索引 → `list[名]`）；`解析表达式` ident 分支去掉
+  同 `pos` 的自我递归（曾致无限递归）；被捕获的外层参数改显式传参，绕开
+  interp `_call_lambda` 不保存/恢复 `_matha_env` 的闭包 bug。
+- `verifier/hybrid/frontend.matha`：全部跨模块点号调用（`多语言前端.编译Rust`
+  等）内联/等价简化；dict 键枚举改列表；dict 模式匹配+`as`+`{**acc}` 改
+  `if/else`+列表；`false`→`假`。
+- `codegen.matha`：去掉 `use`；`match`/or 模式改括号 `if`；参数 join 用
+  `let rec` 列表扫描。
+
+### 效果
+
+- `corpus_parity.py`（67 文件）：**ok 57→63**、self_fail 0、diverge 0、
+  **host_parse_fail 10→4**（剩余 4 个为遗留/非规范：`matha_vm.matha`
+  LEGACY、`bootstrap_test.matha` 单引号、`bootstrap_test_v2.matha` `list`
+  节点、`dynamics.matha` 公式 DSL，非 Matha 程序）。
+- 5 个前端文件全部 **HOST_OK + SELF_OK + identical=True + interp==VM=[]**。
+- `multi_lang.matha` 的 `编译Rust/Go/C/JS/编译` 运行期零错（interp==VM）。
+
+### 测试
+
+- `pytest tests/` → **3268 passed, 2 warnings**（无回归）。
+- `test_native_frontends.py::test_matha_frontend_modules_have_correct_structure`
+  的 `"end" in content` 断言改为 `"}" in content`（原断言依赖已移除非规范的
+  `match ... end`；Matha 模块以 `}` 结束）。
+
+---
+
 ## 参数名 / 类型名接受符号（SYMBOL）——与自举对齐（四端一致）
 
 **日期**：2026-10-17
