@@ -57,8 +57,10 @@ def test_bootstrap_interpret_arithmetic(boot):
 def test_bootstrap_interpret_custom_op(boot):
     """自举解释器执行自定义运算符（@define_op 绑定具名函数，f(l)(r) 两参调用）。
 
-    Matha 自举路径返回末语句值 [6]；若该路径出错会静默回退 Python 解释器，
-    而 Python 路径对无 # 输出的裸表达式返回 []，故 [6] 可确证自举路径生效。
+    实测：自举解释器路径当前无法执行用户函数（`func 孪加(...)` → 未定义变量
+    'a'；自举 parser 对 `f = (a) => a + 1` 甚至死循环），故 mb.interpret 实际
+    **静默回退**到 Python 解释器；此处的 [6] 由回退路径产生（Python 解释器会
+    回显顶层裸二元表达式的值，与 MBC/VM 不同——详见 tests/test_new_features.py:82）。
     """
     out, _ = mb.interpret(
         "func 孪加(a: Int, b: Int) -> Int = (a, b) => a + b + 1\n"

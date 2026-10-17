@@ -7,7 +7,14 @@ from src.interp import interpret
 
 
 def get_out(src: str):
-    """执行 Matha 源码，返回最后一次输出。"""
+    """执行 Matha 源码，返回最后一次输出。
+
+    四端一致只覆盖**可通用的能力**；无法通用者归各端专属特色，不强行统一。
+    本文件多处用**顶层裸表达式**取值（如 get_out('12 & 10')），依赖 Python 解释
+    器的 REPL 式回显（回显字面量/二元式/一元式），这属**解释器专属特色**；
+    MBC/VM 按语句一律丢弃（→ []）。二者不统一。需四端一致取值时请用
+    `输出(...)` 或 `#N：[...]`。详见 CHANGELOG 与 :82 说明。
+    """
     out, _ = interpret(src)
     return out[-1] if out else None
 
@@ -79,7 +86,8 @@ def test_angle_prefix():
 
 def test_angle_with_trig():
     import math
-    # 顶层裸函数调用不会被回显（只有字面量/二元式会），故这里显式 输出。
+    # 顶层裸函数调用不会被解释器回显（只回显字面量/二元式/一元式），故这里显式 输出。
+    # 回显属解释器专属特色，MBC/VM 无此行为、也不纳入统一（见 get_out 说明）。
     assert get_out('输出(sin(<<30))') == math.sin(math.radians(30))
     assert get_out('输出(cos(<<90))') == math.cos(math.radians(90))
     print('  ✓ 角度喂三角: sin(<<30) = 0.5')
