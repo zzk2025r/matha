@@ -1,5 +1,20 @@
 # Matha 变更摘要
 
+## 测试：`interp.matha` 自测 MechUnit 的 Matha-to-Matha 求值验证（自举迁移 下一步 2）
+
+**日期**：2026-10-18
+
+### 变更
+
+- `tests/test_mbc_bootstrap.py` 新增 `test_interp_selftest_math_to_math`：将
+  lexer/stdlib/parser/interp 合并编译为单一 VM 运行，断言 `interp.matha` 顶层
+  `#：{ }` 自测块的求值结果为 `[8, 14, 200, 10, 6]`（依次为 3+5 / 2*(3+4) /
+  1>2?100:200 / 变量 x=10 / Lambda 加一(5)），即经 Matha 实现的 `求值` 求值。
+
+### 验证
+
+- `tests/test_mbc_bootstrap.py`：755 + 1 = 756 collected，新测试通过。
+
 ## 增强：`bootstrap_test.matha` 惯用式重写（无损解析回归守护）
 
 **日期**：2026-10-18

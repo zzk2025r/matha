@@ -823,6 +823,20 @@ def test_bootstrap_full_test_pipeline():
     assert outs[21] == 0                      # 无函数定义
 
 
+def test_interp_selftest_math_to_math():
+    """interp.matha 顶层 `#：{ }` 自测 MechUnit 在 Matha-to-Matha 路径求值正确。
+
+    `_FULL_BOOT_FILES` 把 lexer/stdlib/parser/interp 合并编译为单一 VM；interp.matha
+    为末位文件，其自测块（5 个 `[resultN]`）落在输出尾部，应为
+    [8, 14, 200, 10, 6]——依次对应 3+5 / 2*(3+4) / 1>2?100:200 / 变量 x=10 /
+    Lambda 加一(5)。自测经 Matha 实现的 `求值` 求值，即 Matha-to-Matha。
+    """
+    comp = _compile_files(_FULL_BOOT_FILES)
+    vm = VM(comp.mod)
+    vm.run()
+    assert list(vm.outputs[-5:]) == [8, 14, 200, 10, 6], list(vm.outputs[-5:])
+
+
 # ---------- M5：stdlib dict 操作 / 文件 I/O ----------
 
 def test_stdlib_dict_keys(boot_vm):
