@@ -1,5 +1,49 @@
 # Matha 变更摘要
 
+## 特性：可扩展 AST 节点注册表（Matha 核心自定义扩展接口）
+
+**日期**：2026-10-18
+
+### 变更
+
+1. 新增 `src/ast_ext.py` —— 扩展节点注册表：
+   - `define_node(name, fields)`：动态声明 dataclass AST 节点并注入 `src.ast_nodes`
+     成为 AST 一等公民（幂等、字段冲突 / 非法名 / 非法字段校验，
+     支持默认值与 `dataclasses.field(default_factory=...)`）。
+   - 四张规则表，按节点**类对象**分派：
+     `register_eval` / `register_exec`（解释器）、
+     `register_compile_expr` / `register_compile_stmt`（MBC）。
+   - `describe()`（供 `matha features` 等展示）与 `clear()`（测试隔离）。
+2. 钩子（**兜底而非覆盖**——内置节点已有实现先于钩子命中，扩展只能新增节点）：
+   - `src/interp.py`：`_eval`（`暂不支持求值` 之前）、`_exec_stmt`、`_exec_decl`；
+   - `src/mbc/compiler.py`：`_emit_expr`（`暂不支持的节点` 之前）、`_compile_stmt`。
+3. 插件规则的公开入口：`Interpreter.eval_expr` / `Interpreter.exec_stmt`、
+   `Compiler.emit_expr` —— 规则据此求值 / 编译子节点，无需触碰私有方法。
+
+### 语义
+
+插件节点在 MBC 端**降级为核心 AST / 字节码**，因此原生后端无需感知插件即可编译执行——
+这是四端一致在扩展层的体现。
+
+### 验证
+
+新增 `tests/test_ast_ext.py`（30 项）：
+
+- `define_node`：注册、注入命名空间、幂等、字段冲突、非法名 / 字段、默认值、
+  `describe` / `clear`、入参校验；
+- 解释器端规则（表达式 + 语句）与 MBC 端规则（表达式 + 语句）分别驱动对应后端；
+- **四端一致**：同一插件节点在 解释器 / 字节码 VM / **原生 exe** 上结果相同；
+- 兜底行为不变：未注册节点两端报错与既有行为一致；
+  给 `ast.IntegerLit` 注册规则不改变内置分派。
+
+全量回归：**3350 passed**（此前 3320）。
+
+### 待办
+
+插件节点目前只能**以编程方式**构造（`ast.Program` → `Interpreter.run` / `compile_program` /
+`emit_exe`）；从 Matha 源码构造（解析期语法钩子）尚未提供，因此
+`compile_to_exe(source)` 这类"源串→exe"路径暂不可达插件节点。
+
 ## 特性：CLI 特性开关 + 灰度推进（`matha --feature` / `matha features`）
 
 **日期**：2026-10-18

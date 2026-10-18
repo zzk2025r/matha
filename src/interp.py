@@ -53,6 +53,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from src import ast_ext
 from src import ast_nodes as ast
 from src import custom_ops
 from src import features
@@ -1045,6 +1046,16 @@ class Interpreter:
                   f"run 完成: outputs={len(self.outputs)} trace={len(self.trace)}")
         return self.outputs, self.trace
 
+    # ---- 可扩展 AST 规则的公开入口（见 src/ast_ext.py） ----
+
+    def eval_expr(self, node) -> object:
+        """求值单个表达式节点；插件规则用它求值子节点。"""
+        return self._eval(node)
+
+    def exec_stmt(self, node) -> None:
+        """执行单个语句节点；插件规则用它执行子节点。"""
+        self._exec_stmt(node)
+
     def _collect_deferred_calls(self, decls, deferred: set, prefix: tuple) -> None:
         """递归收集所有需要延迟执行的 FuncApp。"""
         for i, decl in enumerate(decls):
@@ -1409,6 +1420,11 @@ class Interpreter:
             self._log(logging.INFO,
                       f"register struct '{decl.name}' fields={field_names}")
         else:
+            # 可扩展 AST 节点：插件语句规则（顶层声明路径，对应 MBC _compile_stmt）
+            _ext_rule = ast_ext.get_exec(type(decl))
+            if _ext_rule is not None:
+                _ext_rule(self, decl)
+                return
             self._log(logging.DEBUG, f"skip decl {type(decl).__name__}（无运行时副作用）")
 
     def _exec_set_up(self, node: ast.SetUp) -> None:
@@ -1919,6 +1935,11 @@ class Interpreter:
         elif isinstance(stmt, dict):
             self._exec_dict_stmt(stmt)
         else:
+            # 可扩展 AST 节点：插件语句规则（内置分派之后、兜底转发之前）
+            _ext_rule = ast_ext.get_exec(type(stmt))
+            if _ext_rule is not None:
+                _ext_rule(self, stmt)
+                return
             self._log(logging.DEBUG, f"expr-stmt fallback eval {kind}")
             self._eval(stmt)
 
@@ -2375,6 +2396,10 @@ class Interpreter:
         # Matha parser 生成的 dict AST 节点
         if isinstance(expr, dict):
             return self._eval_dict_ast(expr)
+        # 可扩展 AST 节点：插件表达式规则（内置分派之后、兜底报错之前）
+        _ext_rule = ast_ext.get_eval(type(expr))
+        if _ext_rule is not None:
+            return _ext_rule(self, expr)
         raise MathaRuntimeError(f"暂不支持求值: {type(expr).__name__}")
 
     def _eval_dict_ast(self, node: dict) -> object:

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from src import ast_ext, custom_ops
 from src import ast_nodes as ast
-from src import custom_ops
 from src import formula_schema as _fs
 from src.mbc import opcodes as OP
 
@@ -438,6 +438,11 @@ class Compiler:
                 isinstance(node, self._NOOP_STMTS):
             return  # 标注/命令文字/文件标记/类型：编译期无操作
         else:
+            # 可扩展 AST 节点：插件语句规则（内置分派之后、兜底裸表达式之前）
+            _ext_rule = ast_ext.get_compile_stmt(type(node))
+            if _ext_rule is not None:
+                _ext_rule(self, node, scope, code)
+                return
             # 裸表达式语句：求值后丢弃
             self._emit_expr(node, scope, code)
             code.append((OP.POP,))
@@ -1437,7 +1442,17 @@ class Compiler:
                 code.append((OP.PUSH_NULL,))
 
         else:
-            raise RuntimeError(f"字节码编译：暂不支持的节点 {type(node).__name__}")
+            # 可扩展 AST 节点：插件表达式规则（内置分派之后、兜底报错之前）
+            _ext_rule = ast_ext.get_compile_expr(type(node))
+            if _ext_rule is None:
+                raise RuntimeError(f"字节码编译：暂不支持的节点 {type(node).__name__}")
+            _ext_rule(self, node, scope, code)
+
+    # ---- 可扩展 AST 规则的公开入口（见 src/ast_ext.py） ----
+
+    def emit_expr(self, node, scope, code) -> None:
+        """编译一个表达式节点并在栈上留值；插件规则用它编译子节点。"""
+        self._emit_expr(node, scope, code)
 
     def _literal_key(self, node) -> str:
         if isinstance(node, ast.StringLit):
