@@ -1,5 +1,38 @@
 # Matha 变更摘要
 
+## 特性：CLI 特性开关 + 灰度推进（`matha --feature` / `matha features`）
+
+**日期**：2026-10-18
+
+### 变更
+
+1. `src/matha_main.py`：
+   - 新增全局选项 `--feature NAME[=on|off]`（可重复）——落为进程内开关覆盖，
+     优先级高于环境变量；`NAME=off` 可强制关闭。
+   - 新增子命令 `matha features`：列出已知特性开关及当前状态；`--help` epilog 同步说明。
+2. 测试隔离加固：`tests/test_scoped_blocks.py`、`tests/test_language_bridge.py`、
+   `tests/test_cli_features.py` 的隔离夹具改为**测试期间移除外部环境变量**（保存/恢复），
+   模块级 `py_record` 夹具自行固定为默认关闭——使「默认关闭」等断言在任意环境下都可确定断言。
+
+### 灰度推进（迁移路径）
+
+1. 默认全关（现状）。
+2. 单模块先开：`matha --feature SCOPED_BLOCKS ...` 或 `MATHA_FEATURE_SCOPED_BLOCKS=1 pytest`。
+3. 全量开启回归（本步已实测）：`MATHA_FEATURE_SCOPED_BLOCKS=1 python -m pytest tests`
+   → **3320 passed**，与默认关闭完全一致。
+4. 确认稳定后再评估默认翻转 / 扩大范围。
+
+### 验证
+
+- 新增 `tests/test_cli_features.py`（6 项）：默认关闭、`--feature` 置位、`=off` 覆盖优先、
+  帮助文案、非核心模块开关灰度（关闭→失败 / 开启→`[10]`）。
+- 全量：默认关闭 **3320 passed**；强制开启 **3320 passed**（**零差异**）。
+
+### 说明
+
+- `matha run` 的自举解析路径在本环境受既有限制（`调用捕获` 缺失）所阻，与本改动无关；
+  灰度用例直接经 Python 解释器执行同一模块源。
+
 ## 特性：`return` / `break` / `continue` 语句（语法器补全）
 
 **日期**：2026-10-18

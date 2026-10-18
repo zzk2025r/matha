@@ -11,6 +11,8 @@
 """
 import os
 import sys
+from contextlib import contextmanager
+
 sys.path.insert(0, r'D:\trae')
 
 import pytest
@@ -18,6 +20,22 @@ import pytest
 from src import features
 from src.interp import interpret
 from src.matha.language_bridge import LanguageBridge, matha_expr
+
+_FLAGS = ("MATHA_FEATURE_SCOPED_BLOCKS", "MATHA_FEATURES")
+
+
+@contextmanager
+def _flags_off():
+    """临时移除外部环境变量并清除进程内覆盖（保证「默认状态」确定可断言）。"""
+    saved = {k: os.environ.pop(k, None) for k in _FLAGS}
+    features.clear_feature()
+    try:
+        yield
+    finally:
+        features.clear_feature()
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
 
 
 def _fn(record, name):
@@ -61,7 +79,9 @@ def loopy(n):
 
 @pytest.fixture(scope="module")
 def py_record():
-    return LanguageBridge().devour('python', _PY_SRC, 'py_test')
+    # 模块级夹具先于函数级隔离夹具创建 → 创建时自行固定为「默认关闭」
+    with _flags_off():
+        return LanguageBridge().devour('python', _PY_SRC, 'py_test')
 
 
 def test_python_if_return_null(py_record):
@@ -185,17 +205,9 @@ def is_primeish(n: int, cand: list) -> bool:
 
 @pytest.fixture(autouse=True)
 def _isolate_scoped_flag():
-    """开关隔离：本文件测试之间互不污染，且结束后恢复现场。"""
-    saved = os.environ.get("MATHA_FEATURE_SCOPED_BLOCKS")
-    features.clear_feature()
-    try:
+    """开关隔离：测试期间移除外部环境变量，互不污染且结束后恢复现场。"""
+    with _flags_off():
         yield
-    finally:
-        features.clear_feature()
-        if saved is None:
-            os.environ.pop("MATHA_FEATURE_SCOPED_BLOCKS", None)
-        else:
-            os.environ["MATHA_FEATURE_SCOPED_BLOCKS"] = saved
 
 
 @pytest.fixture

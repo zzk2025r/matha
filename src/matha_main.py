@@ -628,6 +628,36 @@ def _cmd_scene(args) -> int:
 # 主入口
 # ============================================================
 
+def _cmd_features(args) -> int:
+    """列出已知特性开关及其当前状态（灰度推进时查询）。"""
+    from src import features as ft
+    known = ["SCOPED_BLOCKS"]
+    _print_utf8("特性开关（默认关闭，可用 --feature NAME[=on|off] 切换）:")
+    for name in known:
+        state = "on" if ft.is_enabled(name) else "off"
+        _print_utf8(f"  {name:20} {state}")
+    return 0
+
+
+def _apply_cli_features(args) -> None:
+    """把 `--feature NAME[=on|off]` 应用为进程内开关覆盖（优先级最高）。
+
+    例：`matha --feature SCOPED_BLOCKS run f.matha` 开启；
+        `matha --feature SCOPED_BLOCKS=off run f.matha` 强制关闭。
+    """
+    from src import features
+    for spec in getattr(args, "feature", None) or []:
+        name, sep, val = (spec.partition("="))
+        name = name.strip()
+        if not name:
+            continue
+        if not sep:
+            features.set_feature(name, True)
+            continue
+        on = val.strip().lower() in ("1", "true", "yes", "on", "y", "t")
+        features.set_feature(name, on)
+
+
 def main(argv=None) -> int:
     """统一 CLI 入口。"""
     parser = argparse.ArgumentParser(
@@ -644,6 +674,7 @@ def main(argv=None) -> int:
   matha optimize file -o c 优化编译
   matha test               运行编译器测试
   matha info               工具链信息
+  matha features           特性开关状态
   matha debug file         调试模式（显示 AST/MIR）
   matha build file -o exe  构建独立可执行文件
 
@@ -652,16 +683,23 @@ def main(argv=None) -> int:
   matha eval "sin(3.14) + cos(1.57)"
   matha run demo.matha
   matha compile demo.matha -o output.c
+  matha --feature SCOPED_BLOCKS run demo.matha
   matha --version
         """,
     )
     parser.add_argument("--debug", action="store_true", help="启用调试模式")
     parser.add_argument("--version", action="version", version=f"Matha v{VERSION}")
+    parser.add_argument("--feature", action="append", default=[], metavar="NAME[=on|off]",
+                        help="开关特性（如 SCOPED_BLOCKS）；可重复，NAME=off 强制关闭")
 
     sub = parser.add_subparsers(dest="command", help="子命令")
 
     # REPL（无命令）
     sub.add_parser("repl", help="启动交互式 REPL")
+
+    # features — 特性开关状态
+    p_feat = sub.add_parser("features", help="列出特性开关状态")
+    p_feat.set_defaults(func=_cmd_features)
 
     # eval
     p_eval = sub.add_parser("eval", help="计算单行表达式")
@@ -896,6 +934,7 @@ def main(argv=None) -> int:
     sub.add_parser("geek", help="极客安全").set_defaults(func=_cmd_geek)
 
     args = parser.parse_args(argv)
+    _apply_cli_features(args)
     if hasattr(args, "func"):
         return args.func(args)
     else:

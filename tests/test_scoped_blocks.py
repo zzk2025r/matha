@@ -19,19 +19,17 @@ _ON = "SCOPED_BLOCKS"
 
 @pytest.fixture(autouse=True)
 def _isolate_flags():
-    saved_env = os.environ.get("MATHA_FEATURE_SCOPED_BLOCKS")
-    saved_list = os.environ.get("MATHA_FEATURES")
+    """隔离：测试期间移除外部环境变量，保证「默认状态」可被确定地断言。"""
+    keys = ("MATHA_FEATURE_SCOPED_BLOCKS", "MATHA_FEATURES")
+    saved = {k: os.environ.pop(k, None) for k in keys}
     features.clear_feature()
     try:
         yield
     finally:
         features.clear_feature()
-        for key, prev in (("MATHA_FEATURE_SCOPED_BLOCKS", saved_env),
-                          ("MATHA_FEATURES", saved_list)):
-            if prev is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = prev
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
 
 
 def _out(src):
