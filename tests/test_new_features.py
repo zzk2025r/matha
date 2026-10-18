@@ -529,6 +529,33 @@ def test_aggregate_prefix_symbols():
     print('  ✓ 聚合前缀: ∑[1,2,3,4] = 10, ∏[1,2,3,4] = 24')
 
 
+# ─── var 声明 / 单引号字符串 / 元组解构（_ 通配） ───────────────────────────
+
+def test_var_declaration_binding():
+    # var x = e 等价语句层绑定；顶层可直接用
+    assert get_out('var x = 5\n输出(x)\n') == 5
+    print('  ✓ var 声明: var x = 5 → 5')
+
+
+def test_single_quoted_string():
+    assert get_out("输出('hello')\n") == 'hello'
+    assert get_out('输出(\'say "hi"\')\n') == 'say "hi"'
+    print("  ✓ 单引号字符串: 'hello' → hello")
+
+
+def test_tuple_destructuring_assignment():
+    # 裸元组解构赋值 (a, b) = 元组
+    assert get_out('(a, b) = (3, 4)\n输出(a + b)\n') == 7
+    print('  ✓ 元组解构赋值: (a, b) = (3, 4) → 7')
+
+
+def test_tuple_destructuring_wildcard():
+    # _ 通配符丢弃该位
+    assert get_out('(_, b) = (5, 6)\n输出(b)\n') == 6
+    assert get_out('let (_, c) = (7, 8) in 输出(c)\n') == 8
+    print('  ✓ 解构通配 _: (_, b) = (5, 6) → b = 6')
+
+
 # ─── 主入口 ─────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -563,6 +590,8 @@ if __name__ == '__main__':
         test_sqrt_symbol_prefix, test_cbrt_symbol_prefix,
         test_divide_symbol, test_unit_suffix_symbols,
         test_aggregate_prefix_symbols,
+        test_var_declaration_binding, test_single_quoted_string,
+        test_tuple_destructuring_assignment, test_tuple_destructuring_wildcard,
     ]
     passed = 0
     failed = 0

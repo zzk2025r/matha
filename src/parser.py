@@ -1367,6 +1367,10 @@ class Parser:
                     target=ast.PathExpr(left=expr.left.left, right=expr.left.right),
                     annotation=None, value=expr.right,
                 )
+            # (a, b, ...) = value → 元组解构赋值
+            names = self._tuple_pattern_names(expr.left)
+            if names is not None:
+                return ast.LetTupleBinding(names=names, value=expr.right, body=None)
         # 检查 >> 链式
         if self._check(TokenType.OP_BIT_RSHIFT) and self._is_chain_context():
             return self._parse_chain(expr)
@@ -1389,7 +1393,25 @@ class Parser:
                     target=ast.PathExpr(left=expr.left.left, right=expr.left.right),
                     annotation=None, value=expr.right,
                 )
+            names = self._tuple_pattern_names(expr.left)
+            if names is not None:
+                return ast.LetTupleBinding(names=names, value=expr.right, body=None)
         return expr
+
+    def _tuple_pattern_names(self, node) -> list[str] | None:
+        """解构目标判定：node 为「全变量/通配符」元组时返回名字列表，否则 None。
+
+        例：(_, env1b) → ["_", "env1b"]；(1, b) → None（含非变量元素）。
+        """
+        if not isinstance(node, ast.TupleExpr):
+            return None
+        names: list[str] = []
+        for el in node.elements:
+            if isinstance(el, ast.Variable):
+                names.append(el.name)
+            else:
+                return None
+        return names if names else None
 
     def _has_conditional_suffix(self, expr) -> bool:
         """expr 是否是 比较表达式 且后面紧跟三元操作。
@@ -2289,6 +2311,11 @@ class Parser:
         if tok.type == TokenType.SYMBOL and tok.value == "∅":
             self._advance()
             return ast.ListLiteral(elements=[])
+
+        # 通配符 `_`（元组解构 / 丢弃位）：作为占位变量（仅作模式元素）
+        if tok.type == TokenType.PUNCT_UNDERSCORE:
+            self._advance()
+            return ast.Variable(name="_", is_placeholder=False)
 
         # 变量 / 占位符
         if tok.type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):
@@ -3200,13 +3227,20 @@ class Parser:
             self._in_let_value = saved_lv
         return ast.LetBinding(name=name, value=value, is_recursive=is_rec, params=[], body=body)
 
+    def _parse_pattern_name(self) -> str:
+        """解构模式中的名字：标识符或通配符 `_`。"""
+        if self._check(TokenType.PUNCT_UNDERSCORE):
+            self._advance()
+            return "_"
+        return self._expect(TokenType.IDENTIFIER, "绑定名").value
+
     def _parse_let_tuple(self, is_rec: bool) -> ast.AST:
-        """let (name1, name2, ...) = <expr> [in <expr>]"""
+        """let (name1, name2, ...) = <expr> [in <expr>]（名字可用 `_` 通配）"""
         self._expect(TokenType.PUNCT_LPAREN, "(")
-        names = [self._expect(TokenType.IDENTIFIER, "绑定名").value]
+        names = [self._parse_pattern_name()]
         while self._check(TokenType.PUNCT_COMMA):
             self._advance()
-            names.append(self._expect(TokenType.IDENTIFIER, "绑定名").value)
+            names.append(self._parse_pattern_name())
         self._expect(TokenType.PUNCT_RPAREN, ")")
         self._expect(TokenType.OP_ASSIGN, "=")
         saved_lv = self._in_let_value

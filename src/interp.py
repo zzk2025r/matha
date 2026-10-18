@@ -1323,6 +1323,10 @@ class Interpreter:
         elif isinstance(decl, ast.LetBinding):
             self._log(logging.INFO, f"exec top-level LetBinding '{decl.name}'")
             self._exec_stmt(decl)
+        elif isinstance(decl, ast.LetTupleBinding):
+            # 顶层元组解构赋值（如 (a, b) = ...）→ 语句级绑定（不清理）
+            self._log(logging.INFO, f"exec top-level LetTupleBinding {decl.names}")
+            self._exec_stmt(decl)
         elif isinstance(decl, ast.FileMarker):
             # 顶层文件尾标记 `#：【文件】`：结构性标记 → 空操作。
             self._log(logging.DEBUG, "exec top-level FileMarker (忽略)")
