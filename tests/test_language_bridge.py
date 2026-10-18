@@ -4,14 +4,18 @@
 覆盖：
   1. Python 路径 — if/return、elif、let 绑定、布尔/比较/整除翻译
   2. 外部语言路径（rust / go / js / c）— if/else、else if、提前 return、let
-  3. 循环等未支持结构 → 保留无中生有骨架
-  4. fuse：生成模块通过 Matha parser 自验证
+  3. 循环等未支持结构 → 保留无中生有骨架（默认行为）
+  4. SCOPED_BLOCKS 开启 — 循环/多语句体译为 Matha 语句块 `{ ... }` 并可运行
+  5. fuse：生成模块通过 Matha parser 自验证
 """
+import os
 import sys
 sys.path.insert(0, r'D:\trae')
 
 import pytest
 
+from src import features
+from src.interp import interpret
 from src.matha.language_bridge import LanguageBridge, matha_expr
 
 
@@ -142,6 +146,106 @@ def test_foreign_loop_stays_skeleton():
 ])
 def test_matha_expr_basics(src, expect):
     assert matha_expr(src) == expect
+
+
+# ── SCOPED_BLOCKS 语句块直译（开关开启时） ──────────────────────
+
+_BLOCK_PY_SRC = '''
+def sum_list(xs: list) -> int:
+    s = 0
+    for x in xs:
+        s += x
+    return s
+
+def sum_to(n: int) -> int:
+    s = 0
+    i = 1
+    while i <= n:
+        s += i
+        i += 1
+    return s
+
+def clamp(v: int, lo: int, hi: int) -> int:
+    if v < lo:
+        v = lo
+    if v > hi:
+        v = hi
+    return v
+
+def not_prime_ish(n: int) -> bool:
+    if n < 2:
+        return False
+    for i in range(3, 10):
+        if n % i == 0:
+            return False
+    return True
+'''
+
+
+@pytest.fixture(autouse=True)
+def _isolate_scoped_flag():
+    """开关隔离：本文件测试之间互不污染，且结束后恢复现场。"""
+    saved = os.environ.get("MATHA_FEATURE_SCOPED_BLOCKS")
+    features.clear_feature()
+    try:
+        yield
+    finally:
+        features.clear_feature()
+        if saved is None:
+            os.environ.pop("MATHA_FEATURE_SCOPED_BLOCKS", None)
+        else:
+            os.environ["MATHA_FEATURE_SCOPED_BLOCKS"] = saved
+
+
+@pytest.fixture
+def block_record(_isolate_scoped_flag):
+    features.set_feature("SCOPED_BLOCKS", True)
+    return LanguageBridge().devour('python', _BLOCK_PY_SRC, 'block_test')
+
+
+def test_for_loop_block_translates(block_record):
+    f = _fn(block_record, 'sum_list')
+    assert not f.generated, f.body
+    assert f.body.strip().startswith('{')
+    assert 'for x in xs' in f.body
+
+
+def test_while_loop_block_translates(block_record):
+    f = _fn(block_record, 'sum_to')
+    assert not f.generated, f.body
+    assert 'while i <= n' in f.body
+    assert 'i = i + 1' in f.body
+
+
+def test_if_statement_block_translates(block_record):
+    f = _fn(block_record, 'clamp')
+    assert not f.generated, f.body
+    assert 'if v < lo' in f.body and 'if v > hi' in f.body
+
+
+def test_early_return_in_loop_stays_skeleton(block_record):
+    # 提前 return（块内非末尾 return）不支持 → 仍为无中生有骨架
+    f = _fn(block_record, 'not_prime_ish')
+    assert f.generated
+
+
+def test_block_functions_run(block_record):
+    sig = LanguageBridge()._sig_line
+    for name, call, expect in [('sum_list', '[sum_list([1, 2, 3, 4])]', 10),
+                               ('sum_to', '[sum_to(5)]', 15),
+                               ('clamp', '[clamp(9, 1, 5)]', 5)]:
+        f = _fn(block_record, name)
+        assert interpret(sig(f) + '\n' + call)[0] == [expect], name
+
+
+def test_block_module_fuse(block_record):
+    assert LanguageBridge().fuse(block_record, write=False) is True
+
+
+def test_flag_off_keeps_loop_skeleton():
+    # 默认关闭 → 循环体仍走无中生有骨架（行为不变）
+    rec = LanguageBridge().devour('python', _BLOCK_PY_SRC, 'flag_off_test')
+    assert _fn(rec, 'sum_list').generated
 
 
 if __name__ == '__main__':

@@ -1,5 +1,36 @@
 # Matha 变更摘要
 
+## 增强：语言桥语句块直译（`SCOPED_BLOCKS` 开启时循环体不再骨架）
+
+**日期**：2026-10-18
+
+### 背景
+
+语言桥此前把函数体译为**单一表达式**，遇 `for`/`while` 即放弃 → 退化为无中生有骨架。
+`SCOPED_BLOCKS` 落地后，块作为语句上下文可承载循环，故可直译控制流体。
+
+### 变更
+
+1. `src/matha/language_bridge.py`：Python 路径新增语句块直译——
+   `_py_body_to_block`（函数体 → `{ ... }`）、`_py_stmt_lines`（单语句 → 行列表）、
+   `_py_block_lines`（语句列表 → 行列表）。当表达式直译失败且 `SCOPED_BLOCKS` 开启时，
+   将局部绑定 / `if` 语句 / `while` / `for` 循环体译为 Matha 代码块，循环不再骨架。
+2. `_py_expr` 支持 Python 列表/元组字面量 → Matha `[ ... ]`；复合赋值
+   `a += e` → `a = a e`（新增 `_PY_AUG_OPS`）。
+
+### 限制
+
+- 不支持非末尾 `return`（提前返回——块内 `return` 在 Matha 中不可解析）、`raise`、
+  方法调用等 → 仍回退为无中生有骨架。
+- 仅 Python 路径；外部语言路径的语句块直译待补。
+
+### 验证
+
+- `tests/test_language_bridge.py` +7 项（共 24 passed）：`for`/`while`/`if` 语句块直译；
+  生成体可运行（`sum_list`→10、`sum_to`→15、`clamp`→5）；提前 `return` 仍为骨架；
+  关闭开关时行为不变（循环仍骨架）；`fuse` 自验证通过。
+- 回归：主套件 `2554 passed`；语言桥消费方 `138 passed`（hybrid_compiler / unified_layers）。
+
 ## 特性：`SCOPED_BLOCKS` 特性开关（`{ }` 代码块语句上下文 + 独立子作用域，默认关闭）
 
 **日期**：2026-10-18

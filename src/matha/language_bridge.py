@@ -25,6 +25,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from src import features
+
 logger = logging.getLogger(__name__)
 
 # 生成模块输出目录（项目根/matha/generated）
@@ -89,6 +91,10 @@ _FN_MAP = {"sqrt": "func_sqrt", "sin": "func_sin", "cos": "func_cos", "tan": "fu
            "abs": "func_abs", "fabs": "func_abs", "floor": "func_floor", "ceil": "func_ceil",
            "pow": "func_pow", "atan": "func_atan", "asin": "func_asin", "acos": "func_acos",
            "round": "func_round", "max": "func_max", "min": "func_min", "sum": "func_sum"}
+
+# Python 复合赋值运算符 → Matha 运算符（语句块直译用）
+_PY_AUG_OPS = {pyast.Add: "+", pyast.Sub: "-", pyast.Mult: "*", pyast.Div: "/",
+               pyast.Mod: "%", pyast.Pow: "^", pyast.FloorDiv: "//"}
 
 
 def matha_expr(source: str) -> str | None:
@@ -571,12 +577,22 @@ class LanguageBridge:
                       for a in node.args.args if a.arg not in ("self", "cls")]
             ret = self._py_ann_to_matha(node.returns)
             body_expr = self._py_body_to_expr(node)
+            block_body = None
+            if body_expr is None and features.scoped_blocks():
+                # SCOPED_BLOCKS 开启：控制流体可译为语句块（局部绑定 + 循环）
+                block_body = self._py_body_to_block(node)
             fdoc = (pyast.get_docstring(node) or "").split("\n")[0]
             if body_expr is not None:
                 functions.append(FunctionSig(
                     name=node.name, params=params, ret=ret, body=body_expr,
                     doc=fdoc, origin=f"python def {node.name}"))
                 steps.append(f"  {node.name}: 直译 → {body_expr}")
+            elif block_body is not None:
+                functions.append(FunctionSig(
+                    name=_sanitize_ident(node.name), params=params, ret=ret,
+                    body=block_body, doc=fdoc,
+                    origin=f"python def {node.name} (语句块直译)"))
+                steps.append(f"  {node.name}: 语句块直译 → {block_body}")
             else:
                 functions.append(FunctionSig(
                     name=_sanitize_ident(node.name), params=params, ret=ret,
@@ -602,6 +618,107 @@ class LanguageBridge:
         stmts = [s for s in fn.body
                  if not (isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Constant))]
         return self._py_stmts_to_expr(stmts)
+
+    def _py_body_to_block(self, fn: pyast.FunctionDef) -> str | None:
+        """函数体 → Matha 代码块体 `{ ... }`（局部绑定 / if 语句 / while / for 循环）。
+
+        仅在 `SCOPED_BLOCKS` 开启时使用。结构为「语句序列 + 末尾表达式（隐式返回）」。
+        限制：不支持非末尾 `return`（提前返回）、`raise`、方法调用等 → 返回 None，
+        交由无中生有骨架。
+        """
+        stmts = [s for s in fn.body
+                 if not (isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Constant))]
+        if not stmts:
+            return None
+        last = stmts[-1]
+        body_stmts = stmts
+        if isinstance(last, pyast.Return):
+            tail = "null" if last.value is None else self._py_expr(last.value)
+            body_stmts = stmts[:-1]
+        elif isinstance(last, pyast.Expr):
+            tail = self._py_expr(last.value)
+            body_stmts = stmts[:-1]
+        else:
+            tail = "null"
+        if tail is None:
+            return None
+        lines: list[str] = []
+        for s in body_stmts:
+            sub = self._py_stmt_lines(s, 1, in_loop=False)
+            if sub is None:
+                return None
+            lines.extend(sub)
+        lines.append("  " + tail)
+        return "{\n" + "\n".join(lines) + "\n}"
+
+    def _py_block_lines(self, stmts: list, ind: int, in_loop: bool) -> list[str] | None:
+        """语句列表（if / loop 体）→ Matha 行列表；含不支持的语句则返回 None。"""
+        out: list[str] = []
+        for s in stmts:
+            sub = self._py_stmt_lines(s, ind, in_loop)
+            if sub is None:
+                return None
+            out.extend(sub)
+        return out
+
+    def _py_stmt_lines(self, stmt, ind: int, in_loop: bool) -> list[str] | None:
+        """Python 语句 → Matha 代码块内的行列表（不含尾部换行）。
+
+        支持：单目标赋值、复合赋值、if/else 语句、while、for；`return` 仅允许出现在
+        函数体末尾（由 `_py_body_to_block` 处理），其余位置返回 None。
+        """
+        pad = "  " * ind
+        if isinstance(stmt, pyast.Pass):
+            return []
+        if isinstance(stmt, pyast.Expr) and isinstance(stmt.value, pyast.Constant):
+            return []                                   # 文档串 / 裸常量 → 忽略
+        if (isinstance(stmt, pyast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], pyast.Name)):
+            val = self._py_expr(stmt.value)
+            if val is None:
+                return None
+            return [f"{pad}{_sanitize_ident(stmt.targets[0].id)} = {val}"]
+        if isinstance(stmt, pyast.AugAssign) and isinstance(stmt.target, pyast.Name):
+            op = _PY_AUG_OPS.get(type(stmt.op))
+            val = self._py_expr(stmt.value)
+            if op is None or val is None:
+                return None
+            n = _sanitize_ident(stmt.target.id)
+            return [f"{pad}{n} = {n} {op} {val}"]
+        if isinstance(stmt, pyast.If):
+            cond = self._py_expr(stmt.test)
+            if cond is None:
+                return None
+            out = [f"{pad}if {cond} {{"]
+            then = self._py_block_lines(stmt.body, ind + 1, in_loop)
+            if then is None:
+                return None
+            out.extend(then)
+            if stmt.orelse:
+                out.append(f"{pad}}} else {{")
+                other = self._py_block_lines(stmt.orelse, ind + 1, in_loop)
+                if other is None:
+                    return None
+                out.extend(other)
+            out.append(f"{pad}}}")
+            return out
+        if isinstance(stmt, pyast.While):
+            cond = self._py_expr(stmt.test)
+            if cond is None:
+                return None
+            body = self._py_block_lines(stmt.body, ind + 1, True)
+            if body is None:
+                return None
+            return [f"{pad}while {cond} {{", *body, f"{pad}}}"]
+        if isinstance(stmt, pyast.For) and isinstance(stmt.target, pyast.Name):
+            it = self._py_expr(stmt.iter)
+            if it is None:
+                return None
+            body = self._py_block_lines(stmt.body, ind + 1, True)
+            if body is None:
+                return None
+            return [f"{pad}for {_sanitize_ident(stmt.target.id)} in {it} {{", *body, f"{pad}}}"]
+        return None
 
     def _py_stmts_to_expr(self, stmts: list) -> str | None:
         """Python 语句列表 → 单一 Matha 表达式（let-in / 三元）；无法直译返回 None。
@@ -662,6 +779,11 @@ class LanguageBridge:
             return None
         if isinstance(node, pyast.Name):
             return node.id
+        if isinstance(node, (pyast.List, pyast.Tuple)):
+            parts = [self._py_expr(e) for e in node.elts]
+            if any(p is None for p in parts):
+                return None
+            return "[" + ", ".join(parts) + "]"
         if isinstance(node, pyast.UnaryOp):
             inner = self._py_expr(node.operand)
             if inner is None:
