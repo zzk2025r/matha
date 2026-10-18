@@ -9,6 +9,8 @@
   4. 四端一致 — 同一插件节点在解释器、字节码 VM 与原生后端上结果相同
   5. 兜底而非覆盖 — 未注册节点两端报错与既有行为一致；
      给内置节点注册规则不改变其既有分派
+  6. 解析期源码语法 — ``register_syntax`` 后 Matha 源码 ``名(a, b)`` 直接
+     构造成插件节点（``src/parser.py::_parse_postfix``），从而**源串**也三端可达
 """
 import dataclasses as dc
 import os
@@ -26,6 +28,7 @@ from src import ast_nodes as ast
 from src.interp import Interpreter, MathaRuntimeError
 from src.mbc import compile_program, opcodes, run_module
 from src.mbc.native import emit_exe
+from src.parser import ParseError, parse
 
 # ---- 插件示例：Threshold 表达式节点 ----
 
@@ -147,7 +150,7 @@ def test_define_node_supports_defaults_and_factory():
 def test_describe_reports_bound_rules(threshold, announce):
     rows = {r["name"]: r for r in ast_ext.describe()}
     assert rows["Threshold"] == {
-        "name": "Threshold", "fields": ["value", "limit"],
+        "name": "Threshold", "fields": ["value", "limit"], "syntax": [],
         "eval": True, "exec": False,
         "compile_expr": True, "compile_stmt": False}
     assert rows["Announce"]["exec"] is True
@@ -334,3 +337,79 @@ def test_default_registry_is_empty_and_interpreter_untouched():
         op="+", left=ast.IntegerLit(value=1), right=ast.IntegerLit(value=2))))
     assert Interpreter().run(prog)[0] == [3]
     assert run_module(compile_program(prog)) == [3]
+
+
+# ---- 8. 解析期源码语法（源串 → 插件节点） ----
+
+@pytest.fixture
+def threshold_syntax(threshold):
+    """注册源码语法：Matha 源码里 `Threshold(a, b)` 构造插件节点。"""
+    ast_ext.register_syntax("Threshold", threshold)
+    return threshold
+
+
+def test_syntax_rewrites_call_into_plugin_node(threshold_syntax):
+    prog = parse("[Threshold(3, 5)]")
+    node = prog.decls[0].expr
+    # 解析期改写 → AST 里已是插件节点，不再是 FuncApp
+    assert isinstance(node, threshold_syntax)
+    assert not isinstance(node, ast.FuncApp)
+
+
+def test_syntax_source_runs_on_three_ends(threshold_syntax):
+    """**源串**（非编程构造）在 解释器 / VM / 原生 三端结果相同。"""
+    for src, expected in ("[Threshold(3, 5)]", 0), ("[Threshold(9, 2)]", 1):
+        prog = parse(src)
+        assert Interpreter().run(prog)[0] == [expected]
+        assert run_module(compile_program(prog)) == [expected]
+        assert _run_native(compile_program(prog)) == str(expected)
+
+
+def test_syntax_works_as_binding_value(threshold_syntax):
+    prog = parse("v = Threshold(9, 2)\n[v]")
+    assert Interpreter().run(prog)[0] == [1]
+    assert run_module(compile_program(prog)) == [1]
+
+
+def test_syntax_bare_name_is_not_rewritten(threshold_syntax):
+    """单独出现的同名变量不是调用 → 保持 Variable 原样。"""
+    prog = parse("x = Threshold")
+    node = prog.decls[0].value
+    assert isinstance(node, ast.Variable)
+    assert node.name == "Threshold"
+
+
+def test_syntax_wrong_arity_is_parse_error(threshold_syntax):
+    """参数个数不符在**解析期**报错（绑定/表达式语境）。"""
+    with pytest.raises(ParseError, match="期望 2 个参数"):
+        parse("v = Threshold(3)")
+    with pytest.raises(ParseError, match="期望 2 个参数"):
+        parse("Threshold(1, 2, 3)")
+
+
+def test_syntax_requires_fields_for_undeclared_node():
+    class Plugin:
+        def __init__(self, **fields):
+            self.__dict__.update(fields)
+
+    with pytest.raises(ValueError, match="需显式传 fields"):
+        ast_ext.register_syntax("Custom", Plugin)
+    # 显式给出字段名即可
+    ast_ext.register_syntax("Custom", Plugin, fields=("left", "right"))
+    node = ast_ext.build_from_call("Custom", [ast.IntegerLit(value=1),
+                                              ast.IntegerLit(value=2)])
+    assert isinstance(node, Plugin)
+    assert node.left.value == 1
+    assert node.right.value == 2
+
+
+def test_register_syntax_rejects_invalid_name(threshold):
+    with pytest.raises(ValueError, match="合法标识符"):
+        ast_ext.register_syntax("1bad", threshold)
+
+
+def test_default_no_syntax_leaves_calls_untouched():
+    """未注册语法时 `f(1, 2)` 仍是 FuncApp —— 对既有解析零影响。"""
+    assert ast_ext.SYNTAX == {}
+    node = parse("[f(1, 2)]").decls[0].expr
+    assert isinstance(node, ast.FuncApp)

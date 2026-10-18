@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import auto
 from typing import Any
 
+from src import ast_ext
 from src import ast_nodes as ast
 from src import custom_ops
 from src import features
@@ -2200,6 +2201,12 @@ class Parser:
                 bool_val = bool_tok.value in ("真", "true")
                 expr = ast.FuncApp(func=expr, arg=ast.BoolLit(value=bool_val))
             # 继续检查后续属性访问
+        # 插件节点源码语法：已注册的 `名(a, b, …)` 在解析期直接构造成扩展节点
+        # （见 src/ast_ext.py::rewrite_call）；未注册任何语法时立即返回，零影响。
+        try:
+            expr = ast_ext.rewrite_call(expr)
+        except ValueError as ex:
+            raise ParseError(str(ex), self._current()) from ex
         return expr
 
     def _is_primary_start(self) -> bool:

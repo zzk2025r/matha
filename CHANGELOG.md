@@ -1,5 +1,35 @@
 # Matha 变更摘要
 
+## 特性：插件节点解析期源码语法（`register_syntax`）
+
+**日期**：2026-10-18
+
+### 变更
+
+1. `src/ast_ext.py`：
+   - `register_syntax(name, node, fields=None)`：注册源码语法，Matha 源码里的
+     `名(a, b, …)` **在解析期**直接构造成插件节点（`fields` 缺省取节点自带字段）。
+   - `build_from_call` / `rewrite_call`：应用链改写（柯里化多参 `f(a)(b)` 一并改写）。
+   - `SYNTAX` 表；`describe()` 增加 `syntax` 字段；`clear()` 一并清理。
+2. `src/parser.py::_parse_postfix` 收尾处调用 `rewrite_call`
+   （`ValueError` → `ParseError`）。**`SYNTAX` 为空时立即返回，对既有解析零影响**。
+
+### 语义
+
+- 只改写以**裸 `Variable` 为头的 `FuncApp` 链**；单独出现的同名变量保持原样；
+  插件节点作为表达式进入 AST 后，按既有钩子被 解释器 / MBC / 原生 三端分派。
+- 参数个数不符在**解析期**报错（绑定 / 裸表达式语境）。
+  输出括号 `[ … ]` 语境本身会把解析失败回退为字符串文本（`#：[Hello world]`
+  的既有设计），插件错误落在该语境同样被回退——需要硬错误请用其它语境。
+
+### 验证
+
+`tests/test_ast_ext.py` 增至 **38 项**（+8）：解析期改写、**源串**三端一致
+（解释器 / VM / 原生 exe）、绑定语境、裸同名变量不改写、参数个数报 `ParseError`、
+`fields` 必填、非法语法名、默认无语法时调用不受影响。
+
+全量回归：**3358 passed**（此前 3350）。lint 回到基线（`parser.py` 13 = 基线，`ast_ext.py` 0）。
+
 ## 特性：可扩展 AST 节点注册表（Matha 核心自定义扩展接口）
 
 **日期**：2026-10-18
