@@ -100,5 +100,33 @@ def test_matha_runtime_error_builtin_registered():
     print("  ✓ MathaRuntimeError 内建注册且抛出")
 
 
+def test_bootstrap_test_matha_parses_losslessly():
+    """`matha/bootstrap_test.matha` 须被宿主 parser **无损**解析。
+
+    历史缺陷：多语句 then/else 分支会被静默丢弃（`else` 分支整体丢失），
+    使该文件"解析通过"但 AST 严重残缺。此处守护 `断言` 函数体含完整
+    `else` 分支且分支为 let-in 结构（惯用式重写后的形态）。
+    """
+    from src.parser import parse
+    from src import ast_nodes as ast
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "matha", "bootstrap_test.matha")
+    if not os.path.exists(path):
+        pytest.skip("缺少 matha/bootstrap_test.matha")
+    with open(path, encoding="utf-8") as f:
+        prog = parse(f.read())
+    md = prog.decls[0]
+    assert isinstance(md, ast.ModuleDecl), type(md)
+    fds = [d for d in md.decls if isinstance(d, ast.FuncDef)]
+    assert_fd = next(f for f in fds if f.name == "断言")
+    body = assert_fd.body.body
+    assert isinstance(body, ast.IfExpr), type(body)
+    assert body.else_ is not None, "断言 else 分支被丢弃"
+    assert isinstance(body.then, ast.LetBinding), type(body.then)
+    assert isinstance(body.else_, ast.LetBinding), type(body.else_)
+    print("  ✓ bootstrap_test.matha 无损解析（含 else 分支）")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v", "-s"]))

@@ -1,5 +1,39 @@
 # Matha 变更摘要
 
+## 增强：`bootstrap_test.matha` 惯用式重写（无损解析回归守护）
+
+**日期**：2026-10-18
+
+### 背景
+
+`matha/bootstrap_test.matha` 此前虽"解析通过"，但多语句 `then`/`else` 分支会被
+**静默丢弃**（`断言` 函数体的 `else` 分支整体丢失），AST 严重残缺；且文件使用
+`x = x + 1` 式赋值（在函数体语境下 `=` 为等于比较）与陈旧 API
+（`词法器.扫描` 实为柯里化 `扫描(src)(pos)(line)(col)(toks)`），无法在现行语言上运行。
+
+### 变更
+
+1. **惯用式重写**（`matha/bootstrap_test.matha`）：
+   - 计数器改为共享可变列表 `状态 = [通过数, 失败数]`，经 `标准库.原地设置`
+     原地更新（替代函数体内 `x = x + 1`；该语境下 `=` 为比较）。
+   - `断言` 分支改为单一 `let … in …` 表达式，消除被静默丢弃的多语句分支。
+   - `use` 补 `标准库`；`词法器.扫描(x)` 更正为柯里化
+     `词法器.扫描(x)(0)(1)(1)([])`；汇总改用 `状态[0]`/`状态[1]`。
+2. **回归守护**（`tests/test_bootstrap_host.py`）：新增
+   `test_bootstrap_test_matha_parses_losslessly`，断言 `断言` 函数体含完整
+   `else` 分支且两分支均为 let-in 结构，防止"多语句分支被静默丢弃"缺陷复现。
+
+### 验证
+
+- `tests/test_bootstrap_host.py`（含新测试）+ `tests/test_new_features.py`：68 passed。
+- 回归：主套件 2537 passed + `test_mbc_bootstrap.py` 755 passed = 3292 passed。
+
+### 说明
+
+宿主自举环境无法**执行**该文件：`调用捕获` 为 VM/原生专属内建（宿主
+`src/interp.py` 未注册），且自举词法器在宿主解释器下对本文件抛 `RecursionError`。
+故本轮以**无损解析**（而非执行）为交付边界；执行需另行构建 VM 自举运行器。
+
 ## 增强：`bootstrap_test.matha` 解析支持（单引号字符串 / `var` 声明 / 元组解构）
 
 **日期**：2026-10-18
