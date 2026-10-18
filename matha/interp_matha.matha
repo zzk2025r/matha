@@ -25,7 +25,8 @@ module 解释器 {
   func 空环境() -> List = () => []
 
   func 绑定环境(env: List, name: String, value) -> List = (env, name, value) =>
-    [(name, value)] + env
+    let pair = [name, value] in
+    [pair] + env
 
   func 查找环境(env: List, name: String) -> Value = (env, name) =>
     env = [] ? 错误("未定义变量 '" + name + "'") :
@@ -59,12 +60,37 @@ module 解释器 {
     expr["类型"] = "函数应用" ? 求值应用(expr["函数"], expr["参数"], env) :
     expr["类型"] = "输出" ? (求值(expr["expr"], env), env) :
     expr["类型"] = "绑定" ? 求值绑定(expr, env) :
+    expr["类型"] = "let绑定" ? 求值let绑定(expr, env) :
     错误("未知表达式类型: " + expr["类型"])
 
   (* 绑定表达式：let x = expr in body *)
   func 求值绑定(binding: Dict, env: List) -> (Value, List) = (binding, env) =>
     let v = 求值(binding["值"], env) in
     (v, 绑定环境(env, binding["名"], v))
+
+  func 更新绑定值(env: List, name: String, value) -> List = (env, name, value) =>
+    if env = [] then
+      env
+    else if env[0][0] = name then
+      let 忽略 = 标准库.原地设置(env[0], 1, value) in
+      env
+    else
+      let 忽略 = 更新绑定值(env[1:], name, value) in
+      env
+
+  func 求值let绑定(expr: Dict, env: List) -> Value = (expr, env) =>
+    expr["递归"] ? 求值递归let(expr, env) : 求值非递归let(expr, env)
+
+  func 求值递归let(expr: Dict, env: List) -> Value = (expr, env) =>
+    let env1 = 绑定环境(env, expr["名"], "__递归占位__") in
+    let v = 求值(expr["值"], env1) in
+    let env2 = 更新绑定值(env1, expr["名"], v) in
+    if expr["有体"] then 求值(expr["体"], env2) else v
+
+  func 求值非递归let(expr: Dict, env: List) -> Value = (expr, env) =>
+    let v = 求值(expr["值"], env) in
+    let env1 = 绑定环境(env, expr["名"], v) in
+    if expr["有体"] then 求值(expr["体"], env1) else v
 
   (* 二元运算求值 ===== *)
   func 求值二元(op: String, left: Dict, right: Dict, env: List) -> Value =
@@ -140,11 +166,10 @@ module 解释器 {
       (* 参数名：支持字符串或 Variable AST（{"类型":"变量","名":...}）两种形态 *)
       let 参数名 = if type_of(params[0]) = "Dict" then (if params[0]["类型"] = "变量" then params[0]["名"] else params[0]) else params[0] in
       let new_env = 绑定环境(captured, 参数名, arg) in
-      let result = 求值(body, new_env) in
       if 标准库.len(params) > 1 then
-        let remaining_params = params[1:] in
-        ("__closure__", remaining_params, body, new_env)
-      else result
+        ("__closure__", params[1:], body, new_env)
+      else
+        求值(body, new_env)
     else if type_of(f) = "Dict" and f["类型"] = "__builtin__" then
       应用内建(f["名"], [arg], call_env)
     else
@@ -228,8 +253,10 @@ module 解释器 {
       let v = 求值(stmt["值"], env) in
       (v, 绑定环境(env, stmt["名"], v)) :
     stmt["类型"] = "函数定义" ?
-      let closure = 求值(stmt["体"], env) in
-      (closure, 绑定环境(env, stmt["名"], closure)) :
+      let env1 = 绑定环境(env, stmt["名"], "__函数占位__") in
+      let closure = 求值(语法器.做Lambda(stmt["参数"], stmt["体"]), env1) in
+      let env2 = 更新绑定值(env1, stmt["名"], closure) in
+      (closure, env2) :
     stmt["类型"] = "if" ?
       if 求值(stmt["条件"], env) != 0.0 and 求值(stmt["条件"], env) != 假 then
         执行语句列表(stmt["真分支"], env)
@@ -252,23 +279,30 @@ module 解释器 {
       执行语句(stmts, env)
 
   func 执行声明列表(decls: List, env: List) -> (Value, List) = (decls, env) =>
-    decls = [] ? (None, env) :
-    let (v, env2) = 执行声明(decls[0], env) in
-    let (result, env3) = 执行声明列表(decls[1:], env2) in
-    (v, env3)
+    if decls = [] then
+      (None, env)
+    else
+      let (v, env2) = 执行声明(decls[0], env) in
+      if decls[1:] = [] then (v, env2) else 执行声明列表(decls[1:], env2)
 
   func 执行声明(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
     if decl["类型"] = "绑定" then
       let v = 求值(decl["值"], env) in
       (v, 绑定环境(env, decl["名"], v))
     else if decl["类型"] = "函数定义" then
-      let closure = 求值(decl["体"], env) in
-      (closure, 绑定环境(env, decl["名"], closure))
+      let env1 = 绑定环境(env, decl["名"], "__函数占位__") in
+      let closure = 求值(语法器.做Lambda(decl["参数"], decl["体"]), env1) in
+      let env2 = 更新绑定值(env1, decl["名"], closure) in
+      (closure, env2)
     else if decl["类型"] = "程序" then
       执行声明列表(decl["声明"], env)
     else if decl["类型"] = "定义运算符" then
       (* 自定义运算符声明：编译期 / 解析期已登记，运行期无副作用（对齐宿主 NOOP） *)
       (None, env)
+    else if decl["类型"] = "输出" or decl["类型"] = "while" or decl["类型"] = "for" then
+      执行语句(decl, env)
+    else if decl["类型"] = "if" then
+      if decl["真分支"]["类型"] = "程序" then 执行语句(decl, env) else (求值(decl, env), env)
     else
       (* 裸表达式：直接求值并返回结果 *)
       (求值(decl, env), env)
@@ -385,7 +419,7 @@ module 解释器 {
     [语法器.做Variable("x")],
     语法器.做BinaryOp("+", 语法器.做Variable("x"), 语法器.做IntLit(1))
   )
-  env3 = 解释器.绑定环境(env, "加一", lam)
+  env3 = 解释器.绑定环境(env, "加一", 解释器.求值(lam, env))
   expr5 = 语法器.做FuncApp(语法器.做Variable("加一"), 语法器.做IntLit(5))
   result5 = 解释器.求值(expr5, env3)
   [result5]

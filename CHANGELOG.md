@@ -1,5 +1,98 @@
 # Matha 变更摘要
 
+## 增强：语言桥控制流函数体翻译（吞噬骨架逐步补全）
+
+**日期**：2026-10-18
+
+### 背景
+
+`src/matha/language_bridge.py` 的吞噬（devour）在函数体为单一表达式/单个
+`return` 时直译；含控制流（`if`/`else`/局部绑定）时一律退化为
+`抛出错误("无中生有骨架…")` 骨架。本轮补齐「可表达为单一 Matha 表达式」
+的控制流，使更多真实函数体进入 Matha（对应
+`matha_bootstrap_migration_analysis.md` 下一步 3）。
+
+### 变更（`src/matha/language_bridge.py`）
+
+1. **Python 路径**：`_py_body_to_expr` 改为语句列表递归翻译
+   （`_py_stmts_to_expr` / `_py_if_to_expr`）：
+   - `if C: return A` + 后续语句 → `C ? A : <后续>`（提前返回）；
+   - `if/elif/else` → 嵌套三元；
+   - 单目标赋值 / 复合赋值 → `let x = e in <剩余>`；
+   - 无 `else` 且无后续 → 隐式 `null`。
+2. **Python 表达式**（`_py_expr`）：新增 `None`→`null`、`BoolOp`（`and`/`or`）、
+   `Compare`（含链式 `a < b < c`）、`not`、`FloorDiv`（`//`）。
+3. **外部语言路径**：`_body_to_expr` 保留原快路径，新增
+   `_foreign_stmts_to_expr` / `_foreign_if_to_expr` / `_take_brace_block`，
+   支持 `if (...) { return A } else if ... return B`、rust 尾表达式、
+   `let/var/const/:=/=` 局部绑定、提前返回。
+4. **修复既有隐性缺陷**：`_OP_MAP` 把 `&&`/`||` 映射为 `且`/`或`，而 Matha
+   不识别 `且`/`或`（会被当作函数名），导致含布尔运算的翻译结果无法通过
+   parser。改为 `and`/`or`（与 `interp_matha.matha` 一致）。
+
+无法表达为单一表达式者（`for`/`while`/`raise`/列表操作等）仍保留骨架——
+「逐步补全」按可表达性推进。
+
+### 验证
+
+- 新增 `tests/test_language_bridge.py`（17 项）：Python 与 rust/go/js/c 的
+  if/else、else if、提前返回、let 绑定翻译；循环保留骨架；逻辑运算可解析；
+  `matha_expr` 回归。
+- 生成模块经 `fuse` → Matha parser 验证通过；并用宿主解释器求值抽查语义：
+  `factorial(5)=120`、`let`→21、`or/整除`→`[0,3]`、`clamp`→`[3,0,2]`、
+  `and`→`[3,2]`、`null`→`[None,5]`。
+- 重新吞噬 `src/stdlib/arithmetic.py`：`divide`/`sqrt`/`lcm`/`asin`/`acos`/
+  `log`/`log2`/`log10`/`combination`/`permutation` 由骨架转为直译
+  （`matha/generated/` 为 gitignore 的构建产物）。
+- 回归：`tests`（除 `test_mbc_bootstrap.py`）2532 + `test_mbc_bootstrap.py` 755
+  = **3287 通过**。
+
+---
+
+## 修复：自举解释器求值链（宿主 lambda-dict 转换 + `interp_matha` 缺陷）
+
+**日期**：2026-10-17
+
+### 根因（宿主侧）
+
+`src/interp.py` `_eval_variable` 曾对 `env` 中「`类型 == "lambda"` 的 dict」
+自动转换为闭包元组（`9a31a0c` 引入）。该「兼容」使自举 parser 解析
+`f = (a) => a + 1` 时把 lambda 节点求值成闭包后再被宿主二次转换，破坏
+「AST dict 保持为 dict」的不变量，连带使自举解释器求值链异常。
+**修复**：移除该自动转换——lambda 节点由 `求值(lambda)` 正常产出闭包即可。
+
+### 自举解释器缺陷（`matha/interp_matha.matha`）
+
+1. **缺 `let绑定` 分支**：`求值` 无此类型 → `未知表达式类型: let绑定`。补 `求值let绑定`。
+2. **函数定义未绑定参数**：`执行声明/执行语句` 直接 `求值(stmt["体"])`，而
+   parser 的 `体` 是**裸函数体**（非 lambda 节点）→ 引用参数即 `未定义变量`。
+   改为 `求值(语法器.做Lambda(stmt["参数"], stmt["体"]))`。
+3. **`执行声明列表` 返回首个声明的值**：多语句程序返回值错误（`f(2)` 返回闭包）。
+   改为返回末条声明之值。
+4. **`应用函数` 多参柯里化误判**：`len(params) > 1` 时仍先求值函数体 →
+   `未定义变量 'b'`。改为先判参数余量：余者有 → 部分应用返回，否则才求值函数体。
+5. **递归绑定不可见**：`更新绑定值` 用函数式重建列表，闭包仍捕获旧 env。
+   改为 `标准库.原地设置` 原地修改共享 pair（`绑定环境` 的 pair 由元组改列表），
+   使 `let rec` / `func` 自递归生效。
+6. **顶层语句未路由**：`if/while/for` 语句节点落入 `求值` → `未知表达式类型`。
+   `执行声明` 增语句路由（并区分语句式 `if` 与三元式 `if`）。
+7. **自测块绑定裸 lambda dict**：改为先 `求值` 再绑定闭包（与 `interp.matha` 对齐）。
+
+### 验证
+
+- `interp_matha.matha` 与 `interp.matha` 的自测 MechUnit 经宿主解释执行，
+  输出均为 `[8, 14, 200, 10, 6]`（对应 `matha_bootstrap_migration_analysis.md` 下一步 2）。
+- `tests/test_bootstrap_host.py`(8) + `tests/test_mbc_bootstrap.py`(755) +
+  `test_interpreter`/`test_interp_parity`/`test_new_features`(169) 全部通过。
+
+### 更正下文「补记」
+
+下文（原「既有缺陷，未修复」）所列缺陷均属本类，现已修复；其中
+「自举 parser 对 `f = (a) => a + 1` 死循环」经复核为**打印/PPRINT 递归假象**，
+非真实死循环。
+
+---
+
 ## 记录：顶层裸表达式回显归属解释器专属特色（不纳入四端统一）
 
 **日期**：2026-10-17
@@ -24,7 +117,7 @@
 - 曾按「发散」处理、尝试让解释器丢弃以对齐 VM，结果 18 个用例失败，证实其为
   被依赖的专属能力，遂回退、**不做统一**。
 
-### 补记：自举解释器路径的既有缺陷（本次排查发现，未修复）
+### 补记：自举解释器路径的既有缺陷（本次排查发现，**已于 2026-10-17 修复，见文首**）
 
 - `src/matha_bootstrap.py` 的自举解释路径当前**无法执行用户定义函数**：
   - `func f(a) = …` → `未定义变量 'a'`；

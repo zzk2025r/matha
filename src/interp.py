@@ -2575,10 +2575,6 @@ class Interpreter:
             v = self.env[name]
             self._log(logging.DEBUG,
                       f"eval Var '{name}' → env {self._fmt(v)}")
-            # 兼容：lambda dict（Matha 自举路径）转为 closure tuple
-            if isinstance(v, dict) and v.get("类型") == "lambda":
-                matha_env = getattr(self, '_matha_env', list(self.env.items()))
-                v = ("__closure__", v["参数"], v["体"], matha_env)
             return v
         if name in self.funcs:
             self._log(logging.DEBUG, f"eval Var '{name}' → FuncDef")

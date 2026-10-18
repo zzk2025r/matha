@@ -82,7 +82,7 @@ _TOKEN_RE = re.compile(r"""
 
 # 运算符 → Matha
 _OP_MAP = {"**": "^", "^": "^", "==": "=", "!=": "≠",
-           "&&": "且", "||": "或"}
+           "&&": "and", "||": "or"}
 # 常用数学函数名（各语言 → Matha 内建）
 _FN_MAP = {"sqrt": "func_sqrt", "sin": "func_sin", "cos": "func_cos", "tan": "func_tan",
            "exp": "func_exp", "log": "func_log", "log10": "func_log10", "ln": "func_log",
@@ -424,17 +424,121 @@ class LanguageBridge:
                 }.get(typ.strip().strip("()").split(",")[0].strip(), "")
 
     def _body_to_expr(self, body: str) -> str | None:
-        """函数体为单一表达式/单个 return 时直译，否则 None。"""
-        text = body.strip().rstrip(";").strip()
-        # 去 return 前缀
-        m = re.fullmatch(r"return\s+(.+)", text, re.DOTALL)
+        """函数体 → Matha 表达式：优先单一表达式/return，否则翻译 if/else 控制流。"""
+        text = body.strip()
+        simple = text.rstrip(";").strip()
+        m = re.fullmatch(r"return\s+(.+)", simple, re.DOTALL)
         if m:
-            text = m.group(1).strip()
-        if not text or ";" in text or "{" in text or "}" in text:
+            simple = m.group(1).strip()
+        if (simple and ";" not in simple and "{" not in simple and "}" not in simple
+                and not re.search(r"\b(if|for|while|let|var|const|match|switch|loop)\b", simple)):
+            direct = matha_expr(simple)
+            if direct is not None:
+                return direct
+        return self._foreign_stmts_to_expr(text)
+
+    def _foreign_stmts_to_expr(self, text: str) -> str | None:
+        """外部语言语句块 → 单一 Matha 表达式（return / if-else / 局部绑定）。
+
+        支持：return、if/else（含提前返回）、let/var/const/= 局部绑定。循环等
+        仍返回 None → 交由无中生有骨架。
+        """
+        text = text.strip()
+        while text.endswith(";"):
+            text = text[:-1].strip()
+        if not text:
             return None
-        if re.search(r"\b(if|for|while|let|var|const|match|switch|loop)\b", text):
+        m = re.match(r"return\b(.*)$", text, re.DOTALL)
+        if m:
+            expr = m.group(1).strip().rstrip(";").strip()
+            return matha_expr(expr) if expr else "null"
+        if re.match(r"if\b", text):
+            return self._foreign_if_to_expr(text)
+        for pat in (r"(?:let|var|const)\s+(?P<name>\w+)(?:\s*:\s*[\w\[\]<>|,\s]+?)?\s*=\s*(?P<val>[^;]+);\s*(?P<rest>.+)$",
+                    r"(?P<name>\w+)\s*:=\s*(?P<val>[^;]+);\s*(?P<rest>.+)$",
+                    r"(?P<name>\w+)\s*=\s*(?P<val>[^;]+);\s*(?P<rest>.+)$"):
+            bm = re.match(pat, text, re.DOTALL)
+            if bm:
+                val = matha_expr(bm.group("val").strip())
+                inner = self._foreign_stmts_to_expr(bm.group("rest"))
+                if val is not None and inner is not None:
+                    return f"let {_sanitize_ident(bm.group('name'))} = {val} in {inner}"
+                return None
+        if "{" not in text and "}" not in text:
+            return matha_expr(text)
+        return None
+
+    def _foreign_if_to_expr(self, text: str) -> str | None:
+        """外部语言 if/else（含提前返回）→ Matha 三元表达式。"""
+        rest = text[2:].lstrip()
+        if rest.startswith("("):
+            depth, end = 0, -1
+            for i, ch in enumerate(rest):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end < 0:
+                return None
+            cond_text, rest = rest[1:end], rest[end + 1:].lstrip()
+        else:
+            j = rest.find("{")
+            if j < 0:
+                return None
+            cond_text, rest = rest[:j], rest[j:]
+        cond = matha_expr(cond_text.strip())
+        if cond is None:
             return None
-        return matha_expr(text)
+        then_block, after = self._take_brace_block(rest.lstrip())
+        if then_block is None:
+            return None
+        then = self._foreign_stmts_to_expr(then_block)
+        if then is None:
+            return None
+        after = after.strip()
+        if after.startswith("else"):
+            tail = after[4:].lstrip()
+            if tail.startswith("if"):
+                other = self._foreign_if_to_expr(tail)
+                if other is None:
+                    return None
+                after = ""
+            elif tail.startswith("{"):
+                eb, after = self._take_brace_block(tail)
+                other = self._foreign_stmts_to_expr(eb) if eb is not None else None
+                if other is None:
+                    return None
+                after = after.strip()
+            else:
+                return None
+        elif after:
+            other = self._foreign_stmts_to_expr(after)   # 提前 return：后续为 else 分支
+            after = ""
+            if other is None:
+                return None
+        else:
+            return None
+        if after:
+            return None
+        return f"{cond} ? {then} : {other}"
+
+    @staticmethod
+    def _take_brace_block(s: str):
+        """取出起始的花括号块，返回 (块内容, 剩余文本)；失败返回 (None, s)。"""
+        if not s.startswith("{"):
+            return None, s
+        depth = 0
+        for i, ch in enumerate(s):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[1:i], s[i + 1:]
+        return None, s
 
     def _preceding_doc(self, source: str, pos: int) -> str:
         """提取函数定义前的注释作为文档。"""
@@ -494,16 +598,61 @@ class LanguageBridge:
                     str(name).lower(), "")
 
     def _py_body_to_expr(self, fn: pyast.FunctionDef) -> str | None:
-        """函数体为单一 return 表达式时翻译为 Matha 表达式，否则 None。"""
+        """函数体（单一表达式 / 局部绑定 / if-return 控制流）→ Matha 表达式。"""
         stmts = [s for s in fn.body
                  if not (isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Constant))]
-        if len(stmts) != 1 or not isinstance(stmts[0], pyast.Return):
+        return self._py_stmts_to_expr(stmts)
+
+    def _py_stmts_to_expr(self, stmts: list) -> str | None:
+        """Python 语句列表 → 单一 Matha 表达式（let-in / 三元）；无法直译返回 None。
+
+        支持：return、单目标赋值（let 绑定）、复合赋值（a += e）、if/else（含
+        提前返回）。循环、raise、多目标赋值等仍返回 None → 交由无中生有骨架。
+        """
+        if not stmts:
             return None
-        return self._py_expr(stmts[0].value)
+        head, rest = stmts[0], stmts[1:]
+        if isinstance(head, pyast.Return):
+            return self._py_expr(head.value) if head.value is not None else "null"
+        if (isinstance(head, pyast.Assign) and len(head.targets) == 1
+                and isinstance(head.targets[0], pyast.Name)):
+            val = self._py_expr(head.value)
+            inner = self._py_stmts_to_expr(rest)
+            if val is None or inner is None:
+                return None
+            return f"let {_sanitize_ident(head.targets[0].id)} = {val} in {inner}"
+        if isinstance(head, pyast.AugAssign) and isinstance(head.target, pyast.Name):
+            op = {pyast.Add: "+", pyast.Sub: "-", pyast.Mult: "*", pyast.Div: "/",
+                  pyast.Mod: "%", pyast.Pow: "^", pyast.FloorDiv: "//"}.get(type(head.op))
+            val = self._py_expr(head.value)
+            inner = self._py_stmts_to_expr(rest)
+            if op and val and inner:
+                n = _sanitize_ident(head.target.id)
+                return f"let {n} = ({n} {op} {val}) in {inner}"
+            return None
+        if isinstance(head, pyast.If):
+            return self._py_if_to_expr(head, rest)
+        return None
+
+    def _py_if_to_expr(self, node, rest: list) -> str | None:
+        """Python if（+ else / 提前返回）→ Matha 三元表达式。"""
+        cond = self._py_expr(node.test)
+        then = self._py_stmts_to_expr(node.body)
+        if node.orelse:
+            other = self._py_stmts_to_expr(node.orelse)
+        elif rest:
+            other = self._py_stmts_to_expr(rest)   # 提前 return：后续语句为 else 分支
+        else:
+            other = "null"                          # 无 else 且无后续 → 隐式返回 None
+        if cond is None or then is None or other is None:
+            return None
+        return f"{cond} ? {then} : {other}"
 
     def _py_expr(self, node) -> str | None:
-        """Python 表达式 → Matha 表达式（算术子集）。"""
+        """Python 表达式 → Matha 表达式（算术/比较/布尔子集）。"""
         if isinstance(node, pyast.Constant):
+            if node.value is None:
+                return "null"
             if isinstance(node.value, bool):
                 return "真" if node.value else "假"
             if isinstance(node.value, (int, float)):
@@ -513,16 +662,31 @@ class LanguageBridge:
             return None
         if isinstance(node, pyast.Name):
             return node.id
-        if isinstance(node, pyast.UnaryOp) and isinstance(node.op, pyast.USub):
+        if isinstance(node, pyast.UnaryOp):
             inner = self._py_expr(node.operand)
-            return f"-({inner})" if inner else None
+            if inner is None:
+                return None
+            if isinstance(node.op, pyast.USub):
+                return f"-({inner})"
+            if isinstance(node.op, pyast.Not):
+                return f"not ({inner})"
+            return None
         if isinstance(node, pyast.BinOp):
             op = {pyast.Add: "+", pyast.Sub: "-", pyast.Mult: "*",
-                  pyast.Div: "/", pyast.Mod: "%", pyast.Pow: "^"}.get(type(node.op))
+                  pyast.Div: "/", pyast.Mod: "%", pyast.Pow: "^",
+                  pyast.FloorDiv: "//"}.get(type(node.op))
             l, r = self._py_expr(node.left), self._py_expr(node.right)
             if op and l and r:
                 return f"({l} {op} {r})"
             return None
+        if isinstance(node, pyast.BoolOp):
+            sym = "and" if isinstance(node.op, pyast.And) else "or"
+            parts = [self._py_expr(v) for v in node.values]
+            if any(p is None for p in parts):
+                return None
+            return parts[0] if len(parts) == 1 else "(" + f" {sym} ".join(parts) + ")"
+        if isinstance(node, pyast.Compare):
+            return self._py_compare(node)
         if isinstance(node, pyast.Call):
             fn = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
             args = [self._py_expr(a) for a in node.args]
@@ -534,6 +698,25 @@ class LanguageBridge:
                        self._py_expr(node.orelse))
             return f"{c} ? {t} : {e}" if all((c, t, e)) else None
         return None
+
+    def _py_compare(self, node) -> str | None:
+        """Python 比较（含链式 a < b < c）→ Matha 比较表达式。"""
+        syms = {pyast.Eq: "=", pyast.NotEq: "≠", pyast.Lt: "<",
+                pyast.Gt: ">", pyast.LtE: "<=", pyast.GtE: ">="}
+        left = self._py_expr(node.left)
+        if left is None:
+            return None
+        parts = []
+        for op, comp in zip(node.ops, node.comparators):
+            right = self._py_expr(comp)
+            sym = syms.get(type(op))
+            if right is None or sym is None:
+                return None
+            parts.append(f"{left} {sym} {right}")
+            left = right
+        if not parts:
+            return None
+        return parts[0] if len(parts) == 1 else "(" + " and ".join(parts) + ")"
 
     # ------------------------------------------------------------------
     # 发射 Matha 模块
