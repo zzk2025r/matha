@@ -1,5 +1,32 @@
 # Matha 变更摘要
 
+## 特性：`return` / `break` / `continue` 语句（语法器补全）
+
+**日期**：2026-10-18
+
+### 背景
+
+`ast.ReturnStmt` / `BreakStmt` / `ContinueStmt` 此前已由**解释器**
+（`_ReturnException`/`_BreakException`/`_ContinueException`，`_call_lambda` 捕获返回值）
+与 **MBC 编译器**完整支持，但**语法器从未产出它们**——源码中的 `return`/`break`/`continue`
+一律报「期望表达式」，块体内无法提前返回（这也是语言桥循环体直译的瓶颈）。
+
+### 变更
+
+1. `src/parser.py`：`_parse_mech_stmt` 控制流关键字分发加入 `KW_RETURN`/`KW_BREAK`/
+   `KW_CONTINUE`；`_parse_statement` 与 `_parse_decl` 新增三条产生式——
+   `return [expr]`（无表达式 → null）、`break`、`continue`。
+2. `src/matha/language_bridge.py`：语句块直译新增 `return`/`break`/`continue`，
+   循环内提前 `return` 不再退化为无中生有骨架。
+
+### 验证
+
+- `tests/test_scoped_blocks.py` +4：块内 `return` 取值、提前 `return`（0/10）、
+  `while` 内 `break`（3）、`for` 内 `continue`（4）。
+- `tests/test_language_bridge.py`：`is_primeish`（循环内提前 `return`）译为语句块并可运行
+  （7→True、10→False）。
+- 回归：全量 **3314 passed**（含 mbc 756）；lint：新增代码无告警。
+
 ## 增强：语言桥语句块直译（`SCOPED_BLOCKS` 开启时循环体不再骨架）
 
 **日期**：2026-10-18

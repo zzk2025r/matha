@@ -104,5 +104,47 @@ def test_on_block_isolation_no_leak():
     assert _out(src) == [2, 1]
 
 
+# ---------- return / break / continue（块内语句） ----------
+
+def test_return_value():
+    features.set_feature(_ON, True)
+    assert _out('func f(x: Int) -> Int = (x) => { return x * 2 }\n[f(3)]') == [6]
+
+
+def test_early_return():
+    features.set_feature(_ON, True)
+    src = ('func f(x: Int) -> Int = (x) => {\n'
+           '  if x < 0 { return 0 }\n'
+           '  return x * 2\n'
+           '}\n[f(-5)]\n[f(5)]')
+    assert _out(src) == [0, 10]
+
+
+def test_break_in_while():
+    features.set_feature(_ON, True)
+    src = ('func f() -> Int = () => {\n'
+           '  s = 0\n'
+           '  while 真 {\n'
+           '    s = s + 1\n'
+           '    if s >= 3 { break }\n'
+           '  }\n'
+           '  return s\n'
+           '}\n[f()]')
+    assert _out(src) == [3]
+
+
+def test_continue_in_for():
+    features.set_feature(_ON, True)
+    src = ('func f() -> Int = () => {\n'
+           '  s = 0\n'
+           '  for i in [1, 2, 3, 4] {\n'
+           '    if i % 2 == 0 { continue }\n'
+           '    s = s + i\n'
+           '  }\n'
+           '  return s\n'
+           '}\n[f()]')
+    assert _out(src) == [4]          # 1 + 3
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v", "-s"]))

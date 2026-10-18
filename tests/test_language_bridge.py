@@ -5,7 +5,8 @@
   1. Python 路径 — if/return、elif、let 绑定、布尔/比较/整除翻译
   2. 外部语言路径（rust / go / js / c）— if/else、else if、提前 return、let
   3. 循环等未支持结构 → 保留无中生有骨架（默认行为）
-  4. SCOPED_BLOCKS 开启 — 循环/多语句体译为 Matha 语句块 `{ ... }` 并可运行
+  4. SCOPED_BLOCKS 开启 — 循环/多语句体译为 Matha 语句块 `{ ... }`（含提前 `return`）
+     并可运行
   5. fuse：生成模块通过 Matha parser 自验证
 """
 import os
@@ -172,10 +173,10 @@ def clamp(v: int, lo: int, hi: int) -> int:
         v = hi
     return v
 
-def not_prime_ish(n: int) -> bool:
+def is_primeish(n: int, cand: list) -> bool:
     if n < 2:
         return False
-    for i in range(3, 10):
+    for i in cand:
         if n % i == 0:
             return False
     return True
@@ -223,17 +224,20 @@ def test_if_statement_block_translates(block_record):
     assert 'if v < lo' in f.body and 'if v > hi' in f.body
 
 
-def test_early_return_in_loop_stays_skeleton(block_record):
-    # 提前 return（块内非末尾 return）不支持 → 仍为无中生有骨架
-    f = _fn(block_record, 'not_prime_ish')
-    assert f.generated
+def test_early_return_in_loop_translates(block_record):
+    # 提前 return → 译为 Matha `return`，不再退化为无中生有骨架
+    f = _fn(block_record, 'is_primeish')
+    assert not f.generated, f.body
+    assert 'return 假' in f.body
 
 
 def test_block_functions_run(block_record):
     sig = LanguageBridge()._sig_line
     for name, call, expect in [('sum_list', '[sum_list([1, 2, 3, 4])]', 10),
                                ('sum_to', '[sum_to(5)]', 15),
-                               ('clamp', '[clamp(9, 1, 5)]', 5)]:
+                               ('clamp', '[clamp(9, 1, 5)]', 5),
+                               ('is_primeish', '[is_primeish(7, [2, 3, 4])]', True),
+                               ('is_primeish', '[is_primeish(10, [3, 5])]', False)]:
         f = _fn(block_record, name)
         assert interpret(sig(f) + '\n' + call)[0] == [expect], name
 

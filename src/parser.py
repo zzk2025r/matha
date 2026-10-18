@@ -783,10 +783,12 @@ class Parser:
         if self._check(TokenType.LIT_INTEGER) and self._peek(1).type in (TokenType.NEWLINE, TokenType.EOF):
             return self._parse_global_id_stmt()
 
-        # go / if / while / for / match / switch / typeof / func / try 等控制流语句（代码块内裸语句）
+        # go / if / while / for / match / switch / typeof / func / try / return /
+        # break / continue 等控制流语句（代码块内裸语句）
         if self._check(TokenType.KW_GO, TokenType.KW_IF, TokenType.KW_WHILE, TokenType.KW_FOR,
                        TokenType.KW_MATCH, TokenType.KW_SWITCH, TokenType.KW_TYPEOF,
-                       TokenType.KW_FUNC, TokenType.KW_TRY):
+                       TokenType.KW_FUNC, TokenType.KW_TRY, TokenType.KW_RETURN,
+                       TokenType.KW_BREAK, TokenType.KW_CONTINUE):
             return self._parse_statement()
 
         # 其他 → 表达式 / 绑定
@@ -3022,6 +3024,21 @@ class Parser:
         # try { block } catch [(var)] { block } [finally { block }]
         if tok.type == TokenType.KW_TRY:
             return self._parse_try_stmt()
+        # return <expr> — 从函数/块返回（值可省略 → None）
+        if tok.type == TokenType.KW_RETURN:
+            self._advance()
+            # return 后紧跟语句分隔符/分号/闭括号 → 无表达式，返回 null
+            if (self._is_stmt_separator()
+                    or (self._check(TokenType.SYMBOL) and self._current().value == ";")):
+                return ast.ReturnStmt(value=None)
+            return ast.ReturnStmt(value=self._parse_expr())
+        # break / continue — 中断/跳过当前循环迭代
+        if tok.type == TokenType.KW_BREAK:
+            self._advance()
+            return ast.BreakStmt()
+        if tok.type == TokenType.KW_CONTINUE:
+            self._advance()
+            return ast.ContinueStmt()
         return self._parse_expr_or_binding()
 
     def _parse_let(self) -> ast.AST:
@@ -3836,6 +3853,21 @@ class Parser:
         # try { block } catch [(var)] { block } [finally { block }]
         if tok.type == TokenType.KW_TRY:
             return self._parse_try_stmt()
+        # return <expr> — 从函数/块返回（值可省略 → None）
+        if tok.type == TokenType.KW_RETURN:
+            self._advance()
+            # return 后紧跟语句分隔符/分号/闭括号 → 无表达式，返回 null
+            if (self._is_stmt_separator()
+                    or (self._check(TokenType.SYMBOL) and self._current().value == ";")):
+                return ast.ReturnStmt(value=None)
+            return ast.ReturnStmt(value=self._parse_expr())
+        # break / continue — 中断/跳过当前循环迭代
+        if tok.type == TokenType.KW_BREAK:
+            self._advance()
+            return ast.BreakStmt()
+        if tok.type == TokenType.KW_CONTINUE:
+            self._advance()
+            return ast.ContinueStmt()
         return self._parse_expr_or_binding()
 
     def _parse_func_def(self) -> ast.FuncDef:

@@ -622,9 +622,9 @@ class LanguageBridge:
     def _py_body_to_block(self, fn: pyast.FunctionDef) -> str | None:
         """函数体 → Matha 代码块体 `{ ... }`（局部绑定 / if 语句 / while / for 循环）。
 
-        仅在 `SCOPED_BLOCKS` 开启时使用。结构为「语句序列 + 末尾表达式（隐式返回）」。
-        限制：不支持非末尾 `return`（提前返回）、`raise`、方法调用等 → 返回 None，
-        交由无中生有骨架。
+        仅在 `SCOPED_BLOCKS` 开启时使用。结构为「语句序列 + 末尾表达式（隐式返回）」，
+        末尾 `return X` 直接作为块的尾表达式；其余位置的 `return`/`break`/`continue`
+        译为同名语句。限制：`raise`、方法调用等仍返回 None → 交由无中生有骨架。
         """
         stmts = [s for s in fn.body
                  if not (isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Constant))]
@@ -664,8 +664,8 @@ class LanguageBridge:
     def _py_stmt_lines(self, stmt, ind: int, in_loop: bool) -> list[str] | None:
         """Python 语句 → Matha 代码块内的行列表（不含尾部换行）。
 
-        支持：单目标赋值、复合赋值、if/else 语句、while、for；`return` 仅允许出现在
-        函数体末尾（由 `_py_body_to_block` 处理），其余位置返回 None。
+        支持：单目标赋值、复合赋值、`return`、`break`、`continue`、if/else 语句、
+        while、for。
         """
         pad = "  " * ind
         if isinstance(stmt, pyast.Pass):
@@ -685,6 +685,15 @@ class LanguageBridge:
                 return None
             n = _sanitize_ident(stmt.target.id)
             return [f"{pad}{n} = {n} {op} {val}"]
+        if isinstance(stmt, pyast.Return):
+            val = "null" if stmt.value is None else self._py_expr(stmt.value)
+            if val is None:
+                return None
+            return [f"{pad}return {val}"]
+        if isinstance(stmt, pyast.Break):
+            return [f"{pad}break"]
+        if isinstance(stmt, pyast.Continue):
+            return [f"{pad}continue"]
         if isinstance(stmt, pyast.If):
             cond = self._py_expr(stmt.test)
             if cond is None:
