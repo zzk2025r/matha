@@ -461,9 +461,9 @@ class Lexer:
                 yield self._number()
                 continue
 
-            # 字符串字面量
-            if ch == '"':
-                yield self._string()
+            # 字符串字面量（双引号；单引号同为字符串定界符）
+            if ch == '"' or ch == "'":
+                yield self._string(ch)
                 continue
 
             # 标识符 / 关键字 / CJK / 顿号（、在【】内作为文本分隔符）
@@ -667,12 +667,13 @@ class Lexer:
             return _ESCAPE_MAP[esc]
         return "\\" + esc
 
-    def _string(self) -> Token:
-        """解析字符串字面量 "..."（转义规则对齐 CPython，见 _decode_escape）。"""
+    def _string(self, quote: str = '"') -> Token:
+        """解析字符串字面量（`quote` 为定界符，默认 `"`；单引号同理）。
+        转义规则对齐 CPython，见 _decode_escape。"""
         start_line, start_col = self.line, self.col
         self._advance()  # 消费开引号
         result = ""
-        while self.pos < self.n and self.src[self.pos] != '"':
+        while self.pos < self.n and self.src[self.pos] != quote:
             ch = self.src[self.pos]
             if ch == "\\":
                 esc_line, esc_col = self.line, self.col

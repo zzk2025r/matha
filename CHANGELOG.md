@@ -1,5 +1,33 @@
 # Matha 变更摘要
 
+## 增强：单引号字符串字面量 + `var` 声明（自举文件迁移推进）
+
+**日期**：2026-10-18
+
+### 背景
+
+`matha/bootstrap_test.matha` 的迁移受阻于两处解析缺口（对应
+`matha_bootstrap_migration_analysis.md` 下一步 4）。
+
+### 变更
+
+1. **词法器**（`src/lexer.py`）：`_string` 增加 `quote` 参数，`'` 与 `"`
+   同为字符串定界符（此前 `'` 被当作 SYMBOL，导致解析失败）。
+2. **语法器**（`src/parser.py`）：`_parse_statement` 与 `_parse_decl` 识别
+   `var NAME = expr` 声明，等价语句层绑定 `NAME = expr`（生成 `Binding`），
+   顶层与模块级均支持。
+
+### 验证
+
+- `matha/bootstrap_test.matha` 解析推进至 L248（越过单引号字符串与 `var` 声明）。
+- 回归：`tests`（不含 `test_mbc_bootstrap.py`）2532 项全通过。
+
+### 遗留（低优先级，暂缓）
+
+- 元组解构**赋值**（`(_, env1b) = ...`）：当前 `(a, b) = e` 仅解析为等值
+  `BinaryOp`，尚未生成解构绑定；`_` 亦未作为元组模式通配符。
+- lambda 体内可变赋值语义（`通过数 = 通过数 + 1` 目前视为等值）。
+
 ## 增强：语言桥控制流函数体翻译（吞噬骨架逐步补全）
 
 **日期**：2026-10-18

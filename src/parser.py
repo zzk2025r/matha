@@ -2945,6 +2945,11 @@ class Parser:
         # let x = expr [in expr]
         if tok.type == TokenType.IDENTIFIER and tok.value == "let":
             return self._parse_let()
+        # var x = expr — 可变变量声明（语句层绑定，等价 x = expr；支持模块级）
+        if (tok.type == TokenType.IDENTIFIER and tok.value == "var"
+                and self._peek(1).type == TokenType.IDENTIFIER):
+            self._advance()
+            return self._parse_expr_or_binding()
         # while cond { block }
         if tok.type == TokenType.KW_WHILE:
             return self._parse_while()
@@ -3753,6 +3758,11 @@ class Parser:
         # 控制流语句（let/while/if/for）在顶层也可出现
         if tok.type == TokenType.IDENTIFIER and tok.value == "let":
             return self._parse_let()
+        # var x = expr — 可变变量声明（等价语句层绑定 x = expr）
+        if (tok.type == TokenType.IDENTIFIER and tok.value == "var"
+                and self._peek(1).type == TokenType.IDENTIFIER):
+            self._advance()
+            return self._parse_expr_or_binding()
         if tok.type == TokenType.KW_WHILE:
             return self._parse_while()
         if tok.type == TokenType.KW_IF:
