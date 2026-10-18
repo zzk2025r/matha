@@ -1,5 +1,38 @@
 # Matha 变更摘要
 
+## 特性：`SCOPED_BLOCKS` 特性开关（`{ }` 代码块语句上下文 + 独立子作用域，默认关闭）
+
+**日期**：2026-10-18
+
+### 背景
+
+Matha 函数体为单一表达式；lambda 体 `{ }` 内的 `名 = 值` 因解析器 `_in_lambda_body`
+标记被解析为**等于比较**而非绑定，导致多语句函数体与循环无法在语言层面表达
+（自举迁移 下一步 3「控制流函数体翻译」的根因）。
+
+### 变更（默认关闭，现有行为保持不变）
+
+1. `src/features.py`（新增）：特性开关基础设施——环境变量 `MATHA_FEATURE_<NAME>`、
+   `MATHA_FEATURES` 逗号清单、进程内 `set_feature`/`clear_feature` 覆盖（覆盖优先），
+   默认全部关闭。新增开关 `SCOPED_BLOCKS`（`features.scoped_blocks()`）。
+2. `src/parser.py`：`_parse_code_block` / `_parse_block_body` 在开关开启时以**语句上下文**
+   解析（块内 `_in_lambda_body=False`），使 `名 = 值` 解析为 `Binding`（保存/恢复外层标记）。
+3. `src/interp.py`：代码块作为表达式时（开关开启）建立**独立子作用域**（env 浅拷贝）——
+   块内绑定互不泄漏到外层，lambda 体成为真正的语句块，原生支持多语句与循环累加。
+
+### 验证
+
+- 新增 `tests/test_scoped_blocks.py`（10 项）：开关解析（默认关/环境变量/清单/覆盖优先）；
+  关闭=旧语义（`y = x+1` 为等于比较 → 未定义变量）；开启=语句块语义
+  （块绑定 8、多语句 4、`for` 累加 6、`while` 累加 5、子作用域不泄漏 `[2, 1]`）。
+- 回归（默认关闭，行为不变）：主套件 `2547 passed` + `test_mbc_bootstrap.py` `756 passed`
+  = **3303 passed**。
+
+### 说明
+
+- 当前仅在 Python 解释器路径实现；MBC/VM、原生后端与自举编译器尚未接入该语义（四端一致，后续）。
+- 命令行切换开关待补；当前经环境变量 / 进程内 API 控制。迁移策略：先在非核心模块灰度验证再放量。
+
 ## 测试：`interp.matha` 自测 MechUnit 的 Matha-to-Matha 求值验证（自举迁移 下一步 2）
 
 **日期**：2026-10-18

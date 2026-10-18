@@ -25,6 +25,7 @@ from typing import Any
 
 from src import ast_nodes as ast
 from src import custom_ops
+from src import features
 from src.lexer import Lexer
 from src.tokens import Token, TokenType
 
@@ -688,13 +689,21 @@ class Parser:
         self._expect(TokenType.PUNCT_LBRACE, "代码块开括号 {")
         self._skip_newlines()
         stmts: list[Any] = []
-        while not self._check(TokenType.PUNCT_RBRACE, TokenType.EOF):
-            stmt = self._parse_mech_stmt()
-            if stmt is not None:
-                stmts.append(stmt)
-            # 跳过换行和分号（分号作为语句分隔符，兼容 Python/C 风格）
-            self._skip_newlines()
-            self._skip_semicolon()
+        # SCOPED_BLOCKS：`{ }` 为语句上下文 —— 块内 `名 = 值` 解析为绑定（含 lambda 体内），
+        # 从而支持多语句函数体与循环。旧语义下 lambda 体内 `=` 一律为等于比较。
+        saved_lambda = self._in_lambda_body
+        if features.scoped_blocks():
+            self._in_lambda_body = False
+        try:
+            while not self._check(TokenType.PUNCT_RBRACE, TokenType.EOF):
+                stmt = self._parse_mech_stmt()
+                if stmt is not None:
+                    stmts.append(stmt)
+                # 跳过换行和分号（分号作为语句分隔符，兼容 Python/C 风格）
+                self._skip_newlines()
+                self._skip_semicolon()
+        finally:
+            self._in_lambda_body = saved_lambda
         self._expect(TokenType.PUNCT_RBRACE, "代码块闭括号 }")
         return ast.CodeBlock(stmts=stmts)
 
@@ -702,13 +711,19 @@ class Parser:
         """解析代码块内部语句（不含外层 { }）。"""
         self._skip_newlines()
         stmts: list[Any] = []
-        while not self._check(TokenType.PUNCT_RBRACE, TokenType.EOF):
-            stmt = self._parse_mech_stmt()
-            if stmt is not None:
-                stmts.append(stmt)
-            # 跳过换行和分号（分号作为语句分隔符，兼容 Python/C 风格）
-            self._skip_newlines()
-            self._skip_semicolon()
+        saved_lambda = self._in_lambda_body
+        if features.scoped_blocks():
+            self._in_lambda_body = False
+        try:
+            while not self._check(TokenType.PUNCT_RBRACE, TokenType.EOF):
+                stmt = self._parse_mech_stmt()
+                if stmt is not None:
+                    stmts.append(stmt)
+                # 跳过换行和分号（分号作为语句分隔符，兼容 Python/C 风格）
+                self._skip_newlines()
+                self._skip_semicolon()
+        finally:
+            self._in_lambda_body = saved_lambda
         return ast.CodeBlock(stmts=stmts)
 
     def _parse_mech_stmt(self):

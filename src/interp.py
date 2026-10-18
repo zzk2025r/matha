@@ -55,6 +55,7 @@ from typing import Any
 
 from src import ast_nodes as ast
 from src import custom_ops
+from src import features
 from src import formula_schema as _fs
 from src import text_encoding as _te
 
@@ -2132,6 +2133,14 @@ class Interpreter:
             # 代码块作为表达式：隔离 outputs，防止中间输出泄漏到全局
             saved_outputs = self.outputs
             self.outputs = []
+            # SCOPED_BLOCKS：为块建立独立子作用域（浅拷贝）——块内 `名 = 值` 绑定互不
+            # 泄漏到外层，使块（含 lambda 体）成为真正的语句块，原生支持多语句/循环累加。
+            saved_env = self.env
+            saved_matha_env = getattr(self, "_matha_env", None)
+            if features.scoped_blocks():
+                self.env = dict(self.env) if isinstance(self.env, dict) else dict(saved_env)
+                if isinstance(saved_matha_env, list):
+                    self._matha_env = list(saved_matha_env)
             try:
                 for s in expr.stmts:
                     self._exec_stmt(s)
@@ -2143,6 +2152,9 @@ class Interpreter:
                     return self._eval(last)
                 return None
             finally:
+                self.env = saved_env
+                if features.scoped_blocks():
+                    self._matha_env = saved_matha_env
                 self.outputs = saved_outputs
         if isinstance(expr, ast.TypeOfExpr):
             # typeof / n 是关键字（tokens.py: KW_TYPEOF），编译到 VM 侧是
