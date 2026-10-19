@@ -153,8 +153,18 @@ PARITY_CASES = {
     "range_reversed": "输出(range(5, 2))",
     "range_len": "输出(len(range(2, 5)))",
     "range_for_loop": "let s = 0\nfor i in range(1, 4) { s = s + i }\n输出(s)",
-    # 注：`list(range(...))` 不列入——`list` 内建本身四端有既有分歧
-    # （解释器 list(x) → [x] 构造，VM/原生 list(x) → 转换），与 range 无关。
+    # list 内建转换语义（对齐原生 `_emit_builtin_list`：容器→转换、标量→null）。
+    # 解释器此前走 `list(args)` 构造：list([1,2]) → [[1,2]]、list({"a":1}) → [{"a":1}]；
+    # VM 此前挂 Python 内建 list：list(5)/list() → TypeError。
+    "list_of_list": "输出(list([1, 2, 3]))",
+    "list_empty": "输出(list([]))",
+    "list_scalar": "输出(list(5))",
+    "list_zero_arg": "输出(list())",
+    "list_of_null": "输出(list(null))",
+    "list_text": '输出(list("abc"))',
+    "list_range": "输出(list(range(0, 4)))",
+    # 注：dict 键序不列入——dict 字面量插入顺序本身是既有分歧
+    # （解释器保源码序、VM/原生反序），`输出(d)` 即可见，与 list 无关。
 }
 
 

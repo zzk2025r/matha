@@ -1300,6 +1300,10 @@ _PARITY_CASES = {
                     '输出(ord("😀"))\n输出(chr(128512))\n',
     "b16t_list": "输出(list([1, 2, 3]))\n输出(list([]))\n"
                  '输出(len(list("abcd")))\n输出(get(list([7, 8, 9]))(1))\n',
+    # 标量与无参：原生 ls_fail→null；解释器 builtin_list / VM _builtin_list
+    # 曾分别是 [[5]]/[0] 与 TypeError（见 CHANGELOG「list 内建四端统一」）。
+    "b16t_list_scalar": "输出(list(5))\n输出(list())\n输出(list(null))\n"
+                        "输出(list(真))\n",
     "b16t_list_dict": 'let d = {"a": 1, "b": 2, "c": 3} in\n'
                       "输出(len(list(d)))\n",
     "b16t_encode_decode": '输出(encode_binary("Hi"))\n'

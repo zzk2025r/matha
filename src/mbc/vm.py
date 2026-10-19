@@ -230,6 +230,26 @@ def _builtin_range(start, end):
     return list(range(start, end))
 
 
+def _builtin_list(*args):
+    """list(x) → 转换成列表：文本→码点、列表/元组/集合→浅拷贝、字典→键列表、
+    标量与无参→null。与原生 `_emit_builtin_list`（ls_copy/ls_str/ls_dict/
+    ls_fail→null）及解释器 `builtin_list` 一致。
+
+    此前 `b.setdefault("list", list)` 挂 Python 内建：容器语义相同，但
+    `list(5)`/`list()` 抛 `TypeError: 'int' object is not iterable`，
+    而原生返回 null（`b16t_list` 对拍表只覆盖了 str/list/dict 路径）。"""
+    if not args:
+        return None
+    x = args[0]
+    if isinstance(x, str):
+        return list(x)
+    if isinstance(x, dict):
+        return list(x)
+    if isinstance(x, (list, tuple, set)):
+        return list(x)
+    return None
+
+
 _UNARYOPS = {
     "neg": lambda a: -a,
     "not": lambda a: not a,
@@ -405,7 +425,7 @@ def _default_builtins() -> dict:
     b.setdefault("_to_float", float)  # 供 stdlib 增强版 float 分派到数值转换
     b.setdefault("str", str)
     b.setdefault("bool", bool)
-    b.setdefault("list", list)
+    b.setdefault("list", _builtin_list)
     b.setdefault("ord", ord)
     b.setdefault("chr", chr)
     b.setdefault("range", _curry2(_builtin_range))

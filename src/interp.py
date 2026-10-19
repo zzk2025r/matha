@@ -497,15 +497,22 @@ def builtin_mut_set_at(lst):
 
 
 def builtin_list(*args):
-    """list() → []；list(文本) → 码点列表；list(x) → [x]
+    """list(x) → 转换成列表（对齐原生 `_emit_builtin_list` 的转换语义）。
 
-    砖块 19：文本按码点拆分（与原生/VM 的 list(文本) 对齐）。VM 侧
-    vm.py:238 直接 `b.setdefault("list", list)`，Python 内建 list 天然按码点
-    迭代字符串；此处原先返回 list(args)，会把整串包成单元素 ["你好"]。
+    文本 → 码点列表（砖块 19，与原生/VM 的 list(文本) 对齐）；列表/元组/集合 →
+    浅拷贝；字典 → 键列表；标量与无参（实测两端均以 0 落到本函数）→ null。
+    与原生 `ls_copy` / `ls_str` / `ls_dict` / `ls_fail→null` 四分支一一对应。
     """
-    if len(args) == 1 and isinstance(args[0], str):
-        return list(args[0])
-    return list(args)
+    if not args:
+        return None
+    x = args[0]
+    if isinstance(x, str):
+        return list(x)
+    if isinstance(x, dict):
+        return list(x)
+    if isinstance(x, (list, tuple, set)):
+        return list(x)
+    return None
 
 
 def builtin_type_of(v) -> str:

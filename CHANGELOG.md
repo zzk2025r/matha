@@ -1,5 +1,76 @@
 # Matha 变更摘要
 
+## 修复：`list` 内建转换语义四端统一（容器→转换、标量/无参→null）
+
+**日期**：2026-10-19
+
+### 背景
+
+`range` 四端统一时顺带发现 `list` 内建三端互不相同，且**解释器是唯一偏离方**：
+
+| 端 | `list([1,2])` | `list({"a":1})` | `list(5)` | `list()` |
+|---|---|---|---|---|
+| 修复前·解释器 | `[[1,2]]` | `[{"a":1}]` | `[5]` | `[0]` |
+| 修复前·VM | `[1,2]` | 键列表 | **TypeError** | **TypeError** |
+| 原生 | `[1,2]` | 键列表 | `None` | `None` |
+
+定标依据是**既有的原生↔VM 对拍表** `tests/test_native.py` 的 `b16t_list`
+（`list([1,2,3])`、`get(list([7,8,9]))(1)`）与 `b16t_list_dict`（`len(list(d))`），
+以及原生 `_emit_builtin_list` 的 docstring：
+**「文本→按 Unicode 码点切分的文本列表；列表→浅拷贝；字典→键列表；其余→null」**。
+`matha/vm.matha:332` 自举 VM 亦写死 `值返回(list(参数[0]))`（恰 1 参）。
+解释器 `builtin_list` 走的却是 `return list(args)`——**构造器**语义：
+`list([1,2])` 把整个列表包成单元素 `[[1,2]]`，与转换语义相反。
+
+### 变更
+
+1. **解释器 `builtin_list`**（`src/interp.py`）改为逐类转换，与原生四个分支
+   （`ls_copy` / `ls_str` / `ls_dict` / `ls_fail→null`）一一对应：
+   文本→码点、列表/元组/集合→浅拷贝、字典→键列表、标量与无参→`null`。
+2. **VM 换掉 Python 内建 `list`**（`src/mbc/vm.py`）：新增 `_builtin_list` 并以
+   `b.setdefault("list", _builtin_list)` 注册。容器路径原本与 Python `list` 一致，
+   但 `list(5)`/`list()` 抛 `TypeError: 'int' object is not iterable`，
+   而原生返回 `null`——对拍表只覆盖了 str/list/dict 路径，故长期未暴露。
+3. **原生零改动**——它是定标基准。
+4. 无参 `list()` 统一为 `null`：实测解释器与 VM 的 0 参调用都把 `0` 传进内建
+   （`list()` 与 `list(0)` 无法区分），原生亦为 `0` → 非指针 → `ls_fail → null`；
+   三端因此天然可统一到 `null`，无需动原生编译器。
+
+### 四端实测（本条修后）
+
+| case | 解释器 | VM | 原生 |
+|---|---|---|---|
+| `list([1,2,3])` | `[1, 2, 3]` | `[1, 2, 3]` | `[1, 2, 3]` |
+| `list([])` | `[]` | `[]` | `[]` |
+| `list("abc")` | `['a','b','c']` | 同 | 同 |
+| `list(5)` / `list()` / `list(null)` | `None` | `None` | `None` |
+| `list(range(0,4))` | `[0,1,2,3]` | 同 | 同 |
+
+### 顺带确证的两条既有分歧（非本次引入，另记待办）
+
+- **dict 字面量键插入顺序**：解释器保源码序 `{'a':1,'b':2}`，VM/原生**反序**
+  `{'b':2,'a':1}`（`输出(d)` 即可见）。VM 与原生彼此一致，故 `b16t_list_dict`
+  只断言 `len` 从未暴露。与 `list()` 无关——本次 `list` 实现三端逻辑完全相同，
+  仅因底层键序不同而输出不同序，故对拍用例不纳入 dict。
+- **原生 arity=1 内建的 0 参/多参调用缺编译期检查**：`len([1],[2])`、
+  `ord("a","b")`、`list([1],[2])` 在原生一律 0xC0000005 崩溃（`_BUILTIN_ARITY`
+  仅用于判断是否柯里化），而解释器/VM 由柯里化自然报「不可调用的值」。
+  这是原生通用健壮性问题（不止 `list`），需在 CALL 编译处按 arity 表校验。
+
+### 验证
+
+- `tests/test_interp_parity.py` `PARITY_CASES` +7（`list_of_list` / `list_empty` /
+  `list_scalar` / `list_zero_arg` / `list_of_null` / `list_text` / `list_range`；
+  上一轮因 wrap 被排除的 `list(range(...))` 现已三端一致，重新纳入）。
+- `tests/test_native.py` 对拍表 +`b16t_list_scalar`（标量/无参/`null`/布尔
+  走 VM↔原生自动对拍）。
+- 目标测试 869 passed（`test_interp_parity` + `test_brick19_text` + `test_native`
+  + `test_native_heap`）。
+- 全量回归：默认 **3396 passed**；`MATHA_FEATURE_SCOPED_BLOCKS=1` 全量开启
+  **3396 passed**（**零差异**）。
+- lint：`interp.py` 57、`vm.py` 11、`test_native.py` 11、`test_interp_parity.py` 3
+  —— **四文件全部与 HEAD 逐项同基线，新增代码零 lint**。
+
 ## 增强：`range` 四端统一（两参 → 列表），语言桥放行 `range`
 
 **日期**：2026-10-19
