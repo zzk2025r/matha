@@ -264,5 +264,137 @@ def test_flag_off_keeps_loop_skeleton():
     assert _fn(rec, 'sum_list').generated
 
 
+# ── 语句块直译扩展：解包 / 链式赋值 / 下标 / 元组目标 / 数学内建 ──
+
+_EXT_PY_SRC = '''
+def pair_sum() -> int:
+    a, b = 1, 2
+    return a + b
+
+def same_value() -> int:
+    a = b = 3
+    return a + b
+
+def bump_first(xs: list) -> int:
+    xs[0] = 9
+    return xs[0]
+
+def pair_total(pairs: list) -> int:
+    t = 0
+    for i, v in pairs:
+        t = t + v
+    return t
+
+def abs_sum(xs: list) -> int:
+    s = 0
+    for x in xs:
+        s = s + abs(x)
+    return s
+'''
+
+_ELSE_PY_SRC = '''
+def while_else(n: int) -> int:
+    i = 0
+    while i < n:
+        i += 1
+    else:
+        return 9
+    return 0
+
+def for_else(xs: list, t: int) -> bool:
+    for x in xs:
+        if x == t:
+            break
+    else:
+        return False
+    return True
+'''
+
+_MISSING_FN_PY_SRC = '''
+def nested(n: int) -> int:
+    s = 0
+    for i in range(n):
+        s = s + i
+    return s
+
+def counted(xs: list) -> int:
+    t = 0
+    for i, v in enumerate(xs):
+        t = t + v
+    return t
+'''
+
+
+@pytest.fixture
+def ext_record(_isolate_scoped_flag):
+    features.set_feature("SCOPED_BLOCKS", True)
+    return LanguageBridge().devour('python', _EXT_PY_SRC, 'bridge_ext_test')
+
+
+def test_tuple_unpack_block(ext_record):
+    f = _fn(ext_record, 'pair_sum')
+    assert not f.generated, f.body
+    assert '(a, b) = (1, 2)' in f.body
+
+
+def test_chain_assign_block(ext_record):
+    f = _fn(ext_record, 'same_value')
+    assert not f.generated, f.body
+    assert 'b = 3' in f.body and 'a = b' in f.body
+
+
+def test_subscript_assign_and_read_block(ext_record):
+    f = _fn(ext_record, 'bump_first')
+    assert not f.generated, f.body
+    assert 'mut_set_at(xs, 0, 9)' in f.body
+    assert 'xs[0]' in f.body                      # 尾 return 折叠为块尾表达式
+
+
+def test_for_tuple_target_block(ext_record):
+    f = _fn(ext_record, 'pair_total')
+    assert not f.generated, f.body
+    assert 'for (i, v) in pairs' in f.body
+
+
+def test_extended_blocks_run(ext_record):
+    sig = LanguageBridge()._sig_line
+    for name, call, expect in [('pair_sum', '[pair_sum()]', 3),
+                               ('same_value', '[same_value()]', 6),
+                               ('bump_first', '[bump_first([1, 2])]', 9),
+                               ('pair_total', '[pair_total([(1, 10), (2, 20)])]', 30),
+                               ('abs_sum', '[abs_sum([-1, 2, -3])]', 6)]:
+        f = _fn(ext_record, name)
+        assert interpret(sig(f) + '\n' + call)[0] == [expect], name
+
+
+def test_math_builtins_have_no_func_prefix(ext_record):
+    # _FN_MAP 曾把 abs/sqrt 译成 func_abs/func_sqrt —— 这些名字全库不存在
+    f = _fn(ext_record, 'abs_sum')
+    assert 'func_abs' not in f.body
+    assert 'abs(x)' in f.body
+
+
+def test_while_for_else_not_silently_dropped(_isolate_scoped_flag):
+    # for/while-else 的 else 语义依赖 break 标记，Matha 无对应语法：
+    # 必须整段拒绝（骨架），而不是丢掉 else 分支产出错译代码
+    features.set_feature("SCOPED_BLOCKS", True)
+    rec = LanguageBridge().devour('python', _ELSE_PY_SRC, 'else_reject_test')
+    assert _fn(rec, 'while_else').generated
+    assert _fn(rec, 'for_else').generated
+
+
+def test_missing_builtin_falls_back_not_broken(_isolate_scoped_flag):
+    # range / enumerate 在 Matha 三端不齐 → 拒绝直译，绝不能产出跑不起来的代码
+    features.set_feature("SCOPED_BLOCKS", True)
+    rec = LanguageBridge().devour('python', _MISSING_FN_PY_SRC, 'missing_fn_test')
+    assert _fn(rec, 'nested').generated
+    assert _fn(rec, 'counted').generated
+
+
+def test_flag_off_keeps_ext_skeleton():
+    rec = LanguageBridge().devour('python', _EXT_PY_SRC, 'ext_flag_off_test')
+    assert _fn(rec, 'pair_sum').generated
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

@@ -1,5 +1,70 @@
 # Matha 变更摘要
 
+## 增强：语言桥语句块直译覆盖（修掉全部「错译」+ 新增四类语句）
+
+**日期**：2026-10-19
+
+### 背景
+
+16 用例探针（`SCOPED_BLOCKS` 开启，`src.interp` 实测）记录项 2 起点：
+
+| | 直译并跑对 | 掉回骨架 | **直译但跑错** |
+|---|---|---|---|
+| 起点 | 6 | 6 | **4** |
+| 现在 | **10** | 6 | **0** |
+
+四条「直译但跑错」是静默产码，比骨架更危险——源码读起来正常、运行期才炸或干脆
+给出错误结果，故本轮以**宁可不译、不可错译**为原则清零，再补四类语句的正向覆盖。
+
+### 修复
+
+1. **`while`/`for` 的 `orelse` 不再被静默丢弃**（`_py_stmt_lines`）：
+   `for…else` / `while…else` 的 else 在「未 break」时执行，需要 break 标记位，
+   Matha 亦无对应语法。此前**根本不读 `stmt.orelse`**——`while_with_else`
+   直译后返回 `'early'`，Python 应返回 `'done'`。现非空即 `return None` →
+   整段落回无中生有骨架。
+2. **`_FN_MAP` 整表修掉 `func_*` 假名**：原表把 `sqrt→func_sqrt`、`abs→func_abs`
+   等，而 `func_*` **全库不存在**（grep 仅命中该表自身）——任何调用数学函数的
+   直译体一跑就报「未定义函数 `func_abs`」。实测 Matha 内建与 Python **同名**
+   （`sqrt/sin/cos/tan/exp/log/log10/ln/abs/floor/ceil/pow/atan/asin/acos/atan2/
+   round/hypot/sum` 双端可用），故改为只保留真正改名的 `fabs→abs`；
+   `max`/`min` 双端不可用，**移出表**（不再制造假名）。
+3. **`_py_expr` 补下标读**：`return xs[0]` 此前无 `Subscript` 分支直接返回
+   `None`，连带下标赋值整段被拒。现 `xs[i]` → `xs[i]`；切片 `a:b` 四端语义
+   未统一，暂拒绝。
+
+### 扩展
+
+4. **链式赋值** `a = b = 3` → 先写最右目标、其余取其值（`b = 3` / `a = b`），
+   不重复求值右式。
+5. **元组解包** `a, b = 1, 2` → `(a, b) = (1, 2)`。字面量元组单独渲染：
+   `(a, b) = [1, 2]` 解释器不认（未定义变量 `a`），不能走列表分支。
+6. **`for` 元组目标** `for i, v in pairs:` → `for (i, v) in pairs { }`
+   （Matha 侧**括号必填**，无括号为 `ParseError`）。
+7. **下标赋值** `xs[0] = 9` → 原地内建 `mut_set_at(xs, 0, 9)`（双端可用）。
+8. **缺失内建黑名单 `_UNAVAILABLE_FNS`**：`enumerate/zip/map/filter/sorted/
+   reversed/any/all/isinstance/dict/set/tuple/iter/next/open/hash/divmod/repr/
+   id/input/range` 逐一在解释器 + MBC-VM 实测名字未定义，调用点**整表达式不可译**
+   → 落骨架，杜绝「能解析但跑不起来」的代码。
+
+### 待办（本轮明确拒绝、留待运行时）
+
+- **`range` 三端语义不齐**：解释器**无** `range`、MBC-VM 仅 1 参、原生仅 2 参
+  （`_emit_builtin_range`，arity 表 `"range": 2`）。需四端统一后再放行黑名单中的
+  `range`，届时 `for i in range(n)` 这一最常见 Python 循环形态即可直译。
+- `enumerate` 等迭代器内建、列表推导、`raise`：Matha 侧无对应形态，暂维持骨架。
+
+### 验证
+
+- `tests/test_language_bridge.py`：24 → **33 项**（+9：解包/链式/下标读写/元组
+  目标/数学内建前缀/else 拒绝/缺失内建回落/关闭态骨架）。
+- `language_bridge.py` + `test_language_bridge.py` + `test_scoped_blocks.py`
+  共 **60 项**，`SCOPED_BLOCKS` 关闭/开启两态**均 60 passed**。
+- 全量回归：默认 **3380 passed**；`MATHA_FEATURE_SCOPED_BLOCKS=1` 全量开启
+  **3380 passed**（**零差异**）。
+- lint 回到基线（与 `HEAD` 逐项比对）：`language_bridge.py` 5 项、`interp.py`
+  57 项（均既有）、测试文件仅 UP009（UTF-8 声明惯例）——**新增代码零 lint**。
+
 ## 修复：`SCOPED_BLOCKS` 四端一致（解释器补齐 MBC/VM/原生已有语义）
 
 **日期**：2026-10-18

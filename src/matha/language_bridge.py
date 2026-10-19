@@ -85,12 +85,25 @@ _TOKEN_RE = re.compile(r"""
 # 运算符 → Matha
 _OP_MAP = {"**": "^", "^": "^", "==": "=", "!=": "≠",
            "&&": "and", "||": "or"}
-# 常用数学函数名（各语言 → Matha 内建）
-_FN_MAP = {"sqrt": "func_sqrt", "sin": "func_sin", "cos": "func_cos", "tan": "func_tan",
-           "exp": "func_exp", "log": "func_log", "log10": "func_log10", "ln": "func_log",
-           "abs": "func_abs", "fabs": "func_abs", "floor": "func_floor", "ceil": "func_ceil",
-           "pow": "func_pow", "atan": "func_atan", "asin": "func_asin", "acos": "func_acos",
-           "round": "func_round", "max": "func_max", "min": "func_min", "sum": "func_sum"}
+# 常用数学函数名（各语言 → Matha 内建）。
+# Matha 内建与 Python **同名**（实测 解释器 + MBC-VM 双端可用：sqrt/sin/cos/tan/
+# exp/log/log10/ln/abs/floor/ceil/pow/atan/asin/acos/atan2/round/hypot/sum），
+# 故绝大多数无需映射。此前整表写作 `func_xxx`，而 `func_*` 全库不存在 —— 直译
+# 出来的函数体一调用数学函数就报「未定义函数 func_abs」。现只保留真正需要改名的项。
+# `max`/`min` Matha 无可用同名内建，**不入表**（保持原名透传，不再制造假名）。
+_FN_MAP = {"fabs": "abs"}
+
+# Matha 侧（解释器 / MBC-VM / 原生）**都**没有的 Python 内建：调用点一旦直译，
+# 运行期必然报「未定义函数」。与其产出「能解析但跑不起来」的代码，不如整个表达式
+# 不可译，回落到无中生有骨架（宁可不译，不可错译）。
+# 每一项均在解释器 + MBC-VM 两端实测确认名字未定义。
+# 注：`range` 目前解释器无、VM 仅 1 参、原生仅 2 参 —— 三端语义尚未统一，故一并
+# 拒绝；待运行时把 `range` 补齐为四端一致后再放行（见迁移方案「待办」）。
+_UNAVAILABLE_FNS = frozenset({
+    "enumerate", "zip", "map", "filter", "sorted", "reversed", "any", "all",
+    "isinstance", "dict", "set", "tuple", "iter", "next", "open", "hash",
+    "divmod", "repr", "id", "input", "range",
+})
 
 # Python 复合赋值运算符 → Matha 运算符（语句块直译用）
 _PY_AUG_OPS = {pyast.Add: "+", pyast.Sub: "-", pyast.Mult: "*", pyast.Div: "/",
@@ -672,12 +685,44 @@ class LanguageBridge:
             return []
         if isinstance(stmt, pyast.Expr) and isinstance(stmt.value, pyast.Constant):
             return []                                   # 文档串 / 裸常量 → 忽略
-        if (isinstance(stmt, pyast.Assign) and len(stmt.targets) == 1
-                and isinstance(stmt.targets[0], pyast.Name)):
+        if isinstance(stmt, pyast.Assign) and stmt.targets:
             val = self._py_expr(stmt.value)
             if val is None:
                 return None
-            return [f"{pad}{_sanitize_ident(stmt.targets[0].id)} = {val}"]
+            targets = stmt.targets
+            if len(targets) > 1:
+                # 链式赋值 `a = b = v`：先写最右目标，其余逐个取其值，
+                # 避免 v 被重复求值（副作用 / 开销）。
+                if not all(isinstance(t, pyast.Name) for t in targets):
+                    return None
+                names = [_sanitize_ident(t.id) for t in reversed(targets)]
+                return [f"{pad}{names[0]} = {val}"] + \
+                       [f"{pad}{n} = {names[0]}" for n in names[1:]]
+            t0 = targets[0]
+            if isinstance(t0, pyast.Name):
+                return [f"{pad}{_sanitize_ident(t0.id)} = {val}"]
+            if isinstance(t0, (pyast.Tuple, pyast.List)):
+                # 元组解包 `a, b = expr` → Matha `(a, b) = expr`。
+                # 解包右侧必须是 Matha **元组** `(…)`：`(a, b) = [1, 2]` 解释器
+                # 不认（未定义变量 'a'），故字面量元组单独渲染，不走列表分支。
+                if not t0.elts or not all(isinstance(e, pyast.Name) for e in t0.elts):
+                    return None
+                if isinstance(stmt.value, pyast.Tuple):
+                    parts = [self._py_expr(e) for e in stmt.value.elts]
+                    if len(parts) != len(t0.elts) or any(p is None for p in parts):
+                        return None
+                    val = "(" + ", ".join(parts) + ")"
+                names = ", ".join(_sanitize_ident(e.id) for e in t0.elts)
+                return [f"{pad}({names}) = {val}"]
+            if isinstance(t0, pyast.Subscript):
+                # 下标赋值 `xs[i] = v` → 原地更新内建 mut_set_at（解释器/VM 双端可用）
+                if not isinstance(t0.value, pyast.Name):
+                    return None
+                base = _sanitize_ident(t0.value.id)
+                idx = self._py_expr(t0.slice)
+                if idx and val:
+                    return [f"{pad}mut_set_at({base}, {idx}, {val})"]
+            return None
         if isinstance(stmt, pyast.AugAssign) and isinstance(stmt.target, pyast.Name):
             op = _PY_AUG_OPS.get(type(stmt.op))
             val = self._py_expr(stmt.value)
@@ -712,6 +757,11 @@ class LanguageBridge:
             out.append(f"{pad}}}")
             return out
         if isinstance(stmt, pyast.While):
+            if stmt.orelse:
+                # while-else / for-else 的 else 在「未 break」时执行，需要 break
+                # 标记位；Matha 亦无对应语法。此前**静默丢弃** else 分支 → 直接
+                # 产出语义错误的代码，改为拒绝直译，交由无中生有骨架。
+                return None
             cond = self._py_expr(stmt.test)
             if cond is None:
                 return None
@@ -719,14 +769,25 @@ class LanguageBridge:
             if body is None:
                 return None
             return [f"{pad}while {cond} {{", *body, f"{pad}}}"]
-        if isinstance(stmt, pyast.For) and isinstance(stmt.target, pyast.Name):
+        if isinstance(stmt, pyast.For):
+            if stmt.orelse:
+                return None               # 同上：for-else 不静默丢弃
+            tgt = stmt.target
+            if isinstance(tgt, pyast.Name):
+                tname = _sanitize_ident(tgt.id)
+            elif isinstance(tgt, (pyast.Tuple, pyast.List)) and tgt.elts and \
+                    all(isinstance(e, pyast.Name) for e in tgt.elts):
+                # `for i, v in pairs:` → Matha `for (i, v) in pairs { }`
+                tname = "(" + ", ".join(_sanitize_ident(e.id) for e in tgt.elts) + ")"
+            else:
+                return None
             it = self._py_expr(stmt.iter)
             if it is None:
                 return None
             body = self._py_block_lines(stmt.body, ind + 1, True)
             if body is None:
                 return None
-            return [f"{pad}for {_sanitize_ident(stmt.target.id)} in {it} {{", *body, f"{pad}}}"]
+            return [f"{pad}for {tname} in {it} {{", *body, f"{pad}}}"]
         return None
 
     def _py_stmts_to_expr(self, stmts: list) -> str | None:
@@ -793,6 +854,15 @@ class LanguageBridge:
             if any(p is None for p in parts):
                 return None
             return "[" + ", ".join(parts) + "]"
+        if isinstance(node, pyast.Subscript):
+            # 下标读 `xs[i]` → Matha `xs[i]`；切片语义四端未统一，暂拒绝
+            if isinstance(node.slice, pyast.Slice):
+                return None
+            base = self._py_expr(node.value)
+            idx = self._py_expr(node.slice)
+            if base and idx:
+                return f"{base}[{idx}]"
+            return None
         if isinstance(node, pyast.UnaryOp):
             inner = self._py_expr(node.operand)
             if inner is None:
@@ -820,6 +890,8 @@ class LanguageBridge:
             return self._py_compare(node)
         if isinstance(node, pyast.Call):
             fn = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+            if _FN_MAP.get(fn, fn) in _UNAVAILABLE_FNS:
+                return None                      # Matha 无此名 → 拒绝直译，落骨架
             args = [self._py_expr(a) for a in node.args]
             if all(args):
                 return f"{_FN_MAP.get(fn, fn)}({', '.join(args)})"
