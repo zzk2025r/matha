@@ -1,5 +1,64 @@
 # Matha 变更摘要
 
+## 修复：原生错误调用由 0xC0000005/0xC000001D 崩溃改为「不可调用的值」报错
+
+**日期**：2026-10-19
+
+### 背景
+
+上一条记下的待办：原生在「实参个数不匹配 / 非函数值被应用」时一律**进程级崩溃**，
+解释器与 VM 则报「不可调用的值」：
+
+| 案例 | 解释器 / VM | 修复前·原生 | 修复后·原生 |
+|---|---|---|---|
+| `输出(len([1], [2]))` | 不可调用的值: 1 | 0xC0000005 | rc=1，stderr「不可调用的值」 |
+| `输出(1, 2)` | 不可调用的值: 1 | 0xC0000005（先打出 1） | 同左（先打出 1） |
+| `输出("a", "b")` | 不可调用的值: 'a' | **0xC000001D**（ud2） | 同左 |
+| `let g = len` + `g([1],[2])` | 不可调用的值: 1 | 0xC0000005 | 同左 |
+| `let g = f` + `g(1, 2)`（f arity1） | 不可调用的值: 1 | 0xC0000005 | 同左 |
+
+崩溃机制（`src/mbc/native.py::apply_rt`）：
+- **`ar_plain` 裸 `jmp rax`**：嵌套 `CALL 1` 逐次应用的第二步把求值结果（int/null）
+  当函数地址跳转；静态对象（`null_obj` 等 data 区）因 `地址 < heap_base` 也落此分支。
+- **堆上非函数值被调用**：类型判定非 CLOSURE/PARTIAL 后落到 `ud2` → 0xC000001D。
+
+### 变更（全部在 `src/mbc/native.py`，编译器/VM/解释器零改动）
+
+1. `_emit_data_section` 代码趟收尾处新增 `text_end` 标签（`.text` 内容终点）。
+2. **`ar_plain` 地址校验**：被调值须在 `[_start, text_end)` 内才 `jmp`，越界走
+   新增 `ar_bad` 抛 `err_not_callable`（新静态串「不可调用的值」），走既有
+   `raise_rt`——有 handler 可捕获；无 handler stderr 消息 + 退出码 1，与
+   `list index out of range` 等既有错误约定完全一致。
+3. **堆上非函数值**：`ud2`（0xC000001D）→ 同样 `raise_rt(err_not_callable)`。
+4. **`ar_excess` 保持截断直调**（新增注释固化认知）：逆向字节码发现空参调用
+   `f()` 编译为 **`PUSH 哑元 0; CALL 1`**（M3V 恒 CALL≥1），对 arity-0 闭包即
+   N=1>0——「截断取前 0 个实参再直调」正是**零参归一化通路**，与 VM/解释器同一
+   字节码的行为一致。曾试改为抛异常 → 5 个既有测试回归（`test_zero_arity`、
+   `closure_zero`、`box_rec_read`、`zero_arity`、`test_try_finally_runs_both_paths`），
+   已回滚。真正的多参错配不走此分支：`_flatten_call` 只按精确 arity 融合，
+   `f(1,2)` 实为嵌套 `CALL 1` 逐次应用，落在 `ar_plain` 校验上。
+
+### 新增回归测试
+
+`tests/test_native.py::test_wrong_arity_non_callable_raises_not_crash`（5 参数化）：
+上表各例断言 rc=1 + stderr 含「不可调用的值」，锁死「报错而非崩溃」。
+
+### 顺带确证的既有分歧（stash 基线对照逐字相同，非本次引入，另记待办）
+
+- `调用捕获(f)([非空参数表])` 原生 rc=0 但**无输出**（`调用捕获(f)([])` 正常）；
+  try/catch 脱糖只用 `([])` 故测试从未覆盖，VM 侧同参列表能出结果。
+- 内建**无参**调用三端分歧：`len()` 解释器报错 / VM TypeError / 原生把哨兵 `0`
+  传进内建返回 `0`（`list()` 已随上一条统一到 `null`，其余未动）。
+
+### 验证
+
+- 定向 1142 passed（`test_native` + `heap` + `scoped_blocks` + `regex` +
+  `time` + `encoding` + `mbc_vm_matha` + `mbc_bytecode` + `interp_parity`）。
+- 全量回归：默认 **3401 passed**；`MATHA_FEATURE_SCOPED_BLOCKS=1` **3401 passed**
+  （**零差异**，= 3396 + 新增 5）。
+- lint：`native.py` **47 == 47 基线**、`test_native.py` **11 == 11 基线**
+  —— 逐项同分布，新增代码零 lint。
+
 ## 修复：`list` 内建转换语义四端统一（容器→转换、标量/无参→null）
 
 **日期**：2026-10-19

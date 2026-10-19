@@ -878,9 +878,11 @@ def _emit_apply_runtime(em: _Emitter):
     r12 = 函数槽+8，rax = 返回值（或新构造的 Partial），供 _emit_call 统一尾序列。
 
     分派：
-      text 地址 → r13=0 后直接 jmp（普通函数/内建，恒满元调用）；
-      闭包记录 [CLOSURE][fn][env][arity]：N==arity 直调；N>arity 截断直调；
-        N<arity 构造 Partial（记录 n=N 个新实参）。
+      text 地址（经 [_start, text_end) 校验）→ r13=0 后直接 jmp（普通函数/内建）；
+        非 .text 值（裸整数/静态对象）→ ar_bad 抛「不可调用的值」。
+      闭包记录 [CLOSURE][fn][env][arity]：N==arity 直调；N>arity 截断直调
+        （空参调用的「哑元 0 + CALL 1」归一化通路，见 ar_excess 注释）；
+        N<arity 构造 Partial。
       Partial 记录 [PARTIAL][target][n][carried..]：total=n+N <arity → 新 Partial；
         否则重建前 arity 个实参并调用 target。
     寄存器：r13=实参数缓存；r14=实参基址；r11=当前 fn 值；rbx/r15 临时。
@@ -897,12 +899,34 @@ def _emit_apply_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "ar_close")
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_PARTIAL]))
     em.jcc_rel32(0x84, "ar_part")
-    em.emit(b"\x0F\x0B")                                # ud2（非函数值被调用）
+    # 堆上非函数值被调用（如 输出("a","b") → 输出 的返回值再被应用）：
+    # 原为 ud2（0xC000001D 静默非法指令），与 VM 的「不可调用的值」不符，
+    # 改抛同类可捕获异常。
+    em.lea_rip(0, "err_not_callable")
+    em.call_rel32("raise_rt")                            # 不返回
+    em.emit(b"\x0F\x0B")                                 # ud2
 
     # ---- 普通函数：无环境，直接 jmp ----
     em.label_here("ar_plain")
-    em.emit(b"\x45\x31\xED")                            # xor r13d,r13d（无外层环境）
-    em.emit(b"\xFF\xE0")                                # jmp rax
+    # ar_plain 承接「堆区间之外的一切值」：除真正的 .text 函数地址外，还接得到
+    # 裸整数（len([1],[2]) 逐次 CALL 1 的第二步 → 1([2])）、null/bool/浮点等
+    # 静态对象（输出(1,2) → None([2])）。此前无条件 jmp rax，一律访问违例
+    # 0xC0000005；VM/解释器此时报「不可调用的值」。故先按 .text 区间
+    # [_start, text_end) 校验，越界抛可捕获异常（同一失败类别）。
+    em.lea_rip(11, "_start")
+    em.cmp_rr(0, 11)                             # cmp rax,r11（下界 = .text 起点）
+    em.jcc_rel32(0x82, "ar_bad")                 # jb  → 非代码地址
+    em.lea_rip(11, "text_end")
+    em.cmp_rr(0, 11)                             # cmp rax,r11（上界 = .text 终点）
+    em.jcc_rel32(0x83, "ar_bad")                 # jae → 非代码地址
+    em.emit(b"\x45\x31\xED")                     # xor r13d,r13d（无外层环境）
+    em.emit(b"\xFF\xE0")                         # jmp rax
+
+    # ---- 非函数值被调用（对齐 VM「不可调用的值」）----
+    em.label_here("ar_bad")
+    em.lea_rip(0, "err_not_callable")
+    em.call_rel32("raise_rt")                    # 不返回
+    em.emit(b"\x0F\x0B")                         # ud2
 
     # ---- 闭包记录 ----
     em.label_here("ar_close")
@@ -937,15 +961,20 @@ def _emit_apply_runtime(em: _Emitter):
     em.emit(b"\x4C\x89\xC0")                            # mov rax,r8
     em.emit(b"\xFF\xE0")                                # jmp rax（tail-call）
 
-    em.label_here("ar_excess")                          # N > arity：取前 arity 实参
-    em.emit(b"\x4C\x89\xF0")                            # mov rax,r14
-    em.emit(b"\x4D\x89\xD3")                            # mov r11,r10
-    em.emit(b"\x49\xC1\xE3\x03")                        # shl r11,3
-    em.emit(b"\x4C\x01\xD8")                            # add rax,r11
-    em.emit(b"\x49\x89\xC4")                            # mov r12,rax
-    em.emit(b"\x4D\x89\xCD")                            # mov r13,r9
-    em.emit(b"\x4C\x89\xC0")                            # mov rax,r8
-    em.emit(b"\xFF\xE0")                                # jmp rax
+    em.label_here("ar_excess")                     # N > arity：截断直调
+    # 关键通路：空参调用 f()/五() 编译为「PUSH 哑元 0; CALL 1」（M3V 恒 CALL≥1），
+    # 对 arity-0 闭包即 N=1>0——截断为「取前 arity=0 个实参」后直调 = 正确的
+    # 零参归一化（与 VM/解释器对同字节码的行为一致），不可改为抛异常。
+    # 真正的多参错配（f(1,2)/len([1],[2])）走的是嵌套 CALL 1 逐次应用，
+    # 落在 ar_plain 的地址校验上，与本分支无关。
+    em.emit(b"\x4C\x89\xF0")                      # mov rax,r14
+    em.emit(b"\x4D\x89\xD3")                      # mov r11,r10
+    em.emit(b"\x49\xC1\xE3\x03")                  # shl r11,3
+    em.emit(b"\x4C\x01\xD8")                      # add rax,r11
+    em.emit(b"\x49\x89\xC4")                      # mov r12,rax
+    em.emit(b"\x4D\x89\xCD")                      # mov r13,r9
+    em.emit(b"\x4C\x89\xC0")                      # mov rax,r8
+    em.emit(b"\xFF\xE0")                          # jmp rax
 
     # ---- Partial 记录 [PARTIAL][target][n][carried...] ----
     em.label_here("ar_part")
@@ -9952,6 +9981,9 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     使「固定 1GB + 动态 16GB」在地址上连续、可被单区间判据覆盖。位图必须
     落在堆区间之下（低于 heap_base），否则会与动态竞技场地址冲突。
     """
+    # text_end：.text 内容终点（本函数是代码趟的最后一处发射）。apply_rt 的
+    # ar_plain 用 [_start, text_end) 判定被调用值是否为真实函数地址。
+    ec.label_here("text_end")
     text_size = len(ec.buf)     # 代码趟已发射完毕，其大小已确定
     # ---- .bss：零填充的 GC 位图 / 异常栈 / 兜底标记栈（低于堆区间）----
     bss_rva = TEXT_RVA + ((text_size + 0xFFF) & ~0xFFF)
@@ -10148,7 +10180,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_sum", "求和() 需要列表"),
                      ("err_prod", "求积() 需要列表"),
                      ("err_bigintop", "大整数不支持该运算"),
-                     ("err_attr", "属性访问失败: 非字典对象")):
+                     ("err_attr", "属性访问失败: 非字典对象"),
+                     ("err_not_callable", "不可调用的值")):
         raw = s.encode("utf-8")
         ed.align(8)
         ed.label_here(lbl)

@@ -164,6 +164,23 @@ def test_zero_arity():
     assert rc == 0 and out == "5"
 
 
+@pytest.mark.parametrize("src", [
+    "输出(len([1], [2]))",
+    "输出(1, 2)",
+    '输出("a", "b")',
+    "let g = len\n输出(g([1], [2]))",
+    "func f(a: Int) -> Int = a\nlet g = f\n输出(g(1, 2))",
+])
+def test_wrong_arity_non_callable_raises_not_crash(src):
+    """实参个数不匹配/非函数值被应用 → 与 VM 同类的「不可调用的值」退出码 1，
+    而非 0xC0000005（ar_plain 裸 jmp）或 0xC000001D（堆非函数 ud2）崩溃。"""
+    exe = os.path.join(tempfile.gettempdir(), "test_native.exe")
+    Path(exe).write_bytes(compile_to_exe(src))
+    r = subprocess.run([exe], capture_output=True, timeout=30)
+    assert (r.returncode & 0xFFFFFFFF) == 1, r.returncode
+    assert "不可调用的值" in r.stderr.decode("utf-8", "replace")
+
+
 def test_two_args_order_sensitive():
     """形参顺序敏感：10-3=7，3-10=-7。"""
     rc, out = _run(
