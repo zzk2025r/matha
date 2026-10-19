@@ -1292,6 +1292,16 @@ _PARITY_CASES = {
                        '输出(_dict_put(d)("z")(9))\n'
                        '输出(_dict_remove(d)("b"))\n'
                        '输出(_dict_put(d)("a")(7))\n',
+    # dict 重复键字面量去重：后值覆盖前值、键保首现位置、len=去重后数量。
+    # 原生曾在 BUILD_DICT 按 n 全量存 pair 不去重，dict_find 取首匹配读到旧值。
+    "b16s_dict_dedup": 'let d = {"a": 1, "a": 2} in\n'
+                       "输出(d)\n输出(len(d))\n"
+                       '输出(d["a"])\n输出(list(d))\n'
+                       'let e = {"a": 1, "b": 2, "a": 3} in\n'
+                       "输出(e)\n输出(len(e))\n"
+                       '输出(e["a"])\n输出(e["b"])\n'
+                       'let f = {"k": 1, "k": 2, "k": 3} in\n'
+                       "输出(f)\n输出(len(f))\n",
     # 调用捕获：非空实参表。正常路径曾多压一槽——结果直接作实参时下游
     # CALL 取 [r12-16] 读到 fn 槽残留的 调用捕获 地址而重入本内建，该行
     # 输出静默消失（rc=0）；let 绑定走 [r12-8] 读取故不受影响。

@@ -2897,7 +2897,8 @@ def _emit_seq_dict_runtime(em: _Emitter):
 
     字典物理布局： [TYPE_DICT][count][ (key,value) × count ]，每项 16 字节。
     BUILD_DICT 按源码序推送 pair（rep movsq 自底向上拷贝），物理顺序 = 源码
-    插入顺序；本模块的 keys/values/print 均按物理正序输出，与解释器/VM 一致。
+    插入顺序；n>1 时发射后就地去重（重复键保首现位置取后值，count=去重后
+    数量）；本模块的 keys/values/print 均按物理正序输出，与解释器/VM 一致。
     """
     # ---- dict_find ----
     em.label_here("dict_find")
@@ -8166,6 +8167,60 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.emit(b"\xF3\x48\xA5")                                  # rep movsq
         em.emit(b"\x49\x81\xEC" + struct.pack("<i", 16 * n))      # sub r12,16n
         em.push_rax()
+        if n > 1:
+            # 重复键就地去重（对齐宿主/VM/interp：后值覆盖前值、键保首现位置、
+            # count=去重后数量；dict_find 取首匹配，不去重会读到旧值）。寄存器：
+            # r15=字典、rbx=去重后对数、r9=pi、r10=pend、r14=po；val_eq 破坏
+            # rax/rcx/rsi/rdi/r8/r9，故 pi/pj 跨调用压栈保存；r12/r13 不触碰。
+            ldin = f"bd_in_{tag}_{idx}"
+            ldap = f"bd_ap_{tag}_{idx}"
+            ldae = f"bd_ae_{tag}_{idx}"
+            lddf = f"bd_df_{tag}_{idx}"
+            ldnx = f"bd_nx_{tag}_{idx}"
+            lddn = f"bd_dn_{tag}_{idx}"
+            em.mov_rr(15, 0)                                    # r15 = 字典
+            em.mov_rr(9, 0)
+            em.add_ri(9, 16)                                    # r9 = pi = 首 pair
+            em.mov_rr(10, 0)
+            em.add_ri(10, 16 + 16 * n)                          # r10 = pend
+            em.mov_rr(14, 9)                                    # r14 = po = 追加位点
+            em.xor_rr32(3, 3)                                   # rbx = 去重后对数
+            em.label_here(ldin)
+            em.cmp_rr(9, 10)                                    # cmp pi,pend
+            em.jcc_rel32(0x83, lddn)                            # jae → 去重完成
+            em.mov_rr(8, 15)
+            em.add_ri(8, 16)                                    # r8 = pj = 首 pair
+            em.label_here(ldap)
+            em.cmp_rr(8, 14)                                    # cmp pj,po（已压实区末）
+            em.jcc_rel32(0x83, ldae)                            # jae → 追加新 pair
+            em.mov_rd_mem(0, 8, 0)                              # rax = key_j
+            em.mov_rd_mem(1, 9, 0)                              # rcx = key_i
+            em.emit(b"\x41\x50")                                # push r8
+            em.emit(b"\x41\x51")                                # push r9
+            em.call_rel32("val_eq")
+            em.emit(b"\x41\x59")                                # pop r9
+            em.emit(b"\x41\x58")                                # pop r8
+            em.test_rr(0, 0)
+            em.jcc_rel32(0x85, lddf)                            # jnz → 键重复
+            em.add_ri(8, 16)
+            em.jcc_rel32(None, ldap)                            # pj += 16 续扫
+            em.label_here(lddf)
+            em.mov_rd_mem(0, 9, 8)                              # rax = val_i
+            em.mov_mem_r(8, 8, 0)                               # 首现位置取后值
+            em.jcc_rel32(None, ldnx)
+            em.label_here(ldae)
+            em.mov_rd_mem(0, 9, 0)                              # rax = key_i
+            em.mov_rd_mem(1, 9, 8)                              # rcx = val_i
+            em.mov_mem_r(14, 0, 0)                              # po 位点追加 key
+            em.mov_mem_r(14, 8, 1)                              # ……与 val
+            em.add_ri(14, 16)
+            em.inc_r(3)
+            em.label_here(ldnx)
+            em.add_ri(9, 16)                                    # pi += 16
+            em.jcc_rel32(None, ldin)
+            em.label_here(lddn)
+            em.mov_mem_r(15, 8, 3)                              # count = 去重后对数
+            em.mov_rr(0, 15)                                    # 恢复 rax = 字典
     elif op == OP.GET_ATTR:
         em.pop_to(0)                                # rax = 对象
         lmiss = f"ga_miss_{tag}_{idx}"

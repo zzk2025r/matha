@@ -1,5 +1,41 @@
 # Matha 变更摘要
 
+## 修复：dict 重复键字面量原生去重（后值覆盖前值、键保首现位置、len 去重后数量）
+
+**日期**：2026-10-19
+
+### 背景
+
+Phase 12（dict 键序四端统一）顺带确证并记下的待办：`{"a": 1, "a": 2}` 在
+解释器/宿主 VM/matha VM 三端均按 Python 语义去重（`d["a"]`=2、`len`=1、打印
+单 pair），唯**原生**物理表按字面量 pair 数全量保留两对——`dict_find` 取首
+匹配读到旧值 `1`、`count`=2 致 `len`/打印/list(d) 全部双 pair。
+
+### 根因与变更
+
+1. **原生 `src/mbc/native.py` `BUILD_DICT` 发射**：`rep movsq` 拷贝后直接
+   以 `count=n` 收尾，无去重。修复 = **n>1 时发射后就地去重环**（复用既有
+   `val_eq` 结构相等做键比较）：`pi` 扫源 pair、`po` 维护已压实区末尾——
+   键在压实区内命中则**原位覆盖值**（保首现位置），未命中则追加至 `po`；
+   终了 `count=去重后对数`、`rax=字典`。O(n²) 仅字面量构建时一次，
+   `dict_put`/`dict_remove` 等高频路径不经过。寄存器纪律：`val_eq` 破坏
+   rax/rcx/rsi/rdi/r8/r9，故 `pi`/`pj` 跨调用压栈保存；r12（操作数栈）/
+   r13（闭包 env）不触碰。n≤1 无重复可能，跳过发射。
+2. 解释器（Python dict）/宿主 VM（Phase 12 已改源码序+覆盖式插入）/
+   matha VM（`建字典对` 走 `键覆盖`）本就正确，**零改动**。
+3. 顺带确证既有独立分歧：matha VM `函数str` 不支持 Dict → `str(d)` 返回
+   `"<?>?"`（`matha/vm.matha:269-270` 骨架 else 分支），与去重无关，记新待办。
+
+### 验证
+
+- 探针 12 用例（双键/三键中间重复/三重/值同/嵌套内层/put/remove/has/str/
+  list(d)/打印/无重复回归）解释器↔VM↔原生**全同**；matha VM 探针 7 用例
+  6 SAME + 1 DIFF（仅上述既有 `str(dict)`）。
+- `_PARITY_CASES["b16s_dict_dedup"]`（12 输出行）、matha `_CASES` +2
+  （len+键位、三重）。全量默认 **3414** / `MATHA_FEATURE_SCOPED_BLOCKS=1`
+  **3414**（零差异 = 3411+3）；`native.py`/`test_native.py`/
+  `test_mbc_vm_matha.py` lint 47/11/1 与 HEAD 同基线。
+
 ## 修复：调用捕获 非空实参表三端对齐（原生正常路径静默丢行 + matha VM 多包一层）
 
 **日期**：2026-10-19
