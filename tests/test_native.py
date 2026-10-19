@@ -1292,6 +1292,21 @@ _PARITY_CASES = {
                        '输出(_dict_put(d)("z")(9))\n'
                        '输出(_dict_remove(d)("b"))\n'
                        '输出(_dict_put(d)("a")(7))\n',
+    # 调用捕获：非空实参表。正常路径曾多压一槽——结果直接作实参时下游
+    # CALL 取 [r12-16] 读到 fn 槽残留的 调用捕获 地址而重入本内建，该行
+    # 输出静默消失（rc=0）；let 绑定走 [r12-8] 读取故不受影响。
+    "guard_invoke_args": ('func 单(x: Int) -> Int = x * 2\n'
+                          'func 双(a: Int, b: Int) -> Int = a + b\n'
+                          'func 提错() -> Int = 错误("boom")\n'
+                          '输出(调用捕获(单)([3]))\n'
+                          '输出(调用捕获(双)([1, 2]))\n'
+                          '输出(调用捕获(提错)([]))\n'
+                          '输出(type_of(调用捕获(单)([1])))\n'
+                          'let r = 调用捕获(单)([9]) in\n'
+                          '输出(get(r)(0))\n'
+                          '输出(get(r)(1))\n'
+                          '输出(调用捕获(单)([4]))\n'
+                          '输出(调用捕获(双)([2, 3]))\n'),
     # MathaIOError：三端统一为 2 元素列表（VM 原返回 Python 元组）。
     # 结构访问（len/get/typeof）规避嵌套字符串打印差异。
     "ioerror_list": ('let e = MathaIOError("boom") in\n'

@@ -4478,14 +4478,20 @@ def _emit_builtin_guard(em: _Emitter):
     em.call_rel32("apply_rt")
     em.emit(b"\x49\x89\x44\x24\xF0")                # mov [r12-16],rax
     em.emit(b"\x49\x83\xEC\x08")                    # sub r12,8
-    # 正常返回：弹出处理器并标记 ["__正常__", 值]
+    # 正常返回：弹出处理器并打标签 ["__正常__", 值]。经上两行后 r12=本帧
+    # fn 槽+16、rax=值——恰为普通内建「结果已压、待调用方 post 收尾」的
+    # 返回态。rt_tag_normal 以 rax 传值、不动栈，故 tag 构造完直接返回：
+    # 调用方 _emit_call 的 post（mov [r12-16],rax; sub r12,8）把 tag 落入
+    # fn 槽、r12=槽+8。**不可再 push_rax**——那会多占一槽：结果直接作实参时，
+    # 下游 CALL 的 rdi=[r12-16] 读到 fn 槽残留的 调用捕获 自身地址而重新
+    # 进入本内建，该行输出静默消失（rc=0）。异常路径 raise_rt 恢复
+    # r12=槽+8 再 push，同样止于 槽+16——两路径返回态在此对齐。
     em.load_rip_to(1, "handler_top")                # mov rcx,[rip+handler_top]
     em.mov_rd_mem(2, 1, 0)                          # mov rdx,[rcx+0]
     em.store_rip_from("handler_top", 2)             # mov [rip+handler_top],rdx
     em.mov_rr(2, 1)                                 # mov rdx,rcx（释放本记录：栈顶回到 record）
     em.store_rip_from("hstack_ptr", 2)              # mov [rip+hstack_ptr],rdx
     em.call_rel32("rt_tag_normal")
-    em.push_rax()
     _emit_epilogue(em)
     # 异常落地点：raise_rt 已恢复 rsp/rbp/r12/r13 并弹栈
     em.label_here("调用捕获:land")
