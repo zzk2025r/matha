@@ -144,5 +144,133 @@ def test_continue_in_for():
     assert _out(src) == [4]          # 1 + 3
 
 
+# ---------- 四端一致：解释器 / MBC(VM) / 原生 exe ----------
+
+def _vm(src):
+    from src.mbc import compile_source, run_module
+    return list(run_module(compile_source(src)))
+
+
+def _parity(src: str) -> list[str]:
+    """开启 SCOPED_BLOCKS 后，解释器与 MBC/VM 的输出必须逐项一致。"""
+    features.set_feature(_ON, True)
+    iv = [str(v) for v in interpret(src)[0]]
+    vv = [str(v) for v in _vm(src)]
+    assert iv == vv, f"解释器 {iv} != VM {vv}"
+    return iv
+
+
+def test_parity_top_level_bare_block():
+    # 顶层裸块此前被解释器 _exec_decl 的兜底分支整块忽略（编译器照跑）
+    assert _parity('y = 1\n{ y = 2 }\n[y]') == ["2"]
+
+
+def test_parity_top_level_block_output_visible():
+    assert _parity('y = 1\n{ 输出(9) }\n[y]') == ["9", "1"]
+
+
+def test_parity_closure_sees_block_binding():
+    # 闭包捕获 _matha_env，块内新建绑定此前不同步 → 解释器「未定义变量」
+    src = ('func f() -> Int = () => {\n'
+           '  base = 10\n'
+           '  g = (x) => base + x\n'
+           '  return g(5)\n'
+           '}\n[f()]')
+    assert _parity(src) == ["15"]
+
+
+def test_parity_closure_sees_block_let():
+    src = ('func f() -> Int = () => {\n'
+           '  let base = 10\n'
+           '  g = (x) => base + x\n'
+           '  return g(5)\n'
+           '}\n[f()]')
+    assert _parity(src) == ["15"]
+
+
+def test_parity_closure_sees_block_param():
+    src = ('func f(b: Int) -> Int = (b) => {\n'
+           '  g = (x) => b + x\n'
+           '  return g(5)\n'
+           '}\n[f(100)]')
+    assert _parity(src) == ["105"]
+
+
+def test_parity_block_tail_if_value():
+    # 解释器此前「暂不支持求值: IfStmt」，MBC 侧 _emit_if_try_value 已支持
+    src = ('func f(t: Int) -> Int = (t) => {\n'
+           '  if t > 5 { 1 } else { 0 }\n'
+           '}\n[f(10)]\n[f(1)]')
+    assert _parity(src) == ["1", "0"]
+
+
+def test_parity_if_else_branch_bindings():
+    src = ('func g(k: Int) -> Int = (k) => '
+           '{ if k == 1 { a = 100\n  return a } else { b = 200\n  return b } }\n'
+           '[g(1)]\n[g(2)]')
+    assert _parity(src) == ["100", "200"]
+
+
+def test_parity_try_catch_binding():
+    src = ('func f() -> Int = () => '
+           '{ try { q = 1\n  throw("boom") } catch (e) { r = 2\n  return r } }\n[f()]')
+    assert _parity(src) == ["2"]
+
+
+def test_parity_double_nested_block():
+    src = ('func f() -> Int = () => {\n'
+           '  a = 1\n'
+           '  {\n    b = 2\n    {\n      a = 99\n    }\n  }\n'
+           '  return a\n}\n[f()]')
+    assert _parity(src) == ["99"]
+
+
+def test_parity_return_through_nested_block():
+    src = 'func f() -> Int = () => {\n  {\n    return 42\n  }\n  return 0\n}\n[f()]'
+    assert _parity(src) == ["42"]
+
+
+def test_parity_break_through_nested_block():
+    src = ('func f() -> Int = () => {\n'
+           '  s = 0\n'
+           '  while 真 {\n'
+           '    s = s + 1\n'
+           '    {\n      if s >= 3 { break }\n    }\n'
+           '  }\n'
+           '  return s\n'
+           '}\n[f()]')
+    assert _parity(src) == ["3"]
+
+
+def test_parity_nested_lambda_capture():
+    src = ('func f() -> Int = () => {\n'
+           '  base = 10\n'
+           '  g = (x) => { base + x }\n'
+           '  return g(5)\n'
+           '}\n[f()]')
+    assert _parity(src) == ["15"]
+
+
+def test_native_exe_parity(tmp_path):
+    """原生 exe：同一源串产出与解释器一致的结果（第四端）。"""
+    import subprocess
+
+    from src.mbc import compile_source
+    from src.mbc.native import emit_exe
+
+    features.set_feature(_ON, True)
+    src = ('func f(n: Int) -> Int = (n) => {\n'
+           '  s = 0\n'
+           '  while s < n { s = s + 1 }\n'
+           '  return s\n'
+           '}\n[f(5)]')
+    iv = [str(v) for v in interpret(src)[0]]
+    exe = tmp_path / "scoped_blocks.exe"
+    exe.write_bytes(emit_exe(compile_source(src)))
+    r = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == iv
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v", "-s"]))

@@ -1,5 +1,45 @@
 # Matha 变更摘要
 
+## 修复：`SCOPED_BLOCKS` 四端一致（解释器补齐 MBC/VM/原生已有语义）
+
+**日期**：2026-10-18
+
+### 背景
+
+20 用例三端探针（解释器 / MBC-VM / 原生 exe）比对确认：**MBC/VM/原生侧的分派
+本已正确**——lambda 独立帧 ≈ 块子作用域、循环体同帧 ≈ 语句块不隔离、
+`_emit_if_try_value` 支持块尾 `if` 值。四端分歧的缺口**全部在解释器**，
+故三处修复都落在 `src/interp.py`，MBC/VM/原生后端无需改动。
+
+### 变更
+
+1. **块内新建绑定同步 `_matha_env`**（`Interpreter._sync_matha_env`）：
+   `Binding` 与语句级 `let` 现在把新绑定追加进 `_matha_env`——闭包捕获的是它
+   而非 `env`。此前块内定义的辅助函数读不到块内变量：解释器报
+   「未定义变量 `base`」，而 MBC/VM 正常返回 `15`。`_matha_env` 缺失或非 list
+   （模块顶层）时不动作，**顶层行为不变**。
+2. **顶层裸块不再被跳过**（`_exec_decl` 新增 `ast.CodeBlock` 分支）：
+   此前落进末尾兜底 `skip decl（无运行时副作用）`，整块被解释器忽略——
+   `{ 输出(9) }` 解释器不跑、编译器照跑。现按**语句**执行，与 MBC
+   `_compile_stmt(CodeBlock)` 一致。
+3. **`if` 作为块尾值**（`_eval` 新增 `ast.IfStmt`）：
+   取被选分支的值，此前报「暂不支持求值: IfStmt」，而 MBC 早已支持。
+   分支经 `_exec_stmt` 执行，`return`/`break`/`continue` 由其自身机制透传；
+   分支不新建子作用域，与 MBC `_emit_block`（同帧）一致。
+
+### 保留的既有分歧（与本开关无关）
+
+表达式位 `CodeBlock` 的 **outputs 隔离**：解释器隔离 outputs 并以末项为块值，
+MBC 把输出直接累加进全局。该分歧在 `SCOPED_BLOCKS` **关闭与开启时同样存在**
+（既有 `CodeBlock`-as-expr 语义，不受本次开关影响），另行处理。
+
+### 验证
+
+- `tests/test_scoped_blocks.py`：14 → **27 项**（+13 四端一致性，含 1 项**原生 exe** 端到端）。
+- 全量回归：默认 **3371 passed**；`MATHA_FEATURE_SCOPED_BLOCKS=1` 全量开启
+  **3371 passed**（**零差异**）。
+- lint 回到基线：`src/interp.py` 57 项（均既有），测试文件仅 UP009（UTF-8 声明惯例）。
+
 ## 特性：插件节点解析期源码语法（`register_syntax`）
 
 **日期**：2026-10-18

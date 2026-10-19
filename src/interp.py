@@ -1379,6 +1379,12 @@ class Interpreter:
             # 顶层 match 语句：求值并丢弃结果，与 MBC/VM 的语句语义一致
             # （分支体自身的副作用如 输出(...) 仍然生效）。
             self._eval_match(decl)
+        elif isinstance(decl, ast.CodeBlock):
+            # 顶层裸块：按**语句**执行，与 MBC `_compile_stmt(CodeBlock)` 一致
+            # （块内绑定落当前作用域、输出保持全局可见）。此前落进末尾 else，
+            # 被「skip decl（无运行时副作用）」整块忽略——解释器不跑、编译器跑，
+            # 构成四端分歧。
+            self._exec_stmt(decl)
         elif isinstance(decl, ast.ImportDecl):
             self._log(logging.INFO,
                       f"use {decl.module_name} {decl.import_list}")
@@ -1775,6 +1781,19 @@ class Interpreter:
 
     # ---------- 语句执行 ----------
 
+    def _sync_matha_env(self, name: str, value: object) -> None:
+        """把新建立的局部绑定同步进 ``_matha_env``（list-of-tuples 视图）。
+
+        闭包捕获的是 ``_matha_env`` 而非 ``env``（见 Lambda 求值分支），因此
+        函数体 / SCOPED_BLOCKS 块内新建的绑定若不同步，其后创建的闭包将看不到
+        它们——解释器报「未定义变量」，而 MBC/VM 同帧槽位本可正常读取，
+        形成四端分歧。``_matha_env`` 缺失或非 list（模块顶层）时不动作，
+        顶层行为保持不变。
+        """
+        _me = getattr(self, "_matha_env", None)
+        if isinstance(_me, list):
+            _me.append((name, value))
+
     def _exec_stmt(self, stmt) -> None:
         if stmt is None:
             return
@@ -1785,6 +1804,7 @@ class Interpreter:
             self._log_enter(f"bind {target}")
             val = self._eval(stmt.value)
             self.env[target] = val
+            self._sync_matha_env(target, val)
             self._auto_register(target, "绑定", val)
             self._log_exit(f"bind {target}", val)
             self._log(logging.DEBUG, f"env[{target!r}] = {self._fmt(val)}")
@@ -1821,6 +1841,7 @@ class Interpreter:
                 if isinstance(_me2, list):
                     _me2.append((stmt.name, val))
             self.env[stmt.name] = val
+            self._sync_matha_env(stmt.name, val)
             self._auto_register(stmt.name, "let", val)
             self._log(logging.DEBUG, f"stmt LetBinding '{stmt.name}' = {self._fmt(val)}")
             if stmt.body is not None:
@@ -2061,6 +2082,29 @@ class Interpreter:
             else:
                 r = self._eval(branch)
             self._log_exit("eval If", r)
+            return r
+        if isinstance(expr, ast.IfStmt):
+            # if 出现在**表达式位**（如块尾值）：取被选分支的值。
+            # 此前落到「暂不支持求值: IfStmt」，而 MBC 侧 _emit_if_try_value
+            # 早已能产出块尾值，形成四端分歧。分支经 _exec_stmt 执行，
+            # return / break / continue 由其自身机制透传；无输出时按块尾值
+            # 取值（与 _eval(CodeBlock) 的尾值规则一致）。分支不新建子作用域，
+            # 与 MBC 的 _emit_block(同帧) 及 _exec_stmt(CodeBlock) 一致。
+            self._log_enter("eval IfStmt")
+            cond = self._eval(expr.cond)
+            branch = expr.then_block if cond else expr.else_block
+            r = None
+            if branch is not None:
+                stmts = branch.stmts if isinstance(branch, ast.CodeBlock) else [branch]
+                for s in stmts:
+                    self._exec_stmt(s)
+                if self.outputs:
+                    r = self.outputs[-1]
+                else:
+                    last = stmts[-1] if stmts else None
+                    if last is not None and not isinstance(last, ast.Output):
+                        r = self._eval(last)
+            self._log_exit("eval IfStmt", r)
             return r
         if isinstance(expr, ast.MatchStmt):
             return self._eval_match(expr)
