@@ -144,6 +144,17 @@ PARITY_CASES = {
     # 文本编码（VM 修复曾移除外层 str() 包装）
     "encode_binary_int": "输出(encode_binary(65))",
     "encode_ternary_int": "输出(encode_ternary(5))",
+    # range：两参 → 列表（对齐 matha/stdlib.matha 与原生 `_emit_builtin_range`）。
+    # 解释器此前根本没有 range，VM 挂 Python 原生 range（返回 range 对象、
+    # 双参报「不可调用的值 range(0, 1)」）——三端各不相同。
+    "range_basic": "输出(range(1, 4))",
+    "range_from_zero": "输出(range(0, 5))",
+    "range_empty": "输出(range(0, 0))",
+    "range_reversed": "输出(range(5, 2))",
+    "range_len": "输出(len(range(2, 5)))",
+    "range_for_loop": "let s = 0\nfor i in range(1, 4) { s = s + i }\n输出(s)",
+    # 注：`list(range(...))` 不列入——`list` 内建本身四端有既有分歧
+    # （解释器 list(x) → [x] 构造，VM/原生 list(x) → 转换），与 range 无关。
 }
 
 

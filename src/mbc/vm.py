@@ -216,6 +216,20 @@ def _builtin_decr(a):
     return a - 1
 
 
+def _builtin_range(start, end):
+    """range(start)(end) → [start, start+1, …, end-1]。
+
+    两参语义，对齐 `matha/stdlib.matha` 的 `range(start, end)` 与原生
+    `_emit_builtin_range`（亦为两参返回列表）。此前这里挂的是 Python 原生
+    `range`（不可部分应用）：单参 `range(3)` 返回 range 对象而非列表，
+    双参 `range(1, 4)` 被逐参应用成 `range(1)` 后再调用 → 报
+    「不可调用的值 range(0, 1)」，与原生早已正确的 [1, 2, 3] 相悖。
+    单参 `range(n)` 四端一律不支持，由语言桥归一化为 `range(0, n)`。"""
+    if not isinstance(start, int) or not isinstance(end, int):
+        raise RuntimeError("range() 参数需整数")
+    return list(range(start, end))
+
+
 _UNARYOPS = {
     "neg": lambda a: -a,
     "not": lambda a: not a,
@@ -394,7 +408,7 @@ def _default_builtins() -> dict:
     b.setdefault("list", list)
     b.setdefault("ord", ord)
     b.setdefault("chr", chr)
-    b.setdefault("range", range)
+    b.setdefault("range", _curry2(_builtin_range))
     b.setdefault("type_of", _builtin_type_of)
     # 柯里化的序列工具（Matha 代码以 get(xs)(i) / append(xs)(x) 形式调用）
     b.setdefault("get", _curry2(lambda c, i: c[i]))

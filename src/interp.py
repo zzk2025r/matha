@@ -452,6 +452,19 @@ def builtin_slice(seq):
     return start_closure
 
 
+def builtin_range(start: int, end: int) -> list:
+    """range(start)(end) → [start, start+1, …, end-1]。
+
+    两参语义，对齐 `matha/stdlib.matha` 的 `range(start, end)` 与原生
+    `_emit_builtin_range`（同为两参返回列表）。此前解释器**没有** range，
+    `range(n)` 落到未定义函数，而 VM 挂的是 Python 原生 `range`（返回 range
+    对象、双参直接报错）——三端各不相同。单参 `range(n)` 四端一律不支持，
+    由语言桥归一化为 `range(0, n)`。"""
+    if not isinstance(start, int) or not isinstance(end, int):
+        raise MathaRuntimeError("range() 参数需整数")
+    return list(range(start, end))
+
+
 def builtin_append(lst):
     """append(lst)(elem) → 新列表 lst + [elem]"""
     # 兼容：Matha 词法器部分调用返回 tuple（partial application），转为 list
@@ -890,6 +903,8 @@ BUILTINS: dict[str, object] = {
     "安全索引": _curry_module(2, builtin_safe_index),
     "安全取属性": _curry_module(2, builtin_safe_attr),
     "构造集合": _curry_module(3, builtin_make_set),
+    # range：两参返回列表（对齐 matha/stdlib.matha 与原生 `_emit_builtin_range`）
+    "range": _curry_module(2, builtin_range),
 }
 
 

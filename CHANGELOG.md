@@ -1,5 +1,71 @@
 # Matha 变更摘要
 
+## 增强：`range` 四端统一（两参 → 列表），语言桥放行 `range`
+
+**日期**：2026-10-19
+
+### 背景
+
+`range` 此前三端各不相同，且**互不兼容**：
+
+| 端 | 此前行为 |
+|---|---|
+| 解释器 | **根本没有 `range`** → 「未定义函数 `range`」 |
+| MBC-VM | 挂 Python 原生 `range`：单参返回 **range 对象**（非列表）；双参 `range(1,4)` 被逐参应用成 `range(0,1)` 再调用 → **「不可调用的值 range(0, 1)」** |
+| 原生 exe | `_emit_builtin_range` **两参返回列表** —— 一直是对的 |
+| `matha/stdlib.matha:607` | 自举标准库早已定义 `range(start, end) -> List` |
+
+语言桥因此把 `range` 整个列入 `_UNAVAILABLE_FNS` 拒绝直译，
+`for i in range(n)` 这一最常见 Python 循环形态始终落回无中生有骨架。
+
+### 统一语义
+
+**`range(start, end)` 两参 → `[start, start+1, …, end-1]`**（对齐自举标准库与
+原生既有实现；`end < start` → `[]`，与原生 `jle → empty` 分支一致）。
+单参 `range(n)` **四端均不支持**，由语言桥归一化为 `range(0, n)`；
+三参步长 `range(a, b, c)` 四端无对应语义，继续拒绝。
+
+### 变更
+
+1. **解释器补 `builtin_range`**（`src/interp.py`）：按本文件内建惯例写成
+   柯里化两参闭包，注册为 `_curry_module(2, builtin_range)`——`_apply` 逐参
+   应用，与 `slice`/`安全索引`/`构造集合` 同构。非整数实参抛
+   `MathaRuntimeError("range() 参数需整数")`。
+2. **VM 换掉 Python 原生 `range`**（`src/mbc/vm.py`）：新增 `_builtin_range`
+   并以 `_curry2` 包装注册。`_curry2` docstring 已承诺「`f(a)(b)` 或 `f(a,b)`
+   均可用」——编译器只对顶层用户函数融合 `CALL N`，内建一律嵌套 `CALL 1`，
+   故必须柯里化；此前裸 `range` 不可部分应用，正是双参报错的根因。
+   顺带修掉「单参返回 range 对象而非列表」的类型分歧。
+3. **原生零改动**——`_emit_builtin_range` 本就是两参返回列表，本次是向它对齐。
+4. **语言桥放行 `range`**（`src/matha/language_bridge.py`）：从
+   `_UNAVAILABLE_FNS` 移除；`_py_expr` 的 `Call` 分支新增 `range` 专用归一化
+   （单参 → `range(0, n)`、双参原样、其余返回 `None` 落骨架）。
+
+### 顺带发现的既有分歧（非本次引入，另记待办）
+
+- **`list` 内建四端不一致**：解释器 `list(x)` → `[x]`（构造单元素列表）、
+  `list()` → `[0]`；VM/原生 `list(x)` → Python `list()` 转换、`list()` 抛
+  `TypeError`。与 `range` 无关，`list(range(...))` 因此未列入对拍用例。
+- 非整数实参：解释器/VM 抛错，原生按 ABI 静默截断（原生整型参数通例）。
+
+### 验证
+
+- 四端实测（解释器 / VM / 原生 exe）：`range(1,4)`→`[1,2,3]`、`range(0,0)`→`[]`、
+  `range(5,2)`→`[]`、`range(0,5)`→`[0..4]`、`for i in range(1,4)` 累加→`6`、
+  `len(range(2,5))`→`3` —— **三端结果逐字相同**。
+- `tests/test_native.py::test_range_native_only` → **`test_range_vm_native_parity`**：
+  原 docstring 记「range 在 VM 2 参调用报错，故仅对原生端定点断言」，
+  现改为 VM ↔ 原生直接对拍 + 双端定点断言。
+- `tests/test_interp_parity.py` `PARITY_CASES` +6（解释器 ↔ VM）。
+- `tests/test_language_bridge.py` +2：单参归一化直译跑对、三参步长拒绝落骨架；
+  `enumerate` 仍拒绝。16 用例探针由 **10 / 6 / 0** 提升至 **11 / 5 / 0**
+  （`nested_loops` 首次直译并跑对）。
+- 全量回归：默认 **3388 passed**；`MATHA_FEATURE_SCOPED_BLOCKS=1` 全量开启
+  **3388 passed**（**零差异**）。
+- lint：`interp.py` 57、`vm.py` 11、`language_bridge.py` 5、`test_native.py` 11、
+  `test_interp_parity.py` 3、`test_language_bridge.py` 1 —— **六文件全部与 HEAD
+  逐项同基线，新增代码零 lint**。
+
 ## 增强：语言桥语句块直译覆盖（修掉全部「错译」+ 新增四类语句）
 
 **日期**：2026-10-19

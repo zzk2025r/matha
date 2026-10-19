@@ -97,12 +97,14 @@ _FN_MAP = {"fabs": "abs"}
 # 运行期必然报「未定义函数」。与其产出「能解析但跑不起来」的代码，不如整个表达式
 # 不可译，回落到无中生有骨架（宁可不译，不可错译）。
 # 每一项均在解释器 + MBC-VM 两端实测确认名字未定义。
-# 注：`range` 目前解释器无、VM 仅 1 参、原生仅 2 参 —— 三端语义尚未统一，故一并
-# 拒绝；待运行时把 `range` 补齐为四端一致后再放行（见迁移方案「待办」）。
+# 注：`range` 已不在此列——四端现统一为两参 `range(start, end)` → 列表
+# （解释器 `builtin_range`、VM `_builtin_range`、原生 `_emit_builtin_range`、
+# matha/stdlib.matha 四处一致），单参 `range(n)` 由 `_py_expr` 归一化为
+# `range(0, n)`；三参步长形态四端无对应，仍拒绝。
 _UNAVAILABLE_FNS = frozenset({
     "enumerate", "zip", "map", "filter", "sorted", "reversed", "any", "all",
     "isinstance", "dict", "set", "tuple", "iter", "next", "open", "hash",
-    "divmod", "repr", "id", "input", "range",
+    "divmod", "repr", "id", "input",
 })
 
 # Python 复合赋值运算符 → Matha 运算符（语句块直译用）
@@ -890,6 +892,16 @@ class LanguageBridge:
             return self._py_compare(node)
         if isinstance(node, pyast.Call):
             fn = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+            if fn == "range":
+                parts = [self._py_expr(a) for a in node.args]
+                if any(p is None for p in parts):
+                    return None
+                if len(parts) == 1:
+                    # 四端统一为两参；Python 常见的 `range(n)` 归一化为 `range(0, n)`
+                    return f"range(0, {parts[0]})"
+                if len(parts) == 2:
+                    return f"range({parts[0]}, {parts[1]})"
+                return None                      # 0 参 / 三参步长：四端无对应语义
             if _FN_MAP.get(fn, fn) in _UNAVAILABLE_FNS:
                 return None                      # Matha 无此名 → 拒绝直译，落骨架
             args = [self._py_expr(a) for a in node.args]

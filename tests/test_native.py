@@ -1476,15 +1476,21 @@ def test_file_io_roundtrip(tmp_path):
     assert _aot(src) == _vm(src)
 
 
-def test_range_native_only():
-    """range 在 VM 2 参调用报错，故仅对原生端做定点断言。"""
+def test_range_vm_native_parity():
+    """range 两参 → 列表：VM 与原生对拍（原断言仅限原生端）。
+
+    原名 `test_range_native_only`，docstring 记「range 在 VM 2 参调用报错」——
+    当时 VM 挂的是 Python 原生 `range`，逐参应用成 `range(0, 1)` 后再调用即炸。
+    现 VM 改为柯里化的 `_builtin_range`（与原生 `_emit_builtin_range`、
+    `matha/stdlib.matha` 同为两参返回列表），可直接对拍。
+    """
     src = ("输出(range(0, 5))\n输出(range(2, 7))\n输出(range(3, 3))\n"
            "输出(list(range(0, 4)))\n"
            "let s = 0\nfor i in range(0, 5) {\n  s = s + i\n}\n输出(s)\n")
-    assert _aot(src) == [
-        "[0, 1, 2, 3, 4]", "[2, 3, 4, 5, 6]", "[]",
-        "[0, 1, 2, 3]", "10",
-    ]
+    expected = ["[0, 1, 2, 3, 4]", "[2, 3, 4, 5, 6]", "[]",
+                "[0, 1, 2, 3]", "10"]
+    assert _vm(src) == expected, f"VM {_vm(src)} != {expected}"
+    assert _aot(src) == expected, f"AOT {_aot(src)} != {expected}"
 
 
 def test_random_native_only():

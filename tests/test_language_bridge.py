@@ -383,12 +383,35 @@ def test_while_for_else_not_silently_dropped(_isolate_scoped_flag):
     assert _fn(rec, 'for_else').generated
 
 
-def test_missing_builtin_falls_back_not_broken(_isolate_scoped_flag):
-    # range / enumerate 在 Matha 三端不齐 → 拒绝直译，绝不能产出跑不起来的代码
+def test_python_only_builtin_falls_back_not_broken(_isolate_scoped_flag):
+    # enumerate 在解释器 + MBC-VM 双端名字未定义 → 拒绝直译，
+    # 绝不能产出「能解析但跑不起来」的代码
     features.set_feature("SCOPED_BLOCKS", True)
     rec = LanguageBridge().devour('python', _MISSING_FN_PY_SRC, 'missing_fn_test')
-    assert _fn(rec, 'nested').generated
     assert _fn(rec, 'counted').generated
+
+
+def test_range_normalized_to_two_arg_and_runs(_isolate_scoped_flag):
+    # `range(n)` 单参归一化为四端一致的两参 `range(0, n)` → 直译并跑对
+    features.set_feature("SCOPED_BLOCKS", True)
+    rec = LanguageBridge().devour('python', _MISSING_FN_PY_SRC, 'range_test')
+    f = _fn(rec, 'nested')
+    assert not f.generated, f.body
+    assert 'for i in range(0, n)' in f.body
+    sig = LanguageBridge()._sig_line
+    assert interpret(sig(f) + '\n[nested(4)]')[0] == [6]
+
+
+def test_range_three_arg_step_rejected(_isolate_scoped_flag):
+    # 三参步长 `range(a, b, c)` 四端无对应语义 → 拒绝直译，落骨架
+    src = ('def step(n: int) -> int:\n'
+           '    s = 0\n'
+           '    for i in range(0, n, 2):\n'
+           '        s += i\n'
+           '    return s\n')
+    features.set_feature("SCOPED_BLOCKS", True)
+    rec = LanguageBridge().devour('python', src, 'range_step_test')
+    assert _fn(rec, 'step').generated
 
 
 def test_flag_off_keeps_ext_skeleton():
