@@ -59,9 +59,9 @@
       - slice(容器)(start)(stop)：复用 build_slice（越界钳制、负下标归一）；
       - append(xs)(elem)：新列表（浅拷贝 + 追加；非列表视作空列表 [elem]）；
       - mut_set_at(lst)(idx)(val)：原地改列表，越界/类型错返回 null（无异常）；
-      - _dict_keys/_dict_values：新列表，按 VM 逻辑顺序（物理 pair 逆序）；
+      - _dict_keys/_dict_values：新列表，按源码插入序（物理 pair 正序）；
       - _dict_has(d)(k)：布尔对象；_dict_put(d)(k)(v)：新字典（已有键原位更新，
-        新键物理首位 ↔ VM 逻辑末尾）；_dict_remove(d)(k)：过滤生成新字典；
+        新键插到表尾，插入序=显示序）；_dict_remove(d)(k)：过滤生成新字典；
       - _empty_dict：静态空字典对象（值而非可调用）。
    砖块 16 阶段三 基础原语 / 序列构造 / 文件 I/O / 进制编解码：
        - ord（UTF-8 首码点）/chr（码点→UTF-8），与 VM 的 Unicode 码点语义一致；
@@ -1988,19 +1988,14 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x48\xC7\x44\x24\x30\x00\x00\x00\x00")  # mov qword[rsp+0x30],0
     em.lea_rip(0, "dk_lb")                          # lea rax,[dk_lb]
     em.call_rel32("print_raw")
-    em.emit(b"\x48\x8B\x44\x24\x28")                # mov rax,[rsp+0x28]
-    em.emit(b"\x48\x8B\x40\x08")                    # mov rax,[rax+8]（count）
-    em.emit(b"\x48\xFF\xC8")                        # dec rax → i=count-1
-    em.emit(b"\x48\x89\x44\x24\x30")                # mov [rsp+0x30],rax
-    em.label_here("pd_loop")
+    em.label_here("pd_loop")                        # i=0 正序（[rsp+0x30] 初始化为 0）
     em.emit(b"\x48\x8B\x54\x24\x28")                # mov rdx,[rsp+0x28]
-    em.emit(b"\x48\x8B\x4C\x24\x30")                # mov rcx,[rsp+0x30]
-    em.emit(b"\x48\x85\xC9")                        # test rcx,rcx
-    em.jcc_rel32(0x88, "pd_done")                   # js done（i<0）
-    em.emit(b"\x48\x8B\x42\x08")                    # mov rax,[rdx+8]
-    em.emit(b"\x48\xFF\xC8")                        # dec rax（n-1）
+    em.emit(b"\x48\x8B\x4C\x24\x30")                # mov rcx,[rsp+0x30]（i）
+    em.emit(b"\x48\x8B\x42\x08")                    # mov rax,[rdx+8]（n）
     em.emit(b"\x48\x39\xC1")                        # cmp rcx,rax
-    em.jcc_rel32(0x84, "pd_nosep")                  # je nosep（首元素无分隔）
+    em.jcc_rel32(0x8D, "pd_done")                   # jge done（i>=n）
+    em.emit(b"\x48\x85\xC9")                        # test rcx,rcx
+    em.jcc_rel32(0x84, "pd_nosep")                  # je nosep（首元素 i=0 无分隔）
     em.lea_rip(0, "rb_sep")                         # lea rax,[rb_sep]
     em.call_rel32("print_raw")
     em.label_here("pd_nosep")
@@ -2020,7 +2015,7 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x49\x01\xD2")                        # add r10,rdx
     em.emit(b"\x49\x8B\x42\x18")                    # mov rax,[r10+24]（值）
     em.call_rel32("print_repr")
-    em.emit(b"\x48\xFF\x4C\x24\x30")                # dec qword [rsp+0x30]
+    em.emit(b"\x48\xFF\x44\x24\x30")                # inc qword [rsp+0x30]
     em.jcc_rel32(None, "pd_loop")                   # jmp loop
     em.label_here("pd_done")
     em.lea_rip(0, "dk_rb")                          # lea rax,[dk_rb]
@@ -2894,15 +2889,15 @@ def _emit_seq_dict_runtime(em: _Emitter):
 
       dict_find(rax=dict, rcx=key) → rax=pair 指针；未命中 0
       dict_has(rax=dict, rcx=key) → eax=1/0
-      dict_keys(rax=dict) / dict_values(rax=dict) → rax=新列表（VM 顺序）
-      dict_put(rax=dict, rcx=key, rdx=val) → rax=新字典（不可变更新）
+      dict_keys(rax=dict) / dict_values(rax=dict) → rax=新列表（源码插入序）
+      dict_put(rax=dict, rcx=key, rdx=val) → rax=新字典（不可变更新；新键插表尾）
       dict_remove(rax=dict, rcx=key) → rax=新字典
       list_append(rax=xs, rcx=elem) → rax=新列表（xs 为列表则浅拷贝追加，
         否则按 VM 语义视作空列表 [elem]；字符串展开等未覆盖）
 
     字典物理布局： [TYPE_DICT][count][ (key,value) × count ]，每项 16 字节。
-    VM 侧 BUILD_DICT 逆序插入，故 VM 逻辑顺序 = 物理 pair 的逆序；本模块的
-    keys/values/print 均按物理逆序输出以对齐 VM。
+    BUILD_DICT 按源码序推送 pair（rep movsq 自底向上拷贝），物理顺序 = 源码
+    插入顺序；本模块的 keys/values/print 均按物理正序输出，与解释器/VM 一致。
     """
     # ---- dict_find ----
     em.label_here("dict_find")
@@ -2940,7 +2935,7 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.emit(b"\x0F\xB6\xC0")                        # movzx eax,al
     em.emit(b"\xC3")                                # ret
 
-    # ---- dict_keys：[pair[n-1].key, …, pair[0].key] ----
+    # ---- dict_keys：[pair[0].key, …, pair[n-1].key]（源码插入序）----
     em.label_here("dict_keys")
     em.emit(b"\x41\x55\x41\x56\x41\x57")            # push r13;r14;r15
     em.emit(b"\x49\x89\xC5")                        # mov r13,rax（dict）
@@ -2952,17 +2947,15 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.emit(b"\xC7\x00" + struct.pack("<I", TYPE_LIST))
     em.emit(b"\x4C\x89\x70\x08")                    # mov [rax+8],r14
     em.emit(b"\x4C\x8D\x48\x10")                    # lea r9,[rax+16]（输出指针）
-    em.mov_rr(15, 14)                               # mov r15,r14
-    em.shl_ri(15, 4)                                # n*16
-    em.add_rr(15, 13)                               # +dict
-    em.add_ri(15, 16)                               # +16 → 末项之后
+    em.mov_rr(15, 13)                               # mov r15,r13
+    em.add_ri(15, 16)                               # +16 → 首 pair
     em.label_here("dk_loop")
     em.emit(b"\x4D\x85\xF6")                        # test r14,r14
     em.jcc_rel32(0x84, "dk_done")                   # jz done
-    em.emit(b"\x49\x83\xEF\x10")                    # sub r15,16
     em.mov_rd_mem(2, 15, 0)                         # mov rdx,[r15]（键）
     em.mov_mem_r(9, 0, 2)                           # mov [r9],rdx
     em.emit(b"\x49\x83\xC1\x08")                    # add r9,8
+    em.add_ri(15, 16)                               # 下一 pair
     em.emit(b"\x49\xFF\xCE")                        # dec r14
     em.jcc_rel32(None, "dk_loop")
     em.label_here("dk_done")
@@ -2981,24 +2974,22 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.emit(b"\xC7\x00" + struct.pack("<I", TYPE_LIST))
     em.emit(b"\x4C\x89\x70\x08")                    # mov [rax+8],r14
     em.emit(b"\x4C\x8D\x48\x10")                    # lea r9,[rax+16]
-    em.mov_rr(15, 14)
-    em.shl_ri(15, 4)
-    em.add_rr(15, 13)
-    em.add_ri(15, 16)
+    em.mov_rr(15, 13)                               # mov r15,r13
+    em.add_ri(15, 16)                               # +16 → 首 pair
     em.label_here("dv_loop")
     em.emit(b"\x4D\x85\xF6")                        # test r14,r14
     em.jcc_rel32(0x84, "dv_done")
-    em.emit(b"\x49\x83\xEF\x10")                    # sub r15,16
     em.mov_rd_mem(2, 15, 8)                         # mov rdx,[r15+8]（值）
     em.mov_mem_r(9, 0, 2)                           # mov [r9],rdx
     em.emit(b"\x49\x83\xC1\x08")                    # add r9,8
+    em.add_ri(15, 16)                               # 下一 pair
     em.emit(b"\x49\xFF\xCE")                        # dec r14
     em.jcc_rel32(None, "dv_loop")
     em.label_here("dv_done")
     em.emit(b"\x41\x5F\x41\x5E\x41\x5D")
     em.emit(b"\xC3")                                # ret
 
-    # ---- dict_put（不可变更新；新键插到物理首位以对齐 VM 逻辑末尾）----
+    # ---- dict_put（不可变更新；新键插到表尾，插入序=物理序=显示序）----
     em.label_here("dict_put")
     em.emit(b"\x55\x48\x89\xE5")                    # push rbp;mov rbp,rsp
     em.emit(b"\x48\x83\xEC\x60")                    # sub rsp,0x60
@@ -3044,19 +3035,23 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.mov_mem_r(7, 8, 0)                           # [rdi+8]=val
     em.jcc_rel32(None, "dp_ret")
     em.label_here("dp_isnew")
-    # 新键：旧表拷到 +16（pair1 起），pair0=(key,val)
+    # 新键：旧表原样拷到 +16，新键值写到表尾 pair 槽（newobj+16+16n）
     em.mov_rd_mem(7, 5, -56)
-    em.add_ri(7, 32)                                # rdi=newobj+32
+    em.add_ri(7, 16)                                # rdi=newobj+16
     em.mov_rd_mem(6, 5, -8)
     em.add_ri(6, 16)                                # rsi=dict+16
     em.mov_rd_mem(1, 5, -40)
     em.shl_ri(1, 1)                                 # rcx=2n
-    em.emit(b"\xF3\x48\xA5")                        # rep movsq
-    em.mov_rd_mem(7, 5, -56)
+    em.emit(b"\xF3\x48\xA5")                        # rep movsq（n=0 空表亦安全）
+    em.mov_rd_mem(7, 5, -56)                        # r7=newobj
+    em.mov_rd_mem(1, 5, -40)                        # rcx=n
+    em.shl_ri(1, 4)                                 # n*16
+    em.add_rr(7, 1)                                 # +n*16
+    em.add_ri(7, 16)                                # → 表尾 pair 槽
     em.mov_rd_mem(0, 5, -16)                        # rax=key
-    em.mov_mem_r(7, 16, 0)                          # [newobj+16]=key
+    em.mov_mem_r(7, 0, 0)                           # [槽]=key
     em.mov_rd_mem(0, 5, -24)                        # rax=val
-    em.mov_mem_r(7, 24, 0)                          # [newobj+24]=val
+    em.mov_mem_r(7, 8, 0)                           # [槽+8]=val
     em.label_here("dp_ret")
     em.mov_rd_mem(0, 5, -56)                        # rax=newobj
     em.emit(b"\xC9\xC3")                            # leave;ret

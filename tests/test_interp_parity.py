@@ -163,8 +163,13 @@ PARITY_CASES = {
     "list_of_null": "输出(list(null))",
     "list_text": '输出(list("abc"))',
     "list_range": "输出(list(range(0, 4)))",
-    # 注：dict 键序不列入——dict 字面量插入顺序本身是既有分歧
-    # （解释器保源码序、VM/原生反序），`输出(d)` 即可见，与 list 无关。
+    # dict 字面量键序四端统一为源码插入序（解释器本就保源码序；VM 曾逆序插入、
+    # 原生观察器曾逆序输出——见 CHANGELOG「dict 字面量键插入顺序四端统一为源码插入序」）。
+    "dict_order": '输出({"a": 1, "b": 2, "c": 3})',
+    "dict_order_nested": '输出({"x": {"m": 1, "n": 2}, "y": 3})',
+    "dict_order_str": '输出(str({"a": 1, "b": 2}))',
+    "dict_order_list_keys": '输出(list({"a": 1, "b": 2, "c": 3}))',
+    "dict_order_len": '输出(len({"a": 1, "b": 2, "c": 3}))',
 }
 
 

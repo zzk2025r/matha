@@ -1283,6 +1283,15 @@ _PARITY_CASES = {
                         '输出(_dict_remove(d)("c"))\n'
                         '输出(_dict_remove(d)("z"))\n',
     "b16s_empty_dict": "输出(_empty_dict)\n输出(type_of(_empty_dict))\n",
+    # dict 键序四端统一为源码插入序：字面量/str/keys/put 新键尾插（VM↔原生对拍）。
+    "b16s_dict_order": 'let d = {"a": 1, "b": 2, "c": 3} in\n'
+                       "输出(d)\n"
+                       "输出(str(d))\n"
+                       "输出(get(_dict_keys(d))(0))\n"
+                       "输出(get(_dict_keys(d))(2))\n"
+                       '输出(_dict_put(d)("z")(9))\n'
+                       '输出(_dict_remove(d)("b"))\n'
+                       '输出(_dict_put(d)("a")(7))\n',
     # MathaIOError：三端统一为 2 元素列表（VM 原返回 Python 元组）。
     # 结构访问（len/get/typeof）规避嵌套字符串打印差异。
     "ioerror_list": ('let e = MathaIOError("boom") in\n'

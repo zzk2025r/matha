@@ -757,9 +757,12 @@ class VM:
             st.append(_UNARYOPS[C[ins[1]]](st.pop()))
         elif op == OP.BUILD_DICT:
             n = ins[1]
-            d = {}
+            pairs = []
             for _ in range(n):
                 v = st.pop(); k = st.pop()
+                pairs.append((k, v))
+            d = {}
+            for k, v in reversed(pairs):  # 栈顶=末对；按源码插入序重建
                 d[k] = v
             st.append(d)
         elif op == OP.BUILD_SLICE:

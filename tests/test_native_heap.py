@@ -135,12 +135,12 @@ def test_dict_literal():
     assert _aot('#1：[{"k": 1}]') == ["{'k': 1}"]
 
 
-def test_dict_multi_pair_reversed_order():
-    assert _aot('#1：[{"a": 1, "b": 2, "c": 3}]') == ["{'c': 3, 'b': 2, 'a': 1}"]
+def test_dict_multi_pair_source_order():
+    assert _aot('#1：[{"a": 1, "b": 2, "c": 3}]') == ["{'a': 1, 'b': 2, 'c': 3}"]
 
 
 def test_dict_global():
-    assert _aot('d = {"a": 1, "b": 2}\n#1：[d]') == ["{'b': 2, 'a': 1}"]
+    assert _aot('d = {"a": 1, "b": 2}\n#1：[d]') == ["{'a': 1, 'b': 2}"]
 
 
 def test_dict_len():
@@ -212,7 +212,7 @@ def test_str_of_list():
 
 
 def test_str_of_dict():
-    assert _aot('let d = {"a": 1, "b": 2}\n输出(str(d))\n') == ["{'b': 2, 'a': 1}"]
+    assert _aot('let d = {"a": 1, "b": 2}\n输出(str(d))\n') == ["{'a': 1, 'b': 2}"]
 
 
 def test_str_of_empty_dict():
@@ -377,7 +377,7 @@ def test_gc_retains_dict_across_collection():
         'let s = ""\n'
         'for i in range(0, 400000) {\n  s = "n" + str(i)\n}\n'
         '输出(d["a"])\n输出(d)\n'
-    ) == ["1", "{'b': 2, 'a': 1}"]
+    ) == ["1", "{'a': 1, 'b': 2}"]
 
 
 def test_gc_retains_closure_capture():

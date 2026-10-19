@@ -1,5 +1,57 @@
 # Matha 变更摘要
 
+## 修复：dict 字面量键插入顺序四端统一为源码插入序
+
+**日期**：2026-10-19
+
+### 背景
+
+上一条记下的待办：同一个字面量 `d = {"a": 1, "b": 2}` 的键序三端各不同——
+解释器保**源码序**，VM 与原生彼此一致但**反序**：
+
+| 观察 | 解释器 | 修复前·VM/原生 | 修复后（四端） |
+|---|---|---|---|
+| `输出({"a": 1, "b": 2, "c": 3})` | `{'a': 1, 'b': 2, 'c': 3}` | `{'c': 3, 'b': 2, 'a': 1}` | `{'a': 1, 'b': 2, 'c': 3}` |
+| `list(d)` / `_dict_keys(d)` | `["a", "b"]` | `["b", "a"]` | `["a", "b"]` |
+| `_dict_put(d)("z")(9)` 新键 | （解释器无 `_dict_put` 内建） | VM 末尾 / 原生物理首位（反序补偿，显示恰为末尾） | 双端末尾 |
+
+成因两侧不同：**VM** `BUILD_DICT` 弹栈自顶向下插入（末对先入）→ Python dict
+插入序反了；**原生** pair 数组物理序本就是源码序（`rep movsq` 自底向上拷贝），
+但 `dict_keys`/`dict_values`/`print_dict` 为对齐旧 VM 一律按物理**逆序**输出、
+`dict_put` 新键插物理首位。`b16t_list_dict` 只断言 `len`，VM↔原生对拍两端
+同步反序，故从未暴露。
+
+### 变更
+
+1. **`src/mbc/vm.py` `OP.BUILD_DICT`**：先收集全部 (k, v) 对，再按栈序逆向
+   （= 源码序）插入——重复键「保首现位置、取后值」，与解释器 Python dict 完全一致。
+2. **`src/mbc/native.py` 观察器改正序**（`BUILD_DICT` 发射零改动）：
+   - `dict_keys` / `dict_values`：起始指针改首 pair、`+16` 正向推进；
+   - `print_dict`：`i` 从 0 起、`i >= n` 终止、`i == 0` 无分隔、`inc` 推进
+     （修正途中把 `inc qword [rsp+0x30]` 的 ModRM 误写 `04`→实为 `44`，缺
+     disp8 位移导致 0xC0000005，探针当场抓出）；
+   - `dict_put` 新键由物理首位改**表尾**（原「首位 + 逆序显示 = 末尾」的补偿
+     随观察器翻转一并撤掉）；`dict_remove` 本就保序、`ls_dict` 委托 `dict_keys`，
+     随之对齐。涉及 `输出(d)`、`str(d)`、`list(d)`、`_dict_keys/_dict_values`。
+3. **`matha/vm.matha` `建字典对` 合并方向**：该函数显式镜像旧宿主「先弹者胜」
+   （`键覆盖(深, 当前)`），宿主改源序后 host↔matha 重复键对拍回归
+   （`{"a": 1, "a": 2}` → host 2 / matha 1），改为 `键覆盖(当前, 深)`——
+   每层后弹（源码更靠后）者覆盖，非重复键路径同时从 `[z, x, y]` 式反序
+   变为源码序 `["x","y","z"]`。
+
+### 新增回归测试与验证
+
+- `test_native_heap.py` 4 处绝对断言改源序（`test_dict_multi_pair_reversed_order`
+  更名 `…_source_order`）；
+- `test_interp_parity.py` `PARITY_CASES` +5（原注释明示「键序不列入」——现移除）；
+  `test_native.py` `_PARITY_CASES` +`b16s_dict_order`（字面量/str/keys/put/remove
+  VM↔原生对拍）。
+- 探针 10 用例三端全同；全量默认 **3407 passed** / `MATHA_FEATURE_SCOPED_BLOCKS=1`
+  **3407 passed**（零差异 = 3401+6）；五个涉改文件 lint **77 == 基线 77**。
+- 顺带确证的既有分歧（记入计划待办）：**原生重复键字面量不去重**——
+  `{"a": 1, "a": 2}` 原生 `d["a"]`=1（`dict_find` 首匹配）、`len`=2、打印双 pair，
+  与解释器/VM/matha 的 2/1/单 pair 不同。
+
 ## 修复：原生错误调用由 0xC0000005/0xC000001D 崩溃改为「不可调用的值」报错
 
 **日期**：2026-10-19
