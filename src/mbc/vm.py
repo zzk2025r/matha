@@ -278,6 +278,27 @@ def _raise_builtin(msg):
     raise RuntimeError(str(msg))
 
 
+def _is_matha_function(v) -> bool:
+    """Matha 可调用值判定：VM 闭包/部分应用记录，或任何 Python 可调用
+    （内建函数/柯里化包装）。用于 type_of → "Function" 与 str/输出 →
+    "<function>" 的四端统一（解释器为闭包元组/可调用，原生为
+    TYPE_CLOSURE/TYPE_PARTIAL 记录与 .text 代码地址）。"""
+    return isinstance(v, (Closure, Partial)) or callable(v)
+
+
+def _builtin_str(v) -> str:
+    """str(v)：可调用值统一为 "<function>"，其余沿用 Python str。
+    与解释器 builtin_str_value / 原生 print 对齐。"""
+    if _is_matha_function(v):
+        return "<function>"
+    return str(v)
+
+
+def _norm_output(v):
+    """输出流规范化：可调用值 → "<function>"，其余原样。"""
+    return "<function>" if _is_matha_function(v) else v
+
+
 def _builtin_type_of(v) -> str:
     """返回值类型名称（Matha 类型）——VM 内建，供自举代码使用。
     避免 stdlib 纯 Matha 实现的 type_of 与 str 互相调用死循环。"""
@@ -293,7 +314,7 @@ def _builtin_type_of(v) -> str:
         return "List"
     if isinstance(v, dict):
         return "Dict"
-    if isinstance(v, (Closure, Partial)):
+    if _is_matha_function(v):
         return "Function"
     if v is None:
         return "Null"
@@ -423,7 +444,7 @@ def _default_builtins() -> dict:
     b.setdefault("_to_int", int)  # 供 stdlib 增强版 int 分派到数值截断
     b.setdefault("float", float)
     b.setdefault("_to_float", float)  # 供 stdlib 增强版 float 分派到数值转换
-    b.setdefault("str", str)
+    b.setdefault("str", _builtin_str)
     b.setdefault("bool", bool)
     b.setdefault("list", _builtin_list)
     b.setdefault("ord", ord)
@@ -434,6 +455,7 @@ def _default_builtins() -> dict:
     b.setdefault("get", _curry2(lambda c, i: c[i]))
     b.setdefault("slice", _curry3(lambda c, s, e: c[s:e]))
     b.setdefault("append", _curry2(_builtin_append))
+    b.setdefault("enumerate", lambda lst: [[i, v] for i, v in enumerate(lst)])
     # 原地追加（O(1) 摊还）：仅自举编译器 `_发` 等「构建器」在保证列表无别名
     # 共享时使用，语义上等价于 append 但避免整体复制导致的 O(n²)。
     b.setdefault("list_push", _curry2(_builtin_list_push))
@@ -491,9 +513,11 @@ def _default_builtins() -> dict:
 
 
 def _make_output(vm):
-    """输出(value) → 记录到 VM 输出流，返回原值（可链式）。"""
+    """输出(value) → 记录到 VM 输出流，返回原值（可链式）。
+
+    可调用值记为 "<function>"（与解释器/原生一致）；其余原样保留。"""
     def emit(value):
-        vm.outputs.append(value)
+        vm.outputs.append(_norm_output(value))
         return value
     return emit
 
@@ -776,7 +800,7 @@ class VM:
             f.locals[ins[1]].value = st.pop()
         elif op == OP.OUTPUT:
             val = st.pop()
-            self.outputs.append(val)
+            self.outputs.append(_norm_output(val))
             if self.verbose:
                 print(val)
         elif op == OP.RAISE:

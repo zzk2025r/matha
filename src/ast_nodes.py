@@ -556,6 +556,15 @@ class RaiseExpr:
 
 
 @dataclass
+class ListComp:
+    """列表推导式 [expr for target in iterable if cond ...]"""
+    expr: Any
+    target: Any
+    iter: Any
+    ifs: list = field(default_factory=list)
+
+
+@dataclass
 class TryStmt:
     """try { block } catch (<var>) { block } [ finally { block }]"""
     try_block: Any

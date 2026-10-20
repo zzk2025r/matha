@@ -1346,6 +1346,30 @@ _PARITY_CASES = {
                           '输出(get(r)(1))\n'
                           '输出(调用捕获(单)([4]))\n'
                           '输出(调用捕获(双)([2, 3]))\n'),
+    # 调用捕获 欠应用（实参 < 元数）：原生 ar_close 返回 TYPE_PARTIAL、
+    # 宿主 invoke_value 返回 Partial，两者补参后求值一致；此处避开嵌套
+    # Partial 的打印差异（VM "<function>" vs AOT "None"），只测补参结果。
+    "guard_partial_apply": ('func 单(x: Int) -> Int = x * 2\n'
+                            'func 双(a: Int, b: Int) -> Int = a + b\n'
+                            'let r = 调用捕获(单)([]) in\n'
+                            '输出(get(r)(0))\n输出(r[1](5))\n'
+                            'let h = 调用捕获(双)([1]) in\n'
+                            '输出(h[1](2))\n'
+                            'let e = 调用捕获(双)([]) in\n'
+                            '输出(e[1](1)(2))\n'
+                            'let z = 调用捕获(单)() in\n'
+                            '输出(z[1](7))\n'),
+    # 内建 thunk（闭包外的 __内建__）：完整应用 / 错误落标签 / 欠应用后再补
+    "guard_builtin_thunk": ('输出(调用捕获(len)([[1, 2, 3]]))\n'
+                            '输出(调用捕获(错误)(["boom"]))\n'
+                            'let r = 调用捕获(get)([[1, 2, 3]]) in\n'
+                            '输出(r[1](0))\n'),
+    # 闭包偏应用作 thunk（invoke_value 展开 Partial 链合并实参）
+    "guard_partial_thunk": ('func 双(a: Int, b: Int) -> Int = a + b\n'
+                            'let p = 双(1) in\n'
+                            '输出(调用捕获(p)([2]))\n'
+                            'let q = 双(1) in\n'
+                            '输出(调用捕获(q)([])[1](2))\n'),
     # MathaIOError：三端统一为 2 元素列表（VM 原返回 Python 元组）。
     # 结构访问（len/get/typeof）规避嵌套字符串打印差异。
     "ioerror_list": ('let e = MathaIOError("boom") in\n'

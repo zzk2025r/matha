@@ -136,6 +136,24 @@ _CASES = [
     "func 单(x: Int) -> Int = x * 2\n输出(调用捕获(单)([3]))\n输出(调用捕获(单)([4]))\n",
     "func 双(a: Int, b: Int) -> Int = a + b\n输出(调用捕获(双)([1, 2]))\n",
     "func 也错(x: Int) -> Int = 错误(\"x爆\")\n输出(调用捕获(也错)([7]))\n",
+    # 调用捕获：欠应用（实参 < 元数）对齐宿主/原生——返回部分而非硬崩
+    # （旧实现 闭包子帧 直接补空，读局部时 IndexError）。用补参后求值规避
+    # 嵌套 Partial 的内存地址无法逐字对拍（见 matha_bootstrap_migration_analysis.md）。
+    "func 单(x: Int) -> Int = x * 2\nlet r = 调用捕获(单)([]) in\n输出(r[0])\n输出(r[1](5))\n",
+    "func 双(a: Int, b: Int) -> Int = a + b\nlet r = 调用捕获(双)([1]) in\n输出(r[0])\n输出(r[1](2))\n",
+    "func 双(a: Int, b: Int) -> Int = a + b\nlet r = 调用捕获(双)([]) in\n输出(r[1](1)(2))\n",
+    # 哨兵 0：`f()` 编译为 f(0)，invoke_value 视 falsy 为空表 → 欠应用部分
+    "func 单(x: Int) -> Int = x * 2\nlet r = 调用捕获(单)() in\n输出(r[0])\n输出(r[1](7))\n",
+    # 多余实参忽略（子帧局部仅取前 元数 个，与宿主/原生同）
+    "func 单(x: Int) -> Int = x * 2\n输出(调用捕获(单)([3, 9]))\n",
+    # 内建 thunk：完整应用 / 输出副作用 / 错误落标签 / 欠应用后再补
+    "输出(调用捕获(len)([[1, 2, 3]]))\n",
+    "输出(调用捕获(输出)([[7]]))\n",
+    "输出(调用捕获(错误)([\"boom\"]))\n",
+    "let r = 调用捕获(get)([[1, 2, 3]]) in\n输出(r[0])\n输出(r[1](0))\n",
+    # 闭包偏应用作 thunk（invoke_value 展开 Partial 链合并实参）
+    "func 双(a: Int, b: Int) -> Int = a + b\nlet p = 双(1) in\nlet r = 调用捕获(p)([2]) in\n输出(r[0])\n输出(r[1])\n",
+    "func 双(a: Int, b: Int) -> Int = a + b\nlet p = 双(1) in\nlet r = 调用捕获(p)([]) in\n输出(r[1](2))\n",
     # 移位运算
     "输出(1 << 3)\n输出(16 >> 2)\n",
     # 多重输出

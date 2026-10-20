@@ -979,17 +979,7 @@ class Parser:
         return ast.ReadBlock(content=content)
 
     def _parse_brace_dispatch(self):
-        """{ } 双义消解：代码块 vs 集合构造 vs 字典字面量（EBNF §16）
-
-        消解规则（前瞻 { 后第一个 token，跳过换行/缩进）：
-        - NEWLINE/INDENT → 继续查看下一个 token
-        - } → 空集合构造
-        - 逗号或管道 → 集合构造（枚举 {1,2,3} / 理解 {x | cond}）
-        - 整数/浮点/布尔 → 集合枚举（如 {1, 2, 3}）
-        - 字符串/标识符 且 下一 token 为 : → 字典字面量（如 {"类型": "程序"}）
-        - 标识符 且 下一 token 为 | → 集合理解（如 {x | x > 5}）
-        - 其他 → 代码块（默认规则）
-        """
+        """{ } 双义消解：代码块 vs 集合构造 vs 字典字面量（EBNF §16）"""
         # 跳过开头的换行/缩进，找到第一个有意义 token
         skip = 1
         while self._peek(skip).type in (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT):
@@ -1000,36 +990,58 @@ class Parser:
         # 有逗号或管道分隔符 → 集合构造
         if next_tok.type in (TokenType.PUNCT_COMMA, TokenType.OP_PIPE, TokenType.MATHA_COMMA) \
                 or (next_tok.type == TokenType.SYMBOL and next_tok.value in (",", "|", "，", "；")):
+            # 但如果紧跟的是分号或换行形式的语句分隔，优先按代码块
+            nn = self._peek(skip + 1)
+            if nn.type in (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT) or (nn.type == TokenType.SYMBOL and nn.value == ';'):
+                return self._parse_code_block()
             return self._parse_set_construct()
-        # 集合理解（头部可为元组/表达式，且含生成子句 `v >> S`）：如
-        # {(x,y) | x >> A | y >> B}、{x * 2 | x >> S}
+        # 集合理解
         if self._has_top_level_comprehension_pipe(skip):
             return self._parse_set_construct()
+        # 检测是否为代码块（包含分号或多行语句形式）
+        # 简单启发：若第二个有意义token是分号或出现绑定/输出等语句特征，走代码块
+        # 向前看找分号
+        j = skip + 1
+        while j < len(self.tokens):
+            tj = self._peek(j).type
+            if tj == TokenType.NEWLINE:
+                # 多行且没有逗号可能是代码块
+                pass
+            if tj == TokenType.SYMBOL and self._peek(j).value == ';':
+                # 检查是否像集合（集合用逗号）- 如果是集合枚举一般用逗号分隔
+                return self._parse_code_block()
+            if tj == TokenType.PUNCT_RBRACE:
+                break
+            if tj in (TokenType.OP_PIPE, TokenType.PUNCT_COMMA):
+                break
+            j += 1
         # 整数字面量 / 浮点 / 布尔 → 集合枚举（如 {1, 2, 3}）；
-        # 若其后紧跟 ":" 则为字典字面量（如 {1: "一", 2: "二"}）
         if next_tok.type in (TokenType.LIT_INTEGER, TokenType.LIT_FLOAT,
                              TokenType.LIT_BOOL):
             if self._peek(skip + 1).type == TokenType.OP_COLON:
                 return self._parse_dict_literal()
+            # 检查是否有逗号
+            # 已做过逗号检查，这里走集合
             return self._parse_set_construct()
-        # 字符串 → 检查后一个 token：: 则字典，, 或 | 则集合
+        # 字符串
         if next_tok.type == TokenType.LIT_STRING:
             next_next = self._peek(skip + 1)
             if next_next.type == TokenType.OP_COLON:
                 return self._parse_dict_literal()
             if next_next.type in (TokenType.PUNCT_COMMA, TokenType.OP_PIPE, TokenType.MATHA_COMMA) \
-                    or (next_next.type == TokenType.SYMBOL and next_next.value in (",", "|", "，", "；")):
+                    or (next_next.type == TokenType.SYMBOL and next_next.value in (",", "|", "，")):
                 return self._parse_set_construct()
             return self._parse_code_block()
-        # 标识符 → 检查后一个 token：| 则集合理解，: 则字典，否则代码块
+        # 标识符
         if next_tok.type == TokenType.IDENTIFIER:
             next_next = self._peek(skip + 1)
             if next_next.type == TokenType.OP_PIPE:
                 return self._parse_set_construct()
             if next_next.type == TokenType.OP_COLON:
                 return self._parse_dict_literal()
+            # 可能是代码块中的语句（绑定等）
+            # 简单：如果不明显是集合，优先代码块
             return self._parse_code_block()
-        # 无分隔符 → 代码块（含 if 体、lambda 体等）
         return self._parse_code_block()
 
     _COMP_SKIP = (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT)
@@ -2419,9 +2431,31 @@ class Parser:
             saved2 = self.pos
             self._advance()  # consume [
             self._skip_newlines()
-            is_list_lookahead = (
-                self._is_primary_start()
-                and (
+            # 列表推导优先：顶层存在 for/in
+            is_list_lookahead = False
+            if self._is_primary_start():
+                j = self.pos
+                depth = 1
+                found_for = False
+                found_in = False
+                while j < len(self.tokens):
+                    t = self.tokens[j].type
+                    if t in (TokenType.PUNCT_LBRACKET, TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACE):
+                        depth += 1
+                    elif t in (TokenType.PUNCT_RBRACKET, TokenType.PUNCT_RPAREN, TokenType.PUNCT_RBRACE):
+                        depth -= 1
+                        if depth <= 0:
+                            break
+                    elif t == TokenType.KW_FOR and depth == 1:
+                        found_for = True
+                    elif t == TokenType.KW_IN and depth == 1 and found_for:
+                        found_in = True
+                        break
+                    j += 1
+                if found_for and found_in:
+                    is_list_lookahead = True
+            if not is_list_lookahead and self._is_primary_start():
+                is_list_lookahead = (
                     self._peek(1).type == TokenType.PUNCT_COMMA
                     or (self._peek(1).type in (
                             TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
@@ -2429,9 +2463,7 @@ class Parser:
                             TokenType.OP_SET_SUBSET,
                         )
                         and self._peek(2).type in (TokenType.PUNCT_COMMA, TokenType.PUNCT_RBRACKET))
-                )
-                or self._bracket_has_comma(saved2)
-            )
+                ) or self._bracket_has_comma(saved2)
             self.pos = saved2
             if is_list_lookahead:
                 return self._parse_list_literal()
@@ -2709,30 +2741,78 @@ class Parser:
                 or self._bracket_has_comma(self.pos - 1)  # self.pos 在 [ 后
             )
         )
+        # 列表推导：顶层 for/in
+        if not is_list_lookahead and self._is_primary_start():
+            j = self.pos
+            depth = 1
+            found_for = False
+            found_in = False
+            while j < len(self.tokens):
+                t = self.tokens[j].type
+                if t in (TokenType.PUNCT_LBRACKET, TokenType.PUNCT_LPAREN, TokenType.PUNCT_LBRACE):
+                    depth += 1
+                elif t in (TokenType.PUNCT_RBRACKET, TokenType.PUNCT_RPAREN, TokenType.PUNCT_RBRACE):
+                    depth -= 1
+                    if depth <= 0:
+                        break
+                elif t == TokenType.KW_FOR and depth == 1:
+                    found_for = True
+                elif t == TokenType.KW_IN and depth == 1 and found_for:
+                    found_in = True
+                    break
+                j += 1
+            if found_for and found_in:
+                is_list_lookahead = True
         self.pos = saved_pos
 
         if is_list_lookahead:
-            # 列表字面量路径：[expr, expr, ...] (∪/∩/⊖/×/⊆ [expr,...])*
-            # 注意：[ 已被 _expect 消费，直接从元素开始解析
-            # 元素求值期间须清掉 _in_func_app：否则元素里的 (a, b) 会被
-            # _parse_primary 的多参调用分支当成实参表，b 被静默丢弃
-            # （f([(a, b)]) 曾退化成 f([a])）。
+            # 列表字面量路径（含列表推导）：[expr, expr, ...] 或 [expr for ...]
             elements: list[Any] = []
             saved_app = self._in_func_app
             self._in_func_app = False
             try:
                 if not self._check(TokenType.PUNCT_RBRACKET):
-                    elements.append(self._parse_expr())
-                    while self._check(TokenType.PUNCT_COMMA):
-                        self._advance()
+                    # 检测是否为推导式
+                    saved2e = self.pos
+                    try:
+                        first = self._parse_expr()
+                        if self._check(TokenType.KW_FOR):
+                            self._advance()
+                            target = self._parse_expr()
+                            if self._check(TokenType.KW_IN):
+                                self._advance()
+                            it = self._parse_expr()
+                            ifs = []
+                            while self._check(TokenType.KW_IF):
+                                self._advance()
+                                ifs.append(self._parse_expr())
+                            self._skip_newlines()
+                            self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
+                            result: Any = ast.ListComp(expr=first, target=target, iter=it, ifs=ifs)
+                        else:
+                            self.pos = saved2e
+                            elements.append(self._parse_expr())
+                            while self._check(TokenType.PUNCT_COMMA):
+                                self._advance()
+                                elements.append(self._parse_expr())
+                            self._skip_newlines()
+                            self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
+                            result = ast.ListLiteral(elements=elements)
+                    except Exception:
+                        self.pos = saved2e
                         elements.append(self._parse_expr())
+                        while self._check(TokenType.PUNCT_COMMA):
+                            self._advance()
+                            elements.append(self._parse_expr())
+                        self._skip_newlines()
+                        self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
+                        result = ast.ListLiteral(elements=elements)
+                else:
+                    self._advance()
+                    result = ast.ListLiteral(elements=[])
             finally:
                 self._in_func_app = saved_app
-            self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
-            result: Any = ast.ListLiteral(elements=elements)
-            # 支持 [a,b] ∪ [c,d] 等形式：列表后跟集合运算符（左结合；右操作数用
-            # _parse_add_expr 而非 _parse_expr，避免经 _parse_set_expr 再次进入集合层
-            # → 右结合，与 _parse_set_expr 的左结合不一致）。
+            # 支持 [a,b] ∪ [c,d] 等形式
             while self._check(TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
                               TokenType.OP_SET_DIFF, TokenType.OP_SET_PROD,
                               TokenType.OP_SET_SUBSET):
@@ -2813,16 +2893,33 @@ class Parser:
         return False
 
     def _parse_list_literal(self) -> Any:
-        """<list_literal> = [ <expr> , { , <expr> } ]
-
-        集合运算符链（`[a,b] ∪ [c,d]` 等）不再在此处自持尾链——统一由上层
-        `_parse_set_expr` 处理（左结合）。此前此处另有 `right=_parse_expr()` 的
-        尾链，与 `_parse_set_expr` 重复：当左操作数是列表字面量时它抢先行动，
-        且因 `_parse_expr` 会再次进入 `_parse_set_expr`/本函数而呈**右结合**，
-        与左操作数非列表时（走 `_parse_set_expr`，左结合）不一致，并导致
-        `[1,2] ⊖ [3] ⊖ [1]` 的 stage2 ≠ stage3。移除后唯一链点即 `_parse_set_expr`。
-        """
+        """<list_literal> = [ <expr> , { , <expr> } ] | [ <expr> for ... ]"""
         self._expect(TokenType.PUNCT_LBRACKET, "列表左括号 [")
+        # 检测列表推导：[expr for target in iter if ...]
+        saved = self.pos
+        try:
+            first = self._parse_expr()
+            if self._check(TokenType.KW_FOR):
+                self._advance()
+                # target 通常是变量，避免表达式解析吃掉 'in'
+                if self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):
+                    target = self._parse_variable()
+                else:
+                    target = self._parse_expr()
+                if self._check(TokenType.KW_IN):
+                    self._advance()
+                it = self._parse_expr()
+                ifs = []
+                while self._check(TokenType.KW_IF):
+                    self._advance()
+                    ifs.append(self._parse_expr())
+                self._skip_newlines()
+                self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
+                return ast.ListComp(expr=first, target=target, iter=it, ifs=ifs)
+            self.pos = saved
+        except Exception:
+            self.pos = saved
+
         elements: list[Any] = []
         if not self._check(TokenType.PUNCT_RBRACKET):
             elements.append(self._parse_expr())

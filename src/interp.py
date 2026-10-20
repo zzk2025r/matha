@@ -515,6 +515,37 @@ def builtin_list(*args):
     return None
 
 
+def _is_matha_function(v) -> bool:
+    """Matha 可调用值判定：闭包元组（("__closure__", …)）或任何 Python
+    可调用（内建函数/柯里化包装）。用于 type_of → "Function" 与
+    str/repr → "<function>" 的四端统一（原生为 TYPE_CLOSURE/TYPE_PARTIAL
+    记录与 .text 代码地址）。"""
+    if isinstance(v, tuple) and len(v) > 0 and v[0] == "__closure__":
+        return True
+    # 列表/字典/元组等数据结构即使误加了 __call__ 也不应视为函数
+    if isinstance(v, (list, dict, tuple, str, set)):
+        # 但如果是 __closure__ 元组已处理
+        if isinstance(v, tuple) and len(v) > 0 and v[0] == "__closure__":
+            return True
+        return False
+    return callable(v)
+
+
+def builtin_str_value(v) -> str:
+    """str(v)：可调用值统一为 "<function>"（宿主把闭包/内建/部分应用渲染为
+    稳定且跨端一致的文本）；其余类型沿用 Python str（解释器/VM 原生 repr
+    语义）。此前 str(函数) 吐 Python 对象地址 repr，与原生 "<function>" 分歧。"""
+    if _is_matha_function(v):
+        return "<function>"
+    return str(v)
+
+
+def _norm_output(v):
+    """输出流规范化：可调用值 → "<function>"，其余原样（保持既有"输出流存
+    原始值"的约定，仅把函数值这一无法跨端复现的 Python 对象替换为规范串）。"""
+    return "<function>" if _is_matha_function(v) else v
+
+
 def builtin_type_of(v) -> str:
     """返回值类型名称（Matha 类型）。供 stdlib 与自举代码使用，
     避免 stdlib 自实现的 type_of 与 str 互相调用造成死循环。"""
@@ -530,8 +561,8 @@ def builtin_type_of(v) -> str:
         return "List"
     if isinstance(v, dict):
         return "Dict"
-    if isinstance(v, tuple) and len(v) > 0 and v[0] == "__closure__":
-        return "Closure"
+    if _is_matha_function(v):
+        return "Function"
     return "Unknown"
 
 
@@ -859,12 +890,12 @@ BUILTINS: dict[str, object] = {
     # 类型转换
     "float": float,
     "int": int,
-    "str": str,
+    "str": builtin_str_value,
     "bool": bool,
     # 与 VM/原生后端对齐的数值转换原语（自举 stdlib 增强版 int/float 分派到此）
     "_to_int": int,
     "_to_float": float,
-    "_to_str": str,
+    "_to_str": builtin_str_value,
     # 文件 I/O
     "读文件": builtin_read_file,
     "写文件": _curry_module(2, lambda path, content: builtin_write_file(path, content)),
@@ -1368,12 +1399,12 @@ class Interpreter:
             # 顶层裸表达式（如 1 === 1）：计算并输出
             self._log(logging.INFO, "exec top-level BinaryOp")
             val = self._eval(decl)
-            self.outputs.append(val)
+            self.outputs.append(_norm_output(val))
         elif isinstance(decl, ast.UnaryOp):
             # 顶层裸一元表达式（如 ~5、-3、null）
             self._log(logging.INFO, f"exec top-level UnaryOp '{decl.op}'")
             val = self._eval(decl)
-            self.outputs.append(val)
+            self.outputs.append(_norm_output(val))
         elif isinstance(decl, ast.FuncApp):
             # 顶层函数调用：执行并丢弃返回值
             self._log(logging.DEBUG, "exec top-level FuncApp")
@@ -1585,6 +1616,81 @@ class Interpreter:
             results.append(self._eval(expr.output))
         return _dedup_ordered(results)
 
+    def _eval_list_comprehension(self, expr: ast.ListComp) -> list:
+        """求值列表推导：`[ 输出 | 生成子句... | 条件... ]` 或 `[ expr for target in iter if ... ]`"""
+        # 兼容解析器用的 field 名称（expr/target/iter/ifs）以及 SetConstruct 风格（output/variables/conditions）
+        output_expr = getattr(expr, 'output', None)
+        if output_expr is None:
+            output_expr = getattr(expr, 'expr', None)
+        gen_specs: list = []
+        # SetConstruct 风格
+        if getattr(expr, 'variables', None):
+            for name, iterable_expr in (expr.variables or []):
+                it = self._eval(iterable_expr)
+                if isinstance(it, dict):
+                    it = list(it.items())
+                elif isinstance(it, set):
+                    it = list(it)
+                if not isinstance(it, (list, tuple, str)):
+                    raise MathaRuntimeError(
+                        "列表推导生成子句需迭代列表/元组/字符串/字典/集合，"
+                        f"实际 {type(it).__name__}")
+                gen_specs.append((name, list(it)))
+        else:
+            # ListComp 风格：单个生成子句
+            target = getattr(expr, 'target', None)
+            iter_expr = getattr(expr, 'iter', None)
+            it = self._eval(iter_expr)
+            if isinstance(it, dict):
+                it = list(it.items())
+            elif isinstance(it, set):
+                it = list(it)
+            if not isinstance(it, (list, tuple, str)):
+                raise MathaRuntimeError(
+                    "列表推导需迭代列表/元组/字符串/字典/集合，"
+                    f"实际 {type(it).__name__}")
+            # target 可能是 Variable 或其他表达式
+            if isinstance(target, ast.Variable):
+                name = target.name
+                gen_specs.append((name, list(it)))
+            else:
+                # 简单处理：尝试获取 name
+                name = getattr(target, 'name', None)
+                if name is None and isinstance(target, dict):
+                    name = target.get('名')
+                if name is None:
+                    raise MathaRuntimeError(f"列表推导目标不支持: {type(target).__name__}")
+                gen_specs.append((name, list(it)))
+
+        conditions = getattr(expr, 'conditions', None) or getattr(expr, 'ifs', None) or []
+        results: list = []
+
+        def recurse(i: int) -> None:
+            if i == len(gen_specs):
+                for c in conditions:
+                    if not self._eval(c):
+                        return
+                results.append(self._eval(output_expr))
+                return
+            name, values = gen_specs[i]
+            had = name in self.env
+            saved = self.env.get(name)
+            try:
+                for v in values:
+                    self.env[name] = v
+                    recurse(i + 1)
+            finally:
+                if had:
+                    self.env[name] = saved
+                else:
+                    self.env.pop(name, None)
+
+        if gen_specs:
+            recurse(0)
+        elif all(self._eval(c) for c in conditions):
+            results.append(self._eval(output_expr))
+        return results
+
     def _exec_break(self) -> None:
         """break：中断循环，抛特殊异常让外层捕获。"""
         raise _BreakException()
@@ -1702,7 +1808,7 @@ class Interpreter:
     def _exec_match_stmt(self, stmt: ast.MatchStmt) -> None:
         """执行 match 模式匹配语句，输出匹配结果。"""
         result = self._eval_match(stmt)
-        self.outputs.append(result)
+        self.outputs.append(_norm_output(result))
         self._log(logging.INFO, f"[output] += match → {self._fmt(result)}")
 
     def _eval_match(self, stmt: ast.MatchStmt) -> object:
@@ -1881,7 +1987,7 @@ class Interpreter:
         elif isinstance(stmt, ast.Output):
             self._log_enter("output")
             val = self._eval(stmt.expr) if stmt.expr is not None else None
-            self.outputs.append(val)
+            self.outputs.append(_norm_output(val))
             self._log_exit("output", val)
             self._log(logging.INFO, f"[output] += {self._fmt(val)}")
         elif isinstance(stmt, ast.OutputTrail):
@@ -1891,7 +1997,7 @@ class Interpreter:
             # ListLiteral 在语句语境中视为输出（如 let x = ... in [1]）
             # 取首个元素作为输出值，兼容自测块 [1] → 输出 1
             result = [self._eval(e) for e in stmt.elements]
-            self.outputs.append(result[0] if result else None)
+            self.outputs.append(_norm_output(result[0] if result else None))
             self._log(logging.INFO, f"[output] += {self._fmt(result[0] if result else None)}")
         elif isinstance(stmt, ast.CodeBlock):
             self._log(logging.DEBUG, f"CodeBlock ({len(stmt.stmts)} stmts)")
@@ -2334,6 +2440,8 @@ class Interpreter:
                 return _dedup_ordered(self._eval(e) for e in (expr.literals or []))
             elif expr.form == "comprehension":
                 return self._eval_set_comprehension(expr)
+        if isinstance(expr, ast.ListComp):
+            return self._eval_list_comprehension(expr)
         if isinstance(expr, ast.LetTupleBinding):
             # let (a, b) = tuple_val in body
             val = self._eval(expr.value)
@@ -2590,7 +2698,7 @@ class Interpreter:
             return (v, new_env)
         if isinstance(stmt, ast.Output):
             val = self._eval(stmt.expr) if stmt.expr is not None else None
-            self.outputs.append(val)
+            self.outputs.append(_norm_output(val))
             return (val, env)
         if isinstance(stmt, ast.CodeBlock):
             return self._exec_matha_stmt_list(stmt.stmts, env)
@@ -3267,8 +3375,11 @@ class Interpreter:
         与 VM 的 _make_output 同语义。此前解释器没有 输出/print 内建，
         只有 Output 语句，导致 Matha 源码里的 输出(...) 在解释器后端
         直接报「未定义函数」，而 VM 能正常执行。
-        """
-        self.outputs.append(value)
+
+        可调用值统一记为 "<function>"（与 str/type_of/原生 print 四端
+        一致）：原生端将闭包/部分应用打印为 "<function>"，故宿主输出流
+        亦须存该规范串，而非 Python 对象地址 repr。非可调用值原样保留。"""
+        self.outputs.append(_norm_output(value))
         return value
 
     def _install_self_builtins(self) -> None:
@@ -3294,6 +3405,198 @@ class Interpreter:
         b["对比实现"] = self._curry(4, self._b_compare_impl)
         b["对比升级"] = self._curry(5, self._b_compare_upgrade)
         b["空列表"] = []  # 空列表值（[] 在 Matha 中解析为 Output）
+        # enumerate/zip
+        def _builtin_enumerate(x, start=0):
+            try:
+                start_i = start
+                # if passed as evaluated, keep as is
+                try:
+                    start_i = int(start_i)
+                except Exception:
+                    start_i = 0
+            except Exception:
+                start_i = 0
+            try:
+                if isinstance(x, dict):
+                    items = list(x.items())
+                elif isinstance(x, str):
+                    items = list(x)
+                elif isinstance(x, (list, tuple, set)):
+                    items = list(x)
+                else:
+                    try:
+                        items = list(x)
+                    except Exception:
+                        items = []
+            except Exception:
+                items = []
+            res = []
+            for i, v in enumerate(items, start_i):
+                res.append([i, v])
+            return res
+
+        def _builtin_zip(a=None, b=None, *rest):
+            # 支持柯里化多参调用
+            lists = []
+            for x in (a, b) + rest:
+                if x is None and len(rest) == 0 and b is None and a is not None:
+                    pass  # will handle below
+                if x is None:
+                    continue
+                try:
+                    if isinstance(x, dict):
+                        lists.append(list(x.items()))
+                    elif isinstance(x, str):
+                        lists.append(list(x))
+                    elif isinstance(x, (list, tuple, set)):
+                        lists.append(list(x))
+                    else:
+                        try:
+                            lists.append(list(x))
+                        except Exception:
+                            lists.append([])
+                except Exception:
+                    lists.append([])
+            if len(lists) < 2:
+                # 柯里化：返回能接受下一个参数的函数
+                def _zip2(x2):
+                    lists2 = list(lists)
+                    x = x2
+                    try:
+                        if isinstance(x, dict):
+                            lists2.append(list(x.items()))
+                        elif isinstance(x, str):
+                            lists2.append(list(x))
+                        elif isinstance(x, (list, tuple, set)):
+                            lists2.append(list(x))
+                        else:
+                            try:
+                                lists2.append(list(x))
+                            except Exception:
+                                lists2.append([])
+                    except Exception:
+                        lists2.append([])
+                    if len(lists2) < 2:
+                        return _zip2
+                    res = []
+                    try:
+                        for t in zip(*lists2):
+                            res.append(list(t))
+                    except Exception:
+                        return res
+                    return res
+                return _zip2
+            res = []
+            try:
+                for t in zip(*lists):
+                    res.append(list(t))
+            except Exception:
+                return res
+            return res
+
+        b["enumerate"] = self._curry(2, lambda x, s=0: (lambda a,b: _builtin_enumerate.__wrapped__(a,b) if hasattr(_builtin_enumerate,'__wrapped__') else None)(x,s) or _builtin_enumerate(x,s))
+        # simpler: make directly curryable
+        def _enum_c(x, start=0):
+            return _builtin_enumerate(x, start)
+        def _enumerate_curried(a=None):
+            class _EnumRes(list):
+                def __call__(self, *args, **kwargs):
+                    return self
+            if a is None:
+                def _g(b=None):
+                    if b is None:
+                        return _g
+                    res = _builtin_enumerate(b, 0)
+                    return _EnumRes(res)
+                return _g
+            # a is provided - in Matha currying this might be first arg; try to be flexible
+            def _g(b=None):
+                if b is None:
+                    res = _builtin_enumerate(a, 0)
+                    return _EnumRes(res)
+                try:
+                    if isinstance(b, (list, dict, tuple, set, str)):
+                        res = _builtin_enumerate(a, 0)
+                        return _EnumRes(res)
+                except Exception:
+                    pass
+                try:
+                    # check if b is int-like
+                    res = _builtin_enumerate(a, b)
+                    return _EnumRes(res)
+                except Exception:
+                    res = _builtin_enumerate(a, 0)
+                    return _EnumRes(res)
+            # also make the function itself return result if called in a context expecting default?
+            # easier: check if first arg looks like iterable and we want default start
+            res_default = _builtin_enumerate(a, 0)
+            r = _EnumRes(res_default)
+            # make r callable to accept start as well
+            orig_call = r.__call__
+            def _r_call(*args, **kwargs):
+                if args:
+                    try:
+                        b = args[0]
+                        if isinstance(b, (list, dict, tuple, set, str)):
+                            return _EnumRes(_builtin_enumerate(a, 0))
+                        res = _builtin_enumerate(a, b)
+                        return _EnumRes(res)
+                    except Exception:
+                        pass
+                return orig_call(*args, **kwargs)
+            r.__call__ = _r_call
+            return r
+        b["enumerate"] = _enumerate_curried
+        def _zip_curried(a=None):
+            lists = []
+            def _make_callable_result(res):
+                # make list callable to absorb extra args in curried chain
+                class _ZipRes(list):
+                    def __call__(self, *args, **kwargs):
+                        # absorb extra args, return self
+                        return self
+                r = _ZipRes(res)
+                return r
+            def _acc(x):
+                if x is None:
+                    return _acc
+                try:
+                    if isinstance(x, dict):
+                        lists.append(list(x.items()))
+                    elif isinstance(x, str):
+                        lists.append(list(x))
+                    elif isinstance(x, (list, tuple, set)):
+                        lists.append(list(x))
+                    else:
+                        try:
+                            lists.append(list(x))
+                        except Exception:
+                            lists.append([])
+                except Exception:
+                    lists.append([])
+                def _more(y=None):
+                    if y is None:
+                        res = []
+                        try:
+                            for t in zip(*lists):
+                                res.append(list(t))
+                        except Exception:
+                            return res
+                        return res
+                    return _acc(y)
+                if len(lists) >= 2:
+                    res = []
+                    try:
+                        for t in zip(*lists):
+                            res.append(list(t))
+                    except Exception:
+                        res = []
+                    return _make_callable_result(res)
+                return _more
+            if a is None:
+                return _acc
+            return _acc(a)
+        b["zip"] = _zip_curried
         # 混合语言编译器内建
         b["混合编译"] = self._curry(2, self._b_hybrid_build)
         b["混合诊断"] = self._curry(1, self._b_hybrid_diagnose)
