@@ -257,7 +257,8 @@ module 字节码虚拟机 {
       let 余 = x * 10.0 - float(d) in
       个位(d) + 小数串(余, 精度 - 1)
 
-  (* str(v)：对齐 Python str 的常用值形态 *)
+  (* str(v)：对齐 Python str 的常用值形态。
+     容器 str==repr：元素经 元素repr（字符串加引号并转义、容器递归）。 *)
   func 函数str(x) -> String =
     if matha_type_of(x) = "Int" then 数字转串(x)
     else if matha_type_of(x) = "Float" then 浮点转串(x)
@@ -266,6 +267,7 @@ module 字节码虚拟机 {
     else if x = null then "None"
     else if matha_type_of(x) = "String" then x
     else if matha_type_of(x) = "List" then 列表转串(x)
+    else if matha_type_of(x) = "Dict" then 字典转串(x)
     else
       "<?>?"
 
@@ -276,7 +278,57 @@ module 字节码虚拟机 {
     if i >= len(xs) then ""
     else
       let 前置 = if i = 0 then "" else ", " in
-      前置 + 函数str(xs[i]) + 列表元素串(xs, i + 1)
+      前置 + 元素repr(xs[i]) + 列表元素串(xs, i + 1)
+
+  func 字典转串(d) -> String =
+    "{" + 字典元素串(d, _dict_keys(d), 0) + "}"
+
+  func 字典元素串(d, 键们: List, i: Int) -> String =
+    if i >= len(键们) then ""
+    else
+      let k = 键们[i] in
+      let 前置 = if i = 0 then "" else ", " in
+      前置 + 元素repr(k) + ": " + 元素repr(d[k]) + 字典元素串(d, 键们, i + 1)
+
+  (* 容器元素的 CPython repr 形态：字符串引号+转义，其余同 str（容器递归）。 *)
+  func 元素repr(x) -> String =
+    if matha_type_of(x) = "String" then 串repr(x)
+    else 函数str(x)
+
+  (* 智能引号：仅含 ' 而无 " 时用双引号包裹（CPython repr 规则）。 *)
+  func 串repr(s: String) -> String =
+    if 含字符(s, "'", 0) and not 含字符(s, "\"", 0) then
+      "\"" + 转义串(s, 0, 真) + "\""
+    else
+      "'" + 转义串(s, 0, 假) + "'"
+
+  func 含字符(s: String, c: String, i: Int) -> Bool =
+    if i >= len(s) then 假
+    else if s[i] = c then 真
+    else 含字符(s, c, i + 1)
+
+  func 转义串(s: String, i: Int, 用双: Bool) -> String =
+    if i >= len(s) then ""
+    else 转义字符(s[i], 用双) + 转义串(s, i + 1, 用双)
+
+  func 转义字符(c: String, 用双: Bool) -> String =
+    if c = "\\" then "\\\\"
+    else if 用双 and c = "\"" then "\\\""
+    else if not 用双 and c = "'" then "\\'"
+    else if c = "\n" then "\\n"
+    else if c = "\r" then "\\r"
+    else if c = "\t" then "\\t"
+    else if 是控制码(ord(c)) then 控制转串(ord(c))
+    else c
+
+  func 是控制码(o: Int) -> Bool =
+    o < 32 or o = 127 or (o >= 128 and o <= 159)
+
+  func 控制转串(o: Int) -> String =
+    "\\x" + 十六进制位(o // 16) + 十六进制位(o % 16)
+
+  func 十六进制位(d: Int) -> String =
+    "0123456789abcdef"[d]
 
   (* int(x)：数值截断 / 字符串解析（对齐 Python lenient） *)
   func 函数int(x) -> Int =
