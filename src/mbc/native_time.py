@@ -925,12 +925,30 @@ def _emit_builtin_days_in_month(em):
 
 
 def _emit_builtin_tz_offset(em):
-    """时区偏移(name) → int。"""
+    """时区偏移(name) → int（非文本实参 → 0，对齐解释器默认时区）。
+
+    解释器 time_module.timezone_offset(name) 对未知/非字符串名返回 0；此前原生端
+    直接把实参当 STR 传给 tm_tz_offset，0 参归一化哨兵 0 会被当字符串读而崩溃。
+    """
+    l_zero, l_done = "tz_off_zero", "tz_off_done"
     em.label_here("fn:时区偏移")
     _EMIT_PROLOGUE(em, 1, 1)
     _save(em)
+    em.mov_rd_mem(_RAX, _RBP, -8)
+    em.mov_rr(_RCX, _RAX)
+    em.lea_rip(_RDX, "heap_base")
+    em.sub_rr(_RCX, _RDX)
+    em.cmp_heap_used(_RCX)
+    em.jcc_rel32(0x83, l_zero)                      # 非堆指针 → 0
+    em.emit(b"\x48\x8B\x08")                        # mov rcx,[rax]（类型标签）
+    em.cmp_ri(_RCX, TYPE_STR)
+    em.jcc_rel32(0x85, l_zero)                      # 非文本 → 0
     em.mov_rd_mem(_RDI, _RBP, -8)
     em.call_rel32("tm_tz_offset")
+    em.jcc_rel32(None, l_done)
+    em.label_here(l_zero)
+    em.xor_rr32(_RAX, _RAX)
+    em.label_here(l_done)
     _emit_ret_int(em)
 
 

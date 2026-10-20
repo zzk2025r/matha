@@ -451,8 +451,13 @@ module 字节码虚拟机 {
     else if 名 = "待办列表" then 值返回(待办列表(参数[0]))
     else 抛错返回("未知内建: " + 名)
 
+  (* 对齐宿主 mathlib：falsy（0/null/假/空串/空表/空字典）→ int 0；非空列表 →
+     sum/len（Float）；真值非列表 → 抛错 "平均值() 需要列表"（宿主对非可迭代抛
+     TypeError）。此前对 falsy 直接 len(xs) 抛 TypeError、空表返回 0.0（应为 int 0）。 *)
   func 平均值(xs: List) -> Float =
-    if len(xs) = 0 then 0.0 else sum(xs) / len(xs)
+    if not 函数bool(xs) then 0
+    else if matha_type_of(xs) = "List" then sum(xs) / len(xs)
+    else 抛错返回("平均值() 需要列表")
 
   func 阶乘(n: Int) -> Int =
     if n <= 1 then 1 else n * 阶乘(n - 1)

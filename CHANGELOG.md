@@ -1,5 +1,62 @@
 # Matha 变更摘要
 
+## 修复：内建非法/0 参实参缺失类型判定（原生静默 0/崩溃 + matha 平均值 falsy 分歧）
+
+**日期**：2026-10-20
+
+### 背景
+
+Phase 15 探针确证的既有分歧（待办「内建无参调用三端分歧」）：M3V 零参调用
+`f()` 归一化为 `CALL 1`（恒 CALL≥1），arity-1 内建会收到哨兵 `0` 作唯一实参。
+逐名枚举 arity-1 内建后，确证**三类**分歧：
+
+1. **原生静默返回 0/null 而不报错**：`len`/`ord`/`sum`/`log`/`ln`/`log10`/
+   `log2` 对非法实参（整数/空串/多码点串/非正数）返回 `0`/`None`/`-inf`/`nan`，
+   而解释器/VM 均抛异常（`MathaRuntimeError`/`TypeError`/`ValueError`）。
+2. **原生访问违例崩溃**：`平均值(0)`、`时区偏移(0)` 把哨兵 `0` 当指针读
+   （`[0+8]`/`[0]`）→ rc=3221225477（0xC0000005）。
+3. **matha VM `平均值` falsy 分歧**：`平均值(0)` 走 `len(xs)` 抛 TypeError、
+   `平均值([])` 返回 `0.0`（宿主为 int 0）；而宿主对 falsy 直接返回 int 0。
+
+探针基准（解释器/VM 直通 Python）：`平均值(0/null/[])`→`0`（int）；
+`平均值([1,2])`→`1.5`；`平均值("ab")`→ TypeError（宿主）→ 原生统一为可捕获
+`平均值() 需要列表`；`时区偏移(非文本)`→`0`；`log(0/-1)`→ ValueError。
+
+### 变更
+
+1. **`src/mbc/native.py`**：
+   - `_emit_builtin_len`：增类型分派——STR 计码点、LIST/DICT 取 `[obj+8]`，
+     其余（含哨兵 0 等非容器）抛可捕获 `err_len`（"len() 需要字符串或列表或元组"）。
+     此前对非指针静默返回 0、对非容器指针读 `[obj+8]` 得垃圾。
+   - `_emit_builtin_ord`：增**单码点校验**（`[s+8]` 字节数 == 首字节推出的码点宽，
+     经 `_emit_utf8_width`），非文本/空串/多码点串抛 `err_ord`（"ord() 需要单字符"）。
+   - `_emit_builtin_sum`：非列表抛可捕获 `err_sum_builtin`（"sum() 需要列表"）。
+   - `_emit_builtin_math_float`：新增 `positive` 参数，log 族（`log`/`ln`/`log10`/
+     `log2`，经 `_LOG_FLOAT_UNARY`）对 `x ≤ 0`（含 NaN）抛 `err_mathdom`
+     （"math domain error"）。其余一元函数不动。
+   - `_emit_builtin_mean`（平均值）：改按 `truthy` 语义分派——falsy → int 0、
+     非空列表 → `ml_mean`、真值非列表抛 `err_mean`（"平均值() 需要列表"）。
+   - 静态错误串新增 `err_len`/`err_ord`/`err_sum_builtin`/`err_mean`/`err_mathdom`。
+2. **`src/mbc/native_time.py`**：`_emit_builtin_tz_offset`（时区偏移）增类型判定——
+   非 STR 实参（含哨兵 0）→ 0（对齐解释器 `timezone_offset` 对未知名的默认），
+   此前直接把实参当 STR 传给 `tm_tz_offset` 而崩溃。
+3. **`matha/vm.matha`**：`平均值` 改 `not 函数bool(xs) → 0; 是列表 → sum/len;
+   否则 抛错返回("平均值() 需要列表")`（此前 falsy 直接 `len(xs)` 抛 TypeError、
+   空表返回 0.0）。编译器/宿主 VM/解释器**零改动**（Python 语义即基准）。
+
+### 验证
+
+- 定向探针：20 例非法实参三端对齐（原生由 静默0/崩溃 → 可捕获异常/0）；
+  arity-1 全枚举分歧从 52 → 45（余者为既有的无符号中缀量 `_to_int`/`_to_float`
+  与嵌套字符串打印差异，非本 Phase 范围）；matha 探针 11 例 host↔matha 全 SAME。
+- `tests/test_interp_parity.py` `PARITY_CASES` +3（mean/tz）；`test_mbc_vm_matha.py`
+  `_CASES` +2（101 passed）；`test_native.py` `_PARITY_CASES` +1（b16t_bad_args）
+  及新 `test_builtin_bad_arg_raises_catchable`（11 例参 × 可捕获 + 未捕获退出码）；
+  `_BUILTIN_BAD_ARG_CASES` 12 项。
+- 全量默认 **3436** / `MATHA_FEATURE_SCOPED_BLOCKS=1` **3436**（= 3419+17，
+  零差异）；`native.py` 47、`native_time.py` 0、`test_native.py` 11、
+  `test_interp_parity.py` 3、`test_mbc_vm_matha.py` 1，全部同基线（零新增）。
+
 ## 修复：matha VM str(dict) 支持与容器元素 repr 对齐（"<?>?" 兜底 → CPython repr）
 
 **日期**：2026-10-19

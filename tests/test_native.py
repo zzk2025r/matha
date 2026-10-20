@@ -605,6 +605,35 @@ def test_zero_to_negative_power_raises():
     assert rc == 1 and out == "前"
 
 
+# ---------- 内建非法实参：抛可捕获异常（阶段三）----------
+
+# 内建名 → 触发其"实参类型非法"分支的表达式。原生此前对这些实参静默返回
+# 0/null 或把哨兵 0 当指针读（访问违例）；对齐解释器/VM 后一律抛可捕获异常。
+_BUILTIN_BAD_ARG_CASES = [
+    ("len 整数", "len(0)"),
+    ("ord 整数", "ord(0)"),
+    ("ord 空串", 'ord("")'),
+    ("ord 多码点", 'ord("AB")'),
+    ("sum 整数", "sum(0)"),
+    ("sum 文本", 'sum("ab")'),
+    ("平均值 真值文本", '平均值("ab")'),
+    ("log 零", "log(0)"),
+    ("ln 负数", "ln(-1)"),
+    ("log10 零", "log10(0)"),
+    ("log2 负数", "log2(-1)"),
+]
+
+
+@pytest.mark.parametrize("name,expr", _BUILTIN_BAD_ARG_CASES,
+                         ids=[c[0] for c in _BUILTIN_BAD_ARG_CASES])
+def test_builtin_bad_arg_raises_catchable(name, expr):
+    """非法实参抛可捕获异常（对齐解释器/VM），不再静默返回 0/null。"""
+    src = f'try {{\n  输出({expr})\n}} catch (e) {{\n  输出("捕获")\n}}\n输出("后")\n'
+    assert _run(src) == (0, "捕获\n后"), name
+    rc, out = _run(f'输出("前")\n输出({expr})\n')
+    assert (rc, out) == (1, "前"), name
+
+
 # ---------- 砖块 13：位移 ------
 
 _SHIFT_CASES = [
@@ -1367,6 +1396,11 @@ _PARITY_CASES = {
                         '输出(decode_decimal("20013"))\n'
                         '输出(encode_binary(""))\n'
                         '输出(decode_binary(""))\n',
+    # 内建非法/0 参实参（阶段三）：falsy（0/null/空表）→ int 0，非空表 → Float，
+    # 时区偏移非字符串 → 0。原生曾在 args=0 时把 0 当列表/字符串指针读 → 访问违例。
+    "b16t_bad_args": "输出(平均值(0))\n输出(平均值(null))\n输出(平均值([]))\n"
+                     "输出(平均值([1, 2, 3]))\n"
+                     "输出(时区偏移(0))\n输出(时区偏移(\"\"))\n",
     # ---- 砖块 17 阶段一：mathlib 数论 / 聚合 ----
     "b17_number_theory": "输出(阶乘(0))\n输出(阶乘(5))\n输出(阶乘(10))\n"
                          "输出(最大公约数(12)(18))\n输出(最大公约数(0)(0))\n"

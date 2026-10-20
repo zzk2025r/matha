@@ -3923,22 +3923,32 @@ def _emit_builtin_len(em: _Emitter):
     砖块 19：文本长度按**码点**计，与 VM/解释器（Python len 语义）对齐。
     原生端 STR 的 [obj+8] 是 UTF-8 **字节**数，直接返回会让 len("你好") 得 6
     （而非 2）、len("a😀b") 得 6（而非 3）。此处对 TYPE_STR 改为统计非
-    0x80..0xBF 的续位字节，即码点数；其余容器仍返回 [obj+8]（元素个数）。
+    0x80..0xBF 的续位字节，即码点数。
+
+    阶段三对齐：LIST/DICT 返回 [obj+8]（元素/键数）；其余实参（含 0 参归一化
+    的哨兵 0、裸整数、Float/Bool/Null 等非容器）抛可捕获异常
+    "len() 需要字符串或列表或元组"，对齐解释器 builtin_len / VM len（此前
+    原生端对非指针静默返回 0、对非容器指针读 [obj+8] 得垃圾）。
     """
     em.label_here("fn:len")
     _emit_prologue(em, 1, 1)
     em.emit(b"\x48\x8B\x85\xF8\xFF\xFF\xFF")        # mov rax,[rbp-8]（局部0=实参）
-    em.emit(b"\x48\x89\xC1")                        # mov rcx,rax
+    em.mov_rr(1, 0)                                 # mov rcx,rax
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x48\x29\xD1")                        # sub rcx,rdx
     em.cmp_heap_used(1)
-    em.jcc_rel32(0x82, "len_isptr")                 # jb isptr
-    em.emit(b"\x31\xC0")                            # xor eax,eax
-    em.jcc_rel32(None, "len_done")                  # jmp done
-    em.label_here("len_isptr")
+    em.jcc_rel32(0x83, "len_bad")                   # jae → 非堆指针 → 报错
     em.emit(b"\x4C\x8B\x00")                        # mov r8,[rax]（类型标签）
     em.emit(b"\x49\x83\xF8" + bytes([TYPE_STR]))    # cmp r8,TYPE_STR
-    em.jcc_rel32(0x85, "len_notstr")                # jne：容器 → 元素数
+    em.jcc_rel32(0x84, "len_str")                   # je → 文本
+    em.emit(b"\x49\x83\xF8" + bytes([TYPE_LIST]))   # cmp r8,TYPE_LIST
+    em.jcc_rel32(0x84, "len_cont")                  # je → 容器
+    em.emit(b"\x49\x83\xF8" + bytes([TYPE_DICT]))   # cmp r8,TYPE_DICT
+    em.jcc_rel32(0x85, "len_bad")                   # jne → 非容器 → 报错
+    em.label_here("len_cont")
+    em.emit(b"\x48\x8B\x40\x08")                    # mov rax,[rax+8]（容器元素数）
+    em.jcc_rel32(None, "len_done")
+    em.label_here("len_str")
     # --- 文本：统计码点（非续位字节）个数 ---
     em.emit(b"\x48\x8B\x48\x08")                    # mov rcx,[rax+8]（字节长度）
     em.lea_mem(9, 0, 16)                            # lea r9,[rax+16]（buf）
@@ -3961,8 +3971,10 @@ def _emit_builtin_len(em: _Emitter):
     em.label_here("len_cp_done")
     em.mov_rr(0, 8)                                 # mov rax,r8（码点数）
     em.jcc_rel32(None, "len_done")
-    em.label_here("len_notstr")
-    em.emit(b"\x48\x8B\x40\x08")                    # mov rax,[rax+8]（容器元素数）
+    em.label_here("len_bad")
+    em.lea_rip(0, "err_len")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
     em.label_here("len_done")
     em.push_rax()
     _emit_epilogue(em)
@@ -4733,16 +4745,32 @@ _TYPE_NAME_STRINGS = {
 }
 
 
-def _emit_builtin_math_float(em: _Emitter, name: str, crt: str):
-    """一元数学内建 name(x) → 浮点：CRT double(x) 装箱。"""
+def _emit_builtin_math_float(em: _Emitter, name: str, crt: str,
+                             positive: bool = False):
+    """一元数学内建 name(x) → 浮点：CRT double(x) 装箱。
+
+    positive=True（log/ln/log10/log2）：定义域要求 x > 0，否则抛可捕获异常
+    "math domain error"，对齐解释器/VM（math.log(0) → ValueError）；此前原生端
+    直接交 CRT，log(0) 得 -inf、log(-1) 得 nan 而不报错。
+    """
+    l_dom_bad = f"mf_{name}_dom"
     em.label_here(f"fn:{name}")
     _emit_prologue(em, 1, 1)
     em.mov_rd_mem(0, 5, -8)                         # mov rax,[rbp-8]（实参）
     em.call_rel32("as_double")                      # xmm0=arg（int 亦转 double）
+    if positive:
+        em.emit(b"\x66\x0F\xEF\xC9")                # pxor xmm1,xmm1（0.0）
+        em.ucomisd(0, 1)                            # 比较 x 与 0
+        em.jcc_rel32(0x86, l_dom_bad)               # jbe：x ≤ 0（或 NaN）→ 报错
     em.call_rip_indirect(f"crt_{crt}")              # 外部 CRT 数学函数
     em.call_rel32("box_float")
     em.push_rax()
     _emit_epilogue(em)
+    if positive:
+        em.label_here(l_dom_bad)
+        em.lea_rip(0, "err_mathdom")
+        em.call_rel32("raise_rt")                   # 不返回
+        em.emit(b"\x0F\x0B")                        # ud2
 
 
 def _emit_builtin_math_round(em: _Emitter, name: str, crt: str):
@@ -5342,7 +5370,12 @@ def _emit_builtin_dict_remove(em: _Emitter):
 # ---- 砖块 16 阶段三：基础原语 / 序列构造 ----
 
 def _emit_builtin_ord(em: _Emitter):
-    """ord(s) → 首个 Unicode 码点（按 UTF-8 解码）；非文本/空串 → null。"""
+    """ord(s) → 首个 Unicode 码点（按 UTF-8 解码）。
+
+    实参须为**恰含一个码点**的文本；非文本、空串或多码点串抛可捕获异常
+    "ord() 需要单字符"，对齐解释器 builtin_ord（len(c)!=1）与 VM ord()
+    （此前原生端对非文本返回 null、对多码点串静默取首码点）。
+    """
     em.label_here("fn:ord")
     _emit_prologue(em, 1, 1)
     em.mov_rd_mem(0, 5, -8)                         # rax=s
@@ -5357,6 +5390,14 @@ def _emit_builtin_ord(em: _Emitter):
     em.mov_rd_mem(2, 0, 8)
     em.emit(b"\x48\x85\xD2")                        # test rdx,rdx（len==0）
     em.jcc_rel32(0x84, "ord_fail")
+    # 单码点校验：[s+8] 的字节数须等于首字节推出的码点宽（否则是多码点串）
+    em.mov_rr(9, 0)                                 # mov r9,rax（保存 s）
+    em.emit(b"\x0F\xB6\x40\x10")                    # movzx eax,byte [rax+16]
+    _emit_utf8_width(em, 8, "ord")                  # r8 = 码点字节宽
+    em.mov_rd_mem(1, 9, 8)                          # mov rcx,[r9+8]（字节长）
+    em.cmp_rr(8, 1)                                 # cmp r8,rcx
+    em.jcc_rel32(0x85, "ord_fail")                  # jne → 非单码点 → 报错
+    em.mov_rr(0, 9)                                 # mov rax,r9（还原 s）
     em.emit(b"\x0F\xB6\x48\x10")                    # movzx ecx,byte [rax+16] b0
     em.cmp_ri(1, 0x80)
     em.jcc_rel32(0x82, "ord_b1")                    # jb → 单字节
@@ -5407,7 +5448,9 @@ def _emit_builtin_ord(em: _Emitter):
     em.mov_rr(0, 1)
     em.jcc_rel32(None, "ord_ret")
     em.label_here("ord_fail")
-    em.lea_rip(0, "null_obj")
+    em.lea_rip(0, "err_ord")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
     em.label_here("ord_ret")
     em.push_rax()
     _emit_epilogue(em)
@@ -5806,7 +5849,11 @@ def _emit_builtin_is_prime(em: _Emitter):
 # ---- 砖块 17 阶段一：mathlib 聚合 ----
 
 def _emit_builtin_sum(em: _Emitter):
-    """sum(lst)：整数累加保持整数；出现浮点则整体转浮点（对齐 Python sum）。"""
+    """sum(lst)：整数累加保持整数；出现浮点则整体转浮点（对齐 Python sum）。
+
+    非列表实参（含 0 参归一化哨兵 0）抛可捕获异常 "sum() 需要列表"，对齐
+    解释器/VM 的 Python sum（对非可迭代对象抛 TypeError）；此前原生端静默返回 0。
+    """
     l_notlist, l_loop = "sum_notlist", "sum_loop"
     l_fadd, l_next, l_done = "sum_fadd", "sum_next", "sum_done"
     em.label_here("fn:sum")
@@ -5852,9 +5899,9 @@ def _emit_builtin_sum(em: _Emitter):
     em.push_rax()
     _emit_epilogue(em)
     em.label_here(l_notlist)
-    em.xor_rr32(0, 0)
-    em.push_rax()
-    _emit_epilogue(em)
+    em.lea_rip(0, "err_sum_builtin")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
 
 
 def _emit_builtin_extremum(em: _Emitter, name: str, want_max: bool):
@@ -6591,20 +6638,36 @@ def _emit_builtin_powerset(em: _Emitter):
 
 
 def _emit_builtin_mean(em: _Emitter):
-    """平均值(lst) = sum(lst)/len(lst) if lst else 0（空表→int 0，否则 float）。"""
-    l_empty, l_done = "mean_empty", "mean_done"
+    """平均值(lst)：假值（0/null/False/空串/空表/空字典）→ int 0；非空列表 →
+    sum/len（float）；真值非列表抛可捕获异常 "平均值() 需要列表"（对齐解释器
+    mathlib 的 `sum(lst)/len(lst) if lst else 0`：对非可迭代真值抛 TypeError）。
+    此前原生端不加类型判定，args=0 时把 NULL 当列表读 [0+8] 触发访问违例。
+    """
+    l_empty, l_bad, l_done = "mean_empty", "mean_bad", "mean_done"
     em.label_here("fn:平均值")
     _emit_prologue(em, 1, 2)                        # arg @ [rbp-16]
     em.mov_rd_mem(0, 5, -16)
-    em.mov_rd_mem(1, 0, 8)
-    em.test_rr(1, 1)
+    em.call_rel32("truthy")                         # ZF=1 ⟺ 假值
     em.jcc_rel32(0x84, l_empty)
-    em.mov_rd_mem(0, 5, -16)
+    em.mov_rd_mem(0, 5, -16)                        # rax = 真值实参
+    em.mov_rr(2, 0)
+    em.lea_rip(1, "heap_base")
+    em.sub_rr(2, 1)
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x83, l_bad)                       # 非堆指针（真值裸整数）→ 报错
+    em.emit(b"\x4C\x8B\x00")                        # mov r8,[rax]（类型标签）
+    em.emit(b"\x49\x83\xF8" + bytes([TYPE_LIST]))   # cmp r8,TYPE_LIST
+    em.jcc_rel32(0x85, l_bad)                       # jne → 非列表 → 报错
     em.call_rel32("ml_mean")
     em.call_rel32("box_float")
     em.jcc_rel32(None, l_done)
     em.label_here(l_empty)
     em.xor_rr32(0, 0)
+    em.jcc_rel32(None, l_done)
+    em.label_here(l_bad)
+    em.lea_rip(0, "err_mean")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
     em.label_here(l_done)
     em.push_rax()
     _emit_epilogue(em)
@@ -7390,9 +7453,12 @@ _BUILTIN_EMITTERS: dict = {
     "执行待办": _timelib._emit_builtin_run_pending,
     "待办列表": _timelib._emit_builtin_pending_list,
 }
+# log 族定义域 x>0（其余一元数学函数定义域为全体实数/自带 NaN 语义）。
+_LOG_FLOAT_UNARY = frozenset({"log", "ln", "log10", "log2"})
 for _n, _c in _CRT_FLOAT_UNARY.items():
     _BUILTIN_EMITTERS[_n] = (
-        lambda em, n=_n, c=_c: _emit_builtin_math_float(em, n, c))
+        lambda em, n=_n, c=_c: _emit_builtin_math_float(
+            em, n, c, n in _LOG_FLOAT_UNARY))
 for _n, _c in _CRT_INT_ROUND.items():
     _BUILTIN_EMITTERS[_n] = (
         lambda em, n=_n, c=_c: _emit_builtin_math_round(em, n, c))
@@ -10235,6 +10301,11 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_dedup", "去重() 需要列表"),
                      ("err_sum", "求和() 需要列表"),
                      ("err_prod", "求积() 需要列表"),
+                     ("err_len", "len() 需要字符串或列表或元组"),
+                     ("err_ord", "ord() 需要单字符"),
+                     ("err_sum_builtin", "sum() 需要列表"),
+                     ("err_mean", "平均值() 需要列表"),
+                     ("err_mathdom", "math domain error"),
                      ("err_bigintop", "大整数不支持该运算"),
                      ("err_attr", "属性访问失败: 非字典对象"),
                      ("err_not_callable", "不可调用的值")):

@@ -170,6 +170,11 @@ PARITY_CASES = {
     "dict_order_str": '输出(str({"a": 1, "b": 2}))',
     "dict_order_list_keys": '输出(list({"a": 1, "b": 2, "c": 3}))',
     "dict_order_len": '输出(len({"a": 1, "b": 2, "c": 3}))',
+    # 内建非法/0 参实参（阶段三）：falsy（0/null/空表）→ int 0；空表→0（非 0.0）；
+    # 真值非列表→抛错；时区偏移非字符串→0。三端（解释器/VM/原生）语义对齐。
+    "mean_zero_arg": "输出(平均值(0))\n输出(平均值(null))\n输出(平均值([]))",
+    "mean_nonempty": "输出(平均值([1, 2, 3]))",
+    "tz_offset_zero_arg": "输出(时区偏移(0))\n输出(时区偏移(\"\"))",
 }
 
 
