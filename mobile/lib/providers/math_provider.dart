@@ -18,6 +18,8 @@ class MathProvider extends ChangeNotifier {
   bool _isOffline = false;
   bool _isSyncing = false;
   String _syncStatus = '未同步';
+  String _editorFontFamily = 'monospace';
+  double _editorFontSize = 14.0;
 
   // 本地存储
   String? _dbPath;
@@ -35,6 +37,8 @@ class MathProvider extends ChangeNotifier {
   bool get isSyncing => _isSyncing;
   String get syncStatus => _syncStatus;
   String? get dbPath => _dbPath;
+  String get editorFontFamily => _editorFontFamily;
+  double get editorFontSize => _editorFontSize;
 
   // 初始化
   Future<void> init() async {
@@ -209,6 +213,16 @@ class MathProvider extends ChangeNotifier {
   void setAutoComplete(bool enable) {
     _autoComplete = enable;
     _savePreferences();
+    notifyListeners();
+  }
+
+  void setEditorFont(String family) {
+    _editorFontFamily = family;
+    notifyListeners();
+  }
+
+  void setEditorFontSize(double size) {
+    _editorFontSize = size;
     notifyListeners();
   }
 

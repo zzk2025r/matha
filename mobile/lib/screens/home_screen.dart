@@ -3,6 +3,7 @@ import '../widgets/code_editor.dart';
 import '../widgets/result_panel.dart';
 import '../widgets/history_panel.dart';
 import '../providers/math_provider.dart';
+import 'collaboration_screen.dart';
 import 'package:provider/provider.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -14,6 +15,13 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Matha'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.groups),
+            tooltip: '协作中心',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const CollaborationScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () => _showHistoryPanel(context),
@@ -166,6 +174,17 @@ class SettingsDialog extends StatelessWidget {
             trailing: Switch(
               value: provider.autoComplete,
               onChanged: (value) => provider.setAutoComplete(value),
+            ),
+          ),
+          ListTile(
+            title: const Text('编辑器字号'),
+            subtitle: Slider(
+              min: 12,
+              max: 24,
+              divisions: 12,
+              value: provider.editorFontSize,
+              label: provider.editorFontSize.toStringAsFixed(0),
+              onChanged: (v) => provider.setEditorFontSize(v),
             ),
           ),
         ],

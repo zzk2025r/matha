@@ -12,6 +12,10 @@ class CodeEditor extends StatefulWidget {
 class _CodeEditorState extends State<CodeEditor> {
   late TextEditingController _controller;
   late FocusNode _focusNode;
+  final List<String> _keywords = const [
+    '输出', '如果', '否则', '循环', '函数', '定义', '返回', '匹配', '当', '否则',
+    'for', 'in', 'if', 'else', 'def', 'return', 'try', 'catch', 'throw', '抛出'
+  ];
 
   @override
   void initState() {
@@ -53,42 +57,70 @@ class _CodeEditorState extends State<CodeEditor> {
                   onPressed: () => _insertText('*'),
                   tooltip: '斜体',
                 ),
+                IconButton(
+                  icon: const Icon(Icons.code),
+                  onPressed: () => _insertText('{}'),
+                  tooltip: '代码块',
+                ),
                 const Spacer(),
                 TextButton(
-                  onPressed: provider.clearCode,
+                  onPressed: () {
+                    provider.clearCode();
+                    _controller.clear();
+                  },
                   child: const Text('清空'),
                 ),
               ],
             ),
           ),
-          // 代码编辑器
+          // 代码编辑器（带语法高亮风格）
           Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              maxLines: null,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 14,
-              ),
-              decoration: InputDecoration(
-                hintText: provider.mode == 'nl' ? '输入自然语言指令...' : '输入 Matha 表达式...',
-                border: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(8)),
+            child: GestureDetector(
+              onDoubleTap: () => _focusNode.requestFocus(),
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                maxLines: null,
+                expands: true,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                style: TextStyle(
+                  fontFamily: provider.editorFontFamily,
+                  fontSize: provider.editorFontSize,
+                  height: 1.5,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.surface,
-                contentPadding: const EdgeInsets.all(12),
+                decoration: InputDecoration(
+                  hintText: provider.mode == 'nl' ? '输入自然语言指令...' : '输入 Matha 表达式...',
+                  border: const OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(context).colorScheme.surface,
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+                onChanged: (value) {
+                  provider.setCode(value);
+                },
+                onSubmitted: (value) {
+                  if (value.trim().isNotEmpty) {
+                    provider.executeCode(value);
+                  }
+                },
               ),
-              onSubmitted: (value) {
-                if (value.trim().isNotEmpty) {
-                  provider.executeCode(value);
-                }
-              },
             ),
           ),
+          // 自动补全建议
+          if (provider.autoComplete && _controller.text.isNotEmpty)
+            Container(
+              height: 36,
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: _buildSuggestions(provider),
+              ),
+            ),
           // 快捷命令
           Wrap(
             spacing: 8,
@@ -99,6 +131,8 @@ class _CodeEditorState extends State<CodeEditor> {
               _QuickCommandChip(label: '微积分', onTap: () => provider.insertSnippet('calculus')),
               _QuickCommandChip(label: '概率', onTap: () => provider.insertSnippet('probability')),
               _QuickCommandChip(label: '图算法', onTap: () => provider.insertSnippet('graph')),
+              _QuickCommandChip(label: '列表推导', onTap: () => _insertText('[x*x for x in [1,2,3]]')),
+              _QuickCommandChip(label: '枚举zip', onTap: () => _insertText('enumerate([1,2,3])')),
             ],
           ),
         ],
@@ -108,14 +142,44 @@ class _CodeEditorState extends State<CodeEditor> {
 
   void _insertText(String text) {
     final selection = _controller.selection;
-    final textBefore = _controller.text.substring(0, selection.start);
-    final textAfter = _controller.text.substring(selection.end);
+    final start = selection.start >= 0 ? selection.start : _controller.text.length;
+    final end = selection.end >= 0 ? selection.end : _controller.text.length;
+    final textBefore = _controller.text.substring(0, start);
+    final textAfter = _controller.text.substring(end);
     _controller.text = '$textBefore$text$textAfter';
     _controller.selection = TextSelection(
       baseOffset: textBefore.length + text.length,
       extentOffset: textBefore.length + text.length,
     );
+    context.read<MathProvider>().setCode(_controller.text);
     FocusScope.of(context).requestFocus(_focusNode);
+  }
+
+  List<Widget> _buildSuggestions(MathProvider provider) {
+    final text = _controller.text;
+    if (text.isEmpty) return [];
+    final last = text.split(RegExp(r'[\s\(\[\{,\;]')).last;
+    if (last.isEmpty) return [];
+    final matches = _keywords.where((k) => k.startsWith(last) && k != last).take(5).toList();
+    return matches.map((m) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: ActionChip(
+        label: Text(m),
+        onPressed: () {
+          final lastWordStart = _controller.text.lastIndexOf(last);
+          if (lastWordStart >= 0) {
+            final before = _controller.text.substring(0, lastWordStart);
+            final after = _controller.text.substring(lastWordStart + last.length);
+            _controller.text = '$before$m$after';
+            _controller.selection = TextSelection.collapsed(
+              offset: before.length + m.length,
+            );
+            provider.setCode(_controller.text);
+            setState(() {});
+          }
+        },
+      ),
+    )).toList();
   }
 }
 
