@@ -95,9 +95,10 @@ class ScreenShareManager extends ChangeNotifier {
 
   /// 连接实时通信通道
   void attachWebSocket(WebSocketManager? manager) {
+    _wsManager?.removeCustomMessageListener(_handleServerMessage);
     _wsManager = manager;
     if (manager != null) {
-      manager.onCustomMessage = _handleServerMessage;
+      manager.addCustomMessageListener(_handleServerMessage);
       debugPrint('[ScreenShare] WebSocket 通道已挂载');
     }
     notifyListeners();

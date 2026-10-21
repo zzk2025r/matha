@@ -1,7 +1,6 @@
 // Matha 协作功能 - 协作审计日志
 // 记录会话内所有关键操作（加入 / 离开 / 操作 / 聊天 / 邀请等）
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'websocket_manager.dart';
 
@@ -50,9 +49,10 @@ class AuditManager extends ChangeNotifier {
 
   /// 连接实时通信通道
   void attachWebSocket(WebSocketManager? manager) {
+    _wsManager?.removeCustomMessageListener(_handleServerMessage);
     _wsManager = manager;
     if (manager != null) {
-      manager.onCustomMessage = _handleServerMessage;
+      manager.addCustomMessageListener(_handleServerMessage);
       debugPrint('[Audit] WebSocket 通道已挂载');
     }
     notifyListeners();

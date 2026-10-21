@@ -422,35 +422,3 @@ class CollaborativeEngine extends ChangeNotifier {
     super.dispose();
   }
 }
-
-/// 协作会话管理器
-class SessionManager extends ChangeNotifier {
-  final Map<String, CollaborativeEngine> _sessions = {};
-  
-  /// 创建或获取协作会话
-  CollaborativeEngine getOrCreateSession({
-    required String documentId,
-    required String userId,
-  }) {
-    if (!_sessions.containsKey(documentId)) {
-      _sessions[documentId] = CollaborativeEngine(
-        documentId: documentId,
-        userId: userId,
-      );
-      debugPrint('[Session] 创建会话: $documentId');
-    }
-    return _sessions[documentId]!;
-  }
-
-  /// 关闭会话
-  void closeSession(String documentId) {
-    _sessions.remove(documentId)?.disconnect();
-    notifyListeners();
-  }
-
-  /// 获取所有会话
-  Map<String, CollaborativeEngine> get sessions => Map.unmodifiable(_sessions);
-
-  /// 获取会话数量
-  int get sessionCount => _sessions.length;
-}

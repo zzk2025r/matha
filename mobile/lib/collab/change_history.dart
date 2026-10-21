@@ -1,7 +1,6 @@
 // Matha 协作功能 - 变更历史（撤销 / 重做 / 版本快照）
 // 跟踪协作文档的每一次变更，支持按版本回退
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'websocket_manager.dart';
 
@@ -57,9 +56,10 @@ class ChangeHistoryManager extends ChangeNotifier {
 
   /// 连接实时通信通道
   void attachWebSocket(WebSocketManager? manager) {
+    _wsManager?.removeCustomMessageListener(_handleServerMessage);
     _wsManager = manager;
     if (manager != null) {
-      manager.onCustomMessage = _handleServerMessage;
+      manager.addCustomMessageListener(_handleServerMessage);
       debugPrint('[ChangeHistory] WebSocket 通道已挂载');
     } else {
       debugPrint('[ChangeHistory] WebSocket 通道已分离');

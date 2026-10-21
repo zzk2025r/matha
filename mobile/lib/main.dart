@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'providers/math_provider.dart';
+import 'providers/collab_provider.dart';
 
 void main() {
   runApp(const MathaMobileApp());
@@ -15,6 +16,7 @@ class MathaMobileApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => MathProvider()),
+        ChangeNotifierProvider(create: (_) => CollabProvider()),
       ],
       child: MaterialApp(
         title: 'Matha',

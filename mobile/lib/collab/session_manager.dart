@@ -233,8 +233,27 @@ class SessionManager extends ChangeNotifier {
   /// 获取协作引擎
   CollaborativeEngine? getEngine(String sessionId) => _engines[sessionId];
 
+  /// 创建或获取按 documentId 索引的协作引擎（幂等）
+  CollaborativeEngine getOrCreateSession({
+    required String documentId,
+    required String userId,
+  }) {
+    if (!_engines.containsKey(documentId)) {
+      _engines[documentId] = CollaborativeEngine(
+        documentId: documentId,
+        userId: userId,
+      );
+      debugPrint('[Session] 创建协作引擎: $documentId');
+      notifyListeners();
+    }
+    return _engines[documentId]!;
+  }
+
   /// 获取所有会话
   Map<String, SessionInfo> get sessions => Map.unmodifiable(_sessions);
+
+  /// 获取所有协作引擎
+  Map<String, CollaborativeEngine> get engines => Map.unmodifiable(_engines);
 
   /// 获取活动会话列表
   List<SessionInfo> get activeSessions => _sessions.values

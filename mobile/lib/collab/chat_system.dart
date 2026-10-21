@@ -178,9 +178,10 @@ class ChatManager extends ChangeNotifier {
 
   /// 连接实时通信通道
   void attachWebSocket(WebSocketManager? manager) {
+    _wsManager?.removeCustomMessageListener(_handleServerMessage);
     _wsManager = manager;
     if (manager != null) {
-      manager.onCustomMessage = _handleServerMessage;
+      manager.addCustomMessageListener(_handleServerMessage);
       debugPrint('[Chat] WebSocket 通道已挂载');
     } else {
       debugPrint('[Chat] WebSocket 通道已分离');
@@ -288,24 +289,30 @@ class ChatManager extends ChangeNotifier {
   void _addMessage(String sessionId, ChatMessage message) {
     _messages.putIfAbsent(sessionId, () => []);
     _messages[sessionId]!.add(message);
-    
-    // 更新会话
-    final session = _sessions[sessionId];
-    if (session != null) {
-      _sessions[sessionId] = session.copyWith(
-        messages: List.from(session.messages)..add(message),
+
+    // 确保会话存在（未显式创建时惰性创建，避免对 null 断言）
+    final existing = _sessions[sessionId];
+    if (existing == null) {
+      _sessions[sessionId] = ChatSession(
+        sessionId: sessionId,
+        documentId: documentId,
+        messages: [message],
+        lastActivity: DateTime.now(),
+      );
+    } else {
+      _sessions[sessionId] = existing.copyWith(
+        messages: List.from(existing.messages)..add(message),
         lastActivity: DateTime.now(),
       );
     }
-    
+
     // 如果不是当前会话，增加未读数
     if (sessionId != _currentSessionId) {
       _unreadCount++;
-      _sessions[sessionId] = _sessions[sessionId]!.copyWith(
-        unreadCount: session!.unreadCount + 1,
-      );
+      final s = _sessions[sessionId]!;
+      _sessions[sessionId] = s.copyWith(unreadCount: s.unreadCount + 1);
     }
-    
+
     // 触发事件
     _messageController.add(message);
   }
@@ -317,9 +324,10 @@ class ChatManager extends ChangeNotifier {
     final messages = _messages[sessionId];
     if (messages != null) {
       messages.removeWhere((m) => m.messageId == messageId);
-      _sessions[sessionId] = _sessions[sessionId]!.copyWith(
-        messages: List.from(messages),
-      );
+      final session = _sessions[sessionId];
+      if (session != null) {
+        _sessions[sessionId] = session.copyWith(messages: List.from(messages));
+      }
       notifyListeners();
     }
   }
@@ -365,9 +373,10 @@ class ChatManager extends ChangeNotifier {
     final index = messages.indexWhere((m) => m.messageId == messageId);
     if (index >= 0) {
       messages[index] = updatedMessage;
-      _sessions[sessionId] = _sessions[sessionId]!.copyWith(
-        messages: List.from(messages),
-      );
+      final session = _sessions[sessionId];
+      if (session != null) {
+        _sessions[sessionId] = session.copyWith(messages: List.from(messages));
+      }
       notifyListeners();
     }
   }
@@ -430,6 +439,7 @@ class ChatManager extends ChangeNotifier {
 
   @override
   void dispose() {
+    _wsManager?.removeCustomMessageListener(_handleServerMessage);
     _messageController.close();
     _typingController.close();
     super.dispose();

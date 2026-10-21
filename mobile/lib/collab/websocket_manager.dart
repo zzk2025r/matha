@@ -111,7 +111,45 @@ class WebSocketManager extends ChangeNotifier {
   Function(CollaborativeOp)? onRemoteOp;
   Function(Map<String, String>)? onUsersUpdate;
   Function(String userId, int position)? onCursorMove;
-  Function(Map<String, dynamic>)? onCustomMessage;
+
+  // 自定义消息监听器集合：多个协作子系统（变更历史 / 审计 / 语音 /
+  // 屏幕共享 / 聊天）可同时订阅，避免单一回调被后挂载者覆盖。
+  final List<Function(Map<String, dynamic>)> _customMessageListeners = [];
+
+  /// 注册自定义消息监听器（可多路订阅）
+  void addCustomMessageListener(Function(Map<String, dynamic>) listener) {
+    if (!_customMessageListeners.contains(listener)) {
+      _customMessageListeners.add(listener);
+    }
+  }
+
+  /// 注销自定义消息监听器
+  void removeCustomMessageListener(Function(Map<String, dynamic>) listener) {
+    _customMessageListeners.remove(listener);
+  }
+
+  /// 兼容旧接口：设置唯一自定义消息回调（内部转注册，不覆盖他人）
+  set onCustomMessage(Function(Map<String, dynamic>)? listener) {
+    if (listener != null) {
+      addCustomMessageListener(listener);
+    }
+  }
+
+  /// 分派一条自定义消息给全部监听器（供消息循环与测试使用）
+  @visibleForTesting
+  void debugDispatchCustom(Map<String, dynamic> message) {
+    _dispatchCustom(message);
+  }
+
+  void _dispatchCustom(Map<String, dynamic> message) {
+    for (final listener in List.of(_customMessageListeners)) {
+      try {
+        listener(message);
+      } catch (e) {
+        debugPrint('[WS] ✗ 自定义消息监听器异常: $e');
+      }
+    }
+  }
 
   WebSocketManager(this._config) {
     _registerDefaultHandlers();
@@ -337,7 +375,7 @@ class WebSocketManager extends ChangeNotifier {
               break;
             default:
               debugPrint('[WS] 未知消息类型: $type');
-              onCustomMessage?.call(message);
+              _dispatchCustom(message);
           }
         } catch (e) {
           debugPrint('[WS] ✗ 处理消息失败: $e');
@@ -449,7 +487,7 @@ class WebSocketManager extends ChangeNotifier {
             debugPrint('[WS] ========== 重连成功 ==========');
           } else {
             _reconnectAttempts++;
-            debugPrint('[WS] ========== 第 ${_reconnectAttempts} 次重连失败 ==========');
+            debugPrint('[WS] ========== 第 $_reconnectAttempts 次重连失败 ==========');
             
             if (_reconnectAttempts >= _config.maxReconnectAttempts) {
               debugPrint('[WS] ✗ 达到最大重连次数');

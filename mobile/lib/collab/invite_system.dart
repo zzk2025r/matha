@@ -94,7 +94,7 @@ class InviteManager extends ChangeNotifier {
     debugPrint('[Invite] 文档ID: $documentId');
     debugPrint('[Invite] 权限: ${permission.name}');
     debugPrint('[Invite] 最大使用次数: $maxUses');
-    debugPrint('[Invite] 过期时间: ${expireHours} 小时');
+    debugPrint('[Invite] 过期时间: $expireHours 小时');
 
     final inviteId = _generateInviteId();
     final now = DateTime.now();
