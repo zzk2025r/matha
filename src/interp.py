@@ -2181,6 +2181,24 @@ class Interpreter:
 
     # ---------- 表达式求值 ----------
 
+
+    def _eval_if_stmt_expr(self, stmt):
+        cond = self._eval(stmt.cond)
+        branch = stmt.then_block if cond else stmt.else_block
+        if branch is None:
+            return None
+        stmts = branch.stmts if hasattr(branch, 'stmts') else [branch]
+        for s in stmts:
+            self._exec_stmt(s)
+        if self.outputs:
+            return self.outputs[-1]
+        last = stmts[-1] if stmts else None
+        if last is not None and not isinstance(last, (ast.Output, ast.OutputTrail)):
+            try:
+                return self._eval(last)
+            except Exception:
+                return None
+        return None
     def _eval(self, expr) -> object:
         # 字面量：高频且无副作用，只 DEBUG 记一行，不做 enter/exit（省深度噪音）
         if isinstance(expr, ast.IntegerLit):
@@ -2323,9 +2341,8 @@ class Interpreter:
                 raise MathaRuntimeError(f"~ 仅适用于整数，实际 {type(v).__name__}")
             raise MathaRuntimeError(f"未知一元运算符 '{expr.op}'")
         if isinstance(expr, ast.CodeBlock):
-            # 代码块作为表达式：隔离 outputs，防止中间输出泄漏到全局
-            saved_outputs = self.outputs
-            self.outputs = []
+            # 代码块作为表达式：隔离 outputs
+
             # SCOPED_BLOCKS：为块建立独立子作用域（浅拷贝）——块内 `名 = 值` 绑定互不
             # 泄漏到外层，使块（含 lambda 体）成为真正的语句块，原生支持多语句/循环累加。
             saved_env = self.env
@@ -2335,20 +2352,31 @@ class Interpreter:
                 if isinstance(saved_matha_env, list):
                     self._matha_env = list(saved_matha_env)
             try:
-                for s in expr.stmts:
+                if not expr.stmts:
+                    return None
+                for s in expr.stmts[:-1]:
                     self._exec_stmt(s)
-                if self.outputs:
-                    return self.outputs[-1]
-                # 无输出时，取最后一个非 Output 语句的值
-                last = expr.stmts[-1] if expr.stmts else None
-                if last is not None and not isinstance(last, ast.Output):
-                    return self._eval(last)
-                return None
+                last = expr.stmts[-1]
+                if isinstance(last, (ast.Output, ast.OutputTrail)):
+                    self._exec_stmt(last)
+                    if self.outputs:
+                        return self.outputs[-1]
+                    return None
+                if isinstance(last, ast.IfStmt):
+                    # execute as statement and compute value
+                    return self._eval_if_stmt_expr(last)
+                _STMT_NODES = (ast.Binding, ast.LetBinding, ast.LetTupleBinding, ast.ForStmt, ast.WhileStmt, ast.BreakStmt, ast.ContinueStmt, ast.ReturnStmt)
+                if isinstance(last, _STMT_NODES):
+                    self._exec_stmt(last)
+                    if self.outputs:
+                        return self.outputs[-1]
+                    return None
+                return self._eval(last)
             finally:
                 self.env = saved_env
                 if features.scoped_blocks():
                     self._matha_env = saved_matha_env
-                self.outputs = saved_outputs
+
         if isinstance(expr, ast.TypeOfExpr):
             # typeof / n 是关键字（tokens.py: KW_TYPEOF），编译到 VM 侧是
             # LOAD_GLOBAL n + CALL 1，即走内建表。此处此前返回 Python 类型名
@@ -2367,6 +2395,56 @@ class Interpreter:
             if isinstance(right_val, (list, tuple, str, dict, set)):
                 return left_val in right_val
             raise MathaRuntimeError(f"∈ 右侧需为序列/集合/字典，实际 {type(right_val).__name__}")
+        if isinstance(expr, ast.TryStmt):
+            # try/catch/finally 作为表达式：返回 try 块或 catch 块的值，finally 值不影响结果
+            try:
+                for s in expr.try_block.stmts:
+                    self._exec_stmt(s)
+                if self.outputs:
+                    r = self.outputs[-1]
+                else:
+                    last = expr.try_block.stmts[-1] if expr.try_block.stmts else None
+                    if last and not isinstance(last, ast.Output):
+                        try:
+                            r = self._eval(last)
+                        except Exception:
+                            r = None
+                    else:
+                        r = None
+                # finally 不改变返回值（但会执行）
+                if expr.finally_block:
+                    for s in expr.finally_block.stmts:
+                        self._exec_stmt(s)
+                return r
+            except Exception as e:
+                if expr.catch_block:
+                    if expr.catch_var:
+                        # 简单绑定异常信息到环境
+                        try:
+                            self.env[expr.catch_var] = str(e)
+                        except Exception:
+                            pass
+                    for s in expr.catch_block.stmts:
+                        self._exec_stmt(s)
+                    if self.outputs:
+                        r = self.outputs[-1]
+                    else:
+                        last = expr.catch_block.stmts[-1] if expr.catch_block.stmts else None
+                        if last and not isinstance(last, ast.Output):
+                            try:
+                                r = self._eval(last)
+                            except Exception:
+                                r = None
+                        else:
+                            r = None
+                    if expr.finally_block:
+                        for s in expr.finally_block.stmts:
+                            self._exec_stmt(s)
+                    return r
+                if expr.finally_block:
+                    for s in expr.finally_block.stmts:
+                        self._exec_stmt(s)
+                raise
         if isinstance(expr, ast.FuncApp):
             return self._eval_func_app(expr)
         if isinstance(expr, ast.Lambda):

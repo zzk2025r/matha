@@ -476,7 +476,7 @@ class Compiler:
                    ) + _NOOP_STMTS
     # 作为块尾时能产出值的语句
     _VALUE_STMTS = (ast.TryStmt, ast.IfStmt, ast.IfElseStmt,
-                    ast.MatchStmt, ast.SwitchStmt)
+                    ast.MatchStmt, ast.SwitchStmt, ast.Output, ast.OutputTrail)
 
     def _emit_block(self, block: ast.CodeBlock, scope: _Scope, code: list,
                     leave_last: bool) -> None:
@@ -503,6 +503,9 @@ class Compiler:
             elif last and leave_last and isinstance(s, self._VALUE_STMTS):
                 # try / if / match / switch 作为块尾表达式：分支值即块值
                 self._emit_if_try_value(s, scope, code)
+            elif last and leave_last and isinstance(s, (ast.Output, ast.OutputTrail)):
+                # 输出作为块尾：执行输出并保留输出值作为块值（对齐解释器语义）
+                self._compile_stmt(s, code, scope)
             elif last and leave_last and not is_stmt:
                 self._emit_expr(s, scope, code)
             elif is_stmt:
