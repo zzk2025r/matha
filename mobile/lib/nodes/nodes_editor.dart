@@ -44,7 +44,45 @@ class _NodesEditorState extends State<NodesEditor> {
   @override
   void initState() {
     super.initState();
+    _connectionController.addListener(_onConnectionChanged);
     _initializeNodes();
+  }
+
+  void _onConnectionChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// 端口中心点上报（画布坐标系）
+  void _updatePortPositions(String nodeId, Map<String, Offset> ports) {
+    final existing = _portPositions[nodeId];
+    var changed = existing == null || existing.length != ports.length;
+    if (!changed) {
+      for (final e in ports.entries) {
+        if (existing[e.key] != e.value) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) {
+      _portPositions[nodeId] = ports;
+    }
+  }
+
+  /// 查找落点最近的端口（用于拖拽落点吸附）
+  (String nodeId, String portName)? _findPortNear(Offset point, {double radius = 22}) {
+    (String, String)? best;
+    var bestDist = radius;
+    for (final entry in _portPositions.entries) {
+      for (final p in entry.value.entries) {
+        final d = (p.value - point).distance;
+        if (d <= bestDist) {
+          bestDist = d;
+          best = (entry.key, p.key);
+        }
+      }
+    }
+    return best;
   }
 
   void _initializeNodes() {
@@ -355,11 +393,27 @@ class _NodesEditorState extends State<NodesEditor> {
                                                 onStartDragConnection: (portName, pos) {
                                                   _pushHistory();
                                                   _connectionController.startDrag(
-                                                      id, portName);
+                                                      id, portName, startPos: pos);
                                                 },
-                                                onEndDragConnection: (toNodeId, toPort) =>
-                                                    _connectionController.endDrag(
-                                                        toNodeId, toPort),
+                                                onUpdateDragConnection: (pos) =>
+                                                    _connectionController.updateDrag(pos),
+                                                onEndDragConnection: (_, __) {
+                                                  final end =
+                                                      _connectionController.dragEndPos;
+                                                  if (end == null) {
+                                                    _connectionController.cancelDrag();
+                                                    return;
+                                                  }
+                                                  final hit = _findPortNear(end);
+                                                  if (hit != null &&
+                                                      _connectionController.endDrag(
+                                                          hit.$1, hit.$2)) {
+                                                    _toast('已连接');
+                                                  } else {
+                                                    _connectionController.cancelDrag();
+                                                  }
+                                                },
+                                                onPortPositions: _updatePortPositions,
                                                 isConnected: (portName) =>
                                                     _connectionController
                                                         .getNodeConnections(id)
@@ -595,6 +649,7 @@ class _NodesEditorState extends State<NodesEditor> {
 
   @override
   void dispose() {
+    _connectionController.removeListener(_onConnectionChanged);
     _connectionController.dispose();
     _scrollController.dispose();
     super.dispose();

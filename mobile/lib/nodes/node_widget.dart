@@ -10,10 +10,14 @@ class NodeWidget extends StatefulWidget {
   final Function(Offset) onUpdatePosition;
   final VoidCallback onRemove;
   final Function(String, Offset) onStartDragConnection;
+  final Function(Offset) onUpdateDragConnection;
   final Function(String?, String?) onEndDragConnection;
   final Function(String) isConnected;
   final VoidCallback? onDragStart;
   final VoidCallback? onDragEnd;
+
+  /// 报告端口中心点（画布坐标系），portName -> 位置
+  final void Function(String nodeId, Map<String, Offset> ports)? onPortPositions;
 
   const NodeWidget({
     super.key,
@@ -22,10 +26,12 @@ class NodeWidget extends StatefulWidget {
     required this.onUpdatePosition,
     required this.onRemove,
     required this.onStartDragConnection,
+    required this.onUpdateDragConnection,
     required this.onEndDragConnection,
     required this.isConnected,
     this.onDragStart,
     this.onDragEnd,
+    this.onPortPositions,
   });
 
   @override
@@ -37,10 +43,16 @@ class _NodeWidgetState extends State<NodeWidget> {
   Offset? _dragStartPos;
   bool _isHovered = false;
 
+  final Map<String, GlobalKey> _portKeys = {};
+
+  GlobalKey _keyFor(String portName) =>
+      _portKeys.putIfAbsent(portName, () => GlobalKey());
+
   @override
   void initState() {
     super.initState();
     _position = widget.position;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reportPortPositions());
   }
 
   @override
@@ -48,6 +60,27 @@ class _NodeWidgetState extends State<NodeWidget> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.position != widget.position) {
       _position = widget.position;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reportPortPositions());
+  }
+
+  /// 将各端口中心点换算到画布（未变换）坐标系并上报
+  void _reportPortPositions() {
+    final onReport = widget.onPortPositions;
+    if (onReport == null || !mounted) return;
+    final myBox = context.findRenderObject() as RenderBox?;
+    if (myBox == null || !myBox.hasSize) return;
+    final myOrigin = myBox.localToGlobal(Offset.zero);
+
+    final result = <String, Offset>{};
+    for (final entry in _portKeys.entries) {
+      final box = entry.value.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) continue;
+      final centerGlobal = box.localToGlobal(box.size.center(Offset.zero));
+      result[entry.key] = centerGlobal - myOrigin + _position;
+    }
+    if (result.isNotEmpty) {
+      onReport(widget.node.id.toString(), result);
     }
   }
 
@@ -72,9 +105,24 @@ class _NodeWidgetState extends State<NodeWidget> {
   }
 
   void _onPortDragStart(DragStartDetails details, String portName, bool isInput) {
-    final localPos = details.localPosition;
-    final globalPos = _position + localPos;
-    widget.onStartDragConnection(portName, globalPos);
+    final key = _portKeys[portName];
+    final box = key?.currentContext?.findRenderObject() as RenderBox?;
+    final myBox = context.findRenderObject() as RenderBox?;
+    Offset start;
+    if (box != null && myBox != null) {
+      final centerGlobal = box.localToGlobal(box.size.center(Offset.zero));
+      start = centerGlobal - myBox.localToGlobal(Offset.zero) + _position;
+    } else {
+      start = _position;
+    }
+    widget.onStartDragConnection(portName, start);
+  }
+
+  void _onPortDragUpdate(DragUpdateDetails details, String portName) {
+    final myBox = context.findRenderObject() as RenderBox?;
+    if (myBox == null) return;
+    final local = myBox.globalToLocal(details.globalPosition);
+    widget.onUpdateDragConnection(local + _position);
   }
 
   void _onPortDragEnd(DragEndDetails details) {
@@ -162,7 +210,9 @@ child: Container(
                           isInput: true,
                           node: widget.node,
                           isConnected: widget.isConnected,
+                          keyFor: _keyFor,
                           onDragStart: _onPortDragStart,
+                          onDragUpdate: _onPortDragUpdate,
                           onDragEnd: _onPortDragEnd,
                         ),
                       ),
@@ -184,7 +234,9 @@ child: Container(
                           isInput: false,
                           node: widget.node,
                           isConnected: widget.isConnected,
+                          keyFor: _keyFor,
                           onDragStart: _onPortDragStart,
+                          onDragUpdate: _onPortDragUpdate,
                           onDragEnd: _onPortDragEnd,
                         ),
                       ),
@@ -254,7 +306,9 @@ class _PortColumn extends StatelessWidget {
   final bool isInput;
   final Node node;
   final Function(String) isConnected;
+  final GlobalKey Function(String) keyFor;
   final Function(DragStartDetails, String, bool) onDragStart;
+  final Function(DragUpdateDetails, String) onDragUpdate;
   final Function(DragEndDetails) onDragEnd;
 
   const _PortColumn({
@@ -262,7 +316,9 @@ class _PortColumn extends StatelessWidget {
     required this.isInput,
     required this.node,
     required this.isConnected,
+    required this.keyFor,
     required this.onDragStart,
+    required this.onDragUpdate,
     required this.onDragEnd,
   });
 
@@ -275,10 +331,12 @@ class _PortColumn extends StatelessWidget {
         children: ports.map((port) {
           final connected = isConnected(port.name);
           return _PortWidget(
+            key: keyFor(port.name),
             port: port,
             isInput: isInput,
             isConnected: connected,
             onDragStart: (details) => onDragStart(details, port.name, isInput),
+            onDragUpdate: (details) => onDragUpdate(details, port.name),
             onDragEnd: onDragEnd,
           );
         }).toList(),
@@ -292,20 +350,25 @@ class _PortWidget extends StatelessWidget {
   final bool isInput;
   final bool isConnected;
   final Function(DragStartDetails) onDragStart;
+  final Function(DragUpdateDetails) onDragUpdate;
   final Function(DragEndDetails) onDragEnd;
 
   const _PortWidget({
+    super.key,
     required this.port,
     required this.isInput,
     required this.isConnected,
     required this.onDragStart,
+    required this.onDragUpdate,
     required this.onDragEnd,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onPanStart: (details) => onDragStart(details),
+      onPanUpdate: (details) => onDragUpdate(details),
       onPanEnd: onDragEnd,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 2),

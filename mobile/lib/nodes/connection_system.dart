@@ -44,6 +44,8 @@ class ConnectionController extends ChangeNotifier {
   // 拖拽状态
   String? _draggingFromNodeId;
   String? _draggingFromPort;
+  Offset? _dragStartPos;
+  Offset? _dragEndPos;
 
   // 获取所有连线
   List<Connection> get connections => List.unmodifiable(_connections);
@@ -76,45 +78,101 @@ class ConnectionController extends ChangeNotifier {
   }
 
   // 开始拖拽连线
-  void startDrag(String nodeId, String portName) {
+  void startDrag(String nodeId, String portName, {Offset? startPos}) {
     _draggingFromNodeId = nodeId;
     _draggingFromPort = portName;
+    _dragStartPos = startPos;
+    _dragEndPos = startPos;
     notifyListeners();
   }
 
-  // 结束拖拽连线
+  // 更新拖拽预览终点
+  void updateDrag(Offset endPos) {
+    if (_draggingFromNodeId == null) return;
+    _dragEndPos = endPos;
+    notifyListeners();
+  }
+
+  // 取消拖拽
+  void cancelDrag() {
+    _draggingFromNodeId = null;
+    _draggingFromPort = null;
+    _dragStartPos = null;
+    _dragEndPos = null;
+    notifyListeners();
+  }
+
+  /// 结束拖拽连线。
+  /// 返回 true 表示成功建立一条新连线；false 表示被拒绝（并已取消拖拽）。
   bool endDrag(String? toNodeId, String? toPort) {
-    if (_draggingFromNodeId == null || _draggingFromPort == null) {
+    final fromNode = _draggingFromNodeId;
+    final fromPort = _draggingFromPort;
+
+    // 未处于拖拽态：直接视为失败
+    if (fromNode == null || fromPort == null) {
+      cancelDrag();
       return false;
     }
 
-    // 不能连接到自身
-    if (toNodeId == _draggingFromNodeId) {
+    // 落点无效（空白 / 空端口）：取消，绝不产生悬空连线
+    if (toNodeId == null ||
+        toPort == null ||
+        toNodeId.isEmpty ||
+        toPort.isEmpty) {
+      cancelDrag();
       return false;
     }
 
-    // 不能连接到相同的端口
-    if (toPort == _draggingFromPort) {
+    // 不能连接到自身节点
+    if (toNodeId == fromNode) {
+      cancelDrag();
       return false;
     }
 
-    // 检查是否已存在相同连接
-    if (toNodeId != null && toPort != null) {
-      removeConnectionToPort(toNodeId, toPort);
+    // 不能把端口接到同名端口（输入接输入、输出接输出无意义）
+    if (toPort == fromPort) {
+      cancelDrag();
+      return false;
     }
 
-    // 创建新连接
+    // 完全相同的连线已存在：拒绝，避免重复
+    final alreadyExists = _connections.any((c) =>
+        c.fromNodeId == fromNode &&
+        c.fromPortName == fromPort &&
+        c.toNodeId == toNodeId &&
+        c.toPortName == toPort);
+    if (alreadyExists) {
+      cancelDrag();
+      return false;
+    }
+
+    // 同一「目标输入端口」只保留一条入线：覆盖旧的入线
+    // 注意：只清理目标端口作为输入端的既有连线，不影响其作为输出端的扇出
+    final conflicts = _connections
+        .where((c) => c.toNodeId == toNodeId && c.toPortName == toPort)
+        .map((c) => c.id)
+        .toList();
+    for (final id in conflicts) {
+      removeConnection(id);
+    }
+
+    // 创建新连线（用自增+时间戳保证唯一 id）
     final connection = Connection(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      fromNodeId: _draggingFromNodeId!,
-      fromPortName: _draggingFromPort!,
-      toNodeId: toNodeId ?? '',
-      toPortName: toPort ?? '',
+      id: _nextConnectionId(),
+      fromNodeId: fromNode,
+      fromPortName: fromPort,
+      toNodeId: toNodeId,
+      toPortName: toPort,
     );
 
     addConnection(connection);
+    cancelDrag();
     return true;
   }
+
+  int _connectionSeq = 0;
+  String _nextConnectionId() =>
+      'conn_${DateTime.now().microsecondsSinceEpoch}_${_connectionSeq++}';
 
   // 添加连线
   void addConnection(Connection connection) {
@@ -183,8 +241,8 @@ class ConnectionController extends ChangeNotifier {
   // 获取拖拽中的端口
   String? get draggingFromNodeId => _draggingFromNodeId;
   String? get draggingFromPort => _draggingFromPort;
-  Offset? get dragStartPos => null;
-  Offset? get dragEndPos => null;
+  Offset? get dragStartPos => _dragStartPos;
+  Offset? get dragEndPos => _dragEndPos;
 
   void _addToNodeConnections(String nodeId, String connectionId) {
     _nodeConnections.putIfAbsent(nodeId, () => []);
@@ -256,9 +314,5 @@ class ConnectionPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant ConnectionPainter oldDelegate) {
-    return oldDelegate.controller != controller ||
-        oldDelegate.nodePositions != nodePositions ||
-        oldDelegate.portPositions != portPositions;
-  }
+  bool shouldRepaint(covariant ConnectionPainter oldDelegate) => true;
 }
