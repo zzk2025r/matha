@@ -1001,7 +1001,10 @@ class Interpreter:
     """Matha 树走式解释器。"""
 
     def __init__(self, debug: bool | None = None, *, foreign_routing: bool = True):
-        self.env: dict[str, object] = {}
+        # 全局环境使用带版本号的 dict：显式栈引擎的 Scope 以它为链根，
+        # 链上任意深度都能据此察觉「全局环境被改写」→ 及时失效解析缓存。
+        from src.interp_engine import VersionedDict
+        self.env: dict[str, object] = VersionedDict()
         self.funcs: dict[str, ast.FuncDef] = {}
         self.constructors: set[str] = set()
         self.outputs: list = []
@@ -2443,7 +2446,7 @@ class Interpreter:
         if isinstance(expr, ast.Lambda):
             self._log(logging.DEBUG, "eval Lambda → closure")
             self._log(logging.DEBUG, f"lambda closure captured keys: {list(self.env.keys())}")
-            matha_env = getattr(self, '_matha_env', list(self.env.items()))
+            matha_env = getattr(self, '_matha_env', None) or list(self.env.items())
             return ("__closure__", expr, matha_env)
         if isinstance(expr, ast.LetBinding):
             # let x = val in body — 局部绑定
@@ -2701,7 +2704,7 @@ class Interpreter:
         if t == "lambda":
             # 返回 closure tuple: ("__closure__", params, body, env)
             # 使用 _matha_env 保证 env 始终是 list-of-tuples
-            matha_env = getattr(self, '_matha_env', list(self.env.items()))
+            matha_env = getattr(self, '_matha_env', None) or list(self.env.items())
             params = [self._eval_dict_ast(p) if isinstance(p, dict) else p
                       for p in node.get("参数", [])]
             body = node.get("体")
@@ -2815,7 +2818,7 @@ class Interpreter:
             return (v, e2)
         if isinstance(stmt, ast.FuncDef):
             self.funcs[stmt.name] = stmt
-            matha_env = getattr(self, '_matha_env', list(env.items()) if isinstance(env, list) else list(self.env.items()))
+            matha_env = getattr(self, '_matha_env', None) or (list(env.items()) if isinstance(env, list) else list(self.env.items()))
             closure = ("__closure__", stmt.body.params, stmt.body.body, matha_env)
             new_env = self._exec_matha_bind(env, stmt.name, closure)
             return (closure, new_env)
@@ -2844,7 +2847,7 @@ class Interpreter:
             return (v, new_env)
         if isinstance(decl, ast.FuncDef):
             self.funcs[decl.name] = decl
-            matha_env = getattr(self, '_matha_env', list(env.items()) if isinstance(env, list) else list(self.env.items()))
+            matha_env = getattr(self, '_matha_env', None) or (list(env.items()) if isinstance(env, list) else list(self.env.items()))
             closure = ("__closure__", decl.body.params, decl.body.body, matha_env)
             new_env = self._exec_matha_bind(env, decl.name, closure)
             return (closure, new_env)
@@ -3280,7 +3283,7 @@ class Interpreter:
             local = dict(captured)
             self._matha_env = captured  # 保留原始 list-of-tuples 供闭包使用
         else:
-            local = dict(captured)
+            local = dict(captured or {})
             # 如果是 dict，尝试从 env 中提取 list-of-tuples
             matha_env = getattr(self, '_matha_env', None)
             if matha_env is None:
