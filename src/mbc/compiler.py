@@ -501,11 +501,9 @@ class Compiler:
                     slot = self._declare_slot(scope, s.left.name)
                     code.append((OP.STORE_LOCAL, slot))
             elif last and leave_last and isinstance(s, self._VALUE_STMTS):
-                # try / if / match / switch 作为块尾表达式：分支值即块值
+                # try / if / match / switch / 输出 作为块尾表达式：
+                # 分支值或输出值即块值（见 _emit_if_try_value）
                 self._emit_if_try_value(s, scope, code)
-            elif last and leave_last and isinstance(s, (ast.Output, ast.OutputTrail)):
-                # 输出作为块尾：执行输出并保留输出值作为块值（对齐解释器语义）
-                self._compile_stmt(s, code, scope)
             elif last and leave_last and not is_stmt:
                 self._emit_expr(s, scope, code)
             elif is_stmt:
@@ -519,13 +517,24 @@ class Compiler:
             code.append((OP.PUSH_NULL,))
 
     def _emit_if_try_value(self, node, scope: _Scope, code: list) -> None:
-        """块尾位置的 if/try/match/switch 值表达式发射。"""
+        """块尾位置的 if/try/match/switch/output 值表达式发射。"""
         if isinstance(node, ast.TryStmt):
             self._emit_try_stmt(node, scope, code)
         elif isinstance(node, ast.MatchStmt):
             self._emit_match(node, scope, code, leave_value=True)
         elif isinstance(node, ast.SwitchStmt):
             self._emit_switch(node, scope, code, leave_value=True)
+        elif isinstance(node, (ast.Output, ast.OutputTrail)):
+            # 输出作为块尾：执行输出并把被输出的值留在栈上（块值 = 输出值）。
+            # OP.OUTPUT 会弹栈，故先 DUP 保底。
+            inner = node.output if isinstance(node, ast.OutputTrail) else node
+            if isinstance(inner, ast.Output) and inner.expr is not None:
+                self._emit_expr(inner.expr, scope, code)
+                code.append((OP.DUP,))
+                code.append((OP.OUTPUT,))
+            else:
+                self._compile_stmt(node, code, scope)
+                code.append((OP.PUSH_NULL,))
         else:
             self._emit_if_stmt(node, scope, code, leave_value=True)
 

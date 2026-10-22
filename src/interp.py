@@ -282,6 +282,24 @@ def builtin_matha_runtime_error(msg: str) -> None:
     raise MathaRuntimeError(msg)
 
 
+def builtin_guarded_call(interp):
+    """调用捕获(fn)(args) → 运行 fn(*args)，返回 tagged 结果：
+    正常 ["__正常__", 值]；异常 ["__异常__", 消息字符串]。
+
+    与 VM 层 _make_guarded_call（src/mbc/vm.py:525）语义对齐：自举解释器
+    try/catch 的底层原语，把 Python/Matha 异常拦截后交还 Matha 层处理。
+    """
+    def guarded(fn):
+        def run(args):
+            args = args or []
+            try:
+                return ["__正常__", interp.invoke_value(fn, args)]
+            except Exception as e:  # noqa: BLE001 — 捕获一切错误交 Matha 层
+                return ["__异常__", str(e)]
+        return run
+    return guarded
+
+
 class _BreakException(Exception):
     """break 中断循环的内部异常。"""
     pass
@@ -520,6 +538,9 @@ def _is_matha_function(v) -> bool:
     可调用（内建函数/柯里化包装）。用于 type_of → "Function" 与
     str/repr → "<function>" 的四端统一（原生为 TYPE_CLOSURE/TYPE_PARTIAL
     记录与 .text 代码地址）。"""
+    # VirtualSymbol 是虚拟占位符，不应被当作函数规范化为 "<function>"
+    if isinstance(v, VirtualSymbol):
+        return False
     if isinstance(v, tuple) and len(v) > 0 and v[0] == "__closure__":
         return True
     # 列表/字典/元组等数据结构即使误加了 __call__ 也不应视为函数
@@ -1014,6 +1035,8 @@ class Interpreter:
         # 复用模块级缓存的领域内建符号（避免每次重建 ~400 个函数对象）
         self.builtins.update(_DOMAIN_BUILTINS)
         # 逻辑运算内建（与/或/非，不改语法层）——已由 _build_domain_builtins 注册，此处跳过
+        # 调用捕获：受保护调用原语（与 VM / 原生 / 自举 vm.matha 对齐）
+        self.builtins["调用捕获"] = builtin_guarded_call(self)
 
     # ---------- 日志辅助 ----------
 
@@ -1749,6 +1772,19 @@ class Interpreter:
         if stmt.else_block is not None:
             self._exec_codeblock_or_stmt(stmt.else_block)
 
+    def _eval_switch_expr(self, stmt: ast.SwitchStmt):
+        value = self._eval(stmt.value)
+        for case_val, case_body in stmt.cases:
+            try:
+                evaluated = self._eval(case_val)
+            except Exception:
+                continue
+            if evaluated == value:
+                return self._eval_block_value(case_body)
+        if stmt.default_block is not None:
+            return self._eval_block_value(stmt.default_block)
+        return None
+
     def _exec_switch_stmt(self, stmt: ast.SwitchStmt) -> None:
         """执行 switch 语句。"""
         value = self._eval(stmt.value)
@@ -2182,23 +2218,47 @@ class Interpreter:
     # ---------- 表达式求值 ----------
 
 
+    _BLOCK_TAIL_STMT_NODES = (ast.Binding, ast.LetBinding, ast.LetTupleBinding,
+                               ast.ForStmt, ast.WhileStmt, ast.BreakStmt, ast.ContinueStmt,
+                               ast.ReturnStmt, ast.ThrowStmt, ast.CodeBlock)
+
+    def _eval_block_value(self, branch):
+        """求值代码块或语句的尾值，遵循 MBC/VM 尾值规则（避免复用全局 outputs 历史）。"""
+        if branch is None:
+            return None
+        stmts = branch.stmts if isinstance(branch, ast.CodeBlock) else [branch]
+        if not stmts:
+            return None
+        saved_len = len(self.outputs)
+        for s in stmts[:-1]:
+            self._exec_stmt(s)
+        last = stmts[-1]
+        if isinstance(last, (ast.Output, ast.OutputTrail)):
+            self._exec_stmt(last)
+            if len(self.outputs) > saved_len:
+                return self.outputs[-1]
+            return None
+        if isinstance(last, ast.IfStmt):
+            return self._eval_if_stmt_expr(last)
+        if isinstance(last, ast.TryStmt):
+            return self._eval_try_expr(last)
+        if isinstance(last, ast.MatchStmt):
+            return self._eval_match(last)
+        if isinstance(last, ast.SwitchStmt):
+            return self._eval_switch_expr(last)
+        if isinstance(last, self._BLOCK_TAIL_STMT_NODES):
+            self._exec_stmt(last)
+            if len(self.outputs) > saved_len:
+                return self.outputs[-1]
+            return None
+        # 表达式尾值
+        return self._eval(last)
+
     def _eval_if_stmt_expr(self, stmt):
         cond = self._eval(stmt.cond)
         branch = stmt.then_block if cond else stmt.else_block
-        if branch is None:
-            return None
-        stmts = branch.stmts if hasattr(branch, 'stmts') else [branch]
-        for s in stmts:
-            self._exec_stmt(s)
-        if self.outputs:
-            return self.outputs[-1]
-        last = stmts[-1] if stmts else None
-        if last is not None and not isinstance(last, (ast.Output, ast.OutputTrail)):
-            try:
-                return self._eval(last)
-            except Exception:
-                return None
-        return None
+        return self._eval_block_value(branch)
+
     def _eval(self, expr) -> object:
         # 字面量：高频且无副作用，只 DEBUG 记一行，不做 enter/exit（省深度噪音）
         if isinstance(expr, ast.IntegerLit):
@@ -2221,39 +2281,23 @@ class Interpreter:
             cond = self._eval(expr.cond)
             branch = expr.then if cond else expr.else_
             if isinstance(branch, ast.CodeBlock):
-                # 代码块形式：执行后取最后一个输出
-                for s in branch.stmts:
-                    self._exec_stmt(s)
-                r = self.outputs[-1] if self.outputs else None
+                r = self._eval_block_value(branch)
             else:
                 r = self._eval(branch)
             self._log_exit("eval If", r)
             return r
         if isinstance(expr, ast.IfStmt):
             # if 出现在**表达式位**（如块尾值）：取被选分支的值。
-            # 此前落到「暂不支持求值: IfStmt」，而 MBC 侧 _emit_if_try_value
-            # 早已能产出块尾值，形成四端分歧。分支经 _exec_stmt 执行，
-            # return / break / continue 由其自身机制透传；无输出时按块尾值
-            # 取值（与 _eval(CodeBlock) 的尾值规则一致）。分支不新建子作用域，
-            # 与 MBC 的 _emit_block(同帧) 及 _exec_stmt(CodeBlock) 一致。
             self._log_enter("eval IfStmt")
             cond = self._eval(expr.cond)
             branch = expr.then_block if cond else expr.else_block
-            r = None
-            if branch is not None:
-                stmts = branch.stmts if isinstance(branch, ast.CodeBlock) else [branch]
-                for s in stmts:
-                    self._exec_stmt(s)
-                if self.outputs:
-                    r = self.outputs[-1]
-                else:
-                    last = stmts[-1] if stmts else None
-                    if last is not None and not isinstance(last, ast.Output):
-                        r = self._eval(last)
+            r = self._eval_block_value(branch)
             self._log_exit("eval IfStmt", r)
             return r
         if isinstance(expr, ast.MatchStmt):
             return self._eval_match(expr)
+        if isinstance(expr, ast.SwitchStmt):
+            return self._eval_switch_expr(expr)
         if isinstance(expr, ast.BinaryOp):
             return self._eval_binary(expr)
         if isinstance(expr, ast.UnaryOp):
@@ -2352,26 +2396,7 @@ class Interpreter:
                 if isinstance(saved_matha_env, list):
                     self._matha_env = list(saved_matha_env)
             try:
-                if not expr.stmts:
-                    return None
-                for s in expr.stmts[:-1]:
-                    self._exec_stmt(s)
-                last = expr.stmts[-1]
-                if isinstance(last, (ast.Output, ast.OutputTrail)):
-                    self._exec_stmt(last)
-                    if self.outputs:
-                        return self.outputs[-1]
-                    return None
-                if isinstance(last, ast.IfStmt):
-                    # execute as statement and compute value
-                    return self._eval_if_stmt_expr(last)
-                _STMT_NODES = (ast.Binding, ast.LetBinding, ast.LetTupleBinding, ast.ForStmt, ast.WhileStmt, ast.BreakStmt, ast.ContinueStmt, ast.ReturnStmt)
-                if isinstance(last, _STMT_NODES):
-                    self._exec_stmt(last)
-                    if self.outputs:
-                        return self.outputs[-1]
-                    return None
-                return self._eval(last)
+                return self._eval_block_value(expr)
             finally:
                 self.env = saved_env
                 if features.scoped_blocks():
@@ -2396,55 +2421,7 @@ class Interpreter:
                 return left_val in right_val
             raise MathaRuntimeError(f"∈ 右侧需为序列/集合/字典，实际 {type(right_val).__name__}")
         if isinstance(expr, ast.TryStmt):
-            # try/catch/finally 作为表达式：返回 try 块或 catch 块的值，finally 值不影响结果
-            try:
-                for s in expr.try_block.stmts:
-                    self._exec_stmt(s)
-                if self.outputs:
-                    r = self.outputs[-1]
-                else:
-                    last = expr.try_block.stmts[-1] if expr.try_block.stmts else None
-                    if last and not isinstance(last, ast.Output):
-                        try:
-                            r = self._eval(last)
-                        except Exception:
-                            r = None
-                    else:
-                        r = None
-                # finally 不改变返回值（但会执行）
-                if expr.finally_block:
-                    for s in expr.finally_block.stmts:
-                        self._exec_stmt(s)
-                return r
-            except Exception as e:
-                if expr.catch_block:
-                    if expr.catch_var:
-                        # 简单绑定异常信息到环境
-                        try:
-                            self.env[expr.catch_var] = str(e)
-                        except Exception:
-                            pass
-                    for s in expr.catch_block.stmts:
-                        self._exec_stmt(s)
-                    if self.outputs:
-                        r = self.outputs[-1]
-                    else:
-                        last = expr.catch_block.stmts[-1] if expr.catch_block.stmts else None
-                        if last and not isinstance(last, ast.Output):
-                            try:
-                                r = self._eval(last)
-                            except Exception:
-                                r = None
-                        else:
-                            r = None
-                    if expr.finally_block:
-                        for s in expr.finally_block.stmts:
-                            self._exec_stmt(s)
-                    return r
-                if expr.finally_block:
-                    for s in expr.finally_block.stmts:
-                        self._exec_stmt(s)
-                raise
+            return self._eval_try_expr(expr)
         if isinstance(expr, ast.FuncApp):
             return self._eval_func_app(expr)
         if isinstance(expr, ast.Lambda):
@@ -2654,6 +2631,31 @@ class Interpreter:
             return _ext_rule(self, expr)
         raise MathaRuntimeError(f"暂不支持求值: {type(expr).__name__}")
 
+    def _eval_try_expr(self, expr: ast.TryStmt):
+        # try/catch/finally 作为表达式：返回 try 块或 catch 块的值，finally 值不影响结果
+        try:
+            r = self._eval_block_value(expr.try_block)
+            if expr.finally_block:
+                for s in expr.finally_block.stmts:
+                    self._exec_stmt(s)
+            return r
+        except Exception as e:
+            if expr.catch_block:
+                if expr.catch_var:
+                    try:
+                        self.env[expr.catch_var] = str(e)
+                    except Exception:
+                        pass
+                r = self._eval_block_value(expr.catch_block)
+                if expr.finally_block:
+                    for s in expr.finally_block.stmts:
+                        self._exec_stmt(s)
+                return r
+            if expr.finally_block:
+                for s in expr.finally_block.stmts:
+                    self._exec_stmt(s)
+            raise
+
     def _eval_dict_ast(self, node: dict) -> object:
         """将 Matha parser 生成的 dict AST 节点转为 Python 值。"""
         t = node.get("类型")
@@ -2785,14 +2787,20 @@ class Interpreter:
             if cond:
                 return self._exec_matha_stmt(stmt.then, env)
             else:
+                if stmt.else_ is None:
+                    return (None, env)
                 return self._exec_matha_stmt(stmt.else_, env)
         if isinstance(stmt, ast.WhileStmt):
             return self._exec_matha_while(stmt.cond, stmt.body, env)
         if isinstance(stmt, ast.ForStmt):
             return self._exec_matha_for(stmt.var_name, stmt.iterable, stmt.body, env)
+        if isinstance(stmt, ast.SwitchStmt):
+            v, e2 = self._exec_matha_switch(stmt, env)
+            return (v, e2)
         if isinstance(stmt, ast.FuncDef):
             self.funcs[stmt.name] = stmt
-            closure = ("__closure__", stmt.body.params, stmt.body.body, list(env.items()) if isinstance(env, list) else list(self.env.items()))
+            matha_env = getattr(self, '_matha_env', list(env.items()) if isinstance(env, list) else list(self.env.items()))
+            closure = ("__closure__", stmt.body.params, stmt.body.body, matha_env)
             new_env = self._exec_matha_bind(env, stmt.name, closure)
             return (closure, new_env)
         return (None, env)
@@ -3014,35 +3022,17 @@ class Interpreter:
                 result = l != r
                 self._log(logging.DEBUG, f"  != 结果: {result!r}")
             elif op == "and":
-                if not l:
-                    self._log_exit("eval Binary", l)
-                    return l
                 result = l and r
                 self._log(logging.DEBUG, f"  and 结果: {self._fmt(result)}")
-                return result
             elif op == "or":
-                if l:
-                    self._log_exit("eval Binary", l)
-                    return l
                 result = l or r
                 self._log(logging.DEBUG, f"  or 结果: {result!r}")
-                return result
             elif op == "&&":
-                if not l:
-                    self._log_exit("eval Binary", l)
-                    return l
-                r = self._eval(node.right)
                 result = l and r
                 self._log(logging.DEBUG, f"  && 结果: {self._fmt(result)}")
-                return result
             elif op == "||":
-                if l:
-                    self._log_exit("eval Binary", l)
-                    return l
-                r = self._eval(node.right)
                 result = l or r
                 self._log(logging.DEBUG, f"  || 结果: {self._fmt(result)}")
-                return result
             elif op == "===":
                 result = (l is r) and type(l) is type(r)
                 self._log(logging.DEBUG, f"  === 结果: {result!r}")
@@ -3154,7 +3144,6 @@ class Interpreter:
             raise MathaRuntimeError(f"值错误: {e}") from None
         self._log(logging.DEBUG,
                   f"binary {self._fmt(l)} {op} {self._fmt(r)} → {self._fmt(result)}")
-        self._log_exit("eval Binary", result)
         return result
 
     def _is_undefined(self, name: str) -> bool:
@@ -3216,6 +3205,41 @@ class Interpreter:
                 result = self._apply(result, a)
             return result
         return self._call_func(fn, args)
+
+    def invoke_value(self, fn, args: list | None = None):
+        """调用任意可调用值（FuncDef/闭包/Python callable），返回结果。
+
+        与 VM 的 invoke_value（src/mbc/vm.py:669）对齐：以**完整参数列表**
+        一次性分派（而非逐个柯里化应用），使 调用捕获 等捕获型内建回调
+        Matha 层函数时与 VM 语义一致。
+        """
+        args = list(args) if args else []
+        if isinstance(fn, ast.FuncDef):
+            return self._call_func(fn, args)
+        if isinstance(fn, tuple) and fn and fn[0] == "__closure__":
+            if len(fn) == 4:
+                params, body, captured = fn[1], fn[2], fn[3]
+                lam = ast.Lambda(params=params, body=body)
+            else:
+                _, lam, captured = fn
+            return self._call_lambda(lam, captured, args)
+        if callable(fn):
+            if not args:
+                return fn()
+            if len(args) == 1:
+                return fn(args[0])
+            return fn(*args)
+        if isinstance(fn, _RecPlaceholder):
+            result = fn
+            for a in args:
+                result = self._apply(result, a)
+            return result
+        if not args:
+            return fn
+        result = fn
+        for a in args:
+            result = self._apply(result, a)
+        return result
 
     def _call_func(self, fdef: ast.FuncDef, args: list) -> object:
         self._log(logging.INFO,
