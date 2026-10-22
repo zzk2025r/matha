@@ -1023,6 +1023,10 @@ class Interpreter:
         self.auto_registered: list[dict] = []
         # debug=None → 服从 MATHA_DEBUG 环境变量；显式 True/False 优先
         self.debug = _env_debug_flag() if debug is None else bool(debug)
+        # 显式栈引擎（Strangler Fig 绞杀中间态）：由 MATHA_FEATURE_STACK_ENGINE 开启
+        self._use_stack_engine: bool = features.stack_engine()
+        self._stack_engine = None
+        self._engine_active: bool = False
         # 递归深度缩进，让 _eval / _exec_stmt / _call_lambda 嵌套可读
         self._depth: int = 0
         # 若开启 debug 但尚未配置 handler，自动装一个 stderr handler
@@ -2260,6 +2264,18 @@ class Interpreter:
         return self._eval_block_value(branch)
 
     def _eval(self, expr) -> object:
+        # 显式栈引擎（Strangler Fig）：仅在最外层 _eval 生效；引擎内部回退
+        # 到本方法时（_engine_active 为真）走既有递归实现，避免重入重置帧栈。
+        if self._use_stack_engine and not self._engine_active:
+            eng = self._stack_engine
+            if eng is None:
+                from src.interp_engine import StackEngine
+                eng = self._stack_engine = StackEngine(self)
+            self._engine_active = True
+            try:
+                return eng.eval_value(expr)
+            finally:
+                self._engine_active = False
         # 字面量：高频且无副作用，只 DEBUG 记一行，不做 enter/exit（省深度噪音）
         if isinstance(expr, ast.IntegerLit):
             self._log(logging.DEBUG, f"eval Int {expr.value}")
@@ -2952,13 +2968,22 @@ class Interpreter:
             return result
         l = self._eval(node.left)
         r = self._eval(node.right)
+        result = self._apply_binary_values(op, l, r)
+        self._log_exit("eval Binary", result)
+        return result
+
+    def _apply_binary_values(self, op: str, l: object, r: object) -> object:
+        """对**已求值**的左右操作数执行二元运算（不含短路求值分派）。
+
+        从 ``_eval_binary`` 抽取，供显式栈引擎在自行求值操作数后复用同一语义，
+        确保解释器递归路径与引擎迭代路径的运算符行为严格一致。
+        """
         # 自动定义功能：宽容值参与运算 → 继续产生宽容值，不崩溃
         if isinstance(l, VirtualSymbol) or isinstance(r, VirtualSymbol):
             base = l if isinstance(l, VirtualSymbol) else r
             result = VirtualSymbol(
                 f"({_virtual_repr(l)}{op}{_virtual_repr(r)})", "值", base.registry)
             self._log(logging.DEBUG, f"  VirtualSymbol 运算 '{op}' → {result!r}")
-            self._log_exit("eval Binary", result)
             return result
         try:
             if op == "+":

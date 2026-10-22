@@ -76,4 +76,13 @@ def scoped_blocks() -> bool:
     return is_enabled("SCOPED_BLOCKS", default=False)
 
 
-__all__ = ["is_enabled", "set_feature", "clear_feature", "scoped_blocks"]
+def stack_engine() -> bool:
+    """STACK_ENGINE：表达式求值走显式帧栈（Strangler Fig 绞杀中间态，默认关闭）。
+
+    开启后 ``Interpreter._eval`` 转调 ``StackEngine``（trampoline，宿主栈 O(1)），
+    尚未迁移的节点回退解释器递归实现。默认关闭以保持现有行为不变。
+    """
+    return is_enabled("STACK_ENGINE", default=False)
+
+
+__all__ = ["is_enabled", "set_feature", "clear_feature", "scoped_blocks", "stack_engine"]
