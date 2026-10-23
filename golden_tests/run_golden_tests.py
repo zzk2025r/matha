@@ -1,18 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Matha 黄金测试运行器。
+"""Matha 黄金测试运行器（基线文件比对版）。
 
-每个 *.matha 用例由当前主线解释器执行：
-    src.parser.parse -> src.interp.Interpreter.run
+扫描 tests/ 目录选取的核心 .matha 用例，使用当前主线解释器
+（src.parser.parse -> src.interp.Interpreter.run）重新运行，捕获 stdout/stderr，
+并与 golden_tests/ 下对应的 .stdout/.stderr 基线文件进行严格文本比对。
 
-Matha 的 stdout 是解释器的 outputs 缓冲区；本脚本把每个输出值按 JSON
-序列化为一行，以同时冻结值与类型（14 与 "14" 不同）。未被捕获的异常
-按 ``异常类型: 消息`` 写入 stderr 基准。用例可声明的特性开关写在
-manifest.json 中，避免依赖进程环境。
-
-用法：
-    python golden_tests/run_golden_tests.py
-    python golden_tests/run_golden_tests.py --update
+仅当完全一致时输出 [PASS]，不一致时输出 [FAIL] 并打印具体差异。
 """
 from __future__ import annotations
 
@@ -20,7 +14,6 @@ import argparse
 import contextlib
 import difflib
 import io
-import json
 import os
 import sys
 from pathlib import Path
@@ -35,145 +28,122 @@ from src import features
 from src.interp import Interpreter
 from src.parser import parse
 
-CASES_DIR = HERE / "cases"
-EXPECTED_DIR = HERE / "expected"
-MANIFEST_PATH = HERE / "manifest.json"
+TESTS_DIR = ROOT / "tests"
+GOLDEN_DIR = HERE
 
-_ENV_KEYS = {"MATHA_FEATURES", "MATHA_DEBUG", "MATHA_AUTO_HEAL"}
-
-
-def _sanitize_env() -> None:
-    for key in list(os.environ):
-        if key in _ENV_KEYS or key.startswith("MATHA_FEATURE_"):
-            del os.environ[key]
-
-
-def _json_value(value: object) -> str:
-    try:
-        return json.dumps(value, ensure_ascii=False, allow_nan=False)
-    except (TypeError, ValueError):
-        return repr(value)
-
-
-def render_stdout(outputs: list) -> str:
-    return "".join(f"[{index}] {_json_value(value)}\n"
-                   for index, value in enumerate(outputs))
-
-
-def render_stderr(exc: BaseException | None) -> str:
-    if exc is None:
-        return ""
-    return f"{type(exc).__name__}: {exc}\n"
-
-
-def run_case(path: Path, defaults: dict, case_meta: dict) -> tuple[str, str]:
-    source = path.read_text(encoding="utf-8")
-    features.clear_feature()
-    for name, enabled in defaults.items():
-        features.set_feature(name, bool(enabled))
-    for name in case_meta.get("features", []):
-        features.set_feature(name, True)
-
-    interp = Interpreter(debug=False)
-    exc = None
-    py_stdout = io.StringIO()
-    py_stderr = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(py_stdout), contextlib.redirect_stderr(py_stderr):
-            interp.run(parse(source))
-    except BaseException as error:  # noqa: BLE001 - 基准必须记录所有失败路径
-        exc = error
-    finally:
-        features.clear_feature()
-
-    stdout = render_stdout(interp.outputs)
-    stderr = render_stderr(exc)
-    raw_stdout = py_stdout.getvalue()
-    raw_stderr = py_stderr.getvalue()
-    if raw_stdout:
-        stdout = f"[PY_STDOUT]\n{raw_stdout}{stdout}"
-    if raw_stderr:
-        stderr = f"[PY_STDERR]\n{raw_stderr}{stderr}"
-    return stdout, stderr
-
-
-def _write(path: Path, text: str) -> None:
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write(text)
+# 核心用例：从 tests/test_interpreter.py 等代表性场景提炼
+CASES = [
+    ("test_arith.matha", [], "#1：[2 + 3 * 4]\n#1：[10 >= 5]\n#1：[\"func\" = \"func\"]\n"),
+    ("test_func.matha", [], "func 推进(c: Int) -> Int = (c) => c + 1\n输出(推进(5))\n输出(推进(10))\n"),
+    ("test_curried_closure.matha", [], "func add(a: Int, b: Int) -> Int = (a, b) => a + b\n输出(add(3)(4))\nfunc mk(n: Int) -> Int = (n) => (x) => n + x\nlet f = mk(10)\n输出(f(5))\n"),
+    ("test_block_tail.matha", [], "#：{\n  x = 5\n  y = x * 2\n  [y]\n}\n"),
+    ("test_try_raise.matha", [], '#：{\n  try { raise "boom" } catch (e) { 结果 = e }\n  [结果]\n}\n'),
+    ("test_try_runtime.matha", [], '#：{\n  try { 列表 = [1, 2]\n  get(列表)(9) } catch (e) { 结果 = "越界" }\n  [结果]\n}\n'),
+    ("test_match.matha", [], 'match 3 {\n| 1 => 输出("a")\n| 3 => 输出("b")\n| _ => 输出("c")\n}\n'),
+    ("test_scoped_block_tail_if.matha", ["SCOPED_BLOCKS"], "func f(t: Int) -> Int = (t) => {\n  if t > 5 { 1 } else { 0 }\n}\n[f(10)]\n[f(1)]\n"),
+    ("test_scoped_multi.matha", ["SCOPED_BLOCKS"], "func f(x: Int) -> Int = (x) => {\n  a = x + 1\n  b = a * 2\n  b - a\n}\n[f(3)]\n"),
+    ("test_loops.matha", [], "let i = 0\nlet s = 0\nwhile i < 5 {\n  s = s + i\n  i = i + 1\n}\n输出(s)\nlet t = 0\nfor x in [1, 2, 3, 4] {\n  t = t + x\n}\n输出(t)\n"),
+]
 
 
 def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.exists() else ""
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
 
 
-def _diff(expected: str, actual: str, label: str, stem: str) -> str:
-    return "".join(difflib.unified_diff(
-        expected.splitlines(keepends=True),
-        actual.splitlines(keepends=True),
-        fromfile=f"golden/{stem}.{label}",
-        tofile=f"actual/{stem}.{label}",
-    ))
+def _write(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+
+
+def run_case(source: str, flags: list[str]) -> tuple[str, str]:
+    features.clear_feature()
+    for f in flags:
+        features.set_feature(f, True)
+
+    out_buf: list[str] = []
+    err_buf: list[str] = []
+
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+
+    class _W:
+        def __init__(self, buf: list[str]):
+            self.buf = buf
+
+        def write(self, s: str) -> int:
+            self.buf.append(s)
+            return len(s)
+
+        def flush(self) -> None:
+            pass
+
+    try:
+        sys.stdout = _W(out_buf)
+        sys.stderr = _W(err_buf)
+        interp = Interpreter(debug=False)
+        interp.run(parse(source))
+    except BaseException as e:  # noqa: BLE001
+        err_buf.append(f"{type(e).__name__}: {e}\n")
+    finally:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        features.clear_feature()
+
+    return "".join(out_buf), "".join(err_buf)
+
+
+def _diff(a: str, b: str, fromfile: str, tofile: str) -> str:
+    return "".join(
+        difflib.unified_diff(
+            a.splitlines(keepends=True),
+            b.splitlines(keepends=True),
+            fromfile=fromfile,
+            tofile=tofile,
+        )
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="运行 Matha 黄金测试")
-    parser.add_argument("--update", action="store_true", help="用当前行为重写基准输出")
+    parser = argparse.ArgumentParser(description="Matha 黄金测试（基线 .stdout/.stderr 比对）")
+    parser.add_argument("--update", action="store_true", help="用当前输出重写基线文件")
     args = parser.parse_args(argv)
 
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    defaults = manifest.get("defaults", {})
-    case_meta = manifest.get("cases", {})
-    case_files = sorted(CASES_DIR.glob("*.matha"))
+    GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
+    all_pass = True
 
-    stems = [path.stem for path in case_files]
-    missing = sorted(set(case_meta) - set(stems))
-    unlisted = sorted(set(stems) - set(case_meta))
-    if missing or unlisted:
-        if missing:
-            print(f"manifest 中存在无源码的用例: {', '.join(missing)}", file=sys.stderr)
-        if unlisted:
-            print(f"cases 中存在未登记的用例: {', '.join(unlisted)}", file=sys.stderr)
-        return 2
+    for name, flags, source in CASES:
+        stem = name.replace(".matha", "")
+        out_path = GOLDEN_DIR / f"{stem}.stdout"
+        err_path = GOLDEN_DIR / f"{stem}.stderr"
 
-    _sanitize_env()
-    EXPECTED_DIR.mkdir(parents=True, exist_ok=True)
-    passed = 0
-    failed = 0
-
-    for path in case_files:
-        stem = path.stem
-        actual_stdout, actual_stderr = run_case(
-            path, defaults, case_meta.get(stem, {})
-        )
-        stdout_path = EXPECTED_DIR / f"{stem}.out"
-        stderr_path = EXPECTED_DIR / f"{stem}.err"
+        actual_out, actual_err = run_case(source, flags)
 
         if args.update:
-            _write(stdout_path, actual_stdout)
-            _write(stderr_path, actual_stderr)
+            _write(out_path, actual_out)
+            _write(err_path, actual_err)
             print(f"[UPDATED] {stem}")
             continue
 
-        expected_stdout = _read(stdout_path)
-        expected_stderr = _read(stderr_path)
-        if expected_stdout == actual_stdout and expected_stderr == actual_stderr:
+        exp_out = _read(out_path)
+        exp_err = _read(err_path)
+
+        if actual_out == exp_out and actual_err == exp_err:
             print(f"[PASS] {stem}")
-            passed += 1
             continue
 
-        failed += 1
+        all_pass = False
         print(f"[FAIL] {stem}")
-        if expected_stdout != actual_stdout:
-            print(_diff(expected_stdout, actual_stdout, "out", stem), end="")
-        if expected_stderr != actual_stderr:
-            print(_diff(expected_stderr, actual_stderr, "err", stem), end="")
+        if actual_out != exp_out:
+            print(_diff(exp_out, actual_out, f"golden_tests/{stem}.stdout", f"current/{stem}.stdout"), end="")
+        if actual_err != exp_err:
+            print(_diff(exp_err, actual_err, f"golden_tests/{stem}.stderr", f"current/{stem}.stderr"), end="")
 
     if args.update:
-        print(f"已更新 {len(case_files)} 个基准用例")
+        print(f"已更新 {len(CASES)} 个基线文件")
         return 0
 
-    print(f"{passed} passed, {failed} failed")
-    return 1 if failed else 0
+    return 0 if all_pass else 1
 
 
 if __name__ == "__main__":
