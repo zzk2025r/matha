@@ -131,11 +131,10 @@ class MathaConstFoldPass:
                         if left_val is not None and right_val is not None:
                             result = _eval_const(left_val, right_val, op)
                             if result is not None:
-                                new_instr = type(instr)(
+                                new_instr = MIRConstInstr(
                                     result=getattr(instr, "result", ""),
                                     instr_type=getattr(instr, "instr_type", None),
                                     operands=[],
-                                    metadata={"value": result},
                                     value=result
                                 )
                                 new_instructions.append(new_instr)
@@ -175,11 +174,10 @@ class MathaSimplifyPass:
                     if left_val is not None and right_val is not None:
                         simplified, changed = _simplify_expr(left_val, right_val, op)
                         if changed:
-                            new_instr = type(instr)(
+                            new_instr = MIRConstInstr(
                                 result=getattr(instr, "result", ""),
                                 instr_type=getattr(instr, "instr_type", None),
                                 operands=[],
-                                metadata={"value": float(simplified)},
                                 value=float(simplified)
                             )
                             new_instructions.append(new_instr)
@@ -820,4 +818,436 @@ __all__ = [
     "MathaCurryFlattenPass",
     "MathaFormulaOptPass",  # 公式优化 Pass（新增）
     "MathaOptimizationPipeline",
+]
+
+
+# ============================================================
+# Pass: 控制流图与活跃性（DCE/CP/CV 基础）
+# ============================================================
+
+try:
+    from src.mir import MIRConstInstr, MIRInstrType
+except Exception:
+    MIRInstrType = None
+    MIRConstInstr = None
+
+
+def _normalize_name(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+    return name.lstrip('%')
+
+
+class _BasicBlock:
+    def __init__(self, label: str = "") -> None:
+        self.label = label
+        self.instrs = []
+        self.pred = []
+        self.succ = []
+        self.live_in = set()
+        self.live_out = set()
+
+
+class MIRFunctionCFG:
+    def __init__(self, func: Any) -> None:
+        self.func = func
+        self.blocks = []
+        self.label_to_block = {}
+
+    def build(self) -> None:
+        instrs = getattr(self.func, "instructions", [])
+        if not instrs:
+            return
+        blocks = []
+        cur = _BasicBlock(label="__entry__")
+        for instr in instrs:
+            itype = getattr(instr, "instr_type", None)
+            if (itype is not None and MIRInstrType is not None and itype == MIRInstrType.LABEL) or (
+                hasattr(instr, "label") and instr.label and len(cur.instrs) > 0
+            ):
+                if cur.instrs:
+                    blocks.append(cur)
+                label = getattr(instr, "label", "")
+                cur = _BasicBlock(label=label)
+                cur.instrs.append(instr)
+                continue
+            cur.instrs.append(instr)
+            if MIRInstrType is not None and itype in (MIRInstrType.BRANCH, MIRInstrType.COND_BRANCH, MIRInstrType.RETURN, MIRInstrType.THROW):
+                blocks.append(cur)
+                cur = _BasicBlock(label=f"__bb_{len(blocks)}__")
+        if cur.instrs:
+            blocks.append(cur)
+        self.blocks = blocks
+        for bb in blocks:
+            if bb.label and not bb.label.startswith("__bb_"):
+                self.label_to_block[bb.label] = bb
+        for i, bb in enumerate(blocks):
+            if not bb.instrs:
+                continue
+            last = bb.instrs[-1]
+            itype = getattr(last, "instr_type", None)
+            if MIRInstrType is not None and (itype == MIRInstrType.RETURN or itype == MIRInstrType.THROW):
+                continue
+            if MIRInstrType is not None and itype == MIRInstrType.BRANCH:
+                target = getattr(last, "label", "") or ""
+                if not target and getattr(last, "operands", None):
+                    target = str(last.operands[0]).lstrip("%")
+                if target in self.label_to_block:
+                    tb = self.label_to_block[target]
+                    bb.succ.append(tb)
+                    tb.pred.append(bb)
+                elif i + 1 < len(blocks):
+                    bb.succ.append(blocks[i+1])
+                    blocks[i+1].pred.append(bb)
+                continue
+            if MIRInstrType is not None and itype == MIRInstrType.COND_BRANCH:
+                t = getattr(last, "true_label", "") or ""
+                f = getattr(last, "false_label", "") or ""
+                for tgt in (t, f):
+                    if tgt and tgt in self.label_to_block:
+                        tb = self.label_to_block[tgt]
+                        if tb not in bb.succ:
+                            bb.succ.append(tb)
+                        if bb not in tb.pred:
+                            tb.pred.append(bb)
+                continue
+            if i + 1 < len(blocks):
+                bb.succ.append(blocks[i+1])
+                blocks[i+1].pred.append(bb)
+
+
+class MathaDCEPass:
+    _IMPURE = set()
+    if MIRInstrType is not None:
+        _IMPURE = {
+            MIRInstrType.CALL, MIRInstrType.CIMPORT, MIRInstrType.STORE,
+            MIRInstrType.MEMCPY, MIRInstrType.MEMSET, MIRInstrType.FREE,
+            MIRInstrType.VSTORE, MIRInstrType.BRANCH, MIRInstrType.COND_BRANCH,
+            MIRInstrType.RETURN, MIRInstrType.THROW, MIRInstrType.TRY, MIRInstrType.CATCH,
+            MIRInstrType.FINALLY, MIRInstrType.LANDINGPAD, MIRInstrType.SPAWN, MIRInstrType.SEND,
+            MIRInstrType.RECV, MIRInstrType.SELECT, MIRInstrType.YIELD, MIRInstrType.CHANNEL_CREATE,
+            MIRInstrType.CHANNEL_CLOSE, MIRInstrType.MUTEX_LOCK, MIRInstrType.MUTEX_UNLOCK,
+            MIRInstrType.COND_WAIT, MIRInstrType.COND_SIGNAL, MIRInstrType.COND_BROADCAST,
+            MIRInstrType.TRACE, MIRInstrType.PROBE, MIRInstrType.SAMPLE, MIRInstrType.BREAKPOINT,
+            MIRInstrType.ALLOC,
+        }
+
+    def __init__(self) -> None:
+        self._removed = 0
+        self._unreachable = 0
+
+    def run(self, program: Any) -> Any:
+        for func_name, func in getattr(program, "functions", {}).items():
+            func = self._optimize_func(func)
+            program.functions[func_name] = func
+        return program
+
+    def _optimize_func(self, func: Any) -> Any:
+        cfg = MIRFunctionCFG(func)
+        cfg.build()
+        if not cfg.blocks:
+            return func
+        self._liveness(cfg)
+        self._eliminate(cfg)
+        self._remove_unreachable_blocks(cfg)
+        func.instructions = self._flatten(cfg)
+        return func
+
+    def _uses(self, instr: Any) -> set[str]:
+        uses = set()
+        for op in getattr(instr, "operands", []) or []:
+            v = _normalize_name(op)
+            if v:
+                uses.add(v)
+        cond = getattr(instr, "cond", None)
+        if isinstance(cond, str):
+            v = _normalize_name(cond)
+            if v:
+                uses.add(v)
+        return uses
+
+    def _def(self, instr: Any) -> str:
+        return _normalize_name(getattr(instr, "result", ""))
+
+    def _is_impure(self, instr: Any) -> bool:
+        itype = getattr(instr, "instr_type", None)
+        if MIRInstrType is not None and itype in self._IMPURE:
+            return True
+        if getattr(instr, "c_func", "") or getattr(instr, "func_name", ""):
+            return True
+        return False
+
+    def _liveness(self, cfg: MIRFunctionCFG) -> None:
+        changed = True
+        for _ in range(64):
+            if not changed:
+                break
+            changed = False
+            for bb in reversed(cfg.blocks):
+                live_out = set()
+                for s in bb.succ:
+                    live_out |= s.live_in
+                bb.live_out = live_out
+                live_in = set(live_out)
+                for instr in reversed(bb.instrs):
+                    itype = getattr(instr, "instr_type", None)
+                    if self._is_impure(instr) or (MIRInstrType is not None and itype == MIRInstrType.RETURN) or (MIRInstrType is not None and itype == MIRInstrType.THROW):
+                        defs = {self._def(instr)} if self._def(instr) else set()
+                        uses = self._uses(instr)
+                        if MIRInstrType is not None and itype == MIRInstrType.RETURN:
+                            val = getattr(instr, "value", None)
+                            if isinstance(val, str):
+                                uses.add(_normalize_name(val))
+                        live_in = (live_in - defs) | uses
+                        continue
+                    defs = {self._def(instr)} if self._def(instr) else set()
+                    uses = self._uses(instr)
+                    live_in = (live_in - defs) | uses
+                if live_in != bb.live_in:
+                    bb.live_in = live_in
+                    changed = True
+
+    def _eliminate(self, cfg: MIRFunctionCFG) -> None:
+        for bb in cfg.blocks:
+            new_instrs = []
+            live = set(bb.live_out)
+            for instr in reversed(bb.instrs):
+                itype = getattr(instr, "instr_type", None)
+                if MIRInstrType is not None and itype == MIRInstrType.LABEL:
+                    new_instrs.append(instr)
+                    continue
+                if self._is_impure(instr):
+                    defs = {self._def(instr)} if self._def(instr) else set()
+                    uses = self._uses(instr)
+                    live = (live - defs) | uses
+                    new_instrs.append(instr)
+                    continue
+                if MIRInstrType is not None and itype == MIRInstrType.RETURN:
+                    defs = {self._def(instr)} if self._def(instr) else set()
+                    uses = self._uses(instr)
+                    val = getattr(instr, "value", None)
+                    if isinstance(val, str):
+                        uses.add(_normalize_name(val))
+                    live = (live - defs) | uses
+                    new_instrs.append(instr)
+                    continue
+                res = self._def(instr)
+                if res and res in live:
+                    defs = {res}
+                    uses = self._uses(instr)
+                    live = (live - defs) | uses
+                    new_instrs.append(instr)
+                    continue
+                self._removed += 1
+                continue
+            bb.instrs = list(reversed(new_instrs))
+
+    def _remove_unreachable_blocks(self, cfg: MIRFunctionCFG) -> None:
+        if not cfg.blocks:
+            return
+        reachable = set()
+        stack = [cfg.blocks[0]]
+        while stack:
+            bb = stack.pop()
+            bid = id(bb)
+            if bid in reachable:
+                continue
+            reachable.add(bid)
+            for s in bb.succ:
+                sid = id(s)
+                if sid not in reachable:
+                    stack.append(s)
+        for bb in cfg.blocks:
+            if id(bb) not in reachable and bb.label and not bb.label.startswith("__entry__"):
+                if bb.instrs:
+                    self._unreachable += len(bb.instrs)
+                bb.instrs = []
+
+    def _flatten(self, cfg: MIRFunctionCFG) -> list[Any]:
+        out = []
+        for bb in cfg.blocks:
+            out.extend(bb.instrs)
+        return out
+
+    @property
+    def stats(self) -> dict:
+        return {"removed": self._removed, "unreachable": self._unreachable}
+
+
+class MathaConstPropPass:
+    def __init__(self) -> None:
+        self._propagated = 0
+
+    def run(self, program: Any) -> Any:
+        for func_name, func in getattr(program, "functions", {}).items():
+            const_map: dict[str, str] = {}
+            instructions = getattr(func, "instructions", [])
+            for instr in instructions:
+                if hasattr(instr, "operands") and instr.operands:
+                    new_ops = []
+                    for op in instr.operands:
+                        v = _normalize_name(op)
+                        if v and v in const_map:
+                            new_ops.append(const_map[v])
+                            self._propagated += 1
+                        else:
+                            new_ops.append(op)
+                    instr.operands = new_ops
+                if getattr(instr, "cond", None) and isinstance(instr.cond, str):
+                    v = _normalize_name(instr.cond)
+                    if v and v in const_map:
+                        instr.cond = const_map[v]
+                        self._propagated += 1
+                if getattr(instr, "value", None) is not None and isinstance(getattr(instr, "value"), (int, float)) and getattr(instr, "result", ""):
+                    res = _normalize_name(getattr(instr, "result", ""))
+                    if res:
+                        const_map[res] = str(instr.value)
+                    continue
+                res = _normalize_name(getattr(instr, "result", ""))
+                if res:
+                    const_map.pop(res, None)
+            func.instructions = instructions
+        return program
+
+    @property
+    def stats(self) -> dict:
+        return {"propagated": self._propagated}
+
+
+class MathaCopyPropPass:
+    def __init__(self) -> None:
+        self._propagated = 0
+
+    def run(self, program: Any) -> Any:
+        for func_name, func in getattr(program, "functions", {}).items():
+            copy_map: dict[str, str] = {}
+            instructions = getattr(func, "instructions", [])
+            for instr in instructions:
+                itype = getattr(instr, "instr_type", None)
+                if hasattr(instr, "operands") and instr.operands:
+                    new_ops = []
+                    for op in instr.operands:
+                        v = _normalize_name(op)
+                        if v and v in copy_map:
+                            new_ops.append(copy_map[v])
+                            self._propagated += 1
+                        else:
+                            new_ops.append(op)
+                    instr.operands = new_ops
+                if getattr(instr, "cond", None) and isinstance(instr.cond, str):
+                    v = _normalize_name(instr.cond)
+                    if v and v in copy_map:
+                        instr.cond = copy_map[v]
+                        self._propagated += 1
+                res = _normalize_name(getattr(instr, "result", ""))
+                if res:
+                    if MIRInstrType is not None and itype == MIRInstrType.LOAD and len(getattr(instr, "operands", []) or []) == 1:
+                        src = _normalize_name(instr.operands[0])
+                        if src:
+                            copy_map[res] = src
+                            continue
+                    copy_map.pop(res, None)
+            func.instructions = instructions
+        return program
+
+    @property
+    def stats(self) -> dict:
+        return {"propagated": self._propagated}
+
+
+def _has_control_flow(program: Any) -> bool:
+    if MIRInstrType is None:
+        return False
+    for func in getattr(program, "functions", {}).values():
+        for instr in getattr(func, "instructions", []) or []:
+            itype = getattr(instr, "instr_type", None)
+            if itype in (MIRInstrType.LABEL, MIRInstrType.BRANCH, MIRInstrType.COND_BRANCH):
+                return True
+    return False
+
+
+class MIRPassPipeline:
+    def __init__(self) -> None:
+        self.passes = []
+
+    def add_pass(self, pass_obj: Any) -> "MIRPassPipeline":
+        self.passes.append(pass_obj)
+        return self
+
+    def run(self, program: Any, passes: list[Any] | None = None, max_iter: int = 4) -> Any:
+        passes = passes if passes is not None else self.passes
+        if _has_control_flow(program):
+            unsafe = (MathaDCEPass, MathaDeadCodeElimPass, MathaCopyPropagationPass)
+            passes = [p for p in passes if not isinstance(p, unsafe)]
+        if not passes:
+            return program
+        for _ in range(max_iter):
+            changed = False
+            for p in passes:
+                try:
+                    old = self._snapshot(program)
+                except Exception:
+                    old = None
+                program = p.run(program)
+                try:
+                    new_snap = self._snapshot(program)
+                except Exception:
+                    new_snap = None
+                if old is not None and new_snap is not None and new_snap != old:
+                    changed = True
+                elif old is None:
+                    changed = True
+            if not changed:
+                break
+        return program
+
+    def _snapshot(self, program: Any):
+        funcs = getattr(program, "functions", {}) or {}
+        snap = []
+        for fn in sorted(funcs.keys()):
+            f = funcs[fn]
+            instrs = getattr(f, "instructions", []) or []
+            for i in instrs:
+                snap.append((
+                    getattr(i, "instr_type", None),
+                    tuple(getattr(i, "operands", []) or []),
+                    getattr(i, "result", ""),
+                    getattr(i, "value", None),
+                    getattr(i, "label", ""),
+                    getattr(i, "cond", ""),
+                    getattr(i, "c_func", ""),
+                    getattr(i, "func_name", ""),
+                ))
+        return tuple(snap)
+
+    @staticmethod
+    def default_pipeline():
+        # 返回推荐的优化顺序
+        return [
+            MathaConstPropPass(),
+            MathaSimplifyPass(),
+            MathaConstFoldPass(),
+            MathaCopyPropPass(),
+            MathaDCEPass(),
+        ]
+
+    @classmethod
+    def create_default(cls) -> "MIRPassPipeline":
+        pipe = cls()
+        pipe.passes = cls.default_pipeline()
+        return pipe
+
+
+__all__ = [
+    "MathaConstFoldPass",
+    "MathaSimplifyPass",
+    "MathaDeadCodeElimPass",
+    "MathaCommonSubexprElimPass",
+    "MathaCopyPropagationPass",
+    "MathaStrengthReductionPass",
+    "MathaDCEPass",
+    "MathaConstPropPass",
+    "MathaCopyPropPass",
+    "MIRPassPipeline",
+    "MIRFunctionCFG",
 ]

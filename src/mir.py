@@ -199,6 +199,10 @@ class MIRArithInstr(MIRInstr):
     def format(self) -> str:
         if self.op == "**":
             return f"{self.result} = pow({', '.join(self.operands)})"
+        if self.op == "=" and len(self.operands) == 1:
+            return f"{self.result} = {self.operands[0]}"
+        if len(self.operands) < 2:
+            return f"{self.result} = {self.op}({', '.join(self.operands)})"
         return f"{self.result} = {self.operands[0]} {self.op} {self.operands[1]}"
 
 
@@ -243,6 +247,8 @@ class MIRCompareInstr(MIRInstr):
     op: str = ""
 
     def format(self) -> str:
+        if len(self.operands) < 2:
+            return f"{self.result} = {self.op}({', '.join(self.operands)})"
         return f"{self.result} = ({self.operands[0]} {self.op} {self.operands[1]})"
 
 
@@ -755,6 +761,7 @@ class MIRGenerator:
         self._program = MIRProgram()
         self._scopes: list = [{}]
         self._temp_counter = 0
+        self._current_func: MIRFunction | None = None
 
     def _new_temp(self) -> str:
         self._temp_counter += 1
@@ -765,10 +772,24 @@ class MIRGenerator:
             self._scopes = [{}]
         return self._scopes[-1]
 
+    def _current(self) -> MIRFunction:
+        if self._current_func is None:
+            self._current_func = self._program.functions["main"]
+        return self._current_func
+
+    def _emit(self, instr: MIRInstr) -> MIRInstr:
+        """将指令写入当前函数，而不是固定写入 main。"""
+        self._current().instructions.append(instr)
+        return instr
+
     def generate(self, ast: Any) -> MIRProgram:
         """生成 MIR 程序。"""
+        self._program = MIRProgram()
+        self._scopes = [{}]
+        self._temp_counter = 0
         main_func = MIRFunction(name="main", params=[], param_types=[], return_type="double")
         self._program.functions["main"] = main_func
+        self._current_func = main_func
         self._compile_program(ast)
         self._add_required_imports()
         return self._program
@@ -790,30 +811,81 @@ class MIRGenerator:
                 result = self._compile_expr(decl.expr)
                 # 支持自定义输出目标，默认为 printf
                 output_target = getattr(decl, "target", "printf")
-                self._program.functions["main"].instructions.append(
-                    MIRCallInstr(result, MIRInstrType.CALL, [result], {"c_func": output_target})
-                )
+                self._emit(MIRCallInstr(
+                    result=result,
+                    instr_type=MIRInstrType.CALL,
+                    operands=[result],
+                    func_name=output_target,
+                    c_func=output_target,
+                ))
         elif kind == "LetBinding":
             if hasattr(decl, "value"):
                 result = self._compile_expr(decl.value)
                 if hasattr(decl, "name"):
                     self._ensure_scope()[decl.name] = result
+        elif kind == "FuncApp":
+            self._compile_expr(decl)
+        elif kind == "MechUnit":
+            self._compile_mech_unit(decl)
+
+    def _emit_output(self, value: str) -> None:
+        self._emit(MIRCallInstr(
+            result="",
+            instr_type=MIRInstrType.CALL,
+            operands=[value],
+            func_name="printf",
+            c_func="printf",
+        ))
+
+    def _compile_mech_unit(self, mech_unit: Any) -> None:
+        """按 Matha 块尾值语义输出代码块最后一个表达式。"""
+        body = getattr(mech_unit, "body", None)
+        statements = list(getattr(body, "stmts", []) or [])
+        last_value = ""
+        for statement in statements:
+            kind = type(statement).__name__
+            if kind == "LetBinding":
+                name = getattr(statement, "name", "")
+                value = getattr(statement, "value", None)
+                if name and value is not None:
+                    self._ensure_scope()[name] = self._compile_expr(value)
+                continue
+            last_value = self._compile_expr(statement)
+        if last_value:
+            self._emit_output(last_value)
 
     def _compile_func_def(self, func_def: Any) -> None:
         name = getattr(func_def, "name", "unknown")
-        params = [p.name if hasattr(p, "name") else str(p) for p in getattr(func_def, "params", [])]
-        return_type = getattr(func_def, "return_type", "double")
-
-        func = MIRFunction(name=name, params=params, param_types=["double"] * len(params), return_type=return_type)
-        scope = {param: param for param in params}
-        self._scopes.append(scope)
-
         body = getattr(func_def, "body", None)
-        if body:
-            result = self._compile_expr(body)
-            func.instructions.append(MIRReturnInstr(result, MIRInstrType.RETURN, [result]))
 
-        self._scopes.pop()
+        param_nodes = getattr(body, "params", None)
+        if param_nodes is None:
+            param_nodes = getattr(func_def, "params", [])
+        params = [p.name if hasattr(p, "name") else str(p) for p in param_nodes]
+
+        # 遗留 MIR/C 后端把数值统一表示为 double；在 MIR 侧保持同一假设，
+        # 避免 MIR 声明与 C 生成器签名不一致。
+        param_types = ["double"] * len(params)
+        return_type = "double"
+
+        func = MIRFunction(name=name, params=params, param_types=param_types, return_type=return_type)
+        previous = self._current_func
+        self._current_func = func
+        self._scopes.append({param: param for param in params})
+
+        try:
+            if body is not None:
+                result = self._compile_expr(body)
+                self._emit(MIRReturnInstr(
+                    result=result,
+                    instr_type=MIRInstrType.RETURN,
+                    operands=[result],
+                    value=result,
+                ))
+        finally:
+            self._scopes.pop()
+            self._current_func = previous
+
         self._program.functions[name] = func
 
     def _compile_binding(self, binding: Any) -> None:
@@ -822,8 +894,12 @@ class MIRGenerator:
         if value:
             result = self._compile_expr(value)
             self._ensure_scope()[name] = result
-            main = self._program.functions["main"]
-            main.instructions.append(MIRStoreInstr("", MIRInstrType.STORE, [result], {"target": name}))
+            self._emit(MIRStoreInstr(
+                result="",
+                instr_type=MIRInstrType.STORE,
+                operands=[result],
+                target=name,
+            ))
 
     # 类型分派表（避免字符串比较）- 实例变量，避免跨实例污染
     _COMPILE_EXPR_DISPATCH: dict = None
@@ -873,10 +949,12 @@ class MIRGenerator:
     def _compile_literal(self, lit: Any) -> str:
         result = self._new_temp()
         value = getattr(lit, "value", 0.0)
-        # 创建常量指令，设置 value 属性
-        instr = MIRConstInstr(result, MIRInstrType.ADD, [])
-        instr.value = value
-        self._program.functions["main"].instructions.append(instr)
+        self._emit(MIRConstInstr(
+            result=result,
+            instr_type=MIRInstrType.ADD,
+            operands=[],
+            value=value,
+        ))
         return result
 
     def _compile_variable(self, var: Any) -> str:
@@ -889,24 +967,36 @@ class MIRGenerator:
         right = self._compile_expr(getattr(op_expr, "right", None))
         op = getattr(op_expr, "op", "")
         result = self._new_temp()
-        main = self._program.functions["main"]
 
         if op in ("+", "-", "*", "/", "//", "%", "**"):
-            instr = MIRArithInstr(result, MIRInstrType.ADD, [left, right])
-            instr.op = op
-            main.instructions.append(instr)
+            self._emit(MIRArithInstr(
+                result=result,
+                instr_type=MIRInstrType.ADD,
+                operands=[left, right],
+                op=op,
+            ))
         elif op in ("<", ">", "<=", ">=", "==", "!="):
-            instr = MIRCompareInstr(result, MIRInstrType.EQ, [left, right])
-            instr.op = op
-            main.instructions.append(instr)
+            self._emit(MIRCompareInstr(
+                result=result,
+                instr_type=MIRInstrType.EQ,
+                operands=[left, right],
+                op=op,
+            ))
         elif op in ("and", "or"):
-            instr = MIRLogicalInstr(result, MIRInstrType.AND, [left, right])
-            instr.op = op
-            main.instructions.append(instr)
+            self._emit(MIRLogicalInstr(
+                result=result,
+                instr_type=MIRInstrType.AND,
+                operands=[left, right],
+                op=op,
+            ))
         elif op == "→":
-            instr = MIRCallInstr(result, MIRInstrType.CALL, [left, right])
-            instr.func_name = "apply"
-            main.instructions.append(instr)
+            self._emit(MIRCallInstr(
+                result=result,
+                instr_type=MIRInstrType.CALL,
+                operands=[left, right],
+                func_name="apply",
+                c_func="apply",
+            ))
         else:
             return left
         return result
@@ -915,16 +1005,37 @@ class MIRGenerator:
         operand = self._compile_expr(getattr(op_expr, "operand", None))
         op = getattr(op_expr, "op", "")
         result = self._new_temp()
-        main = self._program.functions["main"]
 
         if op == "-":
-            main.instructions.append(MIRArithInstr(result, MIRInstrType.FSUB, ["0.0", operand], {"op": "-"}))
+            self._emit(MIRArithInstr(
+                result=result,
+                instr_type=MIRInstrType.FSUB,
+                operands=["0.0", operand],
+                op="-",
+            ))
         elif op in ("++", "INCR"):
-            main.instructions.append(MIRArithInstr(result, MIRInstrType.FADD, [operand, "1.0"], {"op": "+"}))
+            self._emit(MIRArithInstr(
+                result=result,
+                instr_type=MIRInstrType.FADD,
+                operands=[operand, "1.0"],
+                op="+",
+            ))
         elif op in ("--", "DECR"):
-            main.instructions.append(MIRArithInstr(result, MIRInstrType.FSUB, [operand, "1.0"], {"op": "-"}))
+            self._emit(MIRArithInstr(
+                result=result,
+                instr_type=MIRInstrType.FSUB,
+                operands=[operand, "1.0"],
+                op="-",
+            ))
         elif op == "^":
-            main.instructions.append(MIRCallInstr(result, MIRInstrType.CALL, [operand], {"c_func": "sqrt", "lib": "math"}))
+            self._emit(MIRCallInstr(
+                result=result,
+                instr_type=MIRInstrType.CALL,
+                operands=[operand],
+                func_name="sqrt",
+                c_func="sqrt",
+                lib="math",
+            ))
         else:
             return operand
         return result
@@ -941,82 +1052,154 @@ class MIRGenerator:
             func_name = "unknown"
 
         arg_val = self._compile_expr(arg) if arg else "0.0"
+
+        if func_name in ("输出", "print"):
+            self._emit_output(arg_val)
+            return ""
+
         result = self._new_temp()
 
         if func_name in self.MATH_FUNCS:
             lib, c_func = self.MATH_FUNCS[func_name]
-            instr = MIRCallInstr(result, MIRInstrType.CALL, [arg_val])
-            instr.func_name = func_name
-            instr.c_func = c_func
-            instr.lib = lib
-            self._program.functions["main"].instructions.append(instr)
-        elif func_name in self._program.functions:
-            instr = MIRCallInstr(result, MIRInstrType.CALL, [arg_val])
-            instr.func_name = func_name
-            self._program.functions["main"].instructions.append(instr)
         else:
-            instr = MIRCallInstr(result, MIRInstrType.CALL, [arg_val])
-            instr.func_name = func_name
-            self._program.functions["main"].instructions.append(instr)
+            lib, c_func = "", ""
+
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=[arg_val],
+            func_name=func_name,
+            c_func=c_func,
+            lib=lib,
+        ))
         return result
 
     def _compile_lambda(self, lam: Any) -> str:
-        return self._new_temp()
+        """在当前函数内展开 lambda 体；遗留 MIR 后端没有闭包表示。"""
+        params = getattr(lam, "params", [])
+        scope = {
+            (p.name if hasattr(p, "name") else str(p)):
+            (p.name if hasattr(p, "name") else str(p))
+            for p in params
+        }
+        self._scopes.append(scope)
+        try:
+            return self._compile_expr(getattr(lam, "body", None))
+        finally:
+            self._scopes.pop()
 
     def _compile_if(self, if_expr: Any) -> str:
         cond = self._compile_expr(getattr(if_expr, "cond", None))
         then_val = self._compile_expr(getattr(if_expr, "then", None))
         else_val = self._compile_expr(getattr(if_expr, "else_", None)) if getattr(if_expr, "else_", None) else "0.0"
         result = self._new_temp()
-        main = self._program.functions["main"]
 
-        true_label = f"if_then_{len(main.instructions)}"
-        false_label = f"if_else_{len(main.instructions)}"
-        end_label = f"if_end_{len(main.instructions)}"
+        instr_index = len(self._current().instructions)
+        true_label = f"if_then_{instr_index}"
+        false_label = f"if_else_{instr_index}"
+        end_label = f"if_end_{instr_index}"
 
-        main.instructions.append(MIRCondBranchInstr("", MIRInstrType.COND_BRANCH, [cond], {"true_label": true_label, "false_label": false_label}))
-        main.instructions.append(MIRLabelInstr(true_label, MIRInstrType.LABEL, [true_label]))
-        main.instructions.append(MIRArithInstr(result, MIRInstrType.FADD, [then_val], {"op": "="}))
-        main.instructions.append(MIRBranchInstr("", MIRInstrType.BRANCH, [true_label], {"label": end_label}))
-        main.instructions.append(MIRLabelInstr(false_label, MIRInstrType.LABEL, [false_label]))
-        main.instructions.append(MIRArithInstr(result, MIRInstrType.FADD, [else_val], {"op": "="}))
-        main.instructions.append(MIRBranchInstr("", MIRInstrType.BRANCH, [false_label], {"label": end_label}))
-        main.instructions.append(MIRLabelInstr(end_label, MIRInstrType.LABEL, [end_label]))
+        self._emit(MIRCondBranchInstr(
+            result="",
+            instr_type=MIRInstrType.COND_BRANCH,
+            operands=[cond],
+            cond=cond,
+            true_label=true_label,
+            false_label=false_label,
+        ))
+        self._emit(MIRLabelInstr(
+            result="",
+            instr_type=MIRInstrType.LABEL,
+            operands=[],
+            label=true_label,
+        ))
+        self._emit(MIRArithInstr(
+            result=result,
+            instr_type=MIRInstrType.FADD,
+            operands=[then_val],
+            op="=",
+        ))
+        self._emit(MIRBranchInstr(
+            result="",
+            instr_type=MIRInstrType.BRANCH,
+            operands=[],
+            label=end_label,
+        ))
+        self._emit(MIRLabelInstr(
+            result="",
+            instr_type=MIRInstrType.LABEL,
+            operands=[],
+            label=false_label,
+        ))
+        self._emit(MIRArithInstr(
+            result=result,
+            instr_type=MIRInstrType.FADD,
+            operands=[else_val],
+            op="=",
+        ))
+        self._emit(MIRBranchInstr(
+            result="",
+            instr_type=MIRInstrType.BRANCH,
+            operands=[],
+            label=end_label,
+        ))
+        self._emit(MIRLabelInstr(
+            result="",
+            instr_type=MIRInstrType.LABEL,
+            operands=[],
+            label=end_label,
+        ))
         return result
 
     def _compile_list(self, lst: Any) -> str:
         result = self._new_temp()
         items = [self._compile_expr(i) for i in getattr(lst, "items", [])]
-        self._program.functions["main"].instructions.append(
-            MIRCallInstr(result, MIRInstrType.CALL, items, {"func_name": "make_list", "c_func": "make_list"})
-        )
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=items,
+            func_name="make_list",
+            c_func="make_list",
+        ))
         return result
 
     def _compile_dict(self, dct: Any) -> str:
         result = self._new_temp()
         keys = [self._compile_expr(k) for k in getattr(dct, "keys", [])]
         values = [self._compile_expr(v) for v in getattr(dct, "values", [])]
-        self._program.functions["main"].instructions.append(
-            MIRCallInstr(result, MIRInstrType.CALL, keys + values, {"func_name": "make_dict", "c_func": "make_dict"})
-        )
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=keys + values,
+            func_name="make_dict",
+            c_func="make_dict",
+        ))
         return result
 
     def _compile_path(self, path: Any) -> str:
         left = self._compile_expr(getattr(path, "left", None))
         right = getattr(path, "right", "")
         result = self._new_temp()
-        self._program.functions["main"].instructions.append(
-            MIRCallInstr(result, MIRInstrType.CALL, [left], {"func_name": f"get_{right}", "c_func": f"get_{right}"})
-        )
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=[left],
+            func_name=f"get_{right}",
+            c_func=f"get_{right}",
+        ))
         return result
 
     def _compile_tuple(self, tpl: Any) -> str:
         """编译元组表达式。"""
         elements = [self._compile_expr(e) for e in getattr(tpl, "elements", [])]
         result = self._new_temp()
-        self._program.functions["main"].instructions.append(
-            MIRCallInstr(result, MIRInstrType.CALL, elements, {"func_name": "make_tuple", "c_func": "make_tuple"})
-        )
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=elements,
+            func_name="make_tuple",
+            c_func="make_tuple",
+        ))
         return result
 
     def _compile_index(self, idx: Any) -> str:
@@ -1024,9 +1207,13 @@ class MIRGenerator:
         container = self._compile_expr(getattr(idx, "container", None))
         index = self._compile_expr(getattr(idx, "index", None))
         result = self._new_temp()
-        self._program.functions["main"].instructions.append(
-            MIRCallInstr(result, MIRInstrType.CALL, [container, index], {"func_name": "index", "c_func": "index"})
-        )
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=[container, index],
+            func_name="index",
+            c_func="index",
+        ))
         return result
 
     def _compile_slice(self, slc: Any) -> str:
@@ -1035,9 +1222,13 @@ class MIRGenerator:
         start = self._compile_expr(getattr(slc, "start", None)) if getattr(slc, "start", None) else "0.0"
         end = self._compile_expr(getattr(slc, "end", None)) if getattr(slc, "end", None) else "0.0"
         result = self._new_temp()
-        self._program.functions["main"].instructions.append(
-            MIRCallInstr(result, MIRInstrType.CALL, [container, start, end], {"func_name": "slice", "c_func": "slice"})
-        )
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=[container, start, end],
+            func_name="slice",
+            c_func="slice",
+        ))
         return result
 
     def _compile_set(self, set_node: Any) -> str:
@@ -1049,18 +1240,28 @@ class MIRGenerator:
                 "如确需走本路径，请改用集合枚举 {1,2,3}")
         result = self._new_temp()
         literals = [self._compile_expr(l) for l in getattr(set_node, "literals", [])]
-        self._program.functions["main"].instructions.append(
-            MIRCallInstr(result, MIRInstrType.CALL, literals, {"func_name": "make_set", "c_func": "make_set"})
-        )
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=literals,
+            func_name="make_set",
+            c_func="make_set",
+        ))
         return result
 
     def _add_required_imports(self) -> None:
-        main = self._program.functions["main"]
-        for instr in main.instructions:
-            if isinstance(instr, MIRCallInstr) and instr.lib:
-                import_instr = MIRCImportInstr(instr.c_func, MIRInstrType.CIMPORT, [], {"lib": instr.lib, "c_func": instr.c_func})
-                if import_instr not in main.c_imports:
-                    main.c_imports.append(import_instr)
+        for func in self._program.functions.values():
+            for instr in func.instructions:
+                if isinstance(instr, MIRCallInstr) and instr.lib:
+                    import_instr = MIRCImportInstr(
+                        result=instr.c_func,
+                        instr_type=MIRInstrType.CIMPORT,
+                        operands=[],
+                        c_func=instr.c_func,
+                        lib=instr.lib,
+                    )
+                    if import_instr not in func.c_imports:
+                        func.c_imports.append(import_instr)
 
     def to_dict(self) -> dict:
         return {
