@@ -1,0 +1,12 @@
+let i = 0
+let s = 0
+while i < 5 {
+  s = s + i
+  i = i + 1
+}
+输出(s)
+let t = 0
+for x in [1, 2, 3, 4] {
+  t = t + x
+}
+输出(t)

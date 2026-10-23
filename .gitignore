@@ -113,6 +113,7 @@ matha_bootstrap_migration_analysis.md
 
 # 生成产物
 matha/generated/
-matha/runtime/
-matha/vm/
+# matha/runtime/ 与 matha/vm/ 是自举运行/VM 必需的源码，不得忽略
+# matha/runtime/
+# matha/vm/
 src/test.bc

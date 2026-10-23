@@ -1,0 +1,74 @@
+{
+  "engine": "src.parser.parse -> src.interp.Interpreter.run",
+  "defaults": {
+    "SCOPED_BLOCKS": false,
+    "STACK_ENGINE": false,
+    "INLINE_CACHE": true
+  },
+  "cases": {
+    "01_arithmetic_and_relations": {
+      "features": [],
+      "description": "算术优先级、关系比较、字符串相等"
+    },
+    "02_function_definition": {
+      "features": [],
+      "description": "带参数/返回类型标注的函数定义与调用"
+    },
+    "03_curried_closure": {
+      "features": [],
+      "description": "柯里化与闭包捕获"
+    },
+    "04_block_tail_value": {
+      "features": [],
+      "description": "命令块内绑定与块尾表达式返回值"
+    },
+    "05_block_tail_if": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块中 if/else 分支作为块尾值"
+    },
+    "06_block_multi_statement": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块多语句绑定与尾表达式"
+    },
+    "07_loops": {
+      "features": [],
+      "description": "顶层 while 与 for 循环累加"
+    },
+    "08_loops_break_continue": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块内 while/break 与 for/continue"
+    },
+    "09_try_catch_raise": {
+      "features": [],
+      "description": "try/catch 捕获 raise 抛出的消息"
+    },
+    "10_try_catch_runtime_error": {
+      "features": [],
+      "description": "try/catch 捕获内建运行时错误"
+    },
+    "11_try_throw": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块内 throw/catch 与提前 return"
+    },
+    "12_error_div_zero": {
+      "features": [],
+      "description": "除零错误：已产生的 stdout 与未捕获 stderr"
+    },
+    "13_error_undefined": {
+      "features": [],
+      "description": "未定义变量错误：已产生的 stdout 与未捕获 stderr"
+    },
+    "14_error_type": {
+      "features": [],
+      "description": "类型不匹配错误：已产生的 stdout 与未捕获 stderr"
+    },
+    "15_type_annotations_typeof": {
+      "features": [],
+      "description": "类型标注接受与 typeof 运行时类型结果（当前无静态类型推断）"
+    },
+    "16_recursion": {
+      "features": [],
+      "description": "递归函数与条件表达式返回值"
+    }
+  }
+}

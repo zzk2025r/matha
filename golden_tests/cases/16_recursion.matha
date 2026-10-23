@@ -1,0 +1,3 @@
+func fact(n: Int) -> Int = (n) =>
+  if n <= 1 then 1 else n * fact(n - 1)
+输出(fact(6))

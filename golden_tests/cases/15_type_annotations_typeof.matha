@@ -1,0 +1,7 @@
+func 方(x: Int) -> Int = (x) => x * x
+输出(方(4))
+输出(typeof(1))
+输出(typeof(1.5))
+输出(typeof("a"))
+输出(typeof([1]))
+输出(typeof(真))

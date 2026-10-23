@@ -1,0 +1,25 @@
+(* Matha2C 数学計算検証 — C バイナリが Python なしで正しく計算するか *)
+module 数学検証 {
+  let PI = 3.141592653589793
+  let E  = 2.718281828459045
+
+  func 加(a: Float, b: Float) -> Float = (a, b) => a + b
+  func 減(a: Float, b: Float) -> Float = (a, b) => a - b
+  func 掛(a: Float, b: Float) -> Float = (a, b) => a * b
+  func 除(a: Float, b: Float) -> Float = (a, b) => a / b
+  func 階乗(n: Int) -> Int = (n) => if n <= 1 then 1 else n * 階乗(n - 1)
+  func 正弦近似(x: Float) -> Float = (x) => x - (x ^ 3) / 6.0 + (x ^ 5) / 120.0 - (x ^ 7) / 5040.0
+  func 二乗和(a: Float, b: Float) -> Float = (a, b) => a * a + b * b
+  func 絶対値(x: Float) -> Float = (x) => if x < 0.0 then -x else x
+
+  #100：{
+    [加(3.0, 4.0)]
+    [減(10.0, 3.0)]
+    [掛(2.5, 4.0)]
+    [除(10.0, 3.0)]
+    [階乗(6)]
+    [正弦近似(1.0)]
+    [二乗和(3.0, 4.0)]
+    [絶対値(-5.0)]
+  }
+}

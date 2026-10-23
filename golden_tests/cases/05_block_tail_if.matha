@@ -1,0 +1,5 @@
+func f(t: Int) -> Int = (t) => {
+  if t > 5 { 1 } else { 0 }
+}
+[f(10)]
+[f(1)]

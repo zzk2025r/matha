@@ -1,0 +1,10 @@
+func f() -> Int = () => {
+  try {
+    q = 1
+    throw("boom")
+  } catch (e) {
+    r = 2
+    return r
+  }
+}
+[f()]
