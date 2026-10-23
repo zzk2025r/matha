@@ -481,7 +481,8 @@ class StackEngine:
 
         def after_l(lv):
             def after_r(rv):
-                machine.return_value_now(self.interp._apply_binary_values(op, lv, rv))
+                machine.return_value_now(
+                    self.interp._apply_binary_values(op, lv, rv, site=node))
             machine.eval(node.right, CallbackFrame(machine, after_r))
         machine.eval(node.left, CallbackFrame(machine, after_l))
 

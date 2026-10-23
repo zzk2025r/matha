@@ -59,6 +59,7 @@ from src import custom_ops
 from src import features
 from src import formula_schema as _fs
 from src import text_encoding as _te
+from src.interp_ic import InlineCache
 
 logger = logging.getLogger("matha.interp")
 # 模块默认挂 NullHandler，避免「No handlers could be found」警告；
@@ -1005,6 +1006,8 @@ class Interpreter:
         # 链上任意深度都能据此察觉「全局环境被改写」→ 及时失效解析缓存。
         from src.interp_engine import VersionedDict
         self.env: dict[str, object] = VersionedDict()
+        # 特化解释器：内联缓存开关（进程内固定，避免热路径读环境变量）
+        self._ic_enabled = features.inline_cache()
         self.funcs: dict[str, ast.FuncDef] = {}
         self.constructors: set[str] = set()
         self.outputs: list = []
@@ -1057,7 +1060,8 @@ class Interpreter:
     def _log_enter(self, tag: str, detail: str = "") -> None:
         """进入某个递归节点：打印 + 深度 +1。"""
         if self.debug:
-            self._log(logging.DEBUG, f"→ {tag}{(' ' + detail) if detail else ''}")
+            if self.debug:
+                self._log(logging.DEBUG, f"→ {tag}{(' ' + detail) if detail else ''}")
             self._depth += 1
 
     def _log_exit(self, tag: str, result: object = None) -> None:
@@ -1065,7 +1069,8 @@ class Interpreter:
         if self.debug:
             self._depth = max(0, self._depth - 1)
             r = "" if result is None and tag else f" = {self._fmt(result)}"
-            self._log(logging.DEBUG, f"← {tag}{r}")
+            if self.debug:
+                self._log(logging.DEBUG, f"← {tag}{r}")
 
     @staticmethod
     def _fmt(v: object, _depth: int = 0) -> str:
@@ -1197,7 +1202,8 @@ class Interpreter:
             return result
         if name in self.builtins:
             result = self.builtins[name]
-            self._log(logging.DEBUG, f"call builtin '{name}'({args}) → {type(result).__name__}")
+            if self.debug:
+                self._log(logging.DEBUG, f"call builtin '{name}'({args}) → {type(result).__name__}")
             if args:
                 for a in args:
                     result = self._apply(result, a)
@@ -1206,7 +1212,8 @@ class Interpreter:
                 _ZERO_ARG_BUILTINS = {list, dict, set, tuple, str, int, float, bool}
                 if result in _ZERO_ARG_BUILTINS or hasattr(result, '__self__'):
                     result = result()
-                    self._log(logging.DEBUG, f"  builtin '{name}'() → {self._fmt(result)}")
+                    if self.debug:
+                        self._log(logging.DEBUG, f"  builtin '{name}'() → {self._fmt(result)}")
                 else:
                     raise MathaRuntimeError(f"内建 '{name}'({type(result).__name__}) 需要参数，不可无参调用")
             return result
@@ -1307,7 +1314,8 @@ class Interpreter:
         """
         # 先从已加载模块中查找（支持中英文名）
         if module_name in self.modules:
-            self._log(logging.DEBUG, f"模块 '{module_name}' 已加载，跳过")
+            if self.debug:
+                self._log(logging.DEBUG, f"模块 '{module_name}' 已加载，跳过")
             return True
         try:
             from src.parser import parse as _python_parse
@@ -1371,7 +1379,8 @@ class Interpreter:
         elif isinstance(decl, ast.ModuleDecl):
             self._log(logging.INFO, f"exec Module '{decl.name}'")
             if decl.name in self.modules:
-                self._log(logging.DEBUG, f"  模块 '{decl.name}' 已加载，跳过重复注册")
+                if self.debug:
+                    self._log(logging.DEBUG, f"  模块 '{decl.name}' 已加载，跳过重复注册")
             else:
                 # 模块命名空间严格隔离：只收集本模块 decls 显式定义的名字，
                 # 不扫描全局 self.env（避免把其它模块的符号污染进本模块）。
@@ -1514,7 +1523,8 @@ class Interpreter:
             if _ext_rule is not None:
                 _ext_rule(self, decl)
                 return
-            self._log(logging.DEBUG, f"skip decl {type(decl).__name__}（无运行时副作用）")
+            if self.debug:
+                self._log(logging.DEBUG, f"skip decl {type(decl).__name__}（无运行时副作用）")
 
     def _exec_set_up(self, node: ast.SetUp) -> None:
         for item in node.items:
@@ -1524,11 +1534,13 @@ class Interpreter:
                 val = self._eval(item.value)
                 self.env[target] = val
                 self._log_exit("set_up", val)
-                self._log(logging.DEBUG,
-                          f"env[{target!r}] = {self._fmt(val)}")
+                if self.debug:
+                    self._log(logging.DEBUG,
+                              f"env[{target!r}] = {self._fmt(val)}")
             else:
                 self.env.setdefault(target, 0)
-                self._log(logging.DEBUG, f"env[{target!r}] = 0 (default)")
+                if self.debug:
+                    self._log(logging.DEBUG, f"env[{target!r}] = 0 (default)")
 
     def _exec_if_stmt(self, stmt: ast.IfStmt) -> None:
         """执行 if-else 语句。"""
@@ -1832,19 +1844,23 @@ class Interpreter:
             if name in module_ns:
                 target = alias or name
                 self.env[target] = module_ns[name]
-                self._log(logging.DEBUG, f"use import '{name}' → '{target}'")
+                if self.debug:
+                    self._log(logging.DEBUG, f"use import '{name}' → '{target}'")
             elif name in self.constructors:
                 # 兼容：枚举构造函数已在全局 constructors 中
                 self.env[name] = name
-                self._log(logging.DEBUG, f"use import ctor '{name}'")
+                if self.debug:
+                    self._log(logging.DEBUG, f"use import ctor '{name}'")
             elif name in self.funcs:
                 # 兼容：函数已在全局 funcs 中（模块执行时已注册）
                 self.env[name] = self.funcs[name]
-                self._log(logging.DEBUG, f"use import func '{name}' (from funcs)")
+                if self.debug:
+                    self._log(logging.DEBUG, f"use import func '{name}' (from funcs)")
             elif name in self.builtins:
                 # 兼容：宿主/VM 内建（如 len/ord/get）可被 use 导入
                 self.env[name] = self.builtins[name]
-                self._log(logging.DEBUG, f"use import builtin '{name}'")
+                if self.debug:
+                    self._log(logging.DEBUG, f"use import builtin '{name}'")
             else:
                 raise MathaRuntimeError(f"模块 '{module_name}' 中未找到 '{name}'")
 
@@ -1969,7 +1985,8 @@ class Interpreter:
         if stmt is None:
             return
         kind = type(stmt).__name__
-        self._log(logging.DEBUG, f"stmt {kind}")
+        if self.debug:
+            self._log(logging.DEBUG, f"stmt {kind}")
         if isinstance(stmt, ast.Binding):
             target = self._target_name(stmt.target)
             self._log_enter(f"bind {target}")
@@ -1978,7 +1995,8 @@ class Interpreter:
             self._sync_matha_env(target, val)
             self._auto_register(target, "绑定", val)
             self._log_exit(f"bind {target}", val)
-            self._log(logging.DEBUG, f"env[{target!r}] = {self._fmt(val)}")
+            if self.debug:
+                self._log(logging.DEBUG, f"env[{target!r}] = {self._fmt(val)}")
         elif isinstance(stmt, ast.LetBinding):
             # 语句级 let：绑定并执行 body，变量留在 env 中
             # 预注册绑定名（支持递归自引用）
@@ -2014,7 +2032,8 @@ class Interpreter:
             self.env[stmt.name] = val
             self._sync_matha_env(stmt.name, val)
             self._auto_register(stmt.name, "let", val)
-            self._log(logging.DEBUG, f"stmt LetBinding '{stmt.name}' = {self._fmt(val)}")
+            if self.debug:
+                self._log(logging.DEBUG, f"stmt LetBinding '{stmt.name}' = {self._fmt(val)}")
             if stmt.body is not None:
                 self._exec_stmt_or_expr(stmt.body)
             # 不清理语句级 let 变量（与 Binding 行为一致）
@@ -2024,7 +2043,8 @@ class Interpreter:
             if isinstance(val, tuple):
                 for i, name in enumerate(stmt.names):
                     self.env[name] = val[i] if i < len(val) else None
-            self._log(logging.DEBUG, f"stmt LetTupleBinding {stmt.names}")
+            if self.debug:
+                self._log(logging.DEBUG, f"stmt LetTupleBinding {stmt.names}")
             if stmt.body is not None:
                 self._exec_stmt_or_expr(stmt.body)
         elif isinstance(stmt, ast.Output):
@@ -2043,13 +2063,15 @@ class Interpreter:
             self.outputs.append(_norm_output(result[0] if result else None))
             self._log(logging.INFO, f"[output] += {self._fmt(result[0] if result else None)}")
         elif isinstance(stmt, ast.CodeBlock):
-            self._log(logging.DEBUG, f"CodeBlock ({len(stmt.stmts)} stmts)")
+            if self.debug:
+                self._log(logging.DEBUG, f"CodeBlock ({len(stmt.stmts)} stmts)")
             # 预注册所有 let 绑定（支持递归自引用：sum_list = ...sum_list...）
             for s in stmt.stmts:
                 if isinstance(s, ast.LetBinding) and s.body is None:
                     self.env.setdefault(s.name, None)
             for i, s in enumerate(stmt.stmts):
-                self._log(logging.DEBUG, f"  block[{i}]")
+                if self.debug:
+                    self._log(logging.DEBUG, f"  block[{i}]")
                 self._exec_stmt(s)
         elif isinstance(stmt, ast.SetUp):
             self._exec_set_up(stmt)
@@ -2059,13 +2081,16 @@ class Interpreter:
                 self.trace.append(f"【{content.text}】")
                 self._log(logging.INFO, f"[trace] += 【{content.text}】")
             else:
-                self._log(logging.DEBUG, f"ReadBlock content={type(content).__name__}")
+                if self.debug:
+                    self._log(logging.DEBUG, f"ReadBlock content={type(content).__name__}")
         elif isinstance(stmt, ast.GenStmt):
             self._exec_gen_stmt(stmt)
         elif isinstance(stmt, ast.ChainStmt):
-            self._log(logging.DEBUG, f"ChainStmt ({len(stmt.stmts)} links)")
+            if self.debug:
+                self._log(logging.DEBUG, f"ChainStmt ({len(stmt.stmts)} links)")
             for i, link in enumerate(stmt.stmts):
-                self._log(logging.DEBUG, f"  chain[{i}]")
+                if self.debug:
+                    self._log(logging.DEBUG, f"  chain[{i}]")
                 self._exec_stmt(link)
         elif isinstance(stmt, ast.MechUnit):
             self._exec_stmt(stmt.body)
@@ -2100,7 +2125,8 @@ class Interpreter:
             self._log(logging.INFO, f"exec func '{stmt.name}' in block")
         elif isinstance(stmt, ast.GlobalIdStmt):
             # 全局编号语句：跨文件绑定标记
-            self._log(logging.DEBUG, f"exec GlobalIdStmt '{stmt.code_id}'")
+            if self.debug:
+                self._log(logging.DEBUG, f"exec GlobalIdStmt '{stmt.code_id}'")
         elif isinstance(stmt, ast.BreakStmt):
             self._exec_break()
         elif isinstance(stmt, ast.ContinueStmt):
@@ -2123,7 +2149,8 @@ class Interpreter:
             else:
                 # 裸 #：符号语义（惰性防呆，不执行）
                 self.trace.append(f"# {stmt.text}")
-                self._log(logging.DEBUG, f"ForeignDecl: #{stmt.text}")
+                if self.debug:
+                    self._log(logging.DEBUG, f"ForeignDecl: #{stmt.text}")
         elif isinstance(stmt, dict):
             self._exec_dict_stmt(stmt)
         else:
@@ -2132,7 +2159,8 @@ class Interpreter:
             if _ext_rule is not None:
                 _ext_rule(self, stmt)
                 return
-            self._log(logging.DEBUG, f"expr-stmt fallback eval {kind}")
+            if self.debug:
+                self._log(logging.DEBUG, f"expr-stmt fallback eval {kind}")
             self._eval(stmt)
 
     def _exec_foreign(self, decl) -> None:
@@ -2186,7 +2214,8 @@ class Interpreter:
         content = stmt.content
         seg = stmt.generate.seg_id
         ctype = type(content).__name__ if content is not None else "None"
-        self._log(logging.DEBUG, f"GenStmt #{seg} content={ctype}")
+        if self.debug:
+            self._log(logging.DEBUG, f"GenStmt #{seg} content={ctype}")
         if isinstance(content, ast.CommandLiteral):
             # 命令字面量现为纯规格追踪标记（命令占位符机制已移除），
             # 不再分派真实字符处理——实际 I/O 由函数式扫描器承担。
@@ -2281,16 +2310,20 @@ class Interpreter:
                 self._engine_active = False
         # 字面量：高频且无副作用，只 DEBUG 记一行，不做 enter/exit（省深度噪音）
         if isinstance(expr, ast.IntegerLit):
-            self._log(logging.DEBUG, f"eval Int {expr.value}")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval Int {expr.value}")
             return expr.value
         if isinstance(expr, ast.FloatLit):
-            self._log(logging.DEBUG, f"eval Float {expr.value}")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval Float {expr.value}")
             return expr.value
         if isinstance(expr, ast.StringLit):
-            self._log(logging.DEBUG, f"eval Str {self._fmt(expr.value)}")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval Str {self._fmt(expr.value)}")
             return expr.value
         if isinstance(expr, ast.BoolLit):
-            self._log(logging.DEBUG, f"eval Bool {expr.value}")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval Bool {expr.value}")
             return expr.value
         if isinstance(expr, ast.Variable):
             return self._eval_variable(expr)
@@ -2445,7 +2478,8 @@ class Interpreter:
             return self._eval_func_app(expr)
         if isinstance(expr, ast.Lambda):
             self._log(logging.DEBUG, "eval Lambda → closure")
-            self._log(logging.DEBUG, f"lambda closure captured keys: {list(self.env.keys())}")
+            if self.debug:
+                self._log(logging.DEBUG, f"lambda closure captured keys: {list(self.env.keys())}")
             matha_env = getattr(self, '_matha_env', None) or list(self.env.items())
             return ("__closure__", expr, matha_env)
         if isinstance(expr, ast.LetBinding):
@@ -2483,7 +2517,8 @@ class Interpreter:
                 if isinstance(me2, list):
                     me2.append((expr.name, val))
             self.env[expr.name] = val
-            self._log(logging.DEBUG, f"eval LetBinding '{expr.name}' = {self._fmt(val)}")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval LetBinding '{expr.name}' = {self._fmt(val)}")
             if expr.body is not None:
                 r = self._eval(expr.body)
             else:
@@ -2531,8 +2566,9 @@ class Interpreter:
                         self.env[name] = val[idx]
                     else:
                         self.env[name] = None
-                self._log(logging.DEBUG,
-                          f"eval LetTupleBinding {expr.names} = {self._fmt(val)}")
+                if self.debug:
+                    self._log(logging.DEBUG,
+                              f"eval LetTupleBinding {expr.names} = {self._fmt(val)}")
                 if expr.body is not None:
                     r = self._eval(expr.body)
                 else:
@@ -2724,7 +2760,8 @@ class Interpreter:
             name = node.get("名")
             val = self._eval_dict_ast(node.get("值"))
             self.env[name] = val
-            self._log(logging.DEBUG, f"dict-bind {name} = {self._fmt(val)}")
+            if self.debug:
+                self._log(logging.DEBUG, f"dict-bind {name} = {self._fmt(val)}")
         elif t == "if":
             cond = self._eval_dict_ast(node["条件"])
             if cond:
@@ -2759,7 +2796,8 @@ class Interpreter:
             for stmt in node.get("声明", []):
                 self._exec_dict_stmt(stmt)
         else:
-            self._log(logging.DEBUG, f"dict-stmt fallback eval {t}")
+            if self.debug:
+                self._log(logging.DEBUG, f"dict-stmt fallback eval {t}")
             self._eval_dict_ast(node)
 
     def _exec_dict_while(self, cond: dict, body: dict) -> None:
@@ -2893,17 +2931,21 @@ class Interpreter:
         # 统一查找：env → funcs → builtins → constructors
         if name in self.env:
             v = self.env[name]
-            self._log(logging.DEBUG,
-                      f"eval Var '{name}' → env {self._fmt(v)}")
+            if self.debug:
+                self._log(logging.DEBUG,
+                          f"eval Var '{name}' → env {self._fmt(v)}")
             return v
         if name in self.funcs:
-            self._log(logging.DEBUG, f"eval Var '{name}' → FuncDef")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval Var '{name}' → FuncDef")
             return self.funcs[name]
         if name in self.builtins:
-            self._log(logging.DEBUG, f"eval Var '{name}' → builtin")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval Var '{name}' → builtin")
             return self.builtins[name]
         if name in self.constructors:
-            self._log(logging.DEBUG, f"eval Var '{name}' → ctor '{name}'")
+            if self.debug:
+                self._log(logging.DEBUG, f"eval Var '{name}' → ctor '{name}'")
             return name
         # _lookup 兼容层：用于自举加载器的向后兼容
         if name == "_lookup":
@@ -2971,24 +3013,47 @@ class Interpreter:
             return result
         l = self._eval(node.left)
         r = self._eval(node.right)
-        result = self._apply_binary_values(op, l, r)
+        result = self._apply_binary_values(op, l, r, site=node)
         self._log_exit("eval Binary", result)
         return result
 
-    def _apply_binary_values(self, op: str, l: object, r: object) -> object:
+    def _apply_binary_values(self, op: str, l: object, r: object, site=None) -> object:
         """对**已求值**的左右操作数执行二元运算（不含短路求值分派）。
 
         从 ``_eval_binary`` 抽取，供显式栈引擎在自行求值操作数后复用同一语义，
         确保解释器递归路径与引擎迭代路径的运算符行为严格一致。
+
+        ``site`` 为调用点（AST 节点）：开启内联缓存时，形状稳定的调用点会
+        走**专用快速通道**，跳过下方按运算符字符串逐条匹配的通用路径。
         """
         # 自动定义功能：宽容值参与运算 → 继续产生宽容值，不崩溃
+        # （必须先于内联缓存：VirtualSymbol 的类型不在特化白名单内，
+        #   但比较类运算符对任意类型都会返回特化实现）
         if isinstance(l, VirtualSymbol) or isinstance(r, VirtualSymbol):
             base = l if isinstance(l, VirtualSymbol) else r
             result = VirtualSymbol(
                 f"({_virtual_repr(l)}{op}{_virtual_repr(r)})", "值", base.registry)
-            self._log(logging.DEBUG, f"  VirtualSymbol 运算 '{op}' → {result!r}")
+            if self.debug:
+                self._log(logging.DEBUG, f"  VirtualSymbol 运算 '{op}' → {result!r}")
             return result
+        # ---- 特化解释器：内联缓存命中 → 专用快速通道 ----
+        fast = None
+        if site is not None and self._ic_enabled:
+            try:
+                ic = site._ic
+            except AttributeError:
+                ic = InlineCache()
+                try:
+                    site._ic = ic
+                except AttributeError:
+                    ic = None          # 节点不可写（frozen/slots）→ 放弃缓存
+            if ic is not None:
+                fast = ic.fast_for(op, l, r)
         try:
+            # 专用快速通道在 try 内执行，使 TypeError/ValueError 的包装
+            # 与通用路径完全一致（错误消息、异常类型都不变）。
+            if fast is not None:
+                return fast(l, r)
             if op == "+":
                 if l is None or r is None:
                     raise MathaRuntimeError(f"+ 操作数含 None: left={l!r}, right={r!r}")
@@ -3004,7 +3069,6 @@ class Interpreter:
                     l = str(l)
                 result = l + r
                 # 注意：result 可能是含闭包的列表（循环结构），裸 repr 会死循环，必须用 _fmt
-                self._log(logging.DEBUG, f"  + 结果: {self._fmt(result)}")
             elif op == "-":
                 if isinstance(l, (str, list)) or isinstance(r, (str, list)):
                     raise MathaRuntimeError("- 不适用于字符串/列表")
@@ -3014,12 +3078,10 @@ class Interpreter:
                     result = l * r
                 else:
                     raise MathaRuntimeError(f"* 操作数类型不支持: left={l!r}({type(l).__name__}), right={r!r}({type(r).__name__})")
-                self._log(logging.DEBUG, f"  * 结果: {result!r}")
             elif op == "/":
                 if r == 0:
                     raise MathaRuntimeError(f"除零错误: {l!r} / 0")
                 result = l / r
-                self._log(logging.DEBUG, f"  / 结果: {result!r}")
             elif op == "**":
                 if l is None or r is None:
                     raise MathaRuntimeError("** 操作数含 None")
@@ -3030,58 +3092,40 @@ class Interpreter:
                 if l is None or r is None:
                     raise MathaRuntimeError(f"% 操作数含 None: left={l!r}, right={r!r}")
                 result = l % r
-                self._log(logging.DEBUG, f"  % 结果: {result!r}")
             elif op == "<":
                 result = l < r
-                self._log(logging.DEBUG, f"  < 结果: {result!r}")
             elif op == ">":
                 result = l > r
-                self._log(logging.DEBUG, f"  > 结果: {result!r}")
             elif op == "<=":
                 result = l <= r
-                self._log(logging.DEBUG, f"  <= 结果: {result!r}")
             elif op == ">=":
                 result = l >= r
-                self._log(logging.DEBUG, f"  >= 结果: {result!r}")
             elif op == "=" or op == "==":
                 result = l == r
-                self._log(logging.DEBUG, f"  == 结果: {result!r}")
             elif op == "!=":
                 result = l != r
-                self._log(logging.DEBUG, f"  != 结果: {result!r}")
             elif op == "and":
                 result = l and r
-                self._log(logging.DEBUG, f"  and 结果: {self._fmt(result)}")
             elif op == "or":
                 result = l or r
-                self._log(logging.DEBUG, f"  or 结果: {result!r}")
             elif op == "&&":
                 result = l and r
-                self._log(logging.DEBUG, f"  && 结果: {self._fmt(result)}")
             elif op == "||":
                 result = l or r
-                self._log(logging.DEBUG, f"  || 结果: {self._fmt(result)}")
             elif op == "===":
                 result = (l is r) and type(l) is type(r)
-                self._log(logging.DEBUG, f"  === 结果: {result!r}")
-                return result
             elif op == "!==":
                 result = not ((l is r) and type(l) is type(r))
-                self._log(logging.DEBUG, f"  !== 结果: {result!r}")
-                return result
             elif op == "//":
                 if r == 0:
                     raise MathaRuntimeError(f"整除除零错误: {l!r} // 0")
                 result = l // r
-                self._log(logging.DEBUG, f"  // 结果: {result!r}")
             elif op == "**":
                 if l is None or r is None:
                     raise MathaRuntimeError("** 操作数含 None")
                 result = l ** r
-                self._log(logging.DEBUG, f"  ** 结果: {result!r}")
             elif op == "is":
                 result = (l is r)
-                self._log(logging.DEBUG, f"  is 结果: {result!r}")
             elif op == "→":
                 if l is None:
                     raise MathaRuntimeError("→ 左操作数含 None")
@@ -3125,7 +3169,6 @@ class Interpreter:
                 if l is None or r is None:
                     raise MathaRuntimeError("^ 操作数含 None")
                 result = l ** r
-                self._log(logging.DEBUG, f"  ^ 结果: {result!r}")
             elif op == "⊕":
                 if isinstance(l, int) and isinstance(r, int):
                     result = l ^ r
@@ -3170,8 +3213,9 @@ class Interpreter:
             raise MathaRuntimeError(f"类型错误: {e}") from None
         except ValueError as e:
             raise MathaRuntimeError(f"值错误: {e}") from None
-        self._log(logging.DEBUG,
-                  f"binary {self._fmt(l)} {op} {self._fmt(r)} → {self._fmt(result)}")
+        if self.debug:   # 守卫：避免 f-string 无条件求值 _fmt（热路径）
+            self._log(logging.DEBUG,
+                      f"binary {self._fmt(l)} {op} {self._fmt(r)} → {self._fmt(result)}")
         return result
 
     def _is_undefined(self, name: str) -> bool:
@@ -3195,8 +3239,9 @@ class Interpreter:
                 raise MathaRuntimeError(f"未定义函数 '{func_name}'") from e
             raise
         arg = self._eval(node.arg)
-        self._log(logging.DEBUG,
-                  f"apply {self._fmt(func)} ← {self._fmt(arg)}")
+        if self.debug:
+            self._log(logging.DEBUG,
+                      f"apply {self._fmt(func)} ← {self._fmt(arg)}")
         result = self._apply(func, arg)
         self._log_exit("eval FuncApp", result)
         return result
@@ -3204,13 +3249,15 @@ class Interpreter:
     def _apply(self, func, arg) -> object:
         if callable(func):
             # Python 内建/闭包：直接应用
-            self._log(logging.DEBUG, f"apply callable({self._fmt(arg)})")
+            if self.debug:
+                self._log(logging.DEBUG, f"apply callable({self._fmt(arg)})")
             return func(arg)
         if isinstance(func, _RecPlaceholder):
             # 递归占位符：转发实际参数，内部解析为已绑定的递归闭包
             return func(arg)
         if isinstance(func, ast.FuncDef):
-            self._log(logging.DEBUG, f"apply FuncDef '{func.name}'({self._fmt(arg)})")
+            if self.debug:
+                self._log(logging.DEBUG, f"apply FuncDef '{func.name}'({self._fmt(arg)})")
             return self._call_func(func, [arg])
         if isinstance(func, tuple) and func and func[0] == "__closure__":
             self._log(logging.DEBUG, "apply closure")
@@ -3324,8 +3371,9 @@ class Interpreter:
                     body = body.body
             else:
                 body = lam.body
-            self._log(logging.DEBUG,
-                      f"lambda partial apply: bound={len(args)}/{len(params)} → closure")
+            if self.debug:
+                self._log(logging.DEBUG,
+                          f"lambda partial apply: bound={len(args)}/{len(params)} → closure")
             closure = ("__closure__", remaining, body, self._matha_env)
             self._matha_env = saved_matha_env
             return closure
@@ -3338,8 +3386,9 @@ class Interpreter:
             ]
         extra = args[len(params):]
         param_names = [self._param_name(p) for p in params]
-        self._log(logging.DEBUG,
-                  f"lambda enter: params={param_names} args={[self._fmt(a) for a in args]}")
+        if self.debug:
+            self._log(logging.DEBUG,
+                      f"lambda enter: params={param_names} args={[self._fmt(a) for a in args]}")
         saved = self.env
         self.env = local
         self._depth += 1 if self.debug else 0
@@ -3353,15 +3402,17 @@ class Interpreter:
             self._matha_env = saved_matha_env
             if self.debug:
                 self._depth = max(0, self._depth - 1)
-        self._log(logging.DEBUG,
-                  f"lambda exit → {self._fmt(result)}")
+        if self.debug:
+            self._log(logging.DEBUG,
+                      f"lambda exit → {self._fmt(result)}")
         if params and extra:
             # 只有结果仍是可调用的闭包时，才继续应用多余参数
             # 避免将多余参数应用到已求值的字面量（如 dict、list）上
             for a in extra:
                 is_closure = callable(result) or (isinstance(result, tuple) and result and result[0] == "__closure__")
-                self._log(logging.DEBUG,
-                          f"lambda extra arg: callable={callable(result)} is_tuple_closure={is_closure} result_type={type(result).__name__}")
+                if self.debug:
+                    self._log(logging.DEBUG,
+                              f"lambda extra arg: callable={callable(result)} is_tuple_closure={is_closure} result_type={type(result).__name__}")
                 if is_closure:
                     self._log(logging.DEBUG, "lambda apply extra arg")
                     result = self._apply(result, a)
