@@ -10513,5 +10513,327 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+
+# ============================================================
+# X86-64 原生代码生成框架（Win64 ABI）
+# ============================================================
+
+# 栈式 VM 与 x86-64 寄存器映射
+REG_RAX = 0
+REG_RCX = 1
+REG_RDX = 2
+REG_RBX = 3
+REG_RSP = 4
+REG_RBP = 5
+REG_RSI = 6
+REG_RDI = 7
+REG_R8  = 8
+REG_R9  = 9
+REG_R10 = 10
+REG_R11 = 11
+REG_R12 = 12  # 操作数栈指针 r12（栈体向上增长）
+REG_R13 = 13  # 环境寄存器 r13
+REG_R14 = 14
+REG_R15 = 15
+
+
+class X86Emitter:
+    """x86-64 机器码发射器（NASM 思路，直接字节编码）"""
+
+    def __init__(self, base_rva: int = TEXT_RVA):
+        self.buf = bytearray()
+        self.base_rva = base_rva
+        self.labels = {}
+        self.rip_relocs = []
+        self.rel8_relocs = []
+        self.abs_relocs = []
+
+    @property
+    def off(self):
+        return len(self.buf)
+
+    @property
+    def rva(self):
+        return self.base_rva + len(self.buf)
+
+    def emit(self, data: bytes):
+        self.buf.extend(data)
+
+    def label_here(self, name: str):
+        if name in self.labels:
+            raise AssertionError(f"标签重复: {name}")
+        self.labels[name] = self.rva
+
+    def encode_modrm(self, mod: int, reg: int, rm: int) -> int:
+        mod &= 0x3
+        reg &= 0x7
+        rm &= 0x7
+        return ((mod & 0x3) << 6) | ((reg & 0x7) << 3) | (rm & 0x7)
+
+    def encode_sib(self, scale: int, index: int, base: int) -> int:
+        scale &= 0x3
+        index &= 0x7
+        base &= 0x7
+        return ((scale & 0x3) << 6) | ((index & 0x7) << 3) | (base & 0x7)
+
+    def rex_prefix(self, w: bool = True, r: int = 0, x: int = 0, b: int = 0) -> int:
+        rex = 0x40
+        if w:
+            rex |= 0x48
+        if ((r >> 3) & 1):
+            rex |= 0x44
+        if ((x >> 3) & 1):
+            rex |= 0x42
+        if ((b >> 3) & 1):
+            rex |= 0x41
+        return rex
+
+    # 操作数栈（r12，向上增长）
+    def emit_push_r64(self, reg: int):
+        r = reg & 7
+        rex = 0x48 | (0x41 if reg >= 8 else 0)
+        self.emit(bytes([rex, 0x50 | r]))
+
+    def emit_pop_r64(self, reg: int):
+        r = reg & 7
+        rex = 0x48 | (0x41 if reg >= 8 else 0)
+        self.emit(bytes([rex, 0x58 | r]))
+
+    def push_rax_via_r12(self):
+        self.emit(b"\x49\x89\x04\x24")  # mov [r12], rax
+        self.emit(b"\x49\x83\xC4\x08")  # add r12, 8
+
+    def pop_to_reg_via_r12(self, reg: int = REG_RAX):
+        self.emit(b"\x49\x83\xEC\x08")  # sub r12, 8
+        r = reg & 7
+        rex = 0x49 | (0x04 if reg >= 8 else 0)
+        self.emit(bytes([rex, 0x8B, self.encode_modrm(0, r, 4), 0x24]))
+
+    def read_top_via_r12(self, reg: int = REG_RAX):
+        r = reg & 7
+        rex = 0x49 | (0x04 if reg >= 8 else 0)
+        self.emit(bytes([rex, 0x8B, self.encode_modrm(1, r, 4), 0x24, 0xF8]))
+
+    # 立即数/移动
+    def emit_mov_r64_imm64(self, reg: int, imm: int):
+        imm &= 0xFFFFFFFFFFFFFFFF
+        r = reg & 7
+        rex = 0x48 | (0x41 if reg >= 8 else 0)
+        self.emit(bytes([rex, 0xB8 | r]) + struct.pack("<Q", imm))
+
+    def emit_mov_r64_r64(self, dst: int, src: int):
+        rex = 0x48 | (0x04 if dst >= 8 else 0) | (0x01 if src >= 8 else 0)
+        self.emit(bytes([rex, 0x89, self.encode_modrm(3, src & 7, dst & 7)]))
+
+    # 栈调整
+    def emit_add_rsp_imm32(self, imm: int):
+        if imm == 0:
+            return
+        if -128 <= imm <= 127:
+            self.emit(bytes([0x48, 0x83, 0xC4, imm & 0xFF]))
+        else:
+            self.emit(bytes([0x48, 0x81, 0xC4]) + struct.pack("<i", imm))
+
+    def emit_sub_rsp_imm32(self, imm: int):
+        if imm == 0:
+            return
+        if -128 <= imm <= 127:
+            self.emit(bytes([0x48, 0x83, 0xEC, imm & 0xFF]))
+        else:
+            self.emit(bytes([0x48, 0x81, 0xEC]) + struct.pack("<i", imm))
+
+    # 调用/跳转
+    def emit_call_rel32(self, target_rva: int | None = None, label: str | None = None):
+        if label is not None:
+            self.rip_relocs.append((len(self.buf), label))
+            self.emit(b"\xE8\x00\x00\x00\x00")
+            return
+        if target_rva is not None:
+            disp = target_rva - (self.base_rva + len(self.buf) + 5)
+            self.emit(b"\xE8" + struct.pack("<i", disp))
+            return
+        self.emit(b"\xE8\x00\x00\x00\x00")
+
+    def emit_jmp_rel32(self, target_rva: int | None = None, label: str | None = None):
+        if label is not None:
+            self.rip_relocs.append((len(self.buf), label))
+            self.emit(b"\xE9\x00\x00\x00\x00")
+            return
+        if target_rva is not None:
+            disp = target_rva - (self.base_rva + len(self.buf) + 5)
+            self.emit(b"\xE9" + struct.pack("<i", disp))
+            return
+        self.emit(b"\xE9\x00\x00\x00\x00")
+
+    def emit_jmp_rel8(self, label: str | None = None):
+        if label is not None:
+            self.rel8_relocs.append((len(self.buf), label))
+            self.emit(b"\xEB\x00")
+            return
+        self.emit(b"\xEB\x00")
+
+    def emit_jcc_rel32(self, cc: int, label: str | None = None):
+        if label is not None:
+            self.rip_relocs.append((len(self.buf), label))
+            self.emit(bytes([0x0F, cc, 0x00, 0x00, 0x00, 0x00]))
+            return
+        self.emit(bytes([0x0F, cc, 0x00, 0x00, 0x00, 0x00]))
+
+    def emit_test_rax_rax(self):
+        self.emit(b"\x48\x85\xC0")
+
+    def emit_cmp_rax_rcx(self):
+        self.emit(b"\x48\x39\xC8")  # cmp rcx, rax
+
+    # Win64 序言/尾声（Shadow Space + 16 字节对齐）
+    def emit_prologue_win64(self, locals_slots: int = 0, shadow: int = 32, save_r12_r13: bool = True):
+        self.emit(b"\x55")  # push rbp
+        self.emit(b"\x48\x89\xE5")  # mov rbp, rsp
+        if save_r12_r13:
+            self.emit(b"\x49\x54")  # push r12
+            self.emit(b"\x49\x55")  # push r13
+        alloc = shadow + max(0, locals_slots) * 8
+        alloc = ((alloc + 15) // 16) * 16
+        if alloc:
+            self.emit_sub_rsp_imm32(alloc)
+        return alloc
+
+    def emit_epilogue_win64(self, restore_r12_r13: bool = True):
+        if restore_r12_r13:
+            self.emit(b"\x49\x5D")  # pop r13
+            self.emit(b"\x49\x5C")  # pop r12
+        self.emit(b"\x48\x89\xEC")  # mov rsp, rbp
+        self.emit(b"\x5D")  # pop rbp
+        self.emit(b"\xC3")  # ret
+
+    def patch(self):
+        for off, label in self.rip_relocs:
+            if label not in self.labels:
+                raise AssertionError(f"未知标签: {label}")
+            disp = self.labels[label] - (self.base_rva + off + 4)
+            self.buf[off:off + 4] = struct.pack("<i", disp)
+        for off, label in self.rel8_relocs:
+            if label not in self.labels:
+                raise AssertionError(f"未知标签: {label}")
+            disp = self.labels[label] - (self.base_rva + off + 1)
+            if not -128 <= disp <= 127:
+                raise AssertionError(f"rel8 越界: {label} disp={disp}")
+            self.buf[off] = disp & 0xFF
+        for off, label in self.abs_relocs:
+            if label not in self.labels:
+                raise AssertionError(f"未知标签: {label}")
+            self.buf[off:off + 4] = struct.pack("<I", self.labels[label] & 0xFFFFFFFF)
+
+    def translate_instruction(self, opcode: int, operands: list | None = None):
+        """将 MBC 指令翻译为 x86-64 机器码骨架（栈式 VM，r12 栈顶）。"""
+        operands = operands or []
+        op = opcode
+        try:
+            from src.mbc import opcodes as OP
+        except Exception:
+            OP = None
+
+        if OP is not None:
+            if op == OP.PUSH_CONST:
+                if operands:
+                    try:
+                        v = int(operands[0]) & 0xFFFFFFFFFFFFFFFF
+                    except Exception:
+                        v = 0
+                    self.emit_mov_r64_imm64(REG_RAX, v)
+                    self.push_rax_via_r12()
+                return
+            if op == OP.PUSH_TRUE:
+                self.emit_mov_r64_imm64(REG_RAX, 1)
+                self.push_rax_via_r12()
+                return
+            if op == OP.PUSH_FALSE:
+                self.emit_mov_r64_imm64(REG_RAX, 0)
+                self.push_rax_via_r12()
+                return
+            if op == OP.PUSH_NULL:
+                self.emit_mov_r64_imm64(REG_RAX, 0)
+                self.push_rax_via_r12()
+                return
+            if op == OP.LOAD_LOCAL:
+                slot = int(operands[0]) if operands else 0
+                nlocals = int(operands[1]) if len(operands) > 1 else slot + 1
+                disp = -8 * (nlocals - slot)
+                self.emit(bytes([0x48, 0x8B, 0x85]) + struct.pack("<i", disp))
+                self.push_rax_via_r12()
+                return
+            if op == OP.STORE_LOCAL:
+                slot = int(operands[0]) if operands else 0
+                nlocals = int(operands[1]) if len(operands) > 1 else slot + 1
+                self.pop_to_reg_via_r12(REG_RAX)
+                disp = -8 * (nlocals - slot)
+                self.emit(bytes([0x48, 0x89, 0x85]) + struct.pack("<i", disp))
+                return
+            if op == OP.DUP:
+                self.read_top_via_r12(REG_RAX)
+                self.push_rax_via_r12()
+                return
+            if op == OP.POP:
+                self.emit(b"\x49\x83\xEC\x08")
+                return
+            if op == OP.BINOP:
+                self.pop_to_reg_via_r12(REG_RCX)  # right
+                self.pop_to_reg_via_r12(REG_RAX)  # left
+                # Win64 调用前需预留 Shadow Space（由上层在 CALL 时处理）
+                self.push_rax_via_r12()
+                return
+            if op == OP.UNARYOP:
+                self.read_top_via_r12(REG_RAX)
+                self.emit(b"\x48\xF7\xD8")  # neg rax（示例）
+                self.emit(b"\x49\x89\x44\x24\xF8")  # mov [r12-8], rax
+                return
+            if op == OP.JMP:
+                if operands and isinstance(operands[0], str):
+                    self.emit_jmp_rel32(label=operands[0])
+                else:
+                    self.emit_jmp_rel32()
+                return
+            if op == OP.JZ:
+                self.pop_to_reg_via_r12(REG_RAX)
+                self.emit_test_rax_rax()
+                if operands and isinstance(operands[0], str):
+                    self.emit_jcc_rel32(0x84, label=operands[0])
+                else:
+                    self.emit_jcc_rel32(0x84)
+                return
+            if op == OP.JNZ:
+                self.pop_to_reg_via_r12(REG_RAX)
+                self.emit_test_rax_rax()
+                if operands and isinstance(operands[0], str):
+                    self.emit_jcc_rel32(0x85, label=operands[0])
+                else:
+                    self.emit_jcc_rel32(0x85)
+                return
+            if op == OP.CALL:
+                argc = int(operands[0]) if operands else 0
+                self.emit_sub_rsp_imm32(32)  # Shadow Space
+                if len(operands) > 1 and isinstance(operands[1], str):
+                    self.emit_call_rel32(label=operands[1])
+                else:
+                    self.emit_call_rel32()
+                self.emit_add_rsp_imm32(32)
+                return
+            if op == OP.RET:
+                self.read_top_via_r12(REG_RAX)
+                self.emit_epilogue_win64()
+                return
+            if op == OP.HALT:
+                self.emit_epilogue_win64()
+                return
+            if op == OP.OUTPUT:
+                self.pop_to_reg_via_r12(REG_RCX)  # Win64 第一个参数
+                self.emit_sub_rsp_imm32(40)  # Shadow Space + 对齐
+                self.emit_call_rel32(label="_native_print_int")
+                self.emit_add_rsp_imm32(40)
+                return
+
+        return
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
