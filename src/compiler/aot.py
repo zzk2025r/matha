@@ -320,15 +320,15 @@ class SIMDVectorizer:
 
     @staticmethod
     def vectorize(expr: str, array_name: str = "arr") -> str:
-        """将标量表达式转换为数组向量化版本。"""
-        # 检测是否需要向量化（包含数组变量）
-        if array_name not in expr:
-            return expr
-        # 使用 numpy 向量化
-        import numpy as np
-        def _vec_fn(*args):
-            return np.frompyfunc(lambda *a: eval(expr, {"__builtins__": {}}, dict(zip(["x","y","z","w","v","u","t","s","r","q","p","o","n","m","l","k","j","i","h","g","f","e","d","c","b","a"][len(args):], args))), 1)(np.array(args[0]))
-        return expr  # 简化：返回原表达式，运行时用 numpy 处理
+        """将标量表达式转换为数组向量化版本（当前为**空操作**）。
+
+        诚实声明：本方法不生成任何向量化代码，原表达式原样返回。
+        旧实现里那个 `import numpy` + `_vec_fn` 闭包从未被返回或使用（死代码），
+        只会给调用方一种「已向量化」的错觉，阶段 3 去依赖时删掉。
+        真正的向量化应下沉到 `mbc.compiler`（循环 → 批量内建）或
+        `mbc/native`（SIMD 指令发射），属未实现能力。
+        """
+        return expr
 
     @staticmethod
     def is_vectorizable(code: str) -> bool:

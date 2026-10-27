@@ -60,6 +60,7 @@ from src import features
 from src import formula_schema as _fs
 from src import text_encoding as _te
 from src.interp_ic import InlineCache
+from src.kernel.errors import MathaRuntimeError  # noqa: F401  （再导出，保持旧 import 路径可用）
 
 logger = logging.getLogger("matha.interp")
 # 模块默认挂 NullHandler，避免「No handlers could be found」警告；
@@ -76,86 +77,19 @@ def _curry_module(n: int, func):
 
 
 def _build_domain_builtins() -> dict:
-    """构建包含所有领域内建符号的 dict（模块级缓存，仅调用一次）。"""
-    from src.mathlib import _register_math_builtins, _register_unit_builtins
-    from src.regexlib import _register_regex_builtins
-    from src.domains.time_module import _register_time
-    b: dict[str, object] = {}
-    _register_math_builtins(b)
-    _register_unit_builtins(b)
-    _register_regex_builtins(b)
-    _register_time(b)
-    _domain_registers = [
-        ("src.domains.mechanics", "_register_mechanics"),
-        ("src.domains.dynamics", "_register_dynamics"),
-        ("src.domains.fluid", "_register_fluid"),
-        ("src.domains.thermo", "_register_thermo"),
-        ("src.domains.em", "_register_em"),
-        ("src.domains.acoustics", "_register_acoustics"),
-        ("src.domains.optics", "_register_optics"),
-        ("src.domains.structural", "_register_structural"),
-        ("src.domains.quantum", "_register_quantum"),
-        ("src.domains.celestial", "_register_celestial"),
-        ("src.domains.nuclear", "_register_nuclear"),
-        ("src.domains.statmech", "_register_statmech"),
-        ("src.domains.fluid_exp", "_register_fluid_exp"),
-        ("src.domains.biology", "_register_biology"),
-        ("src.domains.medical", "_register_medical"),
-        ("src.domains.medtools", "_register_medtools"),
-        ("src.domains.anatomy", "_register_anatomy"),
-        ("src.domains.architecture", "_register_architecture"),
-        ("src.domains.building_struct", "_register_building_struct"),
-        ("src.domains.mech_design", "_register_mech_design"),
-        ("src.domains.kernel_math", "_register_kernel_builtins"),
-        # 新增领域
-        ("src.domains.chemistry", "_register_chemistry"),
-        ("src.domains.computer_science", "_register_computer_science"),
-        ("src.domains.electrical", "_register_electrical"),
-        ("src.domains.economics", "_register_economics"),
-        # AI/游戏/前沿领域
-        ("src.domains.ai_data_science", "_register_ai_data_science"),
-        ("src.domains.game_dev", "_register_game_dev"),
-        ("src.domains.quantum_compute", "_register_quantum_compute"),
-        ("src.domains.chaos_fractal", "_register_chaos_fractal"),
-        ("src.domains.genetic_algo", "_register_genetic_algo"),
-        ("src.domains.creative_coding", "_register_creative_coding"),
-        ("src.domains.blockchain", "_register_blockchain"),
-        ("src.domains.software_app", "_register_software_app"),
-        # 新增领域
-        ("src.domains.automation", "_register_automation"),
-        ("src.domains.iot_hardware", "_register_iot_hardware"),
-        ("src.domains.os_network", "_register_os_network"),
-        ("src.domains.audio_video", "_register_av"),
-        ("src.domains.graphics", "_register_graphics"),
-        ("src.domains.hpc", "_register_hpc"),
-        ("src.domains.fintech", "_register_fintech"),
-        ("src.domains.autonomous", "_register_autonomous"),
-        ("src.domains.aerospace", "_register_aerospace"),
-        ("src.domains.bio_computing", "_register_bio_computing"),
-        ("src.domains.hardware_reverse", "_register_hardware_reverse"),
-        ("src.domains.spatial_meta", "_register_spatial_meta"),
-        ("src.domains.algo_trading", "_register_algo_trading"),
-        ("src.domains.comp_chem", "_register_comp_chem"),
-        ("src.domains.green_tech", "_register_green_tech"),
-        ("src.domains.metaverse_arch", "_register_metaverse_arch"),
-        ("src.domains.digital_rights", "_register_digital_rights"),
-        ("src.domains.acoustics", "_register_acoustics"),
-        ("src.domains.geospatial", "_register_geo"),
-        ("src.domains.chemistry", "_register_chemistry"),
-        ("src.domains.astronomy", "_register_astro"),
-        ("src.domains.music", "_register_music"),
-        ("src.domains.robotics", "_register_robot"),
-        ("src.domains.graph", "_register_graph"),
-    ]
-    for mod_path, fn_name in _domain_registers:
-        mod = __import__(mod_path, fromlist=[fn_name])
-        getattr(mod, fn_name)(b)
-        # 自动扫描该模块的公式函数，标注能力元数据
-        try:
-            from src.formula_system import scan_module_capabilities
-            scan_module_capabilities(mod)
-        except Exception:
-            pass  # 扫描失败不影响内建注册
+    """内核内建符号表（阶段 1：eager 领域注册已删除）。
+
+    旧实现一次性 ``__import__`` 40+ 个领域模块（共 ≈400 个函数对象），使任何一次
+    求值都付出全量 import 代价，并把领域知识焊在了后端里。现在：
+
+      * 本函数只构造 **内核内建**：数学 / 单位 / 正则 / 时间 / 文件 / 逻辑词；
+      * 领域符号全部改由 ``src.plugin_api.PluginResolver`` 按符号懒解析加载
+        （见 ``LazyBuiltinTable``）：谁被用到，才 import 哪一个模块。
+
+    返回普通 dict；装配完整懒表请使用 :func:`build_builtin_table`。
+    """
+    from src.kernel import register_kernel_builtins
+    b: dict[str, object] = register_kernel_builtins({})
     b["与"] = _curry_module(2, lambda a, b: a and b)
     b["或"] = _curry_module(2, lambda a, b: a or b)
     b["非"] = lambda x: not x
@@ -163,7 +97,29 @@ def _build_domain_builtins() -> dict:
     return b
 
 
-# 缓存领域内建符号表（模块级，仅初始化一次；在 _curry 定义之后初始化）
+def _new_builtin_table(data: dict | None = None) -> dict:
+    """新建一张已挂解析器的懒内建表（尚未含内核 / 领域符号）。"""
+    from src.plugin_api import LazyBuiltinTable, get_resolver
+    return LazyBuiltinTable(
+        dict(BUILTINS) if data is None else data, resolver=get_resolver())
+
+
+def build_builtin_table(base: dict | None = None) -> dict:
+    """构造「内核 + 插件懒解析」内建表（解释器实际使用的对象）。
+
+    ``base`` 为已有内建（``BUILTINS`` 与实例级状态化内建）；返回的
+    ``LazyBuiltinTable`` 对外行为与旧的 eager 表一致，但领域模块只在符号真正被
+    取用时才 import。旧行为里「领域覆盖内核同名符号」的优先级由
+    ``defer_to_plugins`` 原样保留。
+    """
+    from src.plugin_api import LazyBuiltinTable, get_resolver
+    table = LazyBuiltinTable(base or {}, resolver=get_resolver())
+    table.update(_DOMAIN_BUILTINS)
+    table.defer_to_plugins(list(table.keys()))
+    return table
+
+
+# 缓存内核内建符号表（模块级，仅初始化一次；在 _curry 定义之后初始化）
 _DOMAIN_BUILTINS: dict | None = None
 logger.addHandler(logging.NullHandler())
 
@@ -198,19 +154,6 @@ def _env_auto_heal_flag() -> bool:
     """读取 MATHA_AUTO_HEAL 环境变量，显式开启全局自动定义/自动注册。"""
     v = os.environ.get("MATHA_AUTO_HEAL", "").strip().lower()
     return v in ("1", "true", "yes", "on")
-
-
-class MathaRuntimeError(Exception):
-    """运行时错误，携带代码位置信息（行/列）。"""
-    __slots__ = ("line", "col")
-
-    def __init__(self, msg: str, line: int = None, col: int = None):
-        super().__init__(msg)
-        self.line = line
-        self.col = col
-
-    def __str__(self) -> str:
-        return super().__str__()
 
 
 class _EnumNamespace:
@@ -1016,7 +959,7 @@ class Interpreter:
         self.foreign_routing: bool = foreign_routing
         # ？公式模式库：#：？公式 登记模式，具体公式与之合一（公式模式库）
         self.formulas = _fs.FormulaLibrary()
-        self.builtins: dict[str, object] = dict(BUILTINS)  # 可继承覆写
+        self.builtins: dict[str, object] = _new_builtin_table()
         # 模块系统：module_name → {name → bound_value}
         self.modules: dict[str, dict] = {}
         self._matha_loaded: bool = False
@@ -1042,9 +985,10 @@ class Interpreter:
         ):
             configure_debug_logging()
         self._install_self_builtins()
-        # 复用模块级缓存的领域内建符号（避免每次重建 ~400 个函数对象）
+        # 内核内建就位（math/单位/正则/时间/文件/逻辑词）；领域符号不在此 import，
+        # 而是在首次被取用时由 src.plugin_api.LazyBuiltinTable 懒加载对应插件。
         self.builtins.update(_DOMAIN_BUILTINS)
-        # 逻辑运算内建（与/或/非，不改语法层）——已由 _build_domain_builtins 注册，此处跳过
+        self.builtins.defer_to_plugins(list(self.builtins.keys()))
         # 调用捕获：受保护调用原语（与 VM / 原生 / 自举 vm.matha 对齐）
         self.builtins["调用捕获"] = builtin_guarded_call(self)
 
@@ -4197,7 +4141,7 @@ class Interpreter:
         return _get_engine().get_elimination_log()
 
 
-# 延迟初始化：_curry 已定义，现在可以安全地构建缓存
+# 延迟初始化：_curry 已定义，现在可以安全地构建内核内建缓存（不 import 任何领域模块）
 _DOMAIN_BUILTINS = _build_domain_builtins()
 
 
@@ -4247,3 +4191,23 @@ def lexer_bootstrap_interpret(source: str, debug: bool | None = None) -> list[di
     sys.setrecursionlimit(max(10000, sys.getrecursionlimit()))
     tokens = interp.call("扫描", source, 0, 1, 1, [])
     return tokens
+
+
+# ============================================================
+# 诊断后端登记（重构阶段 2 第 2 项）
+# ============================================================
+# 树走式解释器不再是默认执行路径：它作为「执行轨迹 / 单步调试」后端显式注册到
+# 统一门面 src.kernel.exec_api，只有调用方指名 mode="legacy-interp" 时才走这里。
+# 内核主链（lexer→parser→ast_nodes→mbc.compiler→mbc.vm）不反向依赖本模块。
+def _register_diagnostic_backend() -> None:
+    try:
+        from src.kernel.exec_api import register_backend
+    except Exception:      # 门面不可用时静默缺席：解释器自身仍可独立使用
+        return
+    register_backend(
+        "legacy-interp",
+        lambda source: interpret(source)[0],
+        description="诊断后端：树走式解释器（执行轨迹/单步调试），仅测试与调试可见")
+
+
+_register_diagnostic_backend()

@@ -22,7 +22,7 @@ except ImportError:
 
 def _safe_eval(expr: str) -> str:
     """安全计算 Matha 表达式，返回字符串结果。"""
-    from src.interp import interpret
+    from src.diag_backends import run_legacy as interpret
     wrapped = f"result = {expr}\n#1：[result]"
     out, _ = interpret(wrapped)
     return "\n".join(str(item) for item in out) if out else ""
@@ -33,7 +33,7 @@ def _safe_run(file_path: str) -> str:
     path = Path(file_path)
     if not path.exists():
         return f"错误: 文件不存在: {file_path}"
-    from src.interp import interpret
+    from src.diag_backends import run_legacy as interpret
     source = path.read_text(encoding="utf-8")
     out, _ = interpret(source)
     return "\n".join(str(item) for item in out) if out else ""

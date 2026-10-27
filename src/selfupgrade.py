@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from src.interp import Interpreter, MathaRuntimeError
+from src.interp import Interpreter, MathaRuntimeError  # 需遗留实例做探针/单步
 
 # ============================================================
 # 探针：只读内省
@@ -109,9 +109,19 @@ class Sandbox:
         self.interp.env = dict(parent.env)
         self.interp.funcs = dict(parent.funcs)
         self.interp.constructors = set(parent.constructors)
-        # 继承父级纯函数内建；状态化内建重新绑定到沙箱自身
-        self.interp.builtins = {k: v for k, v in parent.builtins.items()
-                                if k not in _STATEFUL_BUILTINS}
+        # 继承父级纯函数内建；状态化内建重新绑定到沙箱自身。
+        # 父表为懒内建表时只继承「已物化」条目：克隆不因此触发全量领域 import，
+        # 未物化的领域符号在沙箱里仍按需懒加载（阶段 1：eager 注册已删除）。
+        from src.plugin_api import LazyBuiltinTable
+        parent_builtins = parent.builtins
+        inherited = (parent_builtins.materialized_items()
+                     if isinstance(parent_builtins, LazyBuiltinTable)
+                     else list(parent_builtins.items()))
+        plain = {k: v for k, v in inherited if k not in _STATEFUL_BUILTINS}
+        self.interp.builtins.update(plain)
+        if isinstance(self.interp.builtins, LazyBuiltinTable):
+            # 保持旧覆盖优先级：同名符号若由旧 eager 领域模块提供，仍走插件解析
+            self.interp.builtins.defer_to_plugins(list(plain))
         self.interp._install_self_builtins()
         # 初始快照（保留对象引用以检测覆写）
         self._snapshot = {

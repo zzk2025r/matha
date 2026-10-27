@@ -12,6 +12,7 @@ import math
 import operator
 
 from src import formula_schema as _fs
+from src.kernel.errors import MathaRuntimeError, MathaUndefinedNameError
 from src.mbc import opcodes as OP
 from src.mbc.compiler import MFunction, MModule
 
@@ -110,13 +111,81 @@ def _set_subset(a, b) -> bool:
     return all(x in rb for x in _dedup_ordered(_set_seq(a)))
 
 
+def _op_add(a, b):
+    """`+`：与解释器 interp.py::_eval_binary 逐条对齐（None 操作数报错、
+    dict 当 items 序列拼接、字符串与数值自动转换）。此前 VM 直接 `a + b`，
+    同一源串在解释器能跑、在 VM 招 TypeError（主链归一后属行为降级）。"""
+    if a is None or b is None:
+        raise MathaRuntimeError(f"+ 操作数含 None: left={a!r}, right={b!r}")
+    if isinstance(b, dict):
+        b = list(b.items())
+    if isinstance(a, dict):
+        a = list(a.items())
+    if isinstance(a, str) and isinstance(b, (int, float)):
+        b = str(b)
+    elif isinstance(b, str) and isinstance(a, (int, float)):
+        a = str(a)
+    return a + b
+
+
+def _op_sub(a, b):
+    """"-"：字符串/列表不适用（消息与解释器逐字一致）。"""
+    if isinstance(a, (str, list)) or isinstance(b, (str, list)):
+        raise MathaRuntimeError("- 不适用于字符串/列表")
+    return a - b
+
+
+def _op_mul(a, b):
+    """`*`：数值相乘 / 字符串重复 / 序列重复。
+
+    类型不支持时的消息与解释器 interp.py::_eval_binary 逐字一致（golden 对拍
+    比的是文本）。但**序列重复必须支持**：解释器不支持，而 mbc.native 与 VM
+    旧路径都支持（`test_native_heap` 的 seq_repeat_* 依赖 `[0] * 1000`），收窄
+    到这里会变成主线能力降级 —— 故取两者并集，而不是照抄最窄的那一个。"""
+    if (isinstance(a, (int, float)) and isinstance(b, (int, float))
+            or isinstance(a, str) and isinstance(b, int)
+            or isinstance(a, int) and isinstance(b, str)):
+        return a * b
+    if isinstance(a, (list, tuple)) and isinstance(b, int) and not isinstance(b, bool):
+        return a * b
+    if isinstance(a, int) and not isinstance(a, bool) and isinstance(b, (list, tuple)):
+        return a * b
+    raise MathaRuntimeError(
+        f"* 操作数类型不支持: left={a!r}({type(a).__name__}), "
+        f"right={b!r}({type(b).__name__})")
+
+
+def _op_div(a, b):
+    """"/"：除零报「除零错误: l / 0」，消息与解释器逐字一致。
+
+    不能直接交给 Python 的 ZeroDivisionError：try/catch 把它给用户的
+    文本是 `division by zero`，两个后端下 `catch (e) { 输出(e) }` 结果不同。"""
+    if b == 0:
+        raise MathaRuntimeError(f"除零错误: {a!r} / 0")
+    return a / b
+
+
+def _op_mod(a, b):
+    if b == 0:
+        raise MathaRuntimeError(f"取模除零错误: {a!r} % 0")
+    if a is None or b is None:
+        raise MathaRuntimeError(f"% 操作数含 None: left={a!r}, right={b!r}")
+    return a % b
+
+
+def _op_fdiv(a, b):
+    if b == 0:
+        raise MathaRuntimeError(f"整除除零错误: {a!r} // 0")
+    return a // b
+
+
 _BINOPS = {
-    "+": lambda a, b: a + b,
-    "-": lambda a, b: a - b,
-    "*": lambda a, b: a * b,
-    "/": lambda a, b: a / b,
-    "//": lambda a, b: a // b,
-    "%": lambda a, b: a % b,
+    "+": _op_add,
+    "-": _op_sub,
+    "*": _op_mul,
+    "/": _op_div,
+    "//": _op_fdiv,
+    "%": _op_mod,
     "**": lambda a, b: a ** b,
     "==": lambda a, b: a == b,
     "!=": lambda a, b: a != b,
@@ -394,41 +463,20 @@ def _builtin_decode_decimal(encoded):
 
 
 # ---------- 文件 I/O 原语（需 OS 访问，纯 Matha 无法实现） ----------
-
-def _builtin_read_file(path):
-    """read_file(path) → 文件内容字符串。"""
-    try:
-        with open(str(path), encoding="utf-8") as f:
-            return f.read()
-    except Exception as e:
-        raise RuntimeError(f"read_file 失败: {e}")
-
-
-def _builtin_write_file(path, content):
-    """write_file(path, content) → 无返回值，覆盖写入。"""
-    try:
-        with open(str(path), "w", encoding="utf-8") as f:
-            f.write(str(content))
-    except Exception as e:
-        raise RuntimeError(f"write_file 失败: {e}")
-    return None
-
-
-def _builtin_append_file(path, content):
-    """append_file(path, content) → 无返回值，追加写入。"""
-    try:
-        with open(str(path), "a", encoding="utf-8") as f:
-            f.write(str(content))
-    except Exception as e:
-        raise RuntimeError(f"append_file 失败: {e}")
-    return None
+# 实现已下沉到内核 src.kernel.file_builtin（阶段 1：内核纯净），此处保留同名
+# 别名以维持既有引用面与 `_default_builtins` 的注册顺序不变。
+from src.kernel.file_builtin import (  # noqa: E402
+    append_file as _builtin_append_file,
+    read_file as _builtin_read_file,
+    write_file as _builtin_write_file,
+)
 
 
 def _default_builtins() -> dict:
     """VM 内建：复用宿主 mathlib 注册的同一套数学/工具函数。"""
-    from src.mathlib import _register_math_builtins
-    from src.regexlib import _register_regex_builtins
-    from src.domains.time_module import _register_time
+    from src.kernel.math_builtin import _register_math_builtins
+    from src.kernel.regex_builtin import _register_regex_builtins
+    from src.kernel.time_builtin import _register_time
     b: dict = {}
     _register_math_builtins(b)
     _register_regex_builtins(b)
@@ -612,10 +660,58 @@ def _builtin_list_push(lst, x):
     return lst
 
 
+def _make_domain_loader(vm: "VM"):
+    """`加载领域(name)` 内建：显式拉取一个领域插件的符号表入全局。"""
+    def _load(name):
+        key = name if isinstance(name, str) else str(name)
+        resolver = vm.domain_resolver
+        if resolver is None:
+            raise RuntimeError(
+                f"加载领域「{key}」失败：本次运行未接入插件层（domain_resolver 为 None）。"
+                f"请经由宿主入口运行（src.kernel.exec_api.run），或先给 VM 注入 resolver。")
+        table = resolver.require(key, vm.globals)
+        if not table:
+            cand = resolver.unknown(key)
+            hint = "候选插件：" + " / ".join(cand) if cand else "清单中无同名插件"
+            raise RuntimeError(f"未找到领域插件「{key}」（{hint}）")
+        return key
+    return _load
+
+
+class _GlobalScope(dict):
+    """VM 全局表：未命中的名字可交给宿主注入的插件解析器懒加载。
+
+    `dict.__missing__` 只在真正缺失时被调用，因此热路径（已存在的内建/用户定义）
+    零开销；解析器为 None 或认不得该符号时依旧报错。报错用
+    `MathaUndefinedNameError`（既是 KeyError、消息又与解释器逐字一致），
+    这样主链与遗留后端的 `catch (e) { 输出(e) }` 得到同一文本。
+    这一机制是「静默全量注册」的代替品：只有被程序真正引用到的领域插件才会 import。
+    """
+
+    __slots__ = ("resolver",)
+
+    def __init__(self, data=None, resolver=None):
+        super().__init__(data or {})
+        self.resolver = resolver
+
+    def __missing__(self, key):
+        resolver = self.resolver
+        if resolver is not None:
+            value = resolver.resolve_into(self, key)
+            if value is not None:
+                return value
+        raise MathaUndefinedNameError(f"未定义变量 '{key}'")
+
+
 class VM:
     def __init__(self, mod: MModule, builtins: dict | None = None, verbose: bool = False):
         self.mod = mod
-        self.globals: dict = dict(builtins if builtins is not None else _default_builtins())
+        self.globals: _GlobalScope = _GlobalScope(
+            builtins if builtins is not None else _default_builtins())
+        # 领域插件加载器（阶段 1 第 4 项）：由宿主注入一个鸭子类型的 resolver
+        # （见 src/plugin_api.py::PluginResolver），内核不 import 插件层，因此这里
+        # 只依赖它的 `require(name, target)` / `unknown(name)` / `resolve_into(t, s)`。
+        self.globals.setdefault("加载领域", _make_domain_loader(self))
         self.globals.setdefault("调用捕获", _make_guarded_call(self))
         self.globals.setdefault("输出", _make_output(self))
         self.globals.setdefault("print", _make_output(self))
@@ -636,6 +732,14 @@ class VM:
         self.frames: list[Frame] = [self.main_frame]
 
     # ---------- 运行 ----------
+
+    @property
+    def domain_resolver(self):
+        return self.globals.resolver
+
+    @domain_resolver.setter
+    def domain_resolver(self, resolver) -> None:
+        self.globals.resolver = resolver
 
     def run(self):
         frames = self.frames
@@ -804,7 +908,7 @@ class VM:
             if self.verbose:
                 print(val)
         elif op == OP.RAISE:
-            raise RuntimeError(str(st.pop()))
+            raise MathaRuntimeError(str(st.pop()))
         elif op == OP.FORMULA_SCHEMA:
             # `#N：？公式` 登记为模式：槽不可求值，只记静态规格。
             seg_id, text, shp, slots = C[ins[1]]
@@ -849,8 +953,18 @@ class VM:
         raise RuntimeError(f"VM：不可调用的值 {fn!r}")
 
 
-def run_module(mod: MModule, verbose: bool = False) -> list:
-    return VM(mod, verbose=verbose).run()
+def run_module(mod: MModule, verbose: bool = False,
+               builtins: dict | None = None,
+               domain_resolver: object | None = None) -> list:
+    """运行一个已编译模块。
+
+    `domain_resolver` 为宿主注入的插件解析器（鸭子类型，见 `_make_domain_loader`），
+    内核不依赖 `src.plugin_api`。不传时仍可运行，仅 `@：【加载领域】` 会给出明确报错。
+    """
+    vm = VM(mod, builtins=builtins, verbose=verbose)
+    if domain_resolver is not None:
+        vm.domain_resolver = domain_resolver
+    return vm.run()
 
 
 def run_source(source: str, verbose: bool = False) -> list:

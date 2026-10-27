@@ -1,7 +1,7 @@
 from src.inner_loop import get_inner_loop
 from src.growth_engine import create_growth_engine
 from src.unified_growth import get_unified_growth
-from src.ffi_sdk import get_engine
+from src.plugins.ffi_sdk import get_engine
 
 print('=== Subsystem Health Check ===')
 

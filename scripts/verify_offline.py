@@ -48,7 +48,7 @@ VERIFICATION_TESTS = {
         {"name": "LSP 服务器", "import": "from src.lsp import MathaLSP", "check": None},
         {"name": "文档生成器", "import": "from src.doc_gen import DocGenerator", "check": None},
         {"name": "包管理器 v2", "import": "from src.pkg_manager_v2 import MathaPackageManager", "check": None},
-        {"name": "Tree-sitter 后端", "import": "from src.tree_sitter_backends import RustParser", "check": None},
+        {"name": "Tree-sitter 后端", "import": "from src.plugins.tree_sitter_backends import RustParser", "check": None},
     ],
     "multi_lang": [
         {"name": "多语言代码生成", "import": "from src.multi_lang_codegen import MultiLangCodeGen", "check": None},

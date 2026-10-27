@@ -2,13 +2,26 @@
 
 自举式领域专用语言与独立可执行编程语言系统。
 
-## 系统状态
+## 系统状态（实测，非自评）
 
-- **版本：** v4.4
-- **领域模块：** 54
-- **测试用例：** 128
-- **通过率：** 100%
-- **部署方式：** 独立可执行文件 / Python 包 / 离线部署
+下表每个数字都由 `python scripts/repo_facts.py` 从仓库现场数出来，
+`tests/test_doc_facts.py` 会核对文档与代码是否漂移（漂移即红）。
+
+- **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
+- **领域插件：** 80（`src/domains/` 共 82 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
+- **内核外工具插件：** 14（`src/plugins/`）
+- **黄金用例：** 18（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
+- **`.matha` 语料：** 158（其中 19 个属语法层遗留，见 `docs/ast_vm_gap.md` 第八节）
+- **测试文件：** 56（`tests/`）
+- **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
+- **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
+- **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
+
+**阶段结论（本轮重构）：** 内核纯净化 + 插件化重构完成 —— 核心安装零第三方依赖
+（`dependencies = []`，sympy/numpy 已降为 `optional-dependencies.accelerated`），
+第三方重后端只在插件函数体内按需 `import`（样板：`src/domains/symbolic_calculus.py`，
+配套命名卫生门禁：插件不得导出裸单字母符号、也不得与 `.matha` 顶层声明同名）；
+核心测试 100% 通过（唯一口径见下方「质量门禁」，数字随用例增减以 `make check` 实时输出为准）。
 
 ---
 
@@ -39,11 +52,12 @@ matha-cc compile demo.matha -o output.py
 ### 方式 2：Python 包安装
 
 ```bash
-# 安装依赖
-pip install sympy numpy scipy numba
-
-# 安装 Matha
+# 核心零依赖：不装任何第三方包也能跑主执行链
 pip install -e .
+
+# 可选扩展（按需，不影响内核）
+pip install -e ".[accelerated]"   # sympy 兼容后端
+pip install -e ".[performance]"   # numpy/scipy/numba 数值后端
 
 # 使用
 matha                          # 启动 REPL
@@ -80,7 +94,7 @@ python scripts/verify_offline.py
 | **类型系统** | 依赖类型/泛型/子类型/精炼类型 |
 | **CSP 并发** | 进程级并发绕过 Python GIL |
 | **离线存储** | SQLite 持久化 + 同步管理 |
-| **54 领域模块** | 物理/工程/AI/金融/生物/化学等全覆盖 |
+| **80 领域插件** | 物理/工程/AI/金融/生物/化学等；按需显式加载，不加载零 import 成本 |
 
 ---
 
@@ -113,13 +127,15 @@ matha-cc test                           # 运行测试
 ```
 matha/
 ├── src/                    # 核心源代码
-│   ├── domains/           # 54个领域模块
-│   ├── compiler/          # JIT/AOT/LLVM 编译器
-│   ├── mir.py             # MIR 中间表示
-│   ├── mir_codegen.py     # 代码生成器
-│   ├── repl.py            # REPL 入口（含 main() CLI）
+│   ├── domains/           # 80 个领域插件（+ 包初始化/注册表）
+│   ├── kernel/            # L1 纯净内核（纯标准库）
+│   ├── plugins/           # 内核外工具插件
+│   ├── compiler/          # JIT/AOT 编译器（LLVM 子过进程属可选插件）
+│   ├── mbc/               # 主执行链：compiler → vm →（可选）native
+│   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件 (128 项)
+├── tests/                  # 测试套件（56 个文件）
+├── golden_tests/           # 18 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出
 │   ├── matha-offline/
 │   │   └── matha.exe      # 独立可执行文件 (18.5 MB)
@@ -155,7 +171,7 @@ matha/
 - 类型系统
 - CSP 并发
 - SQLite 离线存储
-- 所有 54 个领域模块
+- 所有 80 个领域插件
 
 ### ⚠️ 需要网络（离线不可用）
 - 远程包安装/搜索
@@ -170,30 +186,43 @@ matha/
 
 | 文档 | 说明 |
 |------|------|
-| [Trae 自定义模型配置指南](docs/TRAE_CUSTOM_MODEL_GUIDE.md) | 将 Matha 配置为 Trae 自定义模型 |
-| [离线使用完整指南](docs/OFFLINE_GUIDE.md) | 离线包部署 + 可执行文件使用 |
-| [构建指南](docs/BUILD_GUIDE.md) | PyInstaller 独立可执行文件构建 |
-| [Matha vs 语言对比](docs/matha_vs_languages_analysis.md) | 多语言对比分析 |
-| [性能差距分析](docs/performance_gap_analysis.md) | Matha vs Rust 性能对比 |
-| [基准测试报告](docs/benchmark_rust_report.md) | Rust 基准测试报告 |
-| [多语言转译技术文档](docs/multilang_translator_technical_doc.md) | 技术实现细节 |
+| [权威文档索引](docs/index.md) | 只有 10 份现状文档，其余已归档 |
+| [架构现状](docs/ARCHITECTURE.md) | 主执行链、内核白名单、插件层 |
+| [依赖基线](docs/DEP_BASELINE.md) | `scripts/dep_audit.py` 产出 |
+| [AST × VM 覆盖矩阵](docs/ast_vm_gap.md) | 删转译路径的前置件 + 语言口径 |
+| [符号能力对照](docs/symbolic_parity.md) | 内核纯实现 vs sympy |
+| [Matha 符号标准库](docs/matha_stdlib_symbolic.md) | 阶段 4：`.matha` 重写 + 逐位对拍 |
+| [已知问题](docs/KNOWN_ISSUES.md) | 未达成项如实列表 |
+| [离线使用指南](docs/OFFLINE_GUIDE.md) | 离线包部署 + 可执行文件 |
+| [构建指南](docs/BUILD_GUIDE.md) | PyInstaller 独立可执行文件 |
+| [语言规格](docs/spec/) | 词法/语法/语义/EBNF（00–21 共 22 份） |
 
 ---
 
-## 测试
+## 质量门禁
+
+对外只有一个口径、**一个通过率数字**：
 
 ```bash
-# 运行全部测试
-python -m unittest discover -s tests -p "test_*.py"
-
-# 验证离线环境
-python scripts/verify_offline.py
-
-# 快速验证
-python scripts/verify_offline.py --quick
+make check          # = python scripts/check.py（含 vm↔native 机器码对拍）
+make check-lite     # 同上，不跑需要 nasm/link 的机器码对拍
 ```
 
-**测试结果：** 128/128 通过 ✅ | 离线验证：39/39 通过 ✅
+它把六项串成一条链：`tests/` + `kernel_purity` + `ast_vm_gap` +
+`golden`（逐字节）+ `dep_audit` + `native_parity`。口径纪律：跑不成
+一律记失败，不记跳过；跳过项从分母剔除但显式打印台数，绝不把「没跑」
+算成「跑通」。
+
+```bash
+# 离线环境验证
+python scripts/verify_offline.py
+```
+
+**实测结果（最近一次 `make check`）：** 通过 3957 / 计入 3957，失败 0，**通过率 100.00%**
+（含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 18 逐字节 / `dep_audit` 违规 0 条；
+`native_parity` 15 过 + 3 例不计入分母：2 个类型校验已知缺口 + 1 个领域插件符号不承载，
+详见 `docs/KNOWN_ISSUES.md`。本轮全量跑零 DeprecationWarning。旧快照的绝对数字
+会随用例增减漂移，以 `make check` 实时输出为准。）
 
 ---
 
@@ -223,14 +252,17 @@ python scripts/build_exe.py
 
 | 项目 | 值 |
 |------|-----|
-| 版本 | v4.5 |
+| 版本 | v4.6.0（单一来源 `src/__version__.py`） |
+| 内核协议 | 1（`KERNEL_PROTOCOL`，与插件契约同步演进） |
 | Python 要求 | >= 3.10 |
+| 核心第三方依赖 | 0 |
 | 许可证 | BSD-2-Clause |
 | GitHub | https://github.com/zzk2025r/matha |
 | 独立可执行文件 | ✅ 支持（无需 Python 环境） |
-| 领域模块 | 46+ |
-| 综合评分 | 9.0/10 |
-| 测试 | 21/21 通过 ✅ |
+| 领域插件 | 80（按需加载） |
+
+历史文档（118 份一次性报告）已归档到 [`docs/history/`](docs/history/)，
+不再作为现状依据；权威文档只有一张索引页：[`docs/index.md`](docs/index.md)。
 
 ---
 
@@ -256,5 +288,4 @@ python scripts/build_exe.py
 
 ---
 
-*生成时间：2026-09-26 | 版本：v4.5*
-| 离线部署 | ✅ 支持（完整功能离线可用） |
+*版本：v4.6.0（取自 `src/__version__.py`）*

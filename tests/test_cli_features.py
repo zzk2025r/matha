@@ -70,19 +70,57 @@ def test_cli_on_sets_flag():
     assert features.scoped_blocks() is True
 
 
-def test_noncore_module_gated_by_flag(block_file):
-    """灰度推进：非核心模块先开开关验证，随后回退默认（关闭）行为。
+def test_noncore_module_gated_by_flag(block_file, capsys):
+    """灰度开关只影响遗留诊断后端，不影响主线 VM（实测记录，不是乐观推定）。
 
-    注：`matha run` 的自举解析路径在本环境受 `调用捕获` 缺失所阻（既有限制），
-    故此处直接经 Python 解释器执行同一模块源。
+    实测两个事实（差异在解析层：开关决块内赋值生成 `Binding` 还是 `BinaryOp(op='=')`）：
+      * `legacy-interp`：开关关时把 `s = 0` 当**比较**，块内 `s` 从未绑定 → 报
+        「未定义变量 s」；开关开时当赋值 → [10]。
+      * 主线 mbc VM：两种形状都按赋值编译，开关关也得到 [10]。
+
+    主执行链已归一到 mbc，所以这里同时断言 CLI 端到端在两种开关下
+    都能跑通（旧版本曾以此处「`matha run` 跑不通」为由只测解释器，现已修正）。
     """
     src = Path(block_file).read_text(encoding="utf-8")
-    # 默认关闭 → 块内 `s = 0` 解析为等于比较 → 运行失败
+    # 默认关闭：遗留后端失败，主线成功
     with pytest.raises(MathaRuntimeError):
         interpret(src)
+    assert main(["run", block_file]) == 0
+    assert capsys.readouterr().out.strip().endswith("10")
+
     features.set_feature("SCOPED_BLOCKS", True)
     out, _ = interpret(src)
     assert out == [10]
+    assert main(["--feature", "SCOPED_BLOCKS", "run", block_file]) == 0
+    assert capsys.readouterr().out.strip().endswith("10")
+
+
+def test_scoped_blocks_flag_changes_assignment_node_only_in_source_layer(block_file):
+    """该开关只改「块内赋值生成哪种节点」，主线 VM 对两种形状同价。
+
+    实测：
+      * 开关开 → 块内 `s = 0` 生成 `Binding(...)`；
+      * 开关关 → 生成 `BinaryOp(op='=')`（遗留写法），解释器把它当比较，主线
+        编译器把它当赋值——两边形状不同而主线输出与开关无关。
+
+    把形状差异固定下来，以免今后有人拿「主线跳不过这个开关」当作 VM 的 bug：
+    这是解释器侧的历史口径，而非语法分叉。
+    """
+    from src.kernel import exec_api
+    from src.parser import parse
+
+    src = Path(block_file).read_text(encoding="utf-8")
+    features.clear_feature()
+    off = repr(parse(src))
+    features.set_feature("SCOPED_BLOCKS", True)
+    on = repr(parse(src))
+    assert "BinaryOp(op='=" in off and "Binding(target=Variable(name='s'" not in off
+    assert "Binding(target=Variable(name='s'" in on
+    # 主线：两种形状都能跑出结果，且与开关无关
+    features.clear_feature()
+    assert exec_api.run(src) == [10]
+    features.set_feature("SCOPED_BLOCKS", True)
+    assert exec_api.run(src) == [10]
 
 
 def test_help_mentions_feature(capsys):

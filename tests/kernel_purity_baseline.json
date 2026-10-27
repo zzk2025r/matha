@@ -1,0 +1,5 @@
+{
+  "_comment": "内核依赖棘轮基线。只允许条目减少，不允许增加。新增条目 = tests/test_kernel_purity.py 失败。重建：python scripts/dep_audit.py --write-baseline",
+  "keys": [],
+  "entries": []
+}

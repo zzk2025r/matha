@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 
-from src.interp import Interpreter
+from src.interp import Interpreter  # 需遗留符号表内省，非第二执行路径
 
 
 def _get_arity(fn) -> int:

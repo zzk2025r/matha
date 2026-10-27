@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from src.interp import Interpreter
+from src.interp import Interpreter  # 仅作类型标注；执行入口见 src.diag_backends
 from src.selfupgrade import Sandbox
 
 # 资源库根目录

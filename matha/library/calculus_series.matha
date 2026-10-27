@@ -1,0 +1,152 @@
+(* ============================================================
+   Matha 标准库·符号微积分 ③级数（阶段 4）
+   ------------------------------------------------------------
+   覆盖范围（如实声明，超范围一律 错误("不支持: …")，绝不静默近似）：
+     · 在 x=0 处的 Maclaurin 系数表：c_n = f^(n)(0)/n!，n = 0..阶
+     · 系数取法与 stage0 `src/kernel/symbolic/series.py::taylor` 同规格：
+       浮点除法 + `abs(c) < 1e-15` 丢弃该阶项
+   非 0 点的泰勒展开（需要 (x-a) 移位与代入）留在 stage0 引导实现里，
+   由 src/stdlib/calculus_symbolic.py 显式回退，不在本库中假装支持。
+
+   本库建在 calculus_diff.matha（求导/规范形）与 algebra_simplify.matha
+   （代入）之上，加载顺序不可颠倒。
+   ============================================================ *)
+
+(* 空列表字面量：`return []` 落在语句位会撞上「打印括号」口径，
+   这里改用切片造空表，语义与形状都确定。 *)
+func 空表() -> List = 包(0)[1:]
+
+(* ---------- 数值求值（只吃规范形节点，自由变量视为不可求值）---------- *)
+
+func 单参(名, x) -> Any = {
+  if 名 == "sin" {
+    return sin(x)
+  }
+  if 名 == "cos" {
+    return cos(x)
+  }
+  if 名 == "tan" {
+    return tan(x)
+  }
+  if 名 == "exp" {
+    return exp(x)
+  }
+  if 名 == "ln" {
+    return ln(x)
+  }
+  if 名 == "log" {
+    return log(x)
+  }
+  if 名 == "sqrt" {
+    return sqrt(x)
+  }
+  if 名 == "abs" {
+    return abs(x)
+  }
+  if 名 == "sinh" {
+    return sinh(x)
+  }
+  if 名 == "cosh" {
+    return cosh(x)
+  }
+  if 名 == "tanh" {
+    return tanh(x)
+  }
+  if 名 == "asin" {
+    return asin(x)
+  }
+  if 名 == "acos" {
+    return acos(x)
+  }
+  if 名 == "atan" {
+    return atan(x)
+  }
+  return 错误("不支持: 求值无内建函数 " + 名)
+}
+
+func 求值(e) -> Any = {
+  let t = e[0]
+  if t == "num" {
+    return e[1]
+  }
+  if t == "var" {
+    return 错误("不支持: 求值含自由变量 " + e[1])
+  }
+  if t == "add" {
+    return 求值(e[1]) + 求值(e[2])
+  }
+  if t == "mul" {
+    return 求值(e[1]) * 求值(e[2])
+  }
+  if t == "pow" {
+    return pow(求值(e[1]), 求值(e[2]))
+  }
+  if t == "ln" {
+    return ln(求值(e[1]))
+  }
+  if t == "fn" {
+    return 单参(e[1], 求值(e[2]))
+  }
+  return 错误("不支持: 求值未知节点 " + t)
+}
+
+(* ---------- 系数 ---------- *)
+
+func 阶乘(n) -> Any = {
+  if n <= 1 {
+    return 1
+  }
+  return n * 阶乘(n - 1)
+}
+
+(* 与 stage0 同一个丢弃阈值：1/10^15 与字面量 1e-15 是同一个双精度值 *)
+func 微小() -> Any = 1 / 1000000000000000
+
+(* Maclaurin 第 n 阶系数：f^(n)(0)/n! *)
+func 麦氏系数(e, v, n) -> Any = {
+  let 值 = 求值(代入(n阶导(e, v, n), v, 0))
+  return 值 / 阶乘(n)
+}
+
+func 系数对(e, v, 阶) -> List = 系数对从(0, 阶, 规范(e), v)
+
+(* 返回 [[次数, 系数], ...]：次数必须随系数一起交回宿主，
+   否则丢掉零系数项后就无法重建 (x-a)^n 的幂次。 *)
+func 系数对从(i, 阶, e, v) -> List = {
+  if i > 阶 {
+    return 空表()
+  }
+  let c = 麦氏系数(e, v, i)
+  if abs(c) < 微小() {
+    return 系数对从(i + 1, 阶, e, v)
+  }
+  return 包(包(i) + 包(c)) + 系数对从(i + 1, 阶, e, v)
+}
+
+(* ---------- 文本口径（宿主侧对拍逐位比这份文本）---------- *)
+
+func 系数对文本(表) -> Str = {
+  if len(表) == 0 {
+    return ""
+  }
+  return 项文本(表[0]) + 尾文本(表[1:])
+}
+
+func 项文本(对) -> Str = str(归一(对[0])) + ":" + str(归一(对[1]))
+
+func 尾文本(表) -> Str = {
+  if len(表) == 0 {
+    return ""
+  }
+  return ", " + 项文本(表[0]) + 尾文本(表[1:])
+}
+
+(* 直接取某个非 0 点展开 —— 本库不做，显式失败而不是偷偷按 0 点算 *)
+func 泰勒系数对(e, v, 点, 阶) -> List = {
+  if 点 == 0 {
+    return 系数对(e, v, 阶)
+  }
+  return 错误("不支持: 级数库只覆盖 point=0 的 Maclaurin 展开")
+}
+
+func 泰勒文本(e, v, 点, 阶) -> Str = 系数对文本(泰勒系数对(e, v, 点, 阶))

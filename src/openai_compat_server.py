@@ -27,8 +27,8 @@ from urllib.parse import urlparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant
-from src.device_config import get_config
-from src.interp import Interpreter
+from src.plugins.device_config import get_config
+from src.diag_backends import new_interpreter as Interpreter
 
 # 全局单例
 _ASSISTANT = MathaAIAssistant()

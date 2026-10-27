@@ -1,9 +1,7 @@
 """Matha — 自举式领域专用语言与独立可执行编程语言系统。
 
-版本：v4.6
-领域模块：87+
-测试用例：150
-通过率：100%
+版本：取自唯一版本源 `src/__version__.py`（下方 `__version__`）
+领域插件：81 个（`src/domains/`，经 `src/plugin_api.py` 按需加载）
 
 所有子系统通过 MathaSystem 编排，实现完全联动和互相调用。
 支持：游戏/建模/办公/操作系统/程序/软件/显示/录制/播放全领域开发。
@@ -28,7 +26,10 @@ import importlib
 import sys
 import types
 
-__version__ = "4.6"
+#: 单一版本源（重构阶段 5 第 1 项）：字面量只出现在 `src/__version__.py`。
+#: 只导 `__version__`；`VERSION` 仍由下方惰性表指向 `src.matha_main`（它同样
+#: 从本版本源取值），在此重复绑定会遮没惰性导出机制。
+from src.__version__ import __version__  # noqa: F401
 
 # name -> (module, attr or None, mode)
 #   attr 为 None 表示导出的是子模块本身

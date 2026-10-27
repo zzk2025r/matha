@@ -23,7 +23,7 @@ _logger = logging.getLogger("matha.ai")
 
 # ── 新功能模块导入 ─────────────────────────────────────────────────────────
 try:
-    from src.ffi import MathaFFIBridge, get_ffi  # noqa: F401
+    from src.plugins.ffi import MathaFFIBridge, get_ffi  # noqa: F401
     from src.math_driver import MathDriverManager, get_driver_manager  # noqa: F401
     from src.multi_paradigm import (  # noqa: F401
         MultiParadigmEngine,
@@ -1013,7 +1013,7 @@ class FriendlyIntentParser:
                 results.append({"step": step.description, "status": "skip", "result": None})
                 continue
             try:
-                from src.interp import Interpreter
+                from src.diag_backends import new_interpreter as Interpreter
                 from src.parser import parse
                 i = Interpreter()
                 outputs, _ = i.run(parse(step.matha_code))
@@ -1620,7 +1620,7 @@ class MathaAIAssistant:
         error = None
         if matha_code:
             try:
-                from src.interp import Interpreter
+                from src.diag_backends import new_interpreter as Interpreter
                 from src.parser import parse
                 i = interp if interp is not None else Interpreter()
                 outputs, _ = i.run(parse(matha_code))

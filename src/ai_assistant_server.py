@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant
-from src.ffi import get_ffi
+from src.plugins.ffi import get_ffi
 from src.inner_loop import get_inner_loop
 from src.interp import Interpreter
 from src.math_driver import get_driver_manager

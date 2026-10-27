@@ -173,40 +173,32 @@ class MultiLangBenchmark:
         self.work_dir = work_dir or tempfile.mkdtemp(prefix="matha_bench_")
         self._suite = BenchmarkSuite()
 
-    def benchmark_matrix_svd(self, size: int = 50, iterations: int = 100) -> None:
-        """矩阵 SVD 基准测试。"""
-        import numpy as np
+    def benchmark_matrix_svd(self, size: int = 20, iterations: int = 5) -> None:
+        """矩阵 SVD 基准测试（打的是内核纯 Python 实现，不再借 NumPy）。
 
-        # Matha (Python + NumPy)
-        matrix = np.random.rand(size, size)
+        阶段 3 去依赖：原先这里 `import numpy`，以 `np.linalg.svd` 作为
+        “Matha 性能”，测的其实是 BLAS。现在直接测 `svd_decompose`（单侧 Jacobi）。
+        默认规模/次数下调：纯 Python 是 O(n³) 多轮 sweep，50×50×100 次不现实。
+        """
+        import random
+
+        from src.stdlib.linear_algebra import Matrix, svd_decompose
+
+        rnd = random.Random(20240517)          # 确定性样本，便于重复对比
+        data = [[rnd.uniform(-1.0, 1.0) for _ in range(size)] for _ in range(size)]
+        mat = Matrix(data)
         result = self._suite.run_benchmark(
             f"MatrixSVD_{size}x{size}",
-            lambda m: np.linalg.svd(m),
-            (matrix,),
+            lambda m: svd_decompose(m),
+            (mat,),
             iterations=iterations,
             language="matha"
         )
         self._suite.add_result(result)
 
-        # C++ (通过临时文件编译执行)
-        cpp_code = '''#include <random>
-#include <chrono>
-#include <iostream>
-// 简化版: 只输出占位符，实际需用 Eigen/Armadillo
-int main() {
-    std::cout << "0" << std::endl;
-    return 0;
-}'''
-        cpp_exe = self._compile_cpp(cpp_code, "svd_cpp")
-        if cpp_exe:
-            result = self._suite.run_benchmark(
-                f"MatrixSVD_{size}x{size}",
-                lambda: 0,  # 占位
-                (),
-                iterations=iterations,
-                language="cpp"
-            )
-            self._suite.add_result(result)
+        # C++ 对照组已删除：旧实现只编译一个 `cout << 0` 占位程序并把
+        # `lambda: 0` 当作 C++ 成绩计入，那不是测量而是假成功。要真实对比需
+        # 用 Eigen/Armadillo 写完整对照组，属于单独工作项。
 
     def benchmark_sort(self, n: int = 100000, iterations: int = 100) -> None:
         """排序基准测试。"""

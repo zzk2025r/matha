@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import auto
 from typing import Any
 
@@ -4376,88 +4374,12 @@ def parse_file(path: str) -> ast.Program:
 
 
 # ============================================================
-# v2.5 ThreadPoolExecutor 并行解析（线程池复用，解决 P0 瓶颈）
+# 并行批量解析：已移出内核（重构阶段 2 第 5 项）
 # ============================================================
 #
-# 设计原则：
-#   1. 固定大小线程池（max_workers=16），避免动态创建线程的开销
-#   2. 线程池全局单例，跨调用复用
-#   3. 任务队列背压：超出队列容量时拒绝新任务
-#   4. 优雅关闭：shutdown(wait=True) 等待所有任务完成
-#
-# 与 v2.4 ProcessPoolExecutor 对比：
-#   - v2.4：进程池绕过 GIL，但进程创建/通信开销大（~200ms/进程）
-#   - v2.5：线程池无跨进程开销，但受 GIL 限制（regex 释放 GIL 可并行）
-#   - 适用场景：
-#     * v2.4 适合 CPU 密集型、无 GIL 释放的操作
-#     * v2.5 适合 I/O 密集型、regex 释放 GIL 的操作
-# ============================================================
+# 本模块是内核的一部分，必须单线程确定性：递归下降解析器读的是进程级的
+# `features` 开关与 `custom_ops` 注册表，多线程并发会破坏「同一份源码 →
+# 同一棵 AST」的可复现性；`threading` / `concurrent.futures` 也在内核 import
+# 白名单之外（由 `scripts/dep_audit.py` + `tests/test_kernel_purity.py` 把守）。
+# 需要并行吞吐的调用方请显式 `from src.plugins.parallel_parser import parse_batch`。
 
-_parse_pool_lock = threading.Lock()
-_parse_pool: ThreadPoolExecutor | None = None
-# 自适应：根据设备 CPU 核心数决定线程数（可通过 MATHA_THREAD_WORKERS 环境变量覆盖）
-from src.device_config import get_config as _get_device_config
-
-_MAX_WORKERS = _get_device_config().thread_workers
-
-
-def _parse_worker(source: str) -> ast.Program:
-    """工作线程执行的单条解析任务。"""
-    return Parser(source).parse()
-
-
-def parse_batch(
-    sources: list[str],
-    max_workers: int = _MAX_WORKERS,
-) -> list[ast.Program]:
-    """批量并行解析 Matha 源码（v2.5 线程池版本）。
-
-    参数:
-        sources: 待解析的源码列表
-        max_workers: 并发线程数（默认 16，受 GIL 限制不建议超过 32）
-
-    返回:
-        与 sources 顺序对应的 AST 列表（失败的返回空 Program）
-    """
-    if not sources:
-        return []
-
-    executor = _get_or_create_pool(max_workers)
-    futures = {executor.submit(_parse_worker, src): i for i, src in enumerate(sources)}
-    results: list[ast.Program | None] = [None] * len(sources)
-
-    for future in as_completed(futures, timeout=60):
-        idx = futures[future]
-        try:
-            results[idx] = future.result(timeout=30)
-        except Exception as e:
-            logger.error("线程解析失败 (index %d): %s", idx, e)
-            results[idx] = ast.Program()
-
-    return [r for r in results if r is not None]
-
-
-def _get_or_create_pool(max_workers: int) -> ThreadPoolExecutor:
-    """获取或创建全局线程池（线程安全）。"""
-    global _parse_pool
-    with _parse_pool_lock:
-        if _parse_pool is None or _parse_pool._shutdown:
-            _parse_pool = ThreadPoolExecutor(
-                max_workers=max(max_workers, _MAX_WORKERS),
-                thread_name_prefix="matha-parser",
-            )
-        return _parse_pool
-
-
-def shutdown_parsers(wait: bool = True) -> None:
-    """关闭解析器线程池。"""
-    global _parse_pool
-    with _parse_pool_lock:
-        if _parse_pool:
-            _parse_pool.shutdown(wait=wait)
-            _parse_pool = None
-
-
-# ============================================================
-# v2.4 遗留：ProcessPoolExecutor（供对比测试使用）
-# ============================================================

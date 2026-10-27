@@ -15,7 +15,6 @@ Matha 统一命令行工具 — REPL + 编译器 + 调试 一体化
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -24,7 +23,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-VERSION = "4.5"
+#: 单一版本源（重构阶段 5 第 1 项）：旧值 "4.5" 与 `src.__version__` 的 "4.6"
+#: 并存过，`matha --version` 与 `import src` 报不同的号。现在只从一处取。
+from src.__version__ import VERSION
 
 # UTF-8 输出辅助
 import sys
@@ -43,7 +44,8 @@ def _print_utf8(text: str) -> None:
 def _cmd_repl(args) -> int:
     """启动交互式 REPL。"""
     from src.repl import MathaREPL
-    repl = MathaREPL(debug=getattr(args, 'debug', False))
+    repl = MathaREPL(debug=getattr(args, 'debug', False),
+                     backend=getattr(args, 'backend', 'vm'))
     repl.run()
     return 0
 
@@ -53,14 +55,20 @@ def _cmd_repl(args) -> int:
 # ============================================================
 
 def _cmd_eval(args) -> int:
-    """计算单行表达式。"""
-    from src.interp import interpret
+    """计算单行表达式（核心主线：mbc.compiler → mbc.vm）。
+
+    旧实现直接调 `src.interp.interpret`（树走式解释器）。它现在只剩
+    `--backend=legacy-interp` 一个显式诊断入口，默认路径不经过它。
+    """
+    from src.kernel import exec_api
     try:
-        # 将表达式包装为完整 Matha 程序
-        wrapped = f"result = {args.expr}\n#1：[result]"
-        out, trace = interpret(wrapped)
-        for item in out:
+        outputs, err = exec_api.run_expr_checked(args.expr,
+                                                 mode=getattr(args, 'backend', 'vm'))
+        for item in outputs:
             print(item)
+        if err is not None:
+            print(f"计算失败: {err}", file=sys.stderr)
+            return 1
         return 0
     except Exception as e:
         print(f"计算失败: {e}", file=sys.stderr)
@@ -72,14 +80,21 @@ def _cmd_eval(args) -> int:
 # ============================================================
 
 def _cmd_run(args) -> int:
-    """运行 .matha 文件（解释模式）。"""
+    """运行 .matha 文件（核心主线：mbc.compiler → mbc.vm）。
+
+    旧路径是 `src.matha_bootstrap.interpret`（自举解释器，失败则静默降级到
+    Python 解释器）：两条路径语义不一致且降级无声，因此改为只认门面主线；
+    自举实现仍由 `tests/test_mbc_bootstrap.py` 直接驱动，不再当 CLI 默认后端。
+    """
+    from src.kernel import exec_api
+    backend = getattr(args, 'backend', 'vm')
     try:
-        with open(args.file, encoding="utf-8") as f:
-            source = f.read()
-        from src.matha_bootstrap import interpret
-        out, trace = interpret(source)
-        for item in out:
+        outputs, err = exec_api.run_file_checked(args.file, mode=backend)
+        for item in outputs:
             print(item)
+        if err is not None:
+            print(f"运行失败: {err}", file=sys.stderr)
+            return 1
         return 0
     except FileNotFoundError:
         print(f"错误: 文件不存在: {args.file}", file=sys.stderr)
@@ -249,8 +264,9 @@ def _cmd_optimize(args) -> int:
 # ============================================================
 
 def _cmd_test(args) -> int:
-    """运行解释器测试。"""
-    from src.interp import interpret
+    """运行主链自测（mbc 字节码 VM）。"""
+    from src.kernel import exec_api
+
     tests = [
         ("简单算术", "result = 1 + 2 * 3\n#1：[result]"),
         ("函数定义", "add = (a, b) => a + b\nresult = add(10)(20)\n#1：[result]"),
@@ -258,11 +274,11 @@ def _cmd_test(args) -> int:
         ("三角函数", "result = sin(3.14159) + cos(1.57)\n#1：[result]"),
         ("条件表达式", "r = 5 > 3 ? 真 : 假\n#1：[r]"),
     ]
-    print("运行解释器测试...")
+    print("运行主链自测（lexer → parser → mbc.compiler → mbc.vm）...")
     passed, failed = 0, 0
     for name, source in tests:
         try:
-            out, trace = interpret(source)
+            out = exec_api.run(source)
             print(f"  PASS {name}: output={out}")
             passed += 1
         except Exception as e:
@@ -277,30 +293,27 @@ def _cmd_test(args) -> int:
 # ============================================================
 
 def _cmd_info(args) -> int:
-    """显示工具链信息。"""
+    """显示工具链信息（主链能力 + 可选外部工具链状态）。"""
+    from src.plugins import toolchain_llvm
+
     print("=" * 60)
     print(f"Matha v{VERSION} 统一工具链")
     print("=" * 60)
     print(f"版本:     {VERSION}")
-    print("前端:     MathaLexer → MathaParser → MathaFrontend")
-    print("IR:       MathaIR (三地址码)")
-    print("后端:     MathaLLVMGenerator → LLVM IR")
-    print("代码生成: llc/clang → 原生机器码")
+    print("主执行链: lexer → parser → ast_nodes → mbc.compiler → mbc.vm")
+    print("机器码:   mbc.native（唯一真实路径）")
+    print("可选后端: LLVM 工具链插件（llc/clang，需外部安装）")
     print()
-    print("支持的优化 Pass:")
-    print("  • MathaConstFoldPass  - 常量折叠")
-    print("  • MathaTailRecPass    - 尾递归消除")
-    print("  • MathaLoopUnrollPass - 循环展开")
-    print("  • MathaSIMDPass       - 自动向量化")
-    print("  • MathaCurryFlatten   - 柯里化扁平化")
+    print("MIR 优化分析 Pass（`src/mir_opt.py`，仅作分析 IR，不承担执行）:")
+    print("  • MathaConstFoldPass      - 常量折叠")
+    print("  • MathaTailRecPass        - 尾递归识别")
+    print("  • MathaLoopUnrollPass     - 循环展开")
+    print("  • MathaCurryFlattenPass   - 柯里化调用展平")
+    print("  • MathaSIMDPass           - 向量化**候选标记**（仅写 metadata，")
+    print("    不发射 SIMD 指令；真正的向量化属未实现能力）")
     print()
-    print("LLVM 工具链状态:")
-    for tool in ["llc", "clang", "opt", "llvm-as"]:
-        try:
-            result = subprocess.run([tool, "--version"], capture_output=True, timeout=5)
-            version = result.stdout.decode().split("\n")[0] if result.returncode == 0 else "未找到"
-        except Exception:
-            version = "未找到"
+    print("LLVM 工具链状态（子进程由 src/plugins/toolchain_llvm 发起）:")
+    for tool, version in toolchain_llvm.version_report().items():
         _print_utf8(f"  {tool}: {version}")
     _print_utf8("=" * 60)
     return 0
@@ -677,6 +690,11 @@ def main(argv=None) -> int:
   matha features           特性开关状态
   matha debug file         调试模式（显示 AST/MIR）
   matha build file -o exe  构建独立可执行文件
+  matha --list-domains     枚举领域插件（不加载任何领域模块）
+
+开关:
+  --backend vm|legacy-interp  执行后端（默认 vm，即 mbc 字节码主线；
+                              legacy-interp 只作执行轨迹/对照诊断）
 
 示例:
   matha
@@ -691,6 +709,11 @@ def main(argv=None) -> int:
     parser.add_argument("--version", action="version", version=f"Matha v{VERSION}")
     parser.add_argument("--feature", action="append", default=[], metavar="NAME[=on|off]",
                         help="开关特性（如 SCOPED_BLOCKS）；可重复，NAME=off 强制关闭")
+    parser.add_argument("--list-domains", action="store_true", dest="list_domains",
+                        help="列出全部领域插件（只读清单，不 import 任何领域模块）")
+    from src import diag_backends
+    parser.add_argument("--backend", default="vm", choices=diag_backends.BACKENDS,
+                        help="执行后端（默认 vm：mbc 字节码主线；其余仅供诊断）")
 
     sub = parser.add_subparsers(dest="command", help="子命令")
 
@@ -815,6 +838,9 @@ def main(argv=None) -> int:
     p_domains = sub.add_parser("domains", help="领域模块浏览器")
     p_domains.set_defaults(func=_cmd_domains)
 
+    sub.add_parser("list-domains", help="枚举领域插件（零 import 成本）").set_defaults(
+        func=_cmd_list_domains)
+
     # display — 显示器管理
     p_display = sub.add_parser("display", help="显示器配置与管理")
     p_display.add_argument("action", nargs="?", default="info",
@@ -935,6 +961,8 @@ def main(argv=None) -> int:
 
     args = parser.parse_args(argv)
     _apply_cli_features(args)
+    if getattr(args, "list_domains", False):
+        return _cmd_list_domains(args)
     if hasattr(args, "func"):
         return args.func(args)
     else:
@@ -995,6 +1023,29 @@ def _cmd_domains(args) -> int:
     vis.visualize_domains()
     path = vis.save_dashboard()
     print(f"领域浏览器已保存到: {path}")
+    return 0
+
+
+def _cmd_list_domains(args) -> int:
+    """枚举领域插件（阶段 1 验收项 6）。
+
+    数据源是 `src/domains/manifest.json`（纯清单）+ `src.plugin_api` 契约，
+    因此本命令不 import 任何一个领域模块 —— 列举成本与插件个数无关。
+    """
+    from src.kernel.exec_api import list_domains
+    plugins = list_domains()
+    if not plugins:
+        print("未找到插件清单：请先运行 python scripts/gen_domain_manifest.py",
+              file=sys.stderr)
+        return 1
+    loaded = [p for p in plugins if p["loaded"]]
+    print(f"领域插件 {len(plugins)} 个（本次已加载 {len(loaded)} 个）")
+    print(f"{'名称':<22}{'中文名':<18}{'类别':<12}{'符号':>6}  模块")
+    for p in plugins:
+        mark = "*" if p["loaded"] else " "
+        print(f"{mark}{p['name']:<21}{p['display_name']:<18}"
+              f"{p['category']:<12}{p['symbols']:>6}  {p['module']}")
+    print("\n加载写法：@：【加载领域】，<名称或中文名>；* 表示本次已加载。")
     return 0
 
 

@@ -107,18 +107,11 @@ def _register_standard_library(builtins: dict) -> None:
     builtins["弧度转角度"] = math.degrees
     builtins["角度转弧度"] = math.radians
 
-    # ---- 数据科学（numpy/scipy）----
-    try:
-        import numpy as np
-        builtins["numpy数组"] = lambda *args: np.array(args)
-        builtins["numpy求和"] = lambda arr: float(np.sum(arr)) if hasattr(arr, '__len__') else arr
-        builtins["numpy均值"] = lambda arr: float(np.mean(arr)) if hasattr(arr, '__len__') else arr
-        builtins["numpy标准差"] = lambda arr: float(np.std(arr)) if hasattr(arr, '__len__') else arr
-        builtins["numpy矩阵乘"] = lambda a, b: (np.array(a) @ np.array(b)).tolist()
-        builtins["numpy转置"] = lambda m: (np.array(m).T).tolist()
-        builtins["numpy逆"] = lambda m: (np.linalg.inv(np.array(m))).tolist()
-    except ImportError:
-        pass
+    # ---- 数据科学（NumPy/SciPy）已搬出 ----
+    # 阶段 3去依赖：原先此处 `try: import numpy ... except ImportError: pass`
+    # 是静默降级（装了才有、没装当没说过）。现在由显式插件提供：
+    # `src/plugins/numpy_accel.py`（需时调用 `_register_numpy_accel(builtins)`，
+    # 环境无 NumPy 则抛 `NumpyBackendUnavailable`）。
 
     # ---- asyncio ----
     try:

@@ -36,16 +36,36 @@ class _Scope:
     """词法作用域：name -> (slot, boxed)。
 
     is_main=True 表示模块主码作用域：main_frame 无局部槽数组，
-    所有绑定/临时槽一律落全局（STORE_GLOBAL/LOAD_GLOBAL）。"""
-    __slots__ = ("parent", "names", "nslots", "is_main")
+    所有绑定/临时槽一律落全局（STORE_GLOBAL/LOAD_GLOBAL）。
 
-    def __init__(self, parent: _Scope | None, is_main: bool = False):
+    leak=True 用于 try/catch/finally 的 thunk 作用域：块内**具名绑定**同样落全局
+    （与遗留解释器 `self.env` 共享语义一致，见 `_compile_thunk`），但**编译器
+    临时槽**仍是本帧局部槽位，故 `is_main` 与 `binds_global` 必须区分开。
+    """
+    __slots__ = ("parent", "names", "nslots", "is_main", "leak")
+
+    def __init__(self, parent: _Scope | None, is_main: bool = False,
+                 leak: bool = False):
         self.parent = parent
         self.names: dict[str, tuple[int, bool]] = {}
         self.nslots = 0
         self.is_main = is_main
+        self.leak = leak
+
+    @property
+    def binds_global(self) -> bool:
+        """本作用域的具名绑定是否落全局（STORE_GLOBAL）。临时槽不受此影响。"""
+        return self.is_main or self.leak
 
     def declare(self, name: str, boxed: bool = False) -> int:
+        if self.leak:
+            # 泄漏作用域不记录具名绑定：读写一律沿父链落到全局，
+            # 记录局部槽反而会让读指令取到从未写入的槽位。
+            return -1
+        return self.declare_local(name, boxed=boxed)
+
+    def declare_local(self, name: str, boxed: bool = False) -> int:
+        """无条件分配并记录本帧局部槽位（形参、编译器临时槽）。"""
         slot = self.nslots
         self.nslots += 1
         self.names[name] = (slot, boxed)
@@ -213,6 +233,15 @@ class Compiler:
         # `？` 公式模式库 + 已命中的具体公式（供诊断）
         self.formulas = _fs.FormulaLibrary()
         self.formula_matches: list = []
+        # 领域插件契约（阶段 1 第 4 项）：由宿主注入，内核自身不 import 插件层。
+        # plugin_index: 符号名 -> 声明该符号的插件名列表。引用未加载领域的符号时，
+        # 编译期即报明确诊断并列出候选插件（取代旧的「静默全量注册」）。
+        # 默认 None → 不检查，既有行为不变。
+        self.plugin_index: dict[str, list[str]] | None = None
+        # domain_aliases: 写法别名（中文名 / 模块名）-> 插件唯一名。`@：【加载领域】，X`
+        # 里的 X 可以是中文，而已加载集要能跟 plugin_index 的归属名对上。
+        self.domain_aliases: dict[str, str] | None = None
+        self.loaded_domains: set[str] = set()
 
     # ---- 常量池 ----
     def const(self, value) -> int:
@@ -495,7 +524,7 @@ class Compiler:
                          and s.op == "=" and isinstance(s.left, ast.Variable))
             if is_assign and not (last and leave_last):
                 self._emit_expr(s.right, scope, code)
-                if scope.is_main:
+                if scope.binds_global:
                     code.append((OP.STORE_GLOBAL, self.sconst(s.left.name)))
                 else:
                     slot = self._declare_slot(scope, s.left.name)
@@ -547,13 +576,18 @@ class Compiler:
             self._emit_expr(node.value, scope, code)
             tgt = node.target
             name = tgt.name if isinstance(tgt, ast.Variable) else str(tgt)
-            slot = self._declare_slot(scope, name)
-            code.append((OP.STORE_LOCAL, slot))
+            if scope.binds_global:
+                # main / try 块泄漏作用域：绑定落全局（无局部槽可用）
+                code.append((OP.STORE_GLOBAL, self.sconst(name)))
+            else:
+                slot = self._declare_slot(scope, name)
+                code.append((OP.STORE_LOCAL, slot))
         elif isinstance(node, ast.LetTupleBinding):
             self._emit_expr(node.value, scope, code)
-            if scope.is_main:
+            if scope.binds_global:
                 for nm in node.names:
-                    scope.declare(nm, boxed=False)
+                    if not scope.leak:
+                        scope.declare(nm, boxed=False)
                 code.append((OP.UNPACK_SEQ, len(node.names)))
                 for nm in reversed(node.names):
                     code.append((OP.STORE_GLOBAL, self.sconst(nm)))
@@ -568,10 +602,16 @@ class Compiler:
             code.append((OP.POP,))
 
     def _declare_slot(self, scope: _Scope, name: str) -> int:
-        """块内绑定：已在当前帧声明则复用槽位（循环/分支重复赋值），否则新声明。"""
+        """块内绑定：已在当前帧声明则复用槽位（循环/分支重复赋值），否则新声明。
+
+        调用方必须先判 `scope.binds_global`；泄漏作用域无局部槽可用。"""
         kind, depth, slot, boxed = scope.resolve(name)
         if kind == "global":
-            return scope.declare(name)
+            slot = scope.declare(name)
+            if slot < 0:
+                raise RuntimeError(
+                    f"字节码编译：泄漏作用域不应走局部槽声明路径（{name}）")
+            return slot
         return slot
 
     def _alloc_temp(self, scope: _Scope, hint: str):
@@ -580,7 +620,8 @@ class Compiler:
         if scope.is_main:
             scope.nslots += 1
             return ("g", f"__{hint}_{self._lam_seq}_{scope.nslots}")
-        return ("l", scope.declare(hint))
+        # 临时槽永远是本帧局部存储（leak 作用域下也不落全局）
+        return ("l", scope.declare_local(hint))
 
     def _store_name(self, code: list, scope: _Scope, name: str) -> None:
         """把栈顶值写回具名变量（global / local / boxed local 皆可）。"""
@@ -670,7 +711,7 @@ class Compiler:
         self._emit_expr(stmt.iterable, scope, code)
         xs_t = self._alloc_temp(scope, "for_xs")
         i_t = self._alloc_temp(scope, "for_i")
-        if scope.is_main:
+        if scope.binds_global:
             var_ts = [("g", nm) for nm in names]
         else:
             var_ts = [("l", self._declare_slot(scope, nm)) for nm in names]
@@ -718,9 +759,10 @@ class Compiler:
         """try/catch/finally：三块各编译为 thunk，VM「调用捕获」返回 tagged 结果：
         正常 ["__正常__", 值]；异常 ["__异常__", 消息]。
 
-        块内绑定为块作用域（thunk 私有帧）；try/catch 作为值表达式时其值为
-        正常体或捕获体的尾值，finally 的返回值丢弃。语句位置则整体 POP。"""
-        try_name = self._compile_thunk(stmt.try_block, scope)
+        块内绑定落全局（与遗留解释器一致，见 `_compile_thunk` 的 leak 参数）；
+        try/catch 作为值表达式时其值为正常体或捕获体的尾值，finally 的返回值
+        丢弃。语句位置则整体 POP。"""
+        try_name = self._compile_thunk(stmt.try_block, scope, leak=True)
         # guarded = 调用捕获(try_thunk)；result = guarded([])
         code.append((OP.LOAD_GLOBAL, self.sconst("调用捕获")))
         code.append((OP.MAKE_CLOSURE, try_name))
@@ -747,7 +789,8 @@ class Compiler:
         code[jz] = (OP.JZ, len(code))
         if stmt.catch_block is not None:
             catch_params = [stmt.catch_var] if stmt.catch_var else []
-            catch_name = self._compile_thunk(stmt.catch_block, scope, catch_params)
+            catch_name = self._compile_thunk(stmt.catch_block, scope, catch_params,
+                                             leak=True)
             code.append((OP.MAKE_CLOSURE, catch_name))
             self._load_temp(code, result_t)
             code.append((OP.PUSH_CONST, self.const(1)))
@@ -761,7 +804,7 @@ class Compiler:
         code[jmp] = (OP.JMP, len(code))
         # finally：零参 thunk，返回值丢弃
         if stmt.finally_block is not None:
-            fin_name = self._compile_thunk(stmt.finally_block, scope)
+            fin_name = self._compile_thunk(stmt.finally_block, scope, leak=True)
             code.append((OP.MAKE_CLOSURE, fin_name))
             code.append((OP.BUILD_LIST, 0))
             code.append((OP.CALL, 1))
@@ -809,16 +852,23 @@ class Compiler:
         self.mod.functions[name] = fn
         return name
 
-    def _compile_thunk(self, body, scope: _Scope, param_names: list | None = None) -> str:
+    def _compile_thunk(self, body, scope: _Scope, param_names: list | None = None,
+                       leak: bool = False) -> str:
         """编译 try/catch/finally 块为独立零参（或带参）函数，返回函数名。
 
-        块内绑定为块作用域（thunk 私有帧）；对外层变量只读（经闭包帧链
-        LOAD_OUTER）。catch thunk 单参 e 接收异常消息字符串。"""
+        对外层变量只读（经闭包帧链 LOAD_OUTER）。catch thunk 单参 e 接收异常消息字符串。
+
+        `leak=True`（try/catch/finally 专用）：块内具名绑定落全局，故块外可读。
+        遗留解释器把块内绑定写进共享 `self.env`，`try { raise "x" } catch (e) { 结果 = e }`
+        之后 `[结果]` 取得到值；而 thunk 是独立帧，按局部槽编译会让块外的读取
+        抛 KeyError（golden 09/10 曾因此不可运行）。形参仍是本帧局部槽位。
+        """
         self._lam_seq += 1
         name = f"__lam_{self._lam_seq}"
-        inner = _Scope(scope)
+        inner = _Scope(scope, leak=leak)
         for p in (param_names or []):
-            inner.declare(p)
+            # 形参必须占本帧局部槽（declare 在 leak 下不记录，会误落全局）
+            inner.declare_local(p)
         code: list = []
         self._emit_body(body, inner, code)
         code.append((OP.RET,))
@@ -874,7 +924,7 @@ class Compiler:
         self._emit_expr(iterable, scope, code)
         xs_t = self._alloc_temp(scope, "comp_xs")
         i_t = self._alloc_temp(scope, "comp_i")
-        if scope.is_main:
+        if scope.binds_global:
             var_t = ("g", name)
         else:
             var_t = ("l", self._declare_slot(scope, name))
@@ -1005,7 +1055,7 @@ class Compiler:
     def _emit_pattern_bind(self, name: str, scope: _Scope,
                            code: list) -> None:
         """把当前栈顶值绑定到模式变量名。"""
-        if scope.is_main:
+        if scope.binds_global:
             code.append((OP.STORE_GLOBAL, self.sconst(name)))
         else:
             code.append((OP.STORE_LOCAL, self._declare_slot(scope, name)))
@@ -1052,7 +1102,7 @@ class Compiler:
         for nm in names:
             if nm is None:
                 var_ts.append(None)
-            elif scope.is_main:
+            elif scope.binds_global:
                 var_ts.append(("g", nm))
             else:
                 var_ts.append(("l", self._declare_slot(scope, nm)))
@@ -1073,7 +1123,21 @@ class Compiler:
 
     def _emit_setup(self, node: ast.SetUp, scope: _Scope,
                     code: list) -> None:
-        """@：a=2，b=3 —— 设定项按绑定编译；?占位目标与无值项跳过。"""
+        """@：a=2，b=3 —— 设定项按绑定编译；?占位目标与无值项跳过。
+
+        例外：`@：【加载领域】，X` 是显式插件加载指令（阶段 1 第 4 项新增语法），
+        编译期登记已加载领域并发射一次 `加载领域(X)` 调用。
+        """
+        domain = self._domain_directive(node)
+        if domain is not None:
+            # 原写法与归一后的插件名都计入，使后续符号引用能对上
+            self.loaded_domains.add(domain)
+            self.loaded_domains.add((self.domain_aliases or {}).get(domain, domain))
+            code.append((OP.LOAD_GLOBAL, self.sconst("加载领域")))
+            code.append((OP.PUSH_CONST, self.const(domain)))
+            code.append((OP.CALL, 1))
+            code.append((OP.POP,))
+            return
         for item in node.items:
             if item.value is None:
                 continue
@@ -1082,7 +1146,7 @@ class Compiler:
                 continue  # ？占位符不落地
             if not isinstance(tgt, ast.Variable):
                 continue
-            if scope.is_main:
+            if scope.binds_global:
                 self._emit_expr(item.value, scope, code)
                 code.append((OP.STORE_GLOBAL, self.sconst(tgt.name)))
             else:
@@ -1437,13 +1501,14 @@ class Compiler:
         elif isinstance(node, ast.LetTupleBinding):
             # let (a, b, ...) = <seq> in <body>
             self._emit_expr(node.value, scope, code)
-            if scope.is_main:
+            if scope.binds_global:
                 # main 无局部槽数组：声明仅为让后续读取解析为同名全局，
                 # 与 _emit_let 的 main 分支同理（否则 STORE_LOCAL 越界
                 # 访问 locals[slot]，嵌套 let (a,b) 在 main 下抛 IndexError）。
                 names = []
                 for nm in node.names:
-                    scope.declare(nm, boxed=False)
+                    if not scope.leak:
+                        scope.declare(nm, boxed=False)
                     names.append(nm)
                 code.append((OP.UNPACK_SEQ, len(names)))
                 for nm in reversed(names):
@@ -1496,11 +1561,60 @@ class Compiler:
     def _emit_load(self, name: str, scope: _Scope, code: list) -> None:
         kind, depth, slot, boxed = scope.resolve(name)
         if kind == "global":
+            self._check_domain_symbol(name)
             code.append((OP.LOAD_GLOBAL, self.sconst(name)))
         elif kind == "local":
             code.append((OP.LOAD_BOX if boxed else OP.LOAD_LOCAL, slot))
         else:
             code.append((OP.LOAD_OUTER_BOX if boxed else OP.LOAD_OUTER, depth, slot))
+
+    # ---- 领域插件指令 ----
+
+    #: `@：【加载领域】，X` 可识别的指令名（新增语法，不影响旧写法）
+    DOMAIN_DIRECTIVES = ("加载领域", "加载插件")
+
+    def _domain_directive(self, node: ast.SetUp) -> str | None:
+        """识别 `@：【加载领域】，机械设计` 形式的显式插件加载指令。
+
+        parser 把它产成 form='cmd' 的 SetUp：首项为 `？: 字符串"加载领域"`（命令名
+        落在占位目标的值上），次项为 `领域名: None`（只有目标、没有值）。两种书写
+        顺序都兼容，且只在指令名命中 DOMAIN_DIRECTIVES 时生效 —— 其余 `@：` 写法
+        行为完全不变。
+        """
+        if getattr(node, "form", None) != "cmd" or not node.items:
+            return None
+        hit = None          # 指令项下标
+        for i, item in enumerate(node.items):
+            text = None
+            if isinstance(item.value, ast.StringLit):
+                text = item.value.value
+            elif isinstance(item.target, ast.Variable):
+                text = item.target.name
+            if text in self.DOMAIN_DIRECTIVES:
+                hit = i
+                break
+        if hit is None:
+            return None
+        for item in node.items[hit + 1:]:
+            tgt = item.target
+            if (isinstance(tgt, ast.Variable) and not tgt.is_placeholder
+                    and tgt.name not in self.DOMAIN_DIRECTIVES):
+                return tgt.name
+        return None
+
+    def _check_domain_symbol(self, name: str) -> None:
+        """引用属于领域插件但未加载时的编译期诊断（plugin_index 为 None 时不检查）。"""
+        index = self.plugin_index
+        if not index:
+            return
+        owners = index.get(name)
+        if not owners:
+            return
+        if any(o in self.loaded_domains for o in owners):
+            return
+        raise RuntimeError(
+            f"字节码编译：符号「{name}」属于领域插件 {' / '.join(owners)}，但当前未加载。"
+            f"请在程序里先写：@：【加载领域】，{owners[-1]}")
 
     def _emit_let(self, node: ast.LetBinding, scope: _Scope, code: list) -> None:
         boxed = bool(node.is_recursive)
@@ -1513,8 +1627,8 @@ class Compiler:
             value = ast.Lambda(params=self._param_vars(node.params), body=node.value)
         if boxed:
             # let rec：先声明 Box 槽位，RHS 中自引用经 Box 读取（帧链共享）
-            if scope.is_main:
-                # main 无局部槽数组：rec 绑定退化为同名全局，
+            if scope.binds_global:
+                # main / 泄漏作用域无可用局部槽数组：rec 绑定退化为同名全局，
                 # 否则 MAKE_BOX/STORE_BOX 会越界访问 locals[slot]
                 # （互递归 let rec 曾在此抛 IndexError）。
                 # 同级多个 let rec 依声明顺序依次定义，body 通过
@@ -1532,8 +1646,8 @@ class Compiler:
             # 使 `let x = x + 1` 正确读取外层 x（避免读到未初始化槽位），
             # 然后再声明槽位供 body 使用
             self._emit_expr(value, scope, code)
-            if scope.is_main:
-                # main 无局部槽数组：声明仅为让后续读取解析为同名全局
+            if scope.binds_global:
+                # main / 泄漏作用域无局部槽数组：声明仅为让后续读取解析为同名全局
                 scope.declare(node.name, boxed=False)
                 code.append((OP.STORE_GLOBAL, self.sconst(node.name)))
             else:
@@ -1545,12 +1659,26 @@ class Compiler:
             code.append((OP.PUSH_NULL,))
 
 
-def compile_program(program: ast.Program) -> MModule:
-    return Compiler().compile_program(program)
+def compile_program(program: ast.Program, *,
+                    plugin_index: dict[str, list[str]] | None = None,
+                    domain_aliases: dict[str, str] | None = None) -> MModule:
+    """把一个 AST 程序编译为模块。
+
+    `plugin_index`（符号 -> 归属插件）与 `domain_aliases`（写法 -> 插件名）由宿主
+    从插件清单供入；两者都为 None 时不做「未加载领域」检查，既有行为逐字节不变。
+    """
+    c = Compiler()
+    if plugin_index is not None:
+        c.plugin_index = plugin_index
+        c.domain_aliases = domain_aliases
+    return c.compile_program(program)
 
 
-def compile_source(source: str) -> MModule:
+def compile_source(source: str, *,
+                   plugin_index: dict[str, list[str]] | None = None,
+                   domain_aliases: dict[str, str] | None = None) -> MModule:
     from src.parser import parse
     if source and source[0] == "\ufeff":  # 容忍 UTF-8 BOM
         source = source.lstrip("\ufeff")
-    return compile_program(parse(source))
+    return compile_program(parse(source), plugin_index=plugin_index,
+                           domain_aliases=domain_aliases)

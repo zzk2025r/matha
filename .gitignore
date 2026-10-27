@@ -38,6 +38,7 @@ logs/
 .idea/
 .vscode/
 .trae/
+.dart_tool/
 *.swp
 *.swo
 *~
@@ -100,6 +101,7 @@ final_scan_test.py
 final_verify*.py
 
 # 调试/临时输出文件
+scripts/scratch/
 *.txt
 !matha/*.matha
 !requirements.txt

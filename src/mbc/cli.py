@@ -14,7 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.mbc import compile_source, read_mbc, run_module, write_mbc
+from src.kernel import exec_api
+from src.mbc import compile_source, write_mbc
 
 
 def _read(path: str) -> str:
@@ -35,35 +36,35 @@ def cmd_compile(args) -> int:
 
 
 def cmd_run(args) -> int:
-    path = Path(args.target)
-    if path.suffix == ".mbc":
-        mod = read_mbc(str(path))
-    else:
-        mod = compile_source(_read(str(path)))
-    outputs = run_module(mod, verbose=False)
+    # 经统一执行门面：除了 compile_source → run_module，还接入插件懒解析，
+    # 使 `.matha` 里的领域符号能用（直接调 run_module 会得到未定义变量）。
+    outputs, err = exec_api.run_file_checked(args.target)
     if not outputs:
         print("（无输出）")
     else:
         for item in outputs:
             print(item)
+    if err is not None:
+        print(f"运行失败: {err}", file=sys.stderr)
+        return 1
     return 0
 
 
 def cmd_eval(args) -> int:
-    source = f"result = {args.expr}\n#1：[result]"
-    outputs = run_module(compile_source(source))
+    outputs, err = exec_api.run_expr_checked(args.expr)
     if outputs:
         print(outputs[-1])
+    if err is not None:
+        print(f"计算失败: {err}", file=sys.stderr)
+        return 1
     return 0
 
 
 def cmd_native(args) -> int:
-    from src.mbc.native import compile_to_exe
     source = _read(args.source)
     out = args.output or (Path(args.source).with_suffix(".exe"))
-    exe = compile_to_exe(source)
-    Path(out).write_bytes(exe)
-    print(f"已编译 {args.source} → {out}（{len(exe)} 字节）")
+    exe = exec_api.build_exe(source, out)
+    print(f"已编译 {args.source} → {exe}（{Path(exe).stat().st_size} 字节）")
     return 0
 
 

@@ -7493,7 +7493,7 @@ _UNRESOLVED_GLOBALS = frozenset({
 # 本模块若真用到会在 VM 侧同样解析失败，误报只会掩盖真正的问题。
 def _unresolved_mathlib_names() -> set:
     try:
-        from src.mathlib import _register_math_builtins
+        from src.kernel.math_builtin import _register_math_builtins
     except Exception:
         return set()
     b: dict = {}
@@ -7513,7 +7513,7 @@ _UNRESOLVED_GLOBALS = ((_UNRESOLVED_GLOBALS | _unresolved_mathlib_names())
 # TYPE_FLOAT 对象发射，LOAD_GLOBAL 据此解析（此前单字母常量会静默读成 0）。
 def _math_constants() -> dict:
     try:
-        from src.mathlib import CONSTANTS, PHYSICAL_CONSTANTS
+        from src.kernel.math_builtin import CONSTANTS, PHYSICAL_CONSTANTS
     except Exception:
         return {}
     out = {}
@@ -8647,7 +8647,7 @@ def _emit_float_runtime(em: _Emitter):
 
     # ---- 基本算术 ----
     for lbl, ins in (("f_add", em.addsd), ("f_sub", em.subsd),
-                     ("f_mul", em.mulsd), ("f_div", em.divsd)):
+                     ("f_mul", em.mulsd)):
         em.label_here(lbl)
         em.emit(b"\x55\x48\x89\xE5")
         em.emit(b"\x48\x83\xEC\x20")
@@ -8655,6 +8655,26 @@ def _emit_float_runtime(em: _Emitter):
         ins(0, 1)
         em.call_rel32("box_float")
         em.emit(b"\x48\x89\xEC\x5D\xC3")
+
+    # ---- f_div：真除（恒浮点），带除零拦截 ----
+    # 不拦则 divsd 得 ±inf：`1 / 0` 在机器码里静默输出 `inf`，而 VM/解释器
+    # 招「除零错误」（golden 12 因此在 native 侧值不一致，且属静默假成功）。
+    # 判零与 f_floordiv / f_mod 同款：先 jp 排除 NaN，再 jz 命中 ±0.0；
+    # 抛点复用已有的 fdivz（错误文本为 `division by zero`，与 VM 带操作数
+    # 的文案仍有差异，但两边都是「可捕获的失败」而非假结果）。
+    em.label_here("f_div")
+    em.emit(b"\x55\x48\x89\xE5")
+    em.emit(b"\x48\x83\xEC\x20")
+    em.call_rel32("bin_to_xmm2")
+    em.emit(b"\x66\x0F\xEF\xD2")                    # xorpd xmm2,xmm2
+    em.ucomisd(1, 2)                                # ucomisd xmm1,xmm2
+    em.jcc_rel32(0x8A, "f_div_go")                  # jp   NaN → 视作非零
+    em.jcc_rel32(0x84, "fdivz")                     # jz   除数为 ±0.0
+    em.jcc_rel32(None, "f_div_go")
+    em.label_here("f_div_go")
+    em.divsd(0, 1)
+    em.call_rel32("box_float")
+    em.emit(b"\x48\x89\xEC\x5D\xC3")
 
     # ---- f_deg：`<<n` 角度前缀，度数 → 弧度 ----
     # 三角函数（sin/cos/tan）一律吃弧度，故 <<30 必须先归一化成 π/6，

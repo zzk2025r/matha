@@ -163,7 +163,7 @@ class NativeFrontendRunner:
         matha_file = self._dir / "matha" / "frontend.matha"
         if matha_file.exists():
             try:
-                from src.interp import Interpreter
+                from src.diag_backends import new_interpreter as Interpreter
                 from src.parser import parse
                 prog = parse(source)
                 interp = Interpreter()
@@ -274,7 +274,7 @@ class HybridFrontend:
         """使用 Matha 原生前端编译。"""
         # 先尝试标准 Matha 解释器
         try:
-            from src.interp import Interpreter
+            from src.diag_backends import new_interpreter as Interpreter
             from src.parser import parse
             prog = parse(source)
             interp = Interpreter()
@@ -299,7 +299,7 @@ class HybridFrontend:
         multi_file = FRONTENDS_DIR / "multi_lang.matha"
         if multi_file.exists():
             try:
-                from src.interp import Interpreter
+                from src.diag_backends import new_interpreter as Interpreter
                 from src.parser import parse as matha_parse
                 content = multi_file.read_text(encoding="utf-8")
                 prog = matha_parse(content)
@@ -318,7 +318,7 @@ class HybridFrontend:
     def _try_tree_sitter(self, source: str, lang: str) -> dict | None:
         """尝试使用 tree-sitter。"""
         try:
-            from src.tree_sitter_backends import get_parser
+            from src.plugins.tree_sitter_backends import get_parser
             parser = get_parser(lang)
             if parser is None:
                 return None

@@ -182,7 +182,7 @@ class MathaSystem:
 
     def _init_interpreter(self):
         """初始化解释器。"""
-        from src.interp import Interpreter
+        from src.diag_backends import new_interpreter as Interpreter
         from src.matha_bootstrap import _get_interp
         self.interpreter = Interpreter(debug=self.debug)
         _get_interp(debug=self.debug)
@@ -801,7 +801,7 @@ class MathaSystem:
                 for fn_name, fn in builtins.items():
                     if callable(fn) and fn_name not in self.interpreter.builtins:
                         self.interpreter.builtins[fn_name] = fn
-        from src.mathlib import _register_math_builtins, _register_unit_builtins
+        from src.kernel.math_builtin import _register_math_builtins, _register_unit_builtins
         _register_math_builtins(self.interpreter.builtins)
         _register_unit_builtins(self.interpreter.builtins)
         if self.debug:
@@ -853,7 +853,7 @@ class MathaSystem:
 
     def _eval_with_interpreter(self, expr: str) -> Any:
         """通过解释器计算。"""
-        from src.interp import interpret
+        from src.diag_backends import run_legacy as interpret
         source = f"result = {expr}\n#1：[result]"
         out, _ = interpret(source)
         return out[0] if out else None

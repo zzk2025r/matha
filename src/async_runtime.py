@@ -187,7 +187,7 @@ class AsyncSupport:
 # ============================================================
 
 # 默认线程池（自适应：根据设备 CPU 核心数决定）
-from src.device_config import get_config as _get_device_config
+from src.plugins.device_config import get_config as _get_device_config
 
 _default_pool = ThreadPool(max_workers=_get_device_config().thread_workers)
 

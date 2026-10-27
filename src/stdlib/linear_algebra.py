@@ -538,7 +538,7 @@ def matrix_eigenvalues(A: Matrix) -> list[complex]:
         return _eigenvalue_cache[cache_key]
 
     # 使用幂迭代法求主特征值
-    # 对于完整特征值分解，建议使用 numpy.linalg.eig
+    # 完整特征值分解由本模块 `_eigenvectors_with_values`（纯 Python  deflation）提供
 
     # 简化实现：特征多项式系数
     # 2x2 矩阵精确解
@@ -630,7 +630,7 @@ def _qr_decomposition(A: list[list[float]]) -> tuple[list[list[float]], list[lis
 
 
 # ============================================================
-# SVD 分解（带缓存，支持 NumPy）
+# SVD 分解（带缓存，纯 Python 实现）
 # ============================================================
 
 def svd_decompose(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
@@ -649,7 +649,8 @@ def svd_decompose(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
         Vt: n×n V 的转置矩阵
 
     Note:
-        优先使用 NumPy 实现（性能更好），回退到纯 Python 实现。
+        实现为单侧 Jacobi（one-sided Jacobi）旋转，纯标准库、**确定性**
+        （不依赖随机初值）；曾有的 NumPy 分支已移除（阶段 3：核心零第三方依赖）。
     """
     m, n = A.rows, A.cols
 
@@ -659,36 +660,10 @@ def svd_decompose(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
         logger.debug(f"使用缓存的 SVD: {A.shape}")
         return _svd_cache[cache_key]
 
-    # 尝试使用 NumPy
-    try:
-        import numpy as np
-        A_np = np.array(A.data, dtype=float)
-        U_np, s_np, Vt_np = np.linalg.svd(A_np)
-
-        # 转换为 Matrix
-        U = Matrix(U_np.tolist())
-        S = Matrix(np.diag(s_np).tolist())
-        Vt = Matrix(Vt_np.tolist())
-
-        result = (U, S, Vt)
-        _svd_cache[cache_key] = result
-        _evict_cache(_svd_cache)
-        logger.info(f"NumPy SVD 计算完成: {A.shape}")
-        return result
-    except ImportError:
-        logger.warning("NumPy 未安装，使用纯 Python SVD 实现")
-
-    # 纯 Python 实现（简化版）
-    # 对于对称矩阵，SVD = 特征值分解
-    if m == n:
-        # 检查是否对称
-        is_symmetric = all(abs(A.data[i][j] - A.data[j][i]) < 1e-10
-                          for i in range(m) for j in range(m))
-        if is_symmetric:
-            return _svd_from_eigenvalues(A)
-
-    # 通用情况：使用幂迭代法（简化）
-    return _svd_power_iteration(A)
+    result = _svd_jacobi(A)
+    _svd_cache[cache_key] = result
+    _evict_cache(_svd_cache)
+    return result
 
 
 def _is_sparse_matrix(A: Matrix, threshold: float = 0.9) -> bool:
@@ -742,11 +717,14 @@ def svd_decompose_sparse(A: Matrix, max_iter: int = 100) -> tuple[Matrix, Matrix
 
     # 幂迭代求前 k 个奇异值
     k = min(m, n, 10)  # 计算前 10 个奇异值
-    import random
+    phi = (math.sqrt(5.0) - 1.0) / 2.0
+
+    def _seed_vector(offset: int) -> list[float]:
+        """确定性初值（黄金比低差异序列），保证结果可重复对拍。"""
+        return [(((j + 1 + offset * n) * phi) % 1.0) * 2.0 - 1.0 for j in range(n)]
 
     for p in range(k):
-        # 随机初始化向量
-        v = [random.uniform(-1, 1) for _ in range(n)]
+        v = _seed_vector(p)
 
         # 正交化（避免与已求得的奇异向量重复）
         for q in range(p):
@@ -758,12 +736,11 @@ def svd_decompose_sparse(A: Matrix, max_iter: int = 100) -> tuple[Matrix, Matrix
         # 归一化
         norm = math.sqrt(sum(x**2 for x in v))
         if norm < 1e-12:
-            v = [random.uniform(-1, 1) for _ in range(n)]
+            v = _seed_vector(p + k)
             norm = math.sqrt(sum(x**2 for x in v))
         v = [x / norm for x in v]
 
-        # 幂迭代
-        u = None
+        # 幂迭代：v <- 归一化(AᵗA v)，并对已求得的右奇异向量做 deflation
         for iteration in range(max_iter):
             # 稀疏矩阵向量乘法: Av
             Av = [0.0] * m
@@ -787,29 +764,124 @@ def svd_decompose_sparse(A: Matrix, max_iter: int = 100) -> tuple[Matrix, Matrix
                 break
             v = [x / norm for x in ATAv]
 
-            # 更新 u
-            u = Av
-            u_norm = math.sqrt(sum(x**2 for x in u))
-            if u_norm > 1e-12:
-                u = [x / u_norm for x in u]
-
-        # 计算奇异值
-        if u is not None:
-            sigma = math.sqrt(sum(x**2 for x in u)) if u else 0
-            if sigma > 1e-12:
-                S.data[p][p] = sigma
-                for i in range(m):
-                    U.data[i][p] = u[i] if u else 0
-                for j in range(n):
-                    Vt.data[p][j] = v[j]
+        # 收敛后重放一次 A·v：σ = ‖Av‖，u = Av/σ。
+        # 旧实现在循环内把 u 归一化成单位向量、循环外又取 ‖u‖ 当 σ，于是
+        # 每个奇异值恒等于 1.0 —— 那是实现 bug（不是迭代法的固有误差），
+        # 会让 `svd_decompose_sparse` 的结果与主路完全不可比。
+        Av = [0.0] * m
+        for i, j, val in nonzero_elements:
+            Av[i] += val * v[j]
+        sigma = math.sqrt(sum(x * x for x in Av))
+        if sigma > 1e-12:
+            u = [x / sigma for x in Av]
+            S.data[p][p] = sigma
+            for i in range(m):
+                U.data[i][p] = u[i]
+            for j in range(n):
+                Vt.data[p][j] = v[j]
 
     logger.info(f"稀疏矩阵 SVD 完成: {A.shape}, 计算了 {k} 个奇异值")
     return U, S, Vt
 
 
-def _svd_from_eigenvalues(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
+def _svd_jacobi(A: Matrix, *, max_sweeps: int = 60,
+                tol: float = 1e-13) -> tuple[Matrix, Matrix, Matrix]:
+    """单侧 Jacobi SVD：纯标准库、确定性、对任意 m×n 成立。
+
+    算法：对 A 的列两两作 Givens 旋转（``B = A·V``），直到列彼此正交；此时
+
+    - ``σ_k = ‖B[:,k]‖``，``U[:,k] = B[:,k]/σ_k``，``V[:,k]`` 已含在累计正交阵 V 中；
+    - 收敛判据为非对角能量 ``Σ_{i<j}(b_i·b_j)²`` 落到 ``tol·‖B‖_F⁴`` 以下（量纲齐次）；
+    - 零奇异值对应缺失的左奇异向量，由标准基 Gram-Schmidt 补全为正交完备基。
+
+    因此 ``U·S·Vᵗ = A`` 与奇异值降序排列同时成立（不依赖随机初值）。
     """
-    从特征值分解推导 SVD（仅适用于对称矩阵）。
+    m, n = A.rows, A.cols
+    B = [[float(A.data[r][c]) for c in range(n)] for r in range(m)]
+    V = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
+
+    for _ in range(max_sweeps):
+        fro2 = sum(x * x for row in B for x in row)
+        off = 0.0
+        for i in range(n):
+            for j in range(i + 1, n):
+                alpha = sum(B[r][i] * B[r][i] for r in range(m))
+                beta = sum(B[r][j] * B[r][j] for r in range(m))
+                gamma = sum(B[r][i] * B[r][j] for r in range(m))
+                off += gamma * gamma
+                if abs(gamma) <= 1e-15 * alpha * beta or alpha * beta == 0.0:
+                    continue
+                zeta = (beta - alpha) / (2.0 * gamma)
+                t = math.copysign(1.0, zeta) / (abs(zeta) + math.sqrt(1.0 + zeta * zeta))
+                c = 1.0 / math.sqrt(1.0 + t * t)
+                s = c * t
+                for r in range(m):
+                    bi, bj = B[r][i], B[r][j]
+                    B[r][i] = c * bi - s * bj
+                    B[r][j] = s * bi + c * bj
+                for r in range(n):
+                    vi, vj = V[r][i], V[r][j]
+                    V[r][i] = c * vi - s * vj
+                    V[r][j] = s * vi + c * vj
+        if off <= tol * fro2 * fro2:
+            break
+
+    sigma = [math.sqrt(sum(B[r][k] * B[r][k] for r in range(m))) for k in range(n)]
+    order = sorted(range(n), key=lambda k: -sigma[k])
+    tiny = 1e-12 * max(sigma or [1.0])
+
+    u_cols: list[list[float]] = []
+    v_rows: list[list[float]] = []
+    s_sorted: list[float] = []
+    for k in order:
+        if sigma[k] > tiny:
+            u_cols.append([B[r][k] / sigma[k] for r in range(m)])
+        else:
+            u_cols.append(None)          # 占位，后续补全
+        s_sorted.append(sigma[k])
+        v_rows.append([V[r][k] for r in range(n)])
+    # U 必须是 m 列正交完备基：秩 ≤ min(m,n)，不足则补、超出则截（奇异值已降序）
+    while len(u_cols) < m:
+        u_cols.append(None)
+    u_cols = _complete_basis(u_cols[:m], m)
+
+    U_data = [[u_cols[c][r] for c in range(m)] for r in range(m)]
+    S_data = [[s_sorted[j] if i == j and j < n else 0.0
+               for j in range(n)] for i in range(m)]
+    Vt_data = [[v_rows[k][j] if k < n else (1.0 if j == k - n else 0.0)
+                for j in range(n)] for k in range(n)]
+    return Matrix(U_data), Matrix(S_data), Matrix(Vt_data)
+
+
+def _complete_basis(cols: list, m: int) -> list[list[float]]:
+    """把缺失/不足的左奇异向量用标准基补成 R^m 的正交完备基。"""
+    out: list[list[float]] = [None] * len(cols)
+    kept: list[list[float]] = []
+    for idx, c in enumerate(cols):
+        if c is not None:
+            out[idx] = list(c)
+            kept.append(out[idx])
+    for idx, c in enumerate(cols):
+        if c is not None:
+            continue
+        for e in range(m):
+            v = [1.0 if q == e else 0.0 for q in range(m)]
+            for u in kept:
+                dot = sum(u[q] * v[q] for q in range(m))
+                v = [v[q] - dot * u[q] for q in range(m)]
+            norm = math.sqrt(sum(x * x for x in v))
+            if norm > 1e-9:
+                v = [x / norm for x in v]
+                out[idx] = v
+                kept.append(v)
+                break
+        if out[idx] is None:             # 兜底：方向均被占（理论上不会发生）
+            out[idx] = [0.0] * m
+    return out
+
+
+def _svd_from_eigenvalues(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
+    """从特征值分解推导 SVD（仅适用于对称阵，作为 Jacobi 主路的对比参考）。
 
     对于对称矩阵 A：
     - 奇异值 σ_i = |λ_i|（特征值的绝对值）
@@ -855,11 +927,11 @@ def _eigenvectors_with_values(A: Matrix) -> list:
     """
     n = A.rows
     eigenpairs = []
+    phi = (math.sqrt(5.0) - 1.0) / 2.0
 
     for k in range(n):
-        # 随机初始化
-        import random
-        v = [random.uniform(-1, 1) for _ in range(n)]
+        # 确定性初值（黄金比低差异序列）：旧版 random 使特征向量符号随运行漂移
+        v = [((j + 1) * phi % 1.0) * 2.0 - 1.0 for j in range(n)]
         # 归一化
         norm = math.sqrt(sum(x**2 for x in v))
         if norm > 1e-12:
@@ -895,9 +967,16 @@ def _eigenvectors_with_values(A: Matrix) -> list:
     return eigenpairs
 
 
-def _svd_power_iteration(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
-    """
-    使用幂迭代法近似 SVD（简化版）。
+def _svd_power_iteration(A: Matrix, *, sweeps: int = 200) -> tuple[Matrix, Matrix, Matrix]:
+    """幂迭代 SVD（带 deflation 与确定性初值）。
+
+    主路已改为 :func:`_svd_jacobi`；本实现保留给只要前 k 个奇异对的截断需求。
+    两点加固（旧版在这两处会给出不可信结果）：
+
+    1. 初值用黄金比低差异序列代替 ``random.uniform``——旧版结果随运行漂移，
+       golden 对拍与 VM↔native 对拍都无法稳定；
+    2. 每收敛一个奇异三元组后做 deflation（A ← A − σ·u·vᵗ），并将迭代向量
+       对已得右奇异向量正交化——旧版不降阶，第 2、3… 个奇异值会重复同一个。
     """
     m, n = A.rows, A.cols
 
@@ -906,40 +985,58 @@ def _svd_power_iteration(A: Matrix) -> tuple[Matrix, Matrix, Matrix]:
     Vt = Matrix.zeros(n, n)
     S = Matrix.zeros(m, n)
 
-    # 幂迭代求最大奇异值
+    res = [[float(A.data[i][j]) for j in range(n)] for i in range(m)]
+    found_v: list[list[float]] = []
+    phi = (math.sqrt(5.0) - 1.0) / 2.0
+
     for k in range(min(m, n)):
-        # 随机初始化向量
-        import random
-        v = [random.uniform(-1, 1) for _ in range(n)]
+        v = [((j + 1) * phi % 1.0) * 2.0 - 1.0 for j in range(n)]
+        v = _orthogonalize(v, found_v)
+        norm = math.sqrt(sum(x * x for x in v))
+        if norm <= 1e-14:
+            break
+        v = [x / norm for x in v]
 
-        # 幂迭代
-        for _ in range(50):
-            # Av
-            Av = [sum(A.data[i][j] * v[j] for j in range(n)) for i in range(m)]
-            # A^T Av
-            ATAv = [sum(A.data[i][j] * Av[i] for i in range(m)) for j in range(n)]
+        for _ in range(sweeps):
+            Av = [sum(res[i][j] * v[j] for j in range(n)) for i in range(m)]
+            ATAv = _orthogonalize([sum(res[i][j] * Av[i] for i in range(m))
+                                   for j in range(n)], found_v)
+            norm = math.sqrt(sum(x * x for x in ATAv))
+            if norm <= 1e-14:
+                break
+            v_new = [x / norm for x in ATAv]
+            diff = math.sqrt(sum((v_new[j] - v[j]) ** 2 for j in range(n)))
+            v = v_new
+            if diff < 1e-12:
+                break
 
-            # 归一化
-            norm = math.sqrt(sum(x**2 for x in ATAv))
-            if norm > 1e-12:
-                v = [x / norm for x in ATAv]
+        Av = [sum(res[i][j] * v[j] for j in range(n)) for i in range(m)]
+        sigma = math.sqrt(sum(x * x for x in Av))
+        if sigma <= 1e-12:
+            break
+        u = [x / sigma for x in Av]
 
-        # 奇异值
-        Av = [sum(A.data[i][j] * v[j] for j in range(n)) for i in range(m)]
-        sigma = math.sqrt(sum(x**2 for x in Av))
-
-        # 存储
         S.data[k][k] = sigma
-
-        # 更新 U 和 V
-        if sigma > 1e-12:
-            u = [x / sigma for x in Av]
-            for i in range(m):
-                U.data[i][k] = u[i]
+        for i in range(m):
+            U.data[i][k] = u[i]
+        for j in range(n):
+            Vt.data[k][j] = v[j]
+        found_v.append(v)
+        for i in range(m):
             for j in range(n):
-                Vt.data[k][j] = v[j]
+                res[i][j] -= sigma * u[i] * v[j]
 
     return U, S, Vt
+
+
+def _orthogonalize(vec: list[float], basis: list[list[float]]) -> list[float]:
+    """把 ``vec`` 对 ``basis`` 中各向量正交化（修正两轮以抑制舍入漂移）。"""
+    v = list(vec)
+    for _ in range(2):
+        for b in basis:
+            dot = sum(b[q] * v[q] for q in range(len(v)))
+            v = [v[q] - dot * b[q] for q in range(len(v))]
+    return v
 
 
 # ============================================================

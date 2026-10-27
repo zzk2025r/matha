@@ -2,7 +2,7 @@ r"""原生正则引擎（阶段 B-1：运行时 NFA 编译器 + Pike/Thompson �
 
 背景
 ====
-解释器（src/interp.py）与 M3V VM（src/mbc/vm.py）复用 src/regexlib.py 的纯
+解释器（src/interp.py）与 M3V VM（src/mbc/vm.py）复用 src/kernel/regex_builtin.py 的纯
 Python 回溯引擎；原生后端（src/mbc/native.py）发射独立 PE，无法回调 Python，
 故需自带引擎。完整 PCRE 风格原生引擎分多轮构建：
 

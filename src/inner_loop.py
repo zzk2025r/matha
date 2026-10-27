@@ -130,7 +130,7 @@ class MathaInnerLoop:
             NativeCompiler,
             ProtocolInterpreter,
         )
-        from src.ffi import get_ffi
+        from src.plugins.ffi import get_ffi
         from src.firewall import MathaFirewall
         from src.growth_engine import create_growth_engine
 
@@ -142,7 +142,7 @@ class MathaInnerLoop:
             get_protocol_parser,
             get_side_effect_engine,
         )
-        from src.interp import Interpreter
+        from src.diag_backends import new_interpreter as Interpreter
         from src.math_driver import get_driver_manager
         from src.multi_paradigm import get_paradigm_engine
         from src.net_security import NetSecurityEngine

@@ -22,7 +22,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -40,180 +39,22 @@ from src.pkg_manager import (
 )
 
 # ============================================================
-# 签名验证 (cosign/sigstore)
+# 签名验证 (cosign/sigstore) —— 已移出至工具链插件
 # ============================================================
+# cosign 是外部进程，属工具链而非包管理器主线，故实现搬到
+# src/plugins/toolchain_signature.py。此处用 PEP 562 模块级 __getattr__
+# 按需解析：不用签名功能就不 import 插件、不触发 subprocess。
+# （旧实现在本文件内直接调 cosign 子进程，并使
+# verify_signed_package 把包字节同时当数据/签名/公钥——不可信的「假验签」。）
+
+_SIGNATURE_NAMES = ("SignatureError", "SignatureVerifier")
 
 
-class SignatureError(Exception):
-    """签名验证相关错误。"""
-    pass
-
-class SignatureVerifier:
-    """签名验证器：使用 cosign/sigstore 验证包签名。"""
-
-    def __init__(self,
-                 cosign_path: str = "cosign",
-                 sigstore_root: str = "",
-                 offline: bool = False):
-        self._cosign = cosign_path
-        self._sigstore_root = sigstore_root
-        self._offline = offline
-        self._verify_cosign_available()
-
-    def _verify_cosign_available(self) -> bool:
-        """检查 cosign 是否可用。"""
-        try:
-            result = subprocess.run([self._cosign, "version"],
-                                  capture_output=True, timeout=5)
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
-
-    @property
-    def is_available(self) -> bool:
-        return self._verify_cosign_available()
-
-    def sign_blob(self, data: bytes, key_path: str, password: str | None = None) -> bytes:
-        """对数据进行签名。
-
-        Args:
-            data: 要签名的数据
-            key_path: 私钥路径
-            password: 私钥密码（可选）
-
-        Returns:
-            签名字节
-        """
-        if not self.is_available:
-            raise SignatureError("cosign 未安装或不可用")
-
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_data:
-            tmp_data.write(data)
-            data_path = tmp_data.name
-
-        try:
-            cmd = [self._cosign, "sign-blob", "--key", key_path]
-            if password:
-                cmd.extend(["--passphrase", password])
-            cmd.append(data_path)
-
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
-            if result.returncode != 0:
-                raise SignatureError(f"签名失败: {result.stderr.decode()}")
-
-            # cosign 输出签名到 stdout
-            signature = result.stdout
-            return signature
-        finally:
-            os.unlink(data_path)
-
-    def verify_blob(self, data: bytes, signature: bytes,
-                    public_key_path: str,
-                    certificate_path: str | None = None) -> bool:
-        """验证 blob 签名。
-
-        Args:
-            data: 原始数据
-            signature: 签名
-            public_key_path: 公钥路径
-            certificate_path: 证书路径（可选，用于 keyless 验证）
-
-        Returns:
-            验证是否通过
-        """
-        if not self.is_available:
-            raise SignatureError("cosign 未安装或不可用")
-
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_data:
-            tmp_data.write(data)
-            data_path = tmp_data.name
-
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_sig:
-            tmp_sig.write(signature)
-            sig_path = tmp_sig.name
-
-        try:
-            cmd = [self._cosign, "verify-blob",
-                   "--key", public_key_path,
-                   "--signature", sig_path]
-
-            if certificate_path:
-                cmd.extend(["--certificate", certificate_path])
-            if self._offline:
-                cmd.append("--offline")
-
-            cmd.append(data_path)
-
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
-            return result.returncode == 0
-        finally:
-            os.unlink(data_path)
-            os.unlink(sig_path)
-
-    def verify_signed_package(self, pkg_path: Path,
-                              public_key_path: str,
-                              certificate_path: str | None = None) -> bool:
-        """验证已签名的包（tar.gz）。
-
-        Args:
-            pkg_path: 包文件路径
-            public_key_path: 公钥路径
-            certificate_path: 证书路径（可选）
-
-        Returns:
-            验证是否通过
-        """
-        if not pkg_path.exists():
-            return False
-
-        pkg_path.read_bytes()
-        # 假设签名文件名为 <pkg_name>.sig
-        sig_path = pkg_path.with_suffix(pkg_path.suffix + ".sig")
-        if not sig_path.exists():
-            # 尝试查找 .sig 文件
-            alt_sig = pkg_path.with_suffix(".sig")
-            if alt_sig.exists():
-                sig_path = alt_sig
-            else:
-                return False
-
-        with open(sig_path, "rb") as f:
-            f.read()
-
-        return self.verify_blob(
-            pkg_path.read_bytes(),
-            pkg_path.read_bytes(),
-            pkg_path.read_bytes()
-        )
-
-    def verify_slsa_provenance(self, pkg_path: Path,
-                               provenance_path: Path,
-                               builder_id: str) -> bool:
-        """验证 SLSA 来源认证。
-
-        Args:
-            pkg_path: 包文件路径
-            provenance_path: SLSA 来源文件路径
-            builder_id: 预期的构建器 ID
-
-        Returns:
-            验证是否通过
-        """
-        if not self.is_available:
-            return False
-
-        try:
-            cmd = [
-                self._cosign, "verify-attestation",
-                "--type", "slsaprovenance",
-                "--predicate", str(provenance_path),
-                "--certificate-identity-regexp", builder_id,
-                str(pkg_path)
-            ]
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
-            return result.returncode == 0
-        except Exception:
-            return False
+def __getattr__(name: str):
+    if name in _SIGNATURE_NAMES:
+        from src.plugins import toolchain_signature
+        return getattr(toolchain_signature, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ============================================================
@@ -1195,9 +1036,9 @@ if __name__ == "__main__":
             print("错误: 未配置远程仓库，无法签名")
             sys.exit(1)
 
-        # 初始化签名验证器
+        # 初始化签名验证器（插件按需加载；require=False 保留下方显式报错文案）
         try:
-            verifier = SignatureVerifier()
+            verifier = SignatureVerifier(require=False)
             if not verifier.is_available:
                 print("错误: cosign 未安装，无法签名")
                 print("请安装 cosign: https://docs.sigstore.dev/cosign/installation/")
@@ -1226,7 +1067,7 @@ if __name__ == "__main__":
 
     elif args.command == 'verify':
         if not hasattr(mgr, '_verifier'):
-            mgr._verifier = SignatureVerifier()
+            mgr._verifier = SignatureVerifier(require=False)
 
         if not mgr._verifier.is_available:
             print("错误: cosign 未安装，无法验证")
@@ -1256,7 +1097,7 @@ if __name__ == "__main__":
 
     elif args.command == 'verify-slsa':
         if not hasattr(mgr, '_verifier'):
-            mgr._verifier = SignatureVerifier()
+            mgr._verifier = SignatureVerifier(require=False)
 
         if not mgr._verifier.is_available:
             print("错误: cosign 未安装，无法验证")
