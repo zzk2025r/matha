@@ -248,7 +248,7 @@ def check_case(stem: str, source: str, flags: list[str], *, update: bool,
         if not (INTERP_DIR / f"{stem}.out").exists():
             _write(INTERP_DIR / f"{stem}.out", ip_out)
             _write(INTERP_DIR / f"{stem}.err", ip_err)
-        return True, gap, f"[UPDATED] {stem}", notes
+        return True, gap, f"[UPDATED] {stem}", notes, nv_skip
 
     exp_out = _read(VM_DIR / f"{stem}.out")
     exp_err = _read(VM_DIR / f"{stem}.err")

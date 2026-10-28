@@ -78,6 +78,50 @@
     "18_domain_lazy_load": {
       "features": [],
       "description": "显式 `@：【加载领域】` + 领域常量取值（插件懒加载进入主链）"
+    },
+    "19_corpus_recursion": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：let rec 累加器递归阶乘（尾递归三元守卫）"
+    },
+    "20_corpus_sum": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：let rec + 索引 + len 列表求和（空表边界）"
+    },
+    "21_corpus_dot": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：双参数函数内 let rec 向量点积"
+    },
+    "22_corpus_cond_chain": {
+      "features": [],
+      "description": "语料镜像：嵌套三元条件链返回字符串（改写 match/tuple 匹配的合法替代）"
+    },
+    "23_corpus_tuple_index": {
+      "features": [],
+      "description": "语料镜像：Tuple 参数按下标取值（改写 t.1 数字字段访问的合法替代）"
+    },
+    "24_error_index_oob": {
+      "features": [],
+      "description": "越界索引：已产生的 stdout 与未捕获 stderr（三端消息主体一致）"
+    },
+    "25_error_mod_zero": {
+      "features": [],
+      "description": "取模除零：错误前 stdout 与未捕获 stderr（vm↔interp 逐字一致）"
+    },
+    "26_error_floordiv_zero": {
+      "features": [],
+      "description": "整除除零：错误前 stdout 与未捕获 stderr（vm↔interp 逐字一致）"
+    },
+    "27_error_str_index_oob": {
+      "features": [],
+      "description": "字符串越界索引：未捕获 stderr（无前置输出）"
+    },
+    "28_error_call_noncallable": {
+      "features": [],
+      "description": "调用非函数值：VM 不再漏出 Python RuntimeError，归一到解释器「不可调用的值」消息"
+    },
+    "29_error_index_on_int": {
+      "features": [],
+      "description": "对不可下标对象取索引：VM 不再漏出 Python TypeError，归一到「索引操作不支持: int[0]」"
     }
   }
 }

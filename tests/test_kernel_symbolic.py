@@ -12,8 +12,8 @@ import pytest
 
 from src.kernel.symbolic import (
     accumulated_bounds, continuous_domain, definite, differentiate, integrate,
-    limit, maclaurin, solve_ode, sum_series, symbol_expr, to_latex, to_pretty,
-    to_str,
+    limit, maclaurin, solve_ode, sum_series, symbol_expr, taylor, to_latex,
+    to_pretty, to_str,
 )
 from src.kernel.symbolic.diff import UnsupportedExpression
 from src.kernel.symbolic.domain import DomainUndetermined
@@ -188,6 +188,46 @@ def test_maclaurin_matches_sympy():
         "x**5/120 + x**4/24 + x**3/6 + x**2/2 + x + 1"
     assert _s(maclaurin(symbol_expr("log(1+x)"), "x", 5)) == \
         "x**5/5 - x**4/4 + x**3/3 - x**2/2 + x"
+
+
+def test_taylor_point_zero_equals_maclaurin():
+    # 通用 taylor 在 point=0 必须与 maclaurin 逐字一致（同一实现路径）。
+    for expr, order in [("exp(x)", 5), ("sin(x)", 5), ("1/(1+x)", 5)]:
+        assert _s(taylor(symbol_expr(expr), "x", 0.0, order)) == \
+            _s(maclaurin(symbol_expr(expr), "x", order))
+
+
+# 任意点（非 0）泰勒展开：内核引擎覆盖 `Σ fⁿ(a)/n!·(x-a)ⁿ`（与 sympy `series` 同式）。
+# 这里以数值一致性锁定正确性（展开幂 vs (x-a)ⁿ 属代数等价变形，见 parity 文档），
+# 断言值取自真函数：n 阶泰勒多项式在展开点邻域应逼近 f。
+TAYLOR_POINT_CASES = [
+    # (表达式, 变量, 展开点 a, 阶数, 评估点 x, 真值 f(x))
+    ("exp(x)", "x", 1.0, 6, 1.2, math.exp(1.2)),
+    ("exp(x)", "x", 2.0, 8, 2.1, math.exp(2.1)),
+    ("sin(x)", "x", 0.5, 8, 0.7, math.sin(0.7)),
+    ("cos(x)", "x", 1.0, 8, 1.1, math.cos(1.1)),
+    ("log(x)", "x", 1.0, 10, 1.2, math.log(1.2)),
+    ("1/x", "x", 2.0, 8, 2.2, 1 / 2.2),
+]
+
+
+@pytest.mark.parametrize("expr,var,a,order,x,truth", TAYLOR_POINT_CASES)
+def test_taylor_nonzero_point_matches_truth(expr, var, a, order, x, truth):
+    # n 阶泰勒多项式在展开点邻域应逼近真函数值。
+    from src.kernel.symbolic.expr import Num
+    poly = taylor(symbol_expr(expr), var, a, order)
+    val = float(poly.substitute(var, Num(x)).evaluate({}))
+    assert abs(val - truth) < 5e-4, f"{expr}@{a}: 泰勒值 {val} 偏离真值 {truth}"
+
+
+def test_taylor_nonzero_point_reduces_at_center():
+    # 在展开点本身，0 阶项应等于 f(a)（一阶以上 (x-a) 归零）。
+    from src.kernel.symbolic.expr import Num
+    for expr, a in [("exp(x)", 1.0), ("sin(x)", 0.5), ("log(x)", 1.0)]:
+        poly = taylor(symbol_expr(expr), "x", a, 5)
+        val = float(poly.substitute("x", Num(a)).evaluate({}))
+        truth = float(symbol_expr(expr).substitute("x", Num(a)).evaluate({}))
+        assert abs(val - truth) < 1e-9, f"{expr}@{a}: 中心点值不符"
 
 
 def test_sum_series():

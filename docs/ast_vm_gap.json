@@ -1,6 +1,6 @@
 {
   "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
-  "generated_at": "2026-10-28T09:49:32",
+  "generated_at": "2026-10-28T12:36:24",
   "generator": "scripts/ast_vm_matrix.py",
   "corpus_dirs": [
     "matha",
@@ -16,7 +16,7 @@
     "noop": 19,
     "missing": 0,
     "blocking": 0,
-    "corpus_files": 180,
+    "corpus_files": 191,
     "opcodes": 33,
     "opcode_vm": 33,
     "opcode_native": 33,
@@ -27,61 +27,61 @@
       "node": "Program",
       "vm": "emits",
       "interp": "no",
-      "used_in": 180
+      "used_in": 191
     },
     {
       "node": "Variable",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 177
+      "used_in": 188
     },
     {
       "node": "IntegerLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 155
+      "used_in": 166
     },
     {
       "node": "BinaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 147
-    },
-    {
-      "node": "Lambda",
-      "vm": "emits",
-      "interp": "yes",
-      "used_in": 139
-    },
-    {
-      "node": "BasicType",
-      "vm": "noop",
-      "interp": "no",
-      "used_in": 138
-    },
-    {
-      "node": "FuncDef",
-      "vm": "emits",
-      "interp": "yes",
-      "used_in": 138
-    },
-    {
-      "node": "FuncType",
-      "vm": "noop",
-      "interp": "no",
-      "used_in": 138
+      "used_in": 154
     },
     {
       "node": "FuncApp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 134
+      "used_in": 145
+    },
+    {
+      "node": "Lambda",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 144
+    },
+    {
+      "node": "BasicType",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 143
+    },
+    {
+      "node": "FuncDef",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 143
+    },
+    {
+      "node": "FuncType",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 143
     },
     {
       "node": "TupleType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 115
+      "used_in": 116
     },
     {
       "node": "ModuleDecl",
@@ -93,7 +93,7 @@
       "node": "StringLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 94
+      "used_in": 101
     },
     {
       "node": "FloatLit",
@@ -105,43 +105,43 @@
       "node": "LetBinding",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 75
+      "used_in": 78
     },
     {
       "node": "IfExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 70
+      "used_in": 74
     },
     {
       "node": "CodeBlock",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 56
-    },
-    {
-      "node": "UnaryOp",
-      "vm": "emits",
-      "interp": "yes",
-      "used_in": 51
+      "used_in": 59
     },
     {
       "node": "IndexExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 49
+      "used_in": 55
     },
     {
-      "node": "ListLiteral",
+      "node": "UnaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 47
+      "used_in": 52
     },
     {
       "node": "Output",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 46
+      "used_in": 51
+    },
+    {
+      "node": "ListLiteral",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 50
     },
     {
       "node": "Generate",
@@ -165,7 +165,7 @@
       "node": "Binding",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 39
+      "used_in": 40
     },
     {
       "node": "BoolLit",
@@ -207,7 +207,7 @@
       "node": "TupleExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 21
+      "used_in": 22
     },
     {
       "node": "SliceExpr",

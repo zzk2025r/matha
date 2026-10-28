@@ -7,8 +7,8 @@
 `LimitUndetermined` / `SeriesUndetermined` / `OdeUnsupported` /
 `DomainUndetermined`），**不返回乐观默认值**。
 
-机器可判定的回归锁：`tests/test_kernel_symbolic.py`（95 例，断言值取自
-sympy 1.14 实测输出）。运行：
+机器可判定的回归锁：`tests/test_kernel_symbolic.py`（103 例；字符串断言的值取自
+sympy 1.14 实测输出，任意点泰勒则以邻域逼近真函数的数值一致性锁定）。运行：
 
 ```
 python -m pytest tests/test_kernel_symbolic.py -q
@@ -86,6 +86,7 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | 能力 | 判定 | 实测样本 |
 |---|---|---|
 | 麦克劳林/泰勒展开 | 一致 | `exp(x)` 5 阶、`log(1+x)`、`sqrt(1+x)`、`tan(x)`、`exp(-x**2)` |
+| 非 0 点泰勒 `taylor(f, x, a, n)` | 一致（值）/ 已知偏差（表示） | 内核 `series.taylor` 覆盖**任意展开点** `a`，与 sympy `series(...).removeO()` 数值一致（`tests/test_kernel_symbolic.py` 以邻域逼近真值锁定）；输出为 `x` 的展开幂形式而非 sympy 的 `(x-a)ⁿ`，属代数等价变形 |
 | Faulhaber（Σ 多项式，非负整数幂） | 一致 | `Σn=5050`、`Σn**3=3025` |
 | 几何/望远镜闭式 | 一致 | `Σ1/2**n → 1`；`Σ1/(n(n+2)) → 0.5952380952380952` |
 | `Σ x**n/n! → exp(x)`、`Σ1/n**2 → π²/6` | 一致 | 闭式识别 |

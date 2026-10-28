@@ -851,7 +851,15 @@ class VM:
             f.pc = ins[1]
         elif op == OP.INDEX_GET:
             idx = st.pop(); c = st.pop()
-            st.append(c[idx])
+            try:
+                st.append(c[idx])
+            except TypeError:
+                # 不可下标对象（如 `5[0]`）：VM 历史上直接漏出 Python
+                # `TypeError: 'int' object is not subscriptable`，而解释器给
+                # 领域消息。归一到与 src/interp.py 逐字一致的文本（越界 IndexError
+                # 不在此列：两端均透传 Python IndexError，已一致）。
+                raise MathaRuntimeError(
+                    f"索引操作不支持: {type(c).__name__}[{idx}]") from None
         elif op == OP.PUSH_TRUE:
             st.append(True)
         elif op == OP.PUSH_FALSE:
@@ -950,7 +958,7 @@ class VM:
             caller.stack.append(r)
             return
 
-        raise RuntimeError(f"VM：不可调用的值 {fn!r}")
+        raise MathaRuntimeError(f"不可调用的值: {fn!r}")
 
 
 def run_module(mod: MModule, verbose: bool = False,
