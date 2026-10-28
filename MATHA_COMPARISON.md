@@ -9,7 +9,7 @@
 ### 核心架构
 
 - **版本**：v4.6.0（唯一版本源 `src/__version__.py`）
-- **领域插件**：80（枚举：`matha --list-domains`；`src/domains/` 共 82 个 `.py`，
+- **领域插件**：82（枚举：`matha --list-domains`；`src/domains/` 共 84 个 `.py`，
   其中 `__init__.py` / `registry.py` 不是插件）；按需显式加载，未加载零 import 成本
 - **内核外工具插件**：14（`src/plugins/`：numpy 加速、FFI、tree-sitter、并行解析、
   LLVM/MSVC 工具链、归档 VM 等）
@@ -28,7 +28,7 @@
 
 | 子系统 | 位置 | 由谁判定 |
 |--------|------|----------|
-| Lexer / Parser | `src/lexer.py`、`src/parser.py` | `tests/test_ast_vm_gap.py` 语料解析（158 个 `.matha`，其中 19 个属遗留语法失败） |
+| Lexer / Parser | `src/lexer.py`、`src/parser.py` | `tests/test_ast_vm_gap.py` 语料解析（158 个 `.matha`，遗留旧写法已全部改写为合法 Matha，解析失败 0） |
 | AST 节点 | `src/ast_nodes.py` | 78 个节点全部进覆盖矩阵 |
 | 编译器 | `src/mbc/compiler.py` | 59 发射 / 19 有意无码 / **0 不认识 / 0 阻塞缺口** |
 | 虚拟机 | `src/mbc/vm.py` | 33 条指令码全分派 + 18 例黄金逐字节 |
@@ -416,11 +416,11 @@ Matha 是一个**创新的领域专用语言**，在数学计算、符号计算�
 | 主执行链唯一 | ✅ lexer→parser→ast_nodes→mbc.compiler→mbc.vm | `docs/ARCHITECTURE.md`；转译 `exec()` 路径已删 |
 | AST 覆盖 | ✅ 78 节点 / 0 不认识 / 0 阻塞缺口 | `docs/ast_vm_gap.md` + `tests/test_ast_vm_gap.py` |
 | VM↔native 指令码面 | ✅ 33 / 33 / 33 | 同上第五、七节 |
-| native 正确性 | ⚠️ 2 例已知未实现（未定义名静默错值 / 字符串减法缺类型校验），不得当通过 | `golden_tests/manifest.json` 的 `native_known_gaps` |
-| 语法层遗留 | ⚠️ 19 个 `.matha` 语料仍解析失败（knowledge/resource/vm 下旧写法） | `docs/ast_vm_gap.md` 第八节 |
+| native 正确性 | ✅ NI-001/NI-002 已修（未定义名与字符串/列表 `-` 均经 `raise_rt` 抛可捕获异常，不再静默错值），`native_known_gaps` 已清空 | `golden_tests/manifest.json` 的 `native_known_gaps` |
+| 语法层遗留 | ✅ 旧 Python 风格草稿已全部改写为合法 Matha，语料解析失败 0（文件保留不删） | `docs/ast_vm_gap.md`、`docs/KNOWN_ISSUES.md` 第二节 |
 | sympy 移出内核 | ✅ 内核纯实现 + `.matha` 符号标准库为默认路径，与 stage0 逐位对拍；sympy 仅作插件层可选后端，只在缺口调用那一刻 `import` | `docs/symbolic_parity.md`、`docs/matha_stdlib_symbolic.md`、`tests/test_plugin_load.py` |
 | 符号能力覆盖面 | ⚠️ 标准库只覆盖有理式极限与 `point=0` 级数；未覆盖即显式 `不支持` 并计数回退 | `tests/test_matha_stdlib_symbolic.py` |
-| 领域能力 | ✅ 80 个插件全部可枚举、按需懒加载；未加载零 import 成本 | `tests/test_plugin_contract.py`、`tests/test_plugin_load.py` |
+| 领域能力 | ✅ 82 个插件全部可枚举、按需懒加载；未加载零 import 成本 | `tests/test_plugin_contract.py`、`tests/test_plugin_load.py` |
 | 统一口径 | ✅ `make check` 对外只产出一个通过率数字 | `scripts/check.py` |
 | 测试规模 | 以最近一次 `make check` 输出为准（旧文档里的通过数都是过期快照） | `scripts/check.py` |
 
@@ -438,11 +438,13 @@ Matha 是一个**创新的领域专用语言**，在数学计算、符号计算�
 
 ### 真正的短板（如实）
 
-1. **社区与生态规模** —— 无外部社区；80 个领域插件全由仓库自带，与
+1. **社区与生态规模** —— 无外部社区；82 个领域插件全由仓库自带，与
    Python/Rust 的第三方生态不在同一量级。
-2. **机器码后端「能发射」不等于「算得对」** —— `native_known_gaps` 里那 2 例
-   说明类型校验与未定义名处理仍缺失。
-3. **语法层历史债务** —— 19 个旧 `.matha` 资源文件 parser 过不了。
+2. **机器码后端成熟度** —— NI-001/NI-002 已修、`native_known_gaps` 已清空（
+   `make check --native` 17/18，唯一 gap 为设计内 SKIP）；但 native 路径相比
+   interp/VM 仍未经受同等强度的实战回归。
+3. **语料新旧并存** —— 旧 Python 风格草稿已全部改写为合法 Matha（解析失败 0），
+   但改写后的语料多为参考/教学用途，不等于已接入主线执行回归。
 4. **符号能力是子集** —— 超越式极限、非 0 点泰勒展开、广义 ODE 仍需 stage0
    或可选 sympy 后端兜底（兜底会留痕计数，不静默）。
 5. **IDE** —— 有 LSP 服务，无专用 IDE。

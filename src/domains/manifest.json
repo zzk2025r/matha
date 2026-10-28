@@ -1,7 +1,7 @@
 {
   "_comment": "Matha 领域插件清单 —— 纯数据，由 scripts/gen_domain_manifest.py 生成，请勿手改。运行时 src/plugin_api.PluginResolver 只读此文件即可完成符号→插件的归属判定，从而不在启动时 import 任何领域模块。plugins 数组的顺序即加载顺序（沿用旧 interp eager 注册顺序），跨领域重名符号按后者覆盖。",
   "protocol_version": 1,
-  "generated_at": "2026-10-28T02:08:44",
+  "generated_at": "2026-10-28T03:16:57",
   "generator": "scripts/gen_domain_manifest.py",
   "plugins": [
     {
@@ -4267,6 +4267,48 @@
         "integrate",
         "积分",
         "符号原子"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
+      "name": "symbolic_ode",
+      "module": "src.domains.symbolic_ode",
+      "display_name": "常微分方程求解",
+      "cn_name": "常微分方程求解",
+      "category": "general",
+      "description": "",
+      "aliases": [
+        "symbolic_ode",
+        "常微分方程求解"
+      ],
+      "registers": [
+        "_register_symbolic_ode"
+      ],
+      "symbols": [
+        "ode",
+        "解微分方程"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
+      "name": "symbolic_series",
+      "module": "src.domains.symbolic_series",
+      "display_name": "级数求和",
+      "cn_name": "级数求和",
+      "category": "general",
+      "description": "",
+      "aliases": [
+        "symbolic_series",
+        "级数求和"
+      ],
+      "registers": [
+        "_register_symbolic_series"
+      ],
+      "symbols": [
+        "sum_series",
+        "级数求和"
       ],
       "declared_symbols": [],
       "legacy": false

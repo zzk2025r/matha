@@ -7649,7 +7649,19 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
                 f"若这是普通变量，请用与内建不冲突的名字，"
                 f"或在本模块内先以 STORE_GLOBAL 定义。 @ {tag}[{idx}]")
         else:
-            em.load_global(f"cell:{name}")
+            # 走到此处：name 非（未遮蔽的）内建/用户函数、非常量/_UNRESOLVED_GLOBALS。
+            # 两种子情形：
+            #  1) name 被本模块 STORE_GLOBAL 定义过（如被同名内建遮蔽的 `let get = 5`，
+            #     因上方 `name not in fn_names` 条件不满足而落到这里）→ 读全局单元。
+            #  2) NI-001：从未定义的名字 → 此前静默读成 cell（=裸 0），与 VM/解释器
+            #     的「未定义变量」不符。VM 对这类名字无条件抛错，故此处同样经
+            #     raise_rt 抛同类可捕获异常，不再吞成 0。
+            if declared_globals is not None and name in declared_globals:
+                em.load_global(f"cell:{name}")
+            else:
+                em.lea_rip(0, "err_undefined")
+                em.call_rel32("raise_rt")             # 不返回
+                em.emit(b"\x0F\x0B")                   # ud2
     elif op == OP.STORE_GLOBAL:
         em.store_global(f"cell:{consts[ins[1]]}")
     elif op == OP.MAKE_CLOSURE:
@@ -7768,15 +7780,58 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.lea_rip(0, "null_obj")
             em.label_here(ldone)
         elif sym == "-":
-            em.mov_rr(10, 0)                        # r10=左（供溢出复原）
-            em.emit(b"\x48\x29\xC8")                # sub rax,rcx
+            # NI-002：字符串/列表参与 `-`。浮点/大整数已在前面分流（is_float2 /
+            # is_bigint2），残留的堆对象只可能是 str/list/dict/bool/null。按解释器
+            # src/interp.py:3016-3018 的判据，str/list 一律报「- 不适用于字符串/列表」，
+            # 交 raise_rt 抛可捕获异常；不再拿对象指针做 sub 得假值。
+            lbad = f"bo_sub_bad_{tag}_{idx}"
+            lchk = f"bo_sub_chk_{tag}_{idx}"
+            lnum = f"bo_sub_num_{tag}_{idx}"
             lsubovf = f"bo_subovf_{tag}_{idx}"
             lsubdone = f"bo_subdone2_{tag}_{idx}"
+            em.mov_rr(8, 0)                         # r8=左
+            em.mov_rr(9, 1)                         # r9=右
+            em.lea_rip(10, "heap_base")             # r10=heap_base
+            # 左侧：落在堆区间且类型为 str/list → 报错；其余（bool/null/非堆）继续
+            em.mov_rr(2, 8)                         # rdx=左
+            em.sub_rr(2, 10)                        # 左 - heap_base
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x83, lchk)                # jae 非堆对象 → 查右侧
+            em.mov_rr(0, 8)                         # rax=左
+            em.emit(b"\x8B\x38")                    # mov edi,[rax] 类型标签
+            em.emit(b"\x83\xFF" + bytes([TYPE_STR]))    # cmp edi,TYPE_STR
+            em.jcc_rel32(0x84, lbad)
+            em.emit(b"\x83\xFF" + bytes([TYPE_LIST]))   # cmp edi,TYPE_LIST
+            em.jcc_rel32(0x84, lbad)
+            em.jcc_rel32(None, lchk)                # 非 str/list → 查右侧
+            # 右侧：同上
+            em.label_here(lchk)
+            em.mov_rr(2, 9)                         # rdx=右
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x83, lnum)                # jae 非堆对象 → 数值路径
+            em.mov_rr(0, 9)                         # rax=右
+            em.emit(b"\x8B\x30")                    # mov esi,[rax]
+            em.emit(b"\x83\xFE" + bytes([TYPE_STR]))    # cmp esi,TYPE_STR
+            em.jcc_rel32(0x84, lbad)
+            em.emit(b"\x83\xFE" + bytes([TYPE_LIST]))   # cmp esi,TYPE_LIST
+            em.jcc_rel32(0x84, lbad)
+            # ---- 数值路径（整数相减，溢出提升大整数）----
+            em.label_here(lnum)
+            em.mov_rr(0, 8)                         # rax=左
+            em.mov_rr(1, 9)                         # rcx=右
+            em.mov_rr(10, 0)                        # r10=左（供溢出复原）
+            em.emit(b"\x48\x29\xC8")                # sub rax,rcx
             em.jcc_rel32(0x80, lsubovf)             # jo → 溢出
             em.jcc_rel32(None, lsubdone)
             em.label_here(lsubovf)
             em.mov_rr(0, 10)                        # 复原 rax=左
             em.jcc_rel32(None, lbi)                 # 提升大整数
+            # ---- 类型错误：字符串/列表 → 抛可捕获异常（不返回）----
+            em.label_here(lbad)
+            em.lea_rip(0, "err_sub_type")
+            em.call_rel32("raise_rt")               # 不返回
+            em.emit(b"\x0F\x0B")                    # ud2
             em.label_here(lsubdone)
         elif sym == "*":
             # 类型分派：序列重复（字符串/列表 × 整数）与整数乘法。
@@ -10309,6 +10364,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                     ("tag_ioerror", "MathaIOError"),
                     ("err_divzero", "division by zero"),
                     ("err_powzero", "zero to a negative power"),
+                    ("err_undefined", "未定义变量"),
+                    ("err_sub_type", "- 不适用于字符串/列表"),
                     ("err_bitand", "& 操作数需为整数"),
                     ("err_bitor", "| 操作数需为整数"),
                     ("err_bitxor", "⊕ 操作数需为整数"),

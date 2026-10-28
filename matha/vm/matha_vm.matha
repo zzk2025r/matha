@@ -85,7 +85,7 @@ module 虚拟机 {
                            "输出": vm["输出"], "用户函数": vm["用户函数"],
                            "常量": vm["常量"]})
 
-  func VM Peek(vm: Dict) -> Value = (vm) => _栈顶(vm)
+  func VM_Peek(vm: Dict) -> Value = (vm) => _栈顶(vm)
 
   func VM压帧(vm: Dict, frame: Dict) -> Dict = (vm, frame) =>
     {"帧栈": vm["帧栈"] + [frame], "栈": vm["栈"], "输出": vm["输出"],
@@ -158,11 +158,11 @@ module 虚拟机 {
         let else_target = len(cond_insns) + 4 in
         let then_insns = _compile_expr(expr["真分支"], cond_insns + [(OP_JUMP_ZERO, else_target)]) in
         let jump_target = len(then_insns) + 1 in
-        let else_insns = _compile_expr(expr["假分支"], then_insns + [(OP_JUMP, jump_target), (OP_HALT,)]) in
+        let else_insns = _compile_expr(expr["假分支"], then_insns + [(OP_JUMP, jump_target), (OP_HALT, 0)]) in
         else_insns
       else expr["类型"] = "程序" ?
         let rec _compile_decls(decls: List, acc: List) -> List =
-          decls = [] ? acc + [(OP_HALT,)]
+          decls = [] ? acc + [(OP_HALT, 0)]
           else _compile_decls(decls[1:], _compile_expr(decls[0], acc))
         in _compile_decls(expr["声明"], insns)
       else expr["类型"] = "函数定义" ?
@@ -206,7 +206,7 @@ module 虚拟机 {
           if op in _unops then _run(ip + 1, VM压栈(vm2, _unops[op](a)))
           else VM错误("不支持的一元运算符: " + op)
         else if opcode = OP_CALL then
-          let nargs = instr[1] as Int in
+          let nargs = instr[1] in
           let rec _pop_args(n: Int, vm: Dict, args: List) -> (List, Dict) =
             n <= 0 ? (args, vm)
             else
@@ -215,13 +215,11 @@ module 虚拟机 {
           in
           let (args_rev, vm2) = _pop_args(nargs, vm, []) in
           let args = _reverse_list(args_rev) in
-          let func_name = args[0] as String in
+          let func_name = args[0] in
           let func_args = args[1:] in
           if func_name in 运行时引擎.内建函数表 then
             let fn = 运行时引擎.内建函数表[func_name] in
-            let result = fn(func_args[0], func_args[1]) if len(func_args) >= 2
-                         else fn(func_args[0]) if len(func_args) = 1
-                         else fn() in
+            let result = (len(func_args) >= 2) ? fn(func_args[0], func_args[1]) : (len(func_args) == 1) ? fn(func_args[0]) : fn() in
             _run(ip + 1, VM压栈(vm2, result))
           else if func_name in vm["用户函数"] then
             let func_def = vm["用户函数"][func_name] in
@@ -232,21 +230,21 @@ module 虚拟机 {
           else
             VM错误("未定义函数: " + func_name)
         else if opcode = OP_FUNC_DEF then
-          let name = instr[1] as String in
+          let name = instr[1] in
           {"帧栈": vm["帧栈"], "栈": vm["栈"], "输出": vm["输出"],
            "用户函数": vm["用户函数"] + [(name, {"参数": [], "体": {}})],
            "常量": vm["常量"]}
         else if opcode = OP_HALT then
           vm
         else if opcode = OP_JUMP then
-          _run(instr[1] as Int, vm)
+          _run(instr[1], vm)
         else if opcode = OP_JUMP_ZERO then
           let (val, vm2) = VM弹栈(vm) in
-          if val = 0.0 then _run(instr[1] as Int, vm2)
+          if val = 0.0 then _run(instr[1], vm2)
           else _run(ip + 1, vm2)
         else if opcode = OP_JUMP_NONZERO then
           let (val, vm2) = VM弹栈(vm) in
-          if val != 0.0 then _run(instr[1] as Int, vm2)
+          if val != 0.0 then _run(instr[1], vm2)
           else _run(ip + 1, vm2)
         else
           VM错误("未知指令: " + 标准库.str(opcode))

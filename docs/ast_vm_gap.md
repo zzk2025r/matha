@@ -27,8 +27,8 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
 | 指令码总数 / VM 已分派 / native 已发射 | 33 / 33 / 33 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
-| 语料文件（解析成功） | 159 |
-| 无法解析的语料文件 | 19 |
+| 语料文件（解析成功） | 180 |
+| 无法解析的语料文件 | 0 |
 
 ## 三、阻塞缺口（必须先补）
 
@@ -46,80 +46,80 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `AngleExpr` | emits | no | 0 |
 | `AnnotatedType` | noop | no | 0 |
 | `Annotation` | noop | no | 0 |
-| `BasicType` | noop | no | 119 |
+| `BasicType` | noop | no | 138 |
 | `Belongs` | emits | yes | 1 |
-| `BinaryOp` | emits | yes | 128 |
+| `BinaryOp` | emits | yes | 147 |
 | `Binding` | emits | yes | 39 |
-| `BoolLit` | emits | yes | 25 |
+| `BoolLit` | emits | yes | 33 |
 | `BreakStmt` | emits | yes | 1 |
 | `ChainStmt` | emits | yes | 16 |
 | `ChanExpr` | emits | no | 0 |
-| `CodeBlock` | emits | yes | 49 |
+| `CodeBlock` | emits | yes | 56 |
 | `CommandLiteral` | noop | yes | 28 |
 | `ConstructorPat` | emits | yes | 0 |
 | `ContinueStmt` | emits | yes | 1 |
 | `DefineOp` | noop | no | 0 |
-| `DictLiteral` | emits | yes | 10 |
-| `EnumDef` | emits | yes | 1 |
+| `DictLiteral` | emits | yes | 11 |
+| `EnumDef` | emits | yes | 2 |
 | `FileMarker` | noop | yes | 0 |
-| `FloatLit` | emits | yes | 75 |
+| `FloatLit` | emits | yes | 83 |
 | `ForStmt` | emits | yes | 2 |
 | `ForeignDecl` | noop | yes | 4 |
-| `FuncApp` | emits | yes | 113 |
-| `FuncDef` | emits | yes | 119 |
-| `FuncType` | noop | no | 119 |
+| `FuncApp` | emits | yes | 134 |
+| `FuncDef` | emits | yes | 138 |
+| `FuncType` | noop | no | 138 |
 | `GenStmt` | emits | yes | 31 |
 | `Generate` | noop | no | 43 |
 | `GlobalIdStmt` | noop | yes | 15 |
 | `GlobalLoopSuffix` | noop | no | 1 |
 | `GoStmt` | emits | yes | 0 |
 | `IfElseStmt` | emits | yes | 0 |
-| `IfExpr` | emits | yes | 56 |
-| `IfStmt` | emits | yes | 6 |
-| `ImportDecl` | emits | yes | 10 |
-| `IndexExpr` | emits | yes | 37 |
-| `IntegerLit` | emits | yes | 135 |
+| `IfExpr` | emits | yes | 70 |
+| `IfStmt` | emits | yes | 13 |
+| `ImportDecl` | emits | yes | 11 |
+| `IndexExpr` | emits | yes | 49 |
+| `IntegerLit` | emits | yes | 155 |
 | `IsExpr` | emits | yes | 1 |
 | `Iteration` | emits | no | 0 |
-| `Lambda` | emits | yes | 120 |
-| `LetBinding` | emits | yes | 58 |
-| `LetTupleBinding` | emits | yes | 9 |
+| `Lambda` | emits | yes | 139 |
+| `LetBinding` | emits | yes | 75 |
+| `LetTupleBinding` | emits | yes | 10 |
 | `ListComp` | emits | yes | 0 |
-| `ListLiteral` | emits | yes | 39 |
+| `ListLiteral` | emits | yes | 47 |
 | `LoopFraction` | noop | no | 10 |
 | `LoopStep` | emits | no | 0 |
 | `LoopWhile` | emits | no | 0 |
-| `MatchStmt` | emits | yes | 6 |
+| `MatchStmt` | emits | yes | 13 |
 | `MechUnit` | emits | yes | 43 |
-| `ModuleDecl` | emits | yes | 88 |
+| `ModuleDecl` | emits | yes | 105 |
 | `NLBlock` | noop | no | 0 |
-| `Output` | emits | yes | 45 |
+| `Output` | emits | yes | 46 |
 | `OutputTrail` | emits | yes | 41 |
-| `PathExpr` | emits | yes | 12 |
-| `Program` | emits | no | 159 |
-| `RaiseExpr` | emits | yes | 5 |
+| `PathExpr` | emits | yes | 16 |
+| `Program` | emits | no | 180 |
+| `RaiseExpr` | emits | yes | 6 |
 | `ReadBlock` | noop | yes | 23 |
 | `ReturnStmt` | emits | yes | 6 |
 | `SafePathExpr` | emits | yes | 0 |
 | `SegLoopSuffix` | noop | no | 10 |
 | `SelectStmt` | emits | no | 0 |
 | `SendExpr` | emits | no | 0 |
-| `SetConstruct` | emits | yes | 1 |
+| `SetConstruct` | emits | yes | 3 |
 | `SetType` | noop | no | 0 |
 | `SetUp` | emits | yes | 25 |
 | `SetUpItem` | noop | no | 25 |
-| `SliceExpr` | emits | yes | 16 |
-| `StringLit` | emits | yes | 78 |
-| `StructDef` | emits | yes | 2 |
+| `SliceExpr` | emits | yes | 19 |
+| `StringLit` | emits | yes | 94 |
+| `StructDef` | emits | yes | 3 |
 | `SwitchStmt` | emits | yes | 0 |
 | `ThrowStmt` | emits | yes | 0 |
 | `TryStmt` | emits | yes | 4 |
-| `TupleExpr` | emits | yes | 15 |
-| `TupleType` | noop | no | 97 |
+| `TupleExpr` | emits | yes | 21 |
+| `TupleType` | noop | no | 115 |
 | `TypeOfExpr` | emits | yes | 2 |
-| `UnaryOp` | emits | yes | 39 |
-| `Variable` | emits | yes | 156 |
-| `WhileStmt` | emits | yes | 3 |
+| `UnaryOp` | emits | yes | 51 |
+| `Variable` | emits | yes | 177 |
+| `WhileStmt` | emits | yes | 8 |
 
 ## 六、指令码 × VM / native
 
@@ -164,32 +164,6 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `STORE_LOCAL` | yes | yes |
 | `UNARYOP` | yes | yes |
 | `UNPACK_SEQ` | yes | yes |
-
-## 八、无法解析的语料
-
-这些 `.matha` 连 parser 都过不了，属语法层缺口（与 VM 无关）：
-
-| 文件 | 错误 |
-|---|---|
-| `matha/knowledge/cs/algorithms.matha` | ParseError: ParseError at L11:20: 期望表达式 (got OP_COLON ':') |
-| `matha/knowledge/cs/data_structures.matha` | ParseError: ParseError at L10:5: 期望类型表达式 (got NEWLINE '\\n') |
-| `matha/resource/cs/algorithms.matha` | ParseError: ParseError at L11:20: 期望表达式 (got OP_COLON ':') |
-| `matha/resource/cs/game_algorithms.matha` | ParseError: ParseError at L43:9: 期望变量名或占位符 ？ (got PUNCT_LPAREN '(') |
-| `matha/resource/cs/game_apps_math.matha` | ParseError: ParseError at L68:11: 期望 ( (got IDENTIFIER 'best_first') |
-| `matha/resource/cs/os_concepts.matha` | ParseError: ParseError at L11:9: 期望变量名或占位符 ？ (got PUNCT_LPAREN '(') |
-| `matha/resource/hardware/embedded_math.matha` | ParseError: ParseError at L13:21: 期望 ) (got OP_COLON ':') |
-| `matha/resource/hardware/system_math.matha` | ParseError: ParseError at L13:17: 期望表达式 (got OP_ARROW '->') |
-| `matha/resource/logic/advanced_math.matha` | ParseError: ParseError at L65:8: 期望 函数名 (got LIT_INTEGER '01背包') |
-| `matha/resource/math/3d_transform.matha` | ParseError: ParseError at L73:43: 期望 属性名 (got LIT_INTEGER '1') |
-| `matha/resource/os/kernel_memory.matha` | ParseError: ParseError at L64:52: 期望 ) (got OP_PLUS '+') |
-| `matha/resource/os/kernel_syscall.matha` | ParseError: ParseError at L120:1: 期望 } (got EOF '') |
-| `matha/resource/os/os_concepts_math.matha` | ParseError: ParseError at L11:10: 期望 ) (got KW_IN 'in') |
-| `matha/resource/os/process_math.matha` | ParseError: ParseError at L52:9: 期望变量名或占位符 ？ (got PUNCT_LPAREN '(') |
-| `matha/resource/security/crypto_math.matha` | ParseError: ParseError at L97:9: 期望变量名或占位符 ？ (got PUNCT_LPAREN '(') |
-| `matha/resource/statistics/analysis.matha` | ParseError: ParseError at L47:20: 期望表达式 (got OP_COLON ':') |
-| `matha/resource/tools/utility_math.matha` | ParseError: ParseError at L15:10: 期望 => (got PUNCT_COMMA ',') |
-| `matha/resource/web/network_math.matha` | ParseError: ParseError at L76:13: 期望 ( (got IDENTIFIER 'Token长度') |
-| `matha/vm/matha_vm.matha` | ParseError: ParseError at L88:11: 期望 ( (got IDENTIFIER 'Peek') |
 
 ## 九、写 `.matha` 标准库时踩到的语言口径
 

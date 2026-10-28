@@ -6,22 +6,21 @@
 
 ## 一、机器码后端（`src/mbc/native.py`）
 
-| 编号 | 问题 | 判据 |
-|---|---|---|
-| NI-001 | 从未 `STORE_GLOBAL` 的名字在机器码端被读成静态 `0`（**静默错值**），而 VM/解释器抛「未定义变量」 | `golden_tests/manifest.json` → `native_known_gaps["13_error_undefined"]`；`python golden_tests/run_golden_tests.py --native` 报 KNOWN-GAP |
-| NI-002 | 字符串参与 `-` 时机器码端缺类型校验，把字符串对象指针当数减（输出假值） | 同上 `["14_error_type"]` |
-
-这两例在 `make check` 里记为「未覆盖」并从通过率分母剔除，**不计作通过**。
-修好后必须从 `native_known_gaps` 删除，否则黄金运行器报 STALE。
+> NI-001、NI-002 已修复：未定义变量与字符串/列表参与 `-` 均经 `raise_rt` 抛
+> 可捕获异常，不再静默读成裸 0 / 拿对象指针做假减。已从 `manifest.json` 的
+> `native_known_gaps` 清空，`make check`（`--native`）17/18 通过（唯一 gap 为
+> `18_domain_lazy_load`：native 不承载领域插件符号，属设计内 SKIP）。
 
 ## 二、语法层历史债务
 
-19 个 `.matha` 语料文件连 parser 都过不了（`matha/knowledge/`、`matha/resource/`、
-`matha/vm/` 下的旧写法：`？` 占位符误用、记录面 `#：{}`、`->` 位置错误等）。
-文件**保留不删**（兼容承诺），但它们当前只能在遗留后端下按片段理解，不能进主线。
+曾经有 19 个 `.matha` 语料文件连 parser 都过不了（`matha/knowledge/`、`matha/resource/`、
+`matha/vm/` 下的 Python 风格草稿：`？` 占位符误用、记录面 `#：{}`、`->` 位置错误、
+`X if COND else Y` 后缀式、`(OP,)` 单元组尾逗号、空格标识符等）。本轮已把它们**改写为合法
+Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（兼容承诺）并已进入主线解析。
+当前「语料解析失败」计数为 **0**。
 
-判据：[`ast_vm_gap.md`](ast_vm_gap.md) 第八节逐文件列出 `ParseError` 消息；
-`python scripts/ast_vm_matrix.py --write` 输出的「语料解析失败」计数。
+判据：`python scripts/ast_vm_matrix.py --write` 输出的「语料解析失败」计数应为 0；
+[`ast_vm_gap.md`](ast_vm_gap.md) 与 `ast_vm_gap.json` 的 `unparseable` 字段为空。
 
 ## 三、符号能力覆盖面
 
@@ -35,15 +34,19 @@
 
 ## 四、跨后端差异（如实登记，不抹平）
 
-`interp` 把运行时错误统一包装成 `MathaRuntimeError`，VM 的部分路径仍透传
-Python 原生异常。黄金运行器对 stderr **异常类名**走白名单、消息主体逐字比对，
-差异在报告里显式列出。
+运行时错误类型已归一：三后端（`interp` / VM / native）对同一错误抛**同一个异常类**
+且消息主体逐字一致。曾有的一处类名分歧（未定义变量：interp 抛基类
+`MathaRuntimeError`、VM 抛更精确的 `MathaUndefinedNameError`）已闭合——`interp` 现也
+抛 `MathaUndefinedNameError`（它是 `MathaRuntimeError` 子类，`except MathaRuntimeError`
+的既有写法与宿主 `except KeyError` 全部不变）。
+
+判据：`python golden_tests/run_golden_tests.py` 末尾「跨后端 stderr 类名差异」报告为空。
+黄金运行器仍保留 stderr **异常类名**白名单与消息主体逐字比对，防止未来重新引入差异。
 
 ## 五、治理与工程噪声
 
 | 编号 | 问题 | 说明 |
 |---|---|---|
-| NI-005 | `src/kernel/time_builtin.py` 仍用 `datetime.utcnow()` | Python 3.12+ 弃用告警；改成 timezone-aware 会改变输出串格式，需先重建黄金基线，故暂未动 |
 | NI-006 | `src/__init__.py` 的惰性符号表把 `VERSION` 指向 `src.matha_main.VERSION` | 取值仍来自唯一版本源，但多绕一层；历史兼容写法（`tests/test_single_version.py` 保证不漂移） |
 | NI-007 | `import src.kernel` 本身零成本，但 `src/matha_system.py` 等聚合入口仍会拉起大量模块 | 内核纯净性由 `test_kernel_purity.py` 限定在 `lexer/parser/ast_nodes/kernel/mbc`；聚合入口不属内核 |
 | NI-008 | 仓库根与 `scripts/` 历史遗留的一次性调试脚本 | 已集中移入 `scripts/scratch/`；不再作为现状依据 |

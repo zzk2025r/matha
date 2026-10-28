@@ -61,7 +61,7 @@ func kernel_mem_total(text_size: Int, data_size: Int, bss_size: Int, stack_size:
 (* ── 物理页分配器估算 ───────────────────────────────────── *)
 (* bitmap 位图分配器：每页需 1 bit *)
 func page_bitmap_bits(pages: Int) -> Int = pages
-func page_bitmap_bytes(pages: Int) -> Int = (pages + 7) / 8
+func page_bitmap_bytes(pages: Int) -> Int = (pages) => (pages + 7) / 8
 
 (* ── 虚拟内存区域（VMA）估算 ────────────────────────────── *)
 (* 每个 VMA 约 64 字节（地址范围 + 权限 + 映射信息） *)

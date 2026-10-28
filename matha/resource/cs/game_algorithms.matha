@@ -39,14 +39,13 @@ module 游戏算法 {
   (* ===== 游戏状态机 ===== *)
   func 状态转换(当前状态: String, 事件: String) -> String =
     (当前状态, 事件) =>
-    match (当前状态, 事件) {
-      | ("idle", "start") => "playing"
-      | ("playing", "pause") => "paused"
-      | ("playing", "game_over") => "gameover"
-      | ("paused", "resume") => "playing"
-      | ("gameover", "restart") => "idle"
+    match 当前状态 + ":" + 事件 {
+      | "idle:start" => "playing"
+      | "playing:pause" => "paused"
+      | "playing:game_over" => "gameover"
+      | "paused:resume" => "playing"
+      | "gameover:restart" => "idle"
       | _ => 当前状态
-
     }
   func 状态可行动作(状态: String) -> List =
     (状态) =>

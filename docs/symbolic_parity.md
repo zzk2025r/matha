@@ -89,7 +89,7 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | Faulhaber（Σ 多项式，非负整数幂） | 一致 | `Σn=5050`、`Σn**3=3025` |
 | 几何/望远镜闭式 | 一致 | `Σ1/2**n → 1`；`Σ1/(n(n+2)) → 0.5952380952380952` |
 | `Σ x**n/n! → exp(x)`、`Σ1/n**2 → π²/6` | 一致 | 闭式识别 |
-| 负整数幂求和（`Σ1/n`，调和/`polygamma`） | 子集 | `SeriesUndetermined`；sympy 给出 `digamma(5) + EulerGamma` |
+| 负整数幂求和（`Σ1/n`，调和/`polygamma`） | 子集（插件回退已覆盖） | 内核 `SeriesUndetermined`；`级数求和` 插件懒加载 sympy 给 `137/60`/`digamma(5)+EulerGamma`（见第 10 节） |
 | 求和变量与项内函数不匹配（`Σk`，k 非求和元） | 子集 | 显式失败 |
 
 ## 6. 常微分方程 `solve_ode`（`kernel/symbolic/ode.py`）
@@ -101,7 +101,7 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | 一阶线性积分因子 | 一致 | `y' + 2*y = exp(-x) → C1*exp(-2*x) + exp(-x)`；`y' + 3*y = exp(2*x) → C1*exp(-3*x) + exp(2*x)/5` |
 | 二阶常系数齐次（相异/重根/共轭） | 一致 | `y'' + 2*y' + y = 0 → C2*x*exp(-x) + C1*exp(-x)` |
 | 待定系数特解（非齐次高阶） | 子集 | 仅覆盖多项式/指数/正弦型右端的部分组合，失败即显式报错 |
-| 非线性一阶（`y' = x**2 + y**2`、`y' = (x+y)/x`、`y' = 1/(x+y)`） | 子集 | `OdeUnsupported`；sympy 分别返回 Airy / 线性化 / Riccati 解 |
+| 非线性一阶（`y' = x**2 + y**2`、`y' = (x+y)/x`、`y' = 1/(x+y)`） | 子集（插件回退已覆盖） | 内核 `OdeUnsupported`；`解微分方程` 插件懒加载 sympy 给线性化/Riccati 解（需 Airy 的 `y'=x²+y²` 仍显式失败，见第 10 节） |
 | 幂级数解、Laplace 变换 | 子集 | 内核未实现 |
 
 ## 7. 连续域与累值界 `continuous_domain` / `accumulated_bounds`（`kernel/symbolic/domain.py`）
@@ -153,3 +153,20 @@ python -m pytest tests/test_kernel_symbolic.py -q
 
 以上 7 项在内核中**全部走显式失败路径**，由 `src.stdlib.calculus_symbolic`
 门面转成带说明的错误；错误文案统一指向本文档。
+
+## 10. 懒加载插件回退层（`src/domains/symbolic_*.py`）
+
+内核纯净化重构把重后端（sympy）留在**领域插件层**：内核引擎优先作答，只有
+显式抛缺口（`OdeUnsupported` / `SeriesUndetermined`）时才在调用点动态
+`import sympy`，取用一次才物化一个插件（启动成本恒为 0）。已铺开的回退件：
+
+| 插件 | 符号 | 覆盖缺口 | 取证 |
+|---|---|---|---|
+| `symbolic_calculus` | `integrate` / `积分` | 非初等原函数（`exp(-x²)`…） | `tests/test_plugin_load.py` |
+| `symbolic_ode` | `解微分方程` / `ode` | 非线性一阶 ODE（齐次/Riccati） | `tests/test_plugin_ode.py` |
+| `symbolic_series` | `级数求和` / `sum_series` | 负整数幂求和（调和/交错） | `tests/test_plugin_series.py` |
+
+红线：插件**不导出裸单字母符号**（否则经 `LazyBuiltinTable` 成员判定改写
+「未定义名即报错」的内核契约）；回退到 sympy 时输出为 sympy 打印串，与内核
+标准串不保证逐字同形；sympy 也解不了的（如需 Airy 的 `y'=x²+y²`、振荡型极限）
+仍**显式抛错并指向本文档**，绝不返回「无法求解」之类假成功。

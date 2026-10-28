@@ -65,20 +65,19 @@ module 游戏数学 {
   func A星欧氏距离(x1: Float, y1: Float, x2: Float, y2: Float) -> Float =
     (x1, y1, x2, y2) => 开方((x2-x1)^2 + (y2-y1)^2)
 
-  func 贪心 best_first(起点: Int, 终点: Int, 启发式: List) -> Int =
+  func 贪心best_first(起点: Int, 终点: Int, 启发式: List) -> Int =
     (* 简化：返回启发式值 *)
     (起点, 终点, 启发式) => 启发式[终点]
 
   func 状态机转换(当前: String, 事件: String) -> String =
     (当前, 事件) =>
-    match (当前, 事件) {
-      | ("idle", "start") => "playing"
-      | ("playing", "pause") => "paused"
-      | ("playing", "die") => "gameover"
-      | ("gameover", "restart") => "idle"
-      | ("paused", "resume") => "playing"
+    match 当前 + ":" + 事件 {
+      | "idle:start" => "playing"
+      | "playing:pause" => "paused"
+      | "playing:die" => "gameover"
+      | "gameover:restart" => "idle"
+      | "paused:resume" => "playing"
       | _ => 当前
-
     }
   func 行为树评估(node: String, context: List) -> String =
     (* 简化：返回动作 *)

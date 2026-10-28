@@ -8,11 +8,11 @@
 `tests/test_doc_facts.py` 会核对文档与代码是否漂移（漂移即红）。
 
 - **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
-- **领域插件：** 80（`src/domains/` 共 82 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
+- **领域插件：** 82（`src/domains/` 共 84 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 14（`src/plugins/`）
 - **黄金用例：** 18（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
-- **`.matha` 语料：** 158（其中 19 个属语法层遗留，见 `docs/ast_vm_gap.md` 第八节）
-- **测试文件：** 56（`tests/`）
+- **`.matha` 语料：** 158（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
+- **测试文件：** 58（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -94,7 +94,7 @@ python scripts/verify_offline.py
 | **类型系统** | 依赖类型/泛型/子类型/精炼类型 |
 | **CSP 并发** | 进程级并发绕过 Python GIL |
 | **离线存储** | SQLite 持久化 + 同步管理 |
-| **80 领域插件** | 物理/工程/AI/金融/生物/化学等；按需显式加载，不加载零 import 成本 |
+| **82 领域插件** | 物理/工程/AI/金融/生物/化学等；按需显式加载，不加载零 import 成本 |
 
 ---
 
@@ -127,7 +127,7 @@ matha-cc test                           # 运行测试
 ```
 matha/
 ├── src/                    # 核心源代码
-│   ├── domains/           # 80 个领域插件（+ 包初始化/注册表）
+│   ├── domains/           # 82 个领域插件（+ 包初始化/注册表）
 │   ├── kernel/            # L1 纯净内核（纯标准库）
 │   ├── plugins/           # 内核外工具插件
 │   ├── compiler/          # JIT/AOT 编译器（LLVM 子过进程属可选插件）
@@ -171,7 +171,7 @@ matha/
 - 类型系统
 - CSP 并发
 - SQLite 离线存储
-- 所有 80 个领域插件
+- 所有 82 个领域插件
 
 ### ⚠️ 需要网络（离线不可用）
 - 远程包安装/搜索
@@ -220,7 +220,8 @@ python scripts/verify_offline.py
 
 **实测结果（最近一次 `make check`）：** 通过 3957 / 计入 3957，失败 0，**通过率 100.00%**
 （含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 18 逐字节 / `dep_audit` 违规 0 条；
-`native_parity` 15 过 + 3 例不计入分母：2 个类型校验已知缺口 + 1 个领域插件符号不承载，
+`native_parity` 17 过 + 1 例不计入分母（`18_domain_lazy_load`：native 不承载领域插件符号）；
+原 2 个类型校验静默错值缺口 NI-001/NI-002 已修复（未定义名与字符串参与 `-` 均抛可捕获异常），
 详见 `docs/KNOWN_ISSUES.md`。本轮全量跑零 DeprecationWarning。旧快照的绝对数字
 会随用例增减漂移，以 `make check` 实时输出为准。）
 
@@ -259,7 +260,7 @@ python scripts/build_exe.py
 | 许可证 | BSD-2-Clause |
 | GitHub | https://github.com/zzk2025r/matha |
 | 独立可执行文件 | ✅ 支持（无需 Python 环境） |
-| 领域插件 | 80（按需加载） |
+| 领域插件 | 82（按需加载） |
 
 历史文档（118 份一次性报告）已归档到 [`docs/history/`](docs/history/)，
 不再作为现状依据；权威文档只有一张索引页：[`docs/index.md`](docs/index.md)。

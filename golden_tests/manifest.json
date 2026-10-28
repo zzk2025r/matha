@@ -5,10 +5,7 @@
     "STACK_ENGINE": false,
     "INLINE_CACHE": true
   },
-  "native_known_gaps": {
-    "13_error_undefined": "未定义变量：机器码端把从未 STORE_GLOBAL 的名字读成静态 0（静默错值），而 VM/解释器抛「未定义变量」。属 mbc.native 待修项，不得当通过。",
-    "14_error_type": "字符串参与 `-`：机器码端缺类型校验，拿字符串对象指针当数减（输出假值），VM/解释器报「- 不适用于字符串/列表」。"
-  },
+  "native_known_gaps": {},
   "cases": {
     "01_arithmetic_and_relations": {
       "features": [],

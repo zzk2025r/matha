@@ -60,7 +60,7 @@ from src import features
 from src import formula_schema as _fs
 from src import text_encoding as _te
 from src.interp_ic import InlineCache
-from src.kernel.errors import MathaRuntimeError  # noqa: F401  （再导出，保持旧 import 路径可用）
+from src.kernel.errors import MathaRuntimeError, MathaUndefinedNameError  # noqa: F401  （再导出，保持旧 import 路径可用）
 
 logger = logging.getLogger("matha.interp")
 # 模块默认挂 NullHandler，避免「No handlers could be found」警告；
@@ -2900,7 +2900,7 @@ class Interpreter:
             self._log(logging.INFO,
                       f"未定义变量 '{name}' → 自动定义（虚拟代码引擎）")
             return self._auto_define_variable(name)
-        raise MathaRuntimeError(f"未定义变量 '{name}'")
+        raise MathaUndefinedNameError(f"未定义变量 '{name}'")
 
     @staticmethod
     def _ensure_set(v: object) -> set:

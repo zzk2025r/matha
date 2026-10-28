@@ -11,8 +11,7 @@ module D3变换 {
   func 向量归一化(x: Float, y: Float, z: Float) -> (Float, Float, Float) =
     (x, y, z) =>
     let len = 向量长度(x, y, z) in
-    if if len = 0 then (0, 0, 0) else None
-    else: (x/len, y/len, z/len)
+    (len == 0) ? (0, 0, 0) : (x/len, y/len, z/len)
 
   func 向量点积(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float) -> Float =
     (x1, y1, z1, x2, y2, z2) => x1*x2 + y1*y2 + z1*z2
@@ -70,8 +69,8 @@ module D3变换 {
     (q_w, q_x, q_y, q_z, px, py, pz) =>
     let qv = (0, px, py, pz) in
     let q_conj = (q_w, -q_x, -q_y, -q_z) in
-    let r1 = 四元数乘积(q_w, q_x, q_y, q_z, qv.1, qv.2, qv.3, 0) in
-    四元数乘积(r1.1, r1.2, r1.3, r1.4, q_conj.1, q_conj.2, q_conj.3, 0)
+    let r1 = 四元数乘积(q_w, q_x, q_y, q_z, qv[0], qv[1], qv[2], qv[3]) in
+    四元数乘积(r1[0], r1[1], r1[2], r1[3], q_conj[0], q_conj[1], q_conj[2], q_conj[3])
 
   (* ===== 变换组合 ===== *)
   func 平移矩阵(tx: Float, ty: Float, tz: Float) -> List =
@@ -82,15 +81,11 @@ module D3变换 {
 
   func 矩阵乘法_4x4(a: List, b: List) -> List =
     (a, b) =>
-    let r = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0] in
     let rec mul(i: Int, j: Int, k: Int, acc: List) -> List =
     (i, j, k, acc) =>
-        if if i >= 4 then acc else None
-        else if j >= 4: mul(i+1, 0, 0, acc)
-        else if k >= 4: mul(i, j+1, 0, acc)
-        else:
-          let idx = i*4+j in
-          let sum = a[i*4+k] * b[k*4+j] in
-          mul(i, j, k+1, acc + [sum] if idx = len(acc)-1 else acc)
+        (i >= 4) ? acc :
+        (j >= 4) ? mul(i+1, 0, 0, acc) :
+        (k >= 4) ? mul(i, j+1, 0, acc) :
+        mul(i, j, k+1, acc + [a[i*4+k] * b[k*4+j]])
     mul(0, 0, 0, [])
 }

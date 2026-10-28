@@ -56,8 +56,8 @@ func syscall_table_size(count: Int) -> Int = (count) => count * 8
  *   - 返回用户态（iret）：~50ns
  *   总计：~260ns ≈ 0.26μs
  *)
-func syscall_latency_user_mode() -> Float = 260.0   ; 纳秒
-func syscall_latency_kernel_mode() -> Float = 50.0   ; 纳秒（纯内核函数调用）
+func syscall_latency_user_mode() -> Float = 260.0   (* 纳秒 *)
+func syscall_latency_kernel_mode() -> Float = 50.0   (* 纳秒（纯内核函数调用） *)
 
 (* ── int 0x80 vs sysenter 对比 ──────────────────────────── *)
 (*
@@ -117,3 +117,4 @@ func exception_name(vector: Int) -> String =
       | 33 => "IRQ1: Keyboard"
       | 128 => "System Call (int 0x80)"
       | _  => "Unknown vector " + str(vector)
+    }

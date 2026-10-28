@@ -13,8 +13,8 @@ module 安全密码 {
       | "SHA256" => 256
       | "SHA512" => 512
       | _ => 256
-
     }
+
   func 哈希熵(哈希长度: Int) -> Float =
     (哈希长度) => 浮点(哈希长度) * log(2)
 
@@ -37,8 +37,8 @@ module 安全密码 {
       | 192 => 12
       | 256 => 14
       | _ => 10
-
     }
+
   func 对称加密安全强度(密钥长度: Int) -> Int =
     (密钥长度) => 密钥长度 / 2  (* 有效安全强度 *)
 
@@ -49,8 +49,7 @@ module 安全密码 {
 
   func RSA加密(明文: Int, e: Int, n: Int) -> Int =
     (明文, e, n) =>
-    if 明文 >= n then -1  (* 错误 *)
-    else 模幂(明文, e, n)
+    if 明文 >= n { -1 } else { 模幂(明文, e, n) }  (* 明文 >= n 视为错误 *)
 
   func RSA解密(密文: Int, d: Int, n: Int) -> Int =
     (密文, d, n) => 模幂(密文, d, n)
@@ -58,10 +57,11 @@ module 安全密码 {
   func 模幂(base: Int, exp: Int, mod_val: Int) -> Int =
     (base, exp, mod_val) =>
     let rec power(b: Int, e: Int, m: Int, result: Int) -> Int =
-    (b, e, m, result) =>
-        if if e = 0 then result else None
-        elif e % 2 = 0: power((b*b) % m, e/2, m, result)
-        else: power(b, e-1, m, (result*b) % m)
+      (b, e, m, result) =>
+        if e == 0 { result } else {
+          if e % 2 == 0 { power((b * b) % m, e / 2, m, result) }
+          else { power(b, e - 1, m, (result * b) % m) }
+        }
     power(base % mod_val, exp, mod_val, 1)
 
   func RSA安全性(密钥长度: Int) -> String =
@@ -71,8 +71,8 @@ module 安全密码 {
       | 2048 => "安全"
       | 3072 => "强安全"
       | _ => "未知"
-
     }
+
   (* ===== 认证与授权 ===== *)
   func HMAC哈希(密钥: String, 消息: String) -> String =
     (* 简化：返回消息 *)
@@ -93,13 +93,16 @@ module 安全密码 {
 
   func 风险矩阵(概率: Int, 影响: Int) -> String =
     (概率, 影响) =>
-    match (概率, 影响) {
-      | (1, 1) => "低"
-      | (1, 2) or (2, 1) => "中"
-      | (2, 2) or (2, 3) or (3, 2) => "高"
+    match str(概率) + ":" + str(影响) {
+      | "1:1" => "低"
+      | "1:2" => "中"
+      | "2:1" => "中"
+      | "2:2" => "高"
+      | "2:3" => "高"
+      | "3:2" => "高"
       | _ => "严重"
-
     }
+
   func 资产估值(重置成本: Float, 贬值率: Float, 年限: Int) -> Float =
     (重置成本, 贬值率, 年限) =>
     重置成本 * (1 - 贬值率) ^ 年限
@@ -121,14 +124,14 @@ module 安全密码 {
   (* ===== 密码强度 ===== *)
   func 密码强度评分(密码: String) -> Int =
     (* 基于长度、字符种类 *)
-    (密码) =>
-    let len = len(密码) in
-    let hasUpper = 密码包含大写字母(密码) in
-    let hasLower = 密码包含小写字母(密码) in
-    let hasDigit = 密码包含数字(密码) in
-    let hasSpecial = 密码包含特殊字符(密码) in
-    len * 4 + (if hasUpper then 2 else 0) + (if hasLower then 2 else 0) +
-    (if hasDigit then 2 else 0) + (if hasSpecial then 3 else 0)
+    (密码) => {
+      let 长度 = len(密码)
+      let hasUpper = 密码包含大写字母(密码)
+      let hasLower = 密码包含小写字母(密码)
+      let hasDigit = 密码包含数字(密码)
+      let hasSpecial = 密码包含特殊字符(密码)
+      长度 * 4 + (hasUpper ? 2 : 0) + (hasLower ? 2 : 0) + (hasDigit ? 2 : 0) + (hasSpecial ? 3 : 0)
+    }
 
   func 密码包含大写字母(text: String) -> Bool =
     (text) => false  (* 简化 *)

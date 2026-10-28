@@ -27,7 +27,7 @@ src/lexer.py → src/parser.py → src/ast_nodes.py
   仅测试与调试可见）。全仓库 `src.interp` 的引用已改指门面。
 
 核心体量：`src/lexer.py + src/parser.py + src/ast_nodes.py + src/kernel/ + src/mbc/`
-共 **30,813 行**（`repo_facts.core_py_lines`）。
+共 **30,870 行**（`repo_facts.core_py_lines`）。
 
 ## 二、L1 纯净内核与 import 白名单
 
@@ -75,9 +75,9 @@ functools unicodedata textwrap heapq datetime importlib`。
   `register_builtin` / `register_formula` / `emit_diagnostic`，**禁止访问
   `vm.frames`/`vm.globals`/`_stack`**，由 `test_kernel_purity.py` 同思路静态守卫）。
 - 适配层把历史 `_register_xxx(builtins: dict)` 签名统一包成 `exports()`，
-  82 个 `src/domains/*.py` 中的 **80 个领域插件**零改写接入
+  84 个 `src/domains/*.py` 中的 **82 个领域插件**零改写接入
   （`__init__.py` / `registry.py` 不是插件）。
-- 清单：`src/domains/manifest.json`（`protocol_version = 1`，80 插件、0 不可用）。
+- 清单：`src/domains/manifest.json`（`protocol_version = 1`，82 插件、0 不可用）。
   `src/semantic.py` 已改为读该静态清单，不再 import 6 个领域模块。
 - **懒加载**：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   未 `@：【加载领域】` 就引用领域符号 → 编译期诊断并列出候选插件名。
