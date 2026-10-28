@@ -179,18 +179,21 @@ DEVIATION_SIMPLIFY = {
     "1/(x+1) + 1/(x+1)": ("1/(x + 1) + 1/(x + 1)", "2/(x + 1)"),
 }
 
-#: stage0 在 ±∞ 处用采样逼近，末位就不对；库内是有理式精确主部比较。
-#: 这里同时锁定 stage0 的旧值 —— 它一旦变准，本用例就会提示可以删掉这条偏差。
-#: (表达式, 侧) → (stage0 文本, matha 文本, 精确值)
-DEVIATION_LIMIT = {
-    ("(2*x+1)/(3*x-1)", "+"): ("0.6666666666722222", "0.6666666666666666", 2.0 / 3.0),
-    ("(x+1)/(x**2+1)", "+"): ("1.00000000001e-11", "0.0", 0.0),
+#: 【B 组已修】stage0 之前在 ±∞ 用 t=1/x 数值采样逼近，末位就不对；现内核
+#: `_limit_infinity` 已把「有理式精确主部比」提到数值归约之前（对标 sympy 主导项法），
+#: stage0 与库两侧逐位一致。下表转为**平价锁**：(表达式, 侧) → 精确值，
+#: 断言 stage0 == matha == 精确值；若某天 stage0 又偏离，本用例即失败。
+#: （历史 stage0 旧值：2/3→0.6666666666722222、(x+1)/(x**2+1)→1.00000000001e-11）
+PARITY_LIMIT = {
+    ("(2*x+1)/(3*x-1)", "+"): 2.0 / 3.0,
+    ("(x+1)/(x**2+1)", "+"): 0.0,
 }
 
-#: stage0 的 `evaluate` 不认识 ln（无对应内建），泰勒展开直接抛 SeriesUndetermined；
-#: 标准库覆盖它。删掉这条即为「标准库能力多于引导实现」的证据。
-DEVIATION_SERIES = {
-    "ln(1+x)": ("ERR SeriesUndetermined", "x**5/5 - x**4/4 + x**3/3 - x**2/2 + x"),
+#: 【B 组已修】stage0 的 `evaluate` 曾不认识 ln（无对应内建），泰勒展开直接抛
+#: SeriesUndetermined；现符号解析器把 `ln` 归一为自然对数 `log`，stage0 与库两侧
+#: 结果一致。下表转为**平价锁**：表达式 → 期望级数文本。
+PARITY_SERIES = {
+    "ln(1+x)": "x**5/5 - x**4/4 + x**3/3 - x**2/2 + x",
 }
 
 
@@ -231,21 +234,23 @@ def _numf(v: float):
     return Num(v)
 
 
-def test_limit_deviation_is_exact_rational_and_stage0_is_not():
-    for (expr, direction), (want0, want1, exact) in DEVIATION_LIMIT.items():
+def test_limit_stage0_now_matches_library_exact():
+    # 【B 组已修】±∞ 有理式极限：stage0 现走精确主部比，与库两侧逐位一致。
+    for (expr, direction), exact in PARITY_LIMIT.items():
         a = cs.limit(expr, "x", math.inf, direction, backend="stage0")
         b = cs.limit(expr, "x", math.inf, direction, backend="matha")
-        assert repr(a) == want0, (expr, repr(a), want0)
-        assert repr(b) == want1, (expr, repr(b), want1)
-        assert b == exact, (expr, b, exact)
-        assert a != b, f"偏差表已过时：{expr} 两侧现在一致，请删除该条"
+        assert a == exact, (expr, repr(a), exact)
+        assert b == exact, (expr, repr(b), exact)
+        assert a == b, (expr, repr(a), repr(b))
 
 
-def test_series_deviation_stage0_gap():
-    expr, (want0, want1) = ("ln(1+x)", DEVIATION_SERIES["ln(1+x)"])
-    with pytest.raises(ValueError, match="SeriesUndetermined|泰勒展开失败"):
-        cs.taylor_series(expr, "x", 0, 5, backend="stage0")
-    assert cs.taylor_series(expr, "x", 0, 5, backend="matha") == want1
+def test_series_ln_stage0_now_matches_library():
+    # 【B 组已修】`ln` 归一为自然对数后，stage0 能算 ln(1+x) 的泰勒展开，与库一致。
+    for expr, want in PARITY_SERIES.items():
+        s0 = cs.taylor_series(expr, "x", 0, 5, backend="stage0")
+        s1 = cs.taylor_series(expr, "x", 0, 5, backend="matha")
+        assert s0 == want, (expr, s0, want)
+        assert s1 == want, (expr, s1, want)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

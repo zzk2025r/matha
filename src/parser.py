@@ -107,6 +107,9 @@ class Parser:
         self._in_let_value = False     # True when parsing the value expression of a let statement
         # 正在解析三元 ? / : 的分支：此语境下 [expr] 是列表字面量而非输出
         self._in_ternary_branch = False
+        # 正在解析 return 的操作数：此语境下 [expr] 是表达式（列表字面量），
+        # 而非输出命令——避免 return [x] 被误编译成 ReturnStmt(Output(x))。
+        self._in_return_value = False
         self._if_depth: int = 0        # 当前 if 表达式嵌套深度
         # 正在解析 @(a|b|c) 括号式设定：此语境 `|` 是**项分隔符**而非位或
         self._in_setup_paren = False
@@ -1551,6 +1554,18 @@ class Parser:
         finally:
             self._in_ternary_branch = saved
 
+    def _parse_return_value(self):
+        """解析 `return` 的操作数：此语境下的 `[expr]`（含单元素 `[x]`）是
+        表达式位置的列表字面量，而非输出命令。与三元分支 / 箭头 lambda
+        体同口径，避免 `return [x]` 被误编译成 ReturnStmt(Output(x))（既打印
+        又返回裸值）。裸块尾 `[x]`（无 return）不受影响，仍为输出命令。"""
+        saved = self._in_return_value
+        self._in_return_value = True
+        try:
+            return self._parse_expr()
+        finally:
+            self._in_return_value = saved
+
     def _parse_expr(self, stop_at_comma: bool = False):
         """<expr> = <or_expr> , [ ";" , <expr> ]* （支持分号分隔的表达式序列）
 
@@ -1750,15 +1765,23 @@ class Parser:
         if self._check(TokenType.OP_ASSIGN, TokenType.OP_NEQ):
             op = self._advance().value
             # 处理连续等号：= = → ==（等于比较）
+            is_assign = False
             if op == "=" and self._check(TokenType.OP_ASSIGN):
                 self._advance()
                 op = "=="
-            # 在 lambda 体内比较语境中，= 作为比较运算符，右操作数用 _parse_set_expr
-            # 在语句层，= 作为赋值运算符，右操作数用 _parse_expr 以支持三元表达式
-            if self._in_lambda_rel:
-                right = self._parse_set_expr()
-            else:
+            elif op == "=" and not self._in_lambda_rel:
+                # 单等号且非 lambda 比较语境 → 赋值
+                is_assign = True
+            # 赋值（单 =）：右值用 _parse_expr，使绑定值能整体纳入三元
+            #   （m = 3 > 2 ? 100 : 200 → Binding(m, IfExpr(...)))。
+            # 比较（== != 及 lambda 体内的 =）：右操作数用 _parse_set_expr，
+            #   与 > < >= <= 同口径，使后续 ? 绑定到「整个比较」而非被吞进右操作数
+            #   （a == b ? x : y → (a==b) ? x : y）。此前 == / != 误用 _parse_expr，
+            #   会把三元贪心吞进右操作数，令 3 == 3 ? 100 : 200 误析为 3 == (3 ? ...)。
+            if is_assign:
                 right = self._parse_expr()
+            else:
+                right = self._parse_set_expr()
             return ast.BinaryOp(op=op, left=left, right=right)
         # → 右箭头：等价于 -> 但作为比较运算符（a → b）
         if self._check(TokenType.OP_ARROW_FW):
@@ -2387,6 +2410,10 @@ class Parser:
                 return self._parse_list_literal()
             # 三元 ? / : 分支：此语境 [expr] 为列表字面量（含单元素 [x]）
             if self._in_ternary_branch:
+                return self._parse_list_literal()
+            # return 操作数语境：`return [x]` 中的 [x] 为列表字面量（表达式），
+            # 而非输出命令——修复单元素列表无法作为返回值的语句位陷阱。
+            if getattr(self, '_in_return_value', False):
                 return self._parse_list_literal()
             # 绑定右值语境：opt = [...] 中的 [ 应解析为列表
             if getattr(self, '_in_bind_value', False):
@@ -3133,7 +3160,7 @@ class Parser:
             if (self._is_stmt_separator()
                     or (self._check(TokenType.SYMBOL) and self._current().value == ";")):
                 return ast.ReturnStmt(value=None)
-            return ast.ReturnStmt(value=self._parse_expr())
+            return ast.ReturnStmt(value=self._parse_return_value())
         # break / continue — 中断/跳过当前循环迭代
         if tok.type == TokenType.KW_BREAK:
             self._advance()
@@ -3962,7 +3989,7 @@ class Parser:
             if (self._is_stmt_separator()
                     or (self._check(TokenType.SYMBOL) and self._current().value == ";")):
                 return ast.ReturnStmt(value=None)
-            return ast.ReturnStmt(value=self._parse_expr())
+            return ast.ReturnStmt(value=self._parse_return_value())
         # break / continue — 中断/跳过当前循环迭代
         if tok.type == TokenType.KW_BREAK:
             self._advance()

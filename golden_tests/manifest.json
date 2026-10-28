@@ -130,6 +130,18 @@
     "31_error_undef_func": {
       "features": [],
       "description": "调用未定义函数名：解释器不再改写为「未定义函数」，三端 stderr 主体归一为「未定义变量」"
+    },
+    "32_ternary_eq_precedence": {
+      "features": [],
+      "description": "语句位 == / != 与三元优先级：3 == 3 ? 100 : 200 → (3==3)?100:200（修复右操作数贪心吞三元的误析）"
+    },
+    "33_sci_notation": {
+      "features": [],
+      "description": "科学计数法字面量 1e-15 / 2.5e3 / 1.5e-3 / 6.02e23 三端逐字节（订正「1e-15 不可写」过时声明）"
+    },
+    "34_return_list_literal": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "return 后的 [x] 为列表字面量（修复单元素列表被当「打印括号」的语句位陷阱）"
     }
   }
 }

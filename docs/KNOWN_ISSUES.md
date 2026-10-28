@@ -57,7 +57,7 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 | 泰勒/级数 | `.matha` 标准库只覆盖 `point=0` 的 Maclaurin | 非 0 点时标准库路径显式 `不支持`，**回退内核 stage0：`src/kernel/symbolic/series.taylor` 已覆盖任意点**（与 sympy `series` 同式，值正确）；现由 `tests/test_kernel_symbolic.py` 以数值一致性锁定。输出为 `x` 的展开幂形式（sympy 保留 `(x-a)ⁿ`），属代数等价变形（见 parity 第 5 节） |
 | ODE | 一阶可分离 + 一阶线性积分因子 + 常系数齐次特征方程 | 其余抛 `OdeUnsupported`，不返回「无法求解」这种假成功 |
 | 与 sympy 对照 | 内核纯实现为**子集** | 逐函数标注见 [`symbolic_parity.md`](symbolic_parity.md) |
-| stage0 已知不准 | ±∞ 极限用采样逼近，末位错（例：`(2x+1)/(3x-1) → 0.6666666666722222`）；`evaluate` 不认识 `ln` | 标准库在这两项上更准/更强，偏差双向锁定于 `tests/test_matha_stdlib_symbolic.py` |
+| stage0 已知不准（已修） | ~~±∞ 极限用采样逼近、末位错~~、~~`evaluate` 不认识 `ln`~~ 两项均已修复：内核 `_limit_infinity` 把有理式**精确主部比**提到 t=1/x 数值归约之前（并补齐 ±∞ 奇偶变号，对标 sympy 主导项法）；符号解析器将 `ln` 归一为自然对数 `log` | stage0 与标准库两侧现在**逐位一致**，原偏差锁已转为平价锁（`tests/test_matha_stdlib_symbolic.py`）；另由 `tests/test_kernel_limit_rational.py`（±∞ 有理式精确值 + 0/∞ 边界）与 `tests/test_kernel_ln_alias.py`（ln 求值/求导/极限）锁定 |
 
 ## 四、跨后端差异（如实登记，不抹平）
 

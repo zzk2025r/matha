@@ -398,11 +398,10 @@ def _limit_infinity(e: Expr, var: str, point: float, side: float) -> float:
     got = _conjugate_rewrite(e, var, point, side)
     if got is not None:
         return got
-    # t = 1/x 归约：把无穷远极限换成 t→0± 上的 0/0 型（洛必达/共轭有理化可用），
-    # 避免 (1+1e-12) 这类浮点抵消误差；结论需邻域大数读数佐证。
-    g0 = _reciprocal_sub(e, var, point)
-    if g0 is not None and _probe_agrees(e, var, point, g0):
-        return g0
+    # 有理函数 P/Q 在 ±∞ 的极限**先**由首项比精确判定（对标 sympy.limit 主导项法），
+    # 早于下面的 t=1/x 数值归约——后者在大数邻域读数会带来末位浮点误差（如
+    # (2x+1)/(3x-1)→0.66666666667 而非精确 2/3）。仅当 P/Q 不能定阶（含 exp/log/
+    # 三角/根式）时才退回数值归约。
     num, den = _split_fraction(e)
     if den is not None:
         ln = leading_term(num, var, at_infinity=True)
@@ -414,9 +413,20 @@ def _limit_infinity(e: Expr, var: str, point: float, side: float) -> float:
                 return 0.0
             if en == ed:
                 return cn / cd
-            cand = math.copysign(math.inf, cn / cd)
+            # deg(num)>deg(den) → ±∞：号由 (cn/cd) 与次差 (en-ed) 在 -∞ 的奇偶
+            # 共同决定（奇次翻号、偶次保号），与下方 poly_in 分支同口径。
+            sgn = cn / cd
+            dd = en - ed
+            if point < 0 and abs(dd - round(dd)) <= 1e-12 and int(round(dd)) % 2 == 1:
+                sgn = -sgn
+            cand = math.copysign(math.inf, sgn)
             if _probe_agrees(e, var, point, cand):
                 return cand
+    # t = 1/x 归约：把非有理式的无穷远极限换成 t→0± 上的 0/0 型（洛必达/共轭
+    # 有理化可用），避免 (1+1e-12) 这类浮点抵消误差；结论需邻域大数读数佐证。
+    g0 = _reciprocal_sub(e, var, point)
+    if g0 is not None and _probe_agrees(e, var, point, g0):
+        return g0
     p = poly_in(e, var)
     if p is not None:
         terms = [(d, c) for d, c in p.items() if c != 0]

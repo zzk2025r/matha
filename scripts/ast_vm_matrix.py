@@ -386,18 +386,19 @@ def render_markdown(data: dict) -> str:
                  "两元素及以上 `return [a, b]` 是正常字面量 |")
     lines.append("| `return []` 同样不安 | `func 空表() -> List = []` | "
                  "用 `包(0)[1:]` 切出空表 |")
-    lines.append("| 三元条件 / `or` 里的 `==` 误析 | `if a == b ? … : …` | "
-                 "走返回 Bool 的辅助函数 `等/零值/双零/或值` |")
     lines.append("| `func` 缺 `-> 类型` 直接 ParseError | `func f(x) = …` | "
                  "一律写 `func f(x) -> Any = …` |")
     lines.append("| `if` 不能当表达式用 | `let y = if c {1} else {2}` | 先算再绑定 |")
     lines.append("| `#：{…}` 记录面 mbc 不发射 | — | 标准库不用该语法 |")
     lines.append("| 无 `sorted/map/filter/join/gcd/split` 等内建 | — | "
                  "手写升序插入排序 + 欧几里得 `gcd` |")
-    lines.append("| 无科学计数法字面量 | `1e-15` 不可写 | "
-                 "`微小() = 1 / 1000000000000000`（与双精度 1e-15 同值） |")
     lines.append("")
-    lines.append("前三条属语法层语义易错点，已在 `tests/test_matha_stdlib_symbolic.py` "
+    lines.append("（历史上本表还列有「三元/or 里 `==` 误析」与「无科学计数法字面量」"
+                 "两条：前者已于语句位归一为 `(a==b)?x:y`（黄金用例 `32_ternary_eq_"
+                 "precedence` 三端锁定），后者 `1e-15` 早已被 lexer/parser 支持"
+                 "（黄金用例 `33_sci_notation` 三端锁定），均已删除不复发。）")
+    lines.append("")
+    lines.append("前两条属语法层语义易错点，已在 `tests/test_matha_stdlib_symbolic.py` "
                  "与 `matha/library/` 的实际使用中验证；本表随 `--write` 重生。")
     lines.append("")
     return "\n".join(lines) + "\n"

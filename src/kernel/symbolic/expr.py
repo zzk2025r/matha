@@ -518,7 +518,10 @@ class SymbolicParser:
             if inner is not None and not tail.strip():
                 args = self._split_top_level(inner, [','])
                 parsed_args = [self._parse_expr(a.strip()) for a in args]
-                return FuncCall(func_name, parsed_args)
+                # `ln` 是自然对数别名，归一为 `log`，使 evaluate / diff /
+                # 极限判据（_log_beats_power 等按 name=="log" 匹配）处处一致（对标 sympy）。
+                canon = "log" if func_name == "ln" else func_name
+                return FuncCall(canon, parsed_args)
 
         # 通用函数调用（含 math.sqrt / safe_div 等点号限定名或自定义函数）
         gen_func = self.GEN_FUNC_PATTERN.match(text)

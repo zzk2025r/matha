@@ -27,7 +27,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
 | 指令码总数 / VM 已分派 / native 已发射 | 33 / 33 / 33 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
-| 语料文件（解析成功） | 193 |
+| 语料文件（解析成功） | 196 |
 | 无法解析的语料文件 | 0 |
 
 ## 三、阻塞缺口（必须先补）
@@ -46,15 +46,15 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `AngleExpr` | emits | no | 0 |
 | `AnnotatedType` | noop | no | 0 |
 | `Annotation` | noop | no | 0 |
-| `BasicType` | noop | no | 144 |
+| `BasicType` | noop | no | 146 |
 | `Belongs` | emits | yes | 1 |
-| `BinaryOp` | emits | yes | 155 |
-| `Binding` | emits | yes | 40 |
+| `BinaryOp` | emits | yes | 157 |
+| `Binding` | emits | yes | 42 |
 | `BoolLit` | emits | yes | 33 |
 | `BreakStmt` | emits | yes | 1 |
 | `ChainStmt` | emits | yes | 16 |
 | `ChanExpr` | emits | no | 0 |
-| `CodeBlock` | emits | yes | 60 |
+| `CodeBlock` | emits | yes | 61 |
 | `CommandLiteral` | noop | yes | 28 |
 | `ConstructorPat` | emits | yes | 0 |
 | `ContinueStmt` | emits | yes | 1 |
@@ -62,44 +62,44 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `DictLiteral` | emits | yes | 11 |
 | `EnumDef` | emits | yes | 2 |
 | `FileMarker` | noop | yes | 0 |
-| `FloatLit` | emits | yes | 83 |
+| `FloatLit` | emits | yes | 84 |
 | `ForStmt` | emits | yes | 2 |
-| `ForeignDecl` | noop | yes | 4 |
-| `FuncApp` | emits | yes | 147 |
-| `FuncDef` | emits | yes | 144 |
-| `FuncType` | noop | no | 144 |
+| `ForeignDecl` | noop | yes | 7 |
+| `FuncApp` | emits | yes | 149 |
+| `FuncDef` | emits | yes | 146 |
+| `FuncType` | noop | no | 146 |
 | `GenStmt` | emits | yes | 31 |
-| `Generate` | noop | no | 43 |
+| `Generate` | noop | no | 46 |
 | `GlobalIdStmt` | noop | yes | 15 |
 | `GlobalLoopSuffix` | noop | no | 1 |
 | `GoStmt` | emits | yes | 0 |
 | `IfElseStmt` | emits | yes | 0 |
-| `IfExpr` | emits | yes | 75 |
+| `IfExpr` | emits | yes | 76 |
 | `IfStmt` | emits | yes | 13 |
 | `ImportDecl` | emits | yes | 11 |
 | `IndexExpr` | emits | yes | 55 |
-| `IntegerLit` | emits | yes | 168 |
+| `IntegerLit` | emits | yes | 171 |
 | `IsExpr` | emits | yes | 1 |
 | `Iteration` | emits | no | 0 |
-| `Lambda` | emits | yes | 145 |
+| `Lambda` | emits | yes | 147 |
 | `LetBinding` | emits | yes | 79 |
 | `LetTupleBinding` | emits | yes | 10 |
 | `ListComp` | emits | yes | 0 |
-| `ListLiteral` | emits | yes | 50 |
+| `ListLiteral` | emits | yes | 51 |
 | `LoopFraction` | noop | no | 10 |
 | `LoopStep` | emits | no | 0 |
 | `LoopWhile` | emits | no | 0 |
 | `MatchStmt` | emits | yes | 13 |
-| `MechUnit` | emits | yes | 43 |
+| `MechUnit` | emits | yes | 46 |
 | `ModuleDecl` | emits | yes | 105 |
 | `NLBlock` | noop | no | 0 |
-| `Output` | emits | yes | 52 |
+| `Output` | emits | yes | 55 |
 | `OutputTrail` | emits | yes | 41 |
 | `PathExpr` | emits | yes | 16 |
-| `Program` | emits | no | 193 |
+| `Program` | emits | no | 196 |
 | `RaiseExpr` | emits | yes | 6 |
 | `ReadBlock` | noop | yes | 23 |
-| `ReturnStmt` | emits | yes | 6 |
+| `ReturnStmt` | emits | yes | 7 |
 | `SafePathExpr` | emits | yes | 0 |
 | `SegLoopSuffix` | noop | no | 10 |
 | `SelectStmt` | emits | no | 0 |
@@ -109,16 +109,16 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `SetUp` | emits | yes | 25 |
 | `SetUpItem` | noop | no | 25 |
 | `SliceExpr` | emits | yes | 19 |
-| `StringLit` | emits | yes | 102 |
+| `StringLit` | emits | yes | 103 |
 | `StructDef` | emits | yes | 3 |
 | `SwitchStmt` | emits | yes | 0 |
 | `ThrowStmt` | emits | yes | 0 |
 | `TryStmt` | emits | yes | 4 |
 | `TupleExpr` | emits | yes | 22 |
-| `TupleType` | noop | no | 116 |
+| `TupleType` | noop | no | 117 |
 | `TypeOfExpr` | emits | yes | 2 |
 | `UnaryOp` | emits | yes | 52 |
-| `Variable` | emits | yes | 190 |
+| `Variable` | emits | yes | 193 |
 | `WhileStmt` | emits | yes | 8 |
 
 ## 六、指令码 × VM / native
@@ -175,12 +175,12 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 |---|---|---|
 | **单元素列表 `[x]` 出现在语句位会被当作「打印括号」**：`return [x]` 编译成 `ReturnStmt(Output(x))`，既打印又返回裸值 | `func 包(x) -> List = [x]` | 库内统一用 `包(...)` 造单元素列表；两元素及以上 `return [a, b]` 是正常字面量 |
 | `return []` 同样不安 | `func 空表() -> List = []` | 用 `包(0)[1:]` 切出空表 |
-| 三元条件 / `or` 里的 `==` 误析 | `if a == b ? … : …` | 走返回 Bool 的辅助函数 `等/零值/双零/或值` |
 | `func` 缺 `-> 类型` 直接 ParseError | `func f(x) = …` | 一律写 `func f(x) -> Any = …` |
 | `if` 不能当表达式用 | `let y = if c {1} else {2}` | 先算再绑定 |
 | `#：{…}` 记录面 mbc 不发射 | — | 标准库不用该语法 |
 | 无 `sorted/map/filter/join/gcd/split` 等内建 | — | 手写升序插入排序 + 欧几里得 `gcd` |
-| 无科学计数法字面量 | `1e-15` 不可写 | `微小() = 1 / 1000000000000000`（与双精度 1e-15 同值） |
 
-前三条属语法层语义易错点，已在 `tests/test_matha_stdlib_symbolic.py` 与 `matha/library/` 的实际使用中验证；本表随 `--write` 重生。
+（历史上本表还列有「三元/or 里 `==` 误析」与「无科学计数法字面量」两条：前者已于语句位归一为 `(a==b)?x:y`（黄金用例 `32_ternary_eq_precedence` 三端锁定），后者 `1e-15` 早已被 lexer/parser 支持（黄金用例 `33_sci_notation` 三端锁定），均已删除不复发。）
+
+前两条属语法层语义易错点，已在 `tests/test_matha_stdlib_symbolic.py` 与 `matha/library/` 的实际使用中验证；本表随 `--write` 重生。
 
