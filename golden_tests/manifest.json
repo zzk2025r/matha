@@ -122,6 +122,14 @@
     "29_error_index_on_int": {
       "features": [],
       "description": "对不可下标对象取索引：VM 不再漏出 Python TypeError，归一到「索引操作不支持: int[0]」"
+    },
+    "30_corpus_nested_rec_nocap": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：函数块内不捕获外层的 let rec 递减累加器（NI-009 native 闭包 env 越界回归锁）"
+    },
+    "31_error_undef_func": {
+      "features": [],
+      "description": "调用未定义函数名：解释器不再改写为「未定义函数」，三端 stderr 主体归一为「未定义变量」"
     }
   }
 }

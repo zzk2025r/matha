@@ -3175,13 +3175,10 @@ class Interpreter:
                 and not fnode.name.startswith("_") and self._heal_enabled()
                 and self._is_undefined(fnode.name)):
             self._auto_define_function(fnode.name)
-        try:
-            func = self._eval(node.func)
-        except MathaRuntimeError as e:
-            if "未定义变量" in str(e):
-                func_name = getattr(getattr(node, 'func', None), 'name', None) or str(node.func)
-                raise MathaRuntimeError(f"未定义函数 '{func_name}'") from e
-            raise
+        # callee 求值：名未定义时与主线 VM/native 同口径上抛「未定义变量 '<名>'」，
+        # 不再改写为「未定义函数」（旧写法使三端 stderr 主体不一致，无法进错误
+        # 黄金用例）。已绑定但不可调用的值在下方 _apply 报「不可调用的值」。
+        func = self._eval(node.func)
         arg = self._eval(node.arg)
         if self.debug:
             self._log(logging.DEBUG,

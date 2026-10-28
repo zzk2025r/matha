@@ -1,6 +1,6 @@
 {
   "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
-  "generated_at": "2026-10-28T12:36:24",
+  "generated_at": "2026-10-28T14:05:22",
   "generator": "scripts/ast_vm_matrix.py",
   "corpus_dirs": [
     "matha",
@@ -16,7 +16,7 @@
     "noop": 19,
     "missing": 0,
     "blocking": 0,
-    "corpus_files": 191,
+    "corpus_files": 193,
     "opcodes": 33,
     "opcode_vm": 33,
     "opcode_native": 33,
@@ -27,55 +27,55 @@
       "node": "Program",
       "vm": "emits",
       "interp": "no",
-      "used_in": 191
+      "used_in": 193
     },
     {
       "node": "Variable",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 188
+      "used_in": 190
     },
     {
       "node": "IntegerLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 166
+      "used_in": 168
     },
     {
       "node": "BinaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 154
+      "used_in": 155
     },
     {
       "node": "FuncApp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 145
+      "used_in": 147
     },
     {
       "node": "Lambda",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 144
+      "used_in": 145
     },
     {
       "node": "BasicType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 143
+      "used_in": 144
     },
     {
       "node": "FuncDef",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 143
+      "used_in": 144
     },
     {
       "node": "FuncType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 143
+      "used_in": 144
     },
     {
       "node": "TupleType",
@@ -93,7 +93,7 @@
       "node": "StringLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 101
+      "used_in": 102
     },
     {
       "node": "FloatLit",
@@ -105,19 +105,19 @@
       "node": "LetBinding",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 78
+      "used_in": 79
     },
     {
       "node": "IfExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 74
+      "used_in": 75
     },
     {
       "node": "CodeBlock",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 59
+      "used_in": 60
     },
     {
       "node": "IndexExpr",
@@ -126,16 +126,16 @@
       "used_in": 55
     },
     {
-      "node": "UnaryOp",
+      "node": "Output",
       "vm": "emits",
       "interp": "yes",
       "used_in": 52
     },
     {
-      "node": "Output",
+      "node": "UnaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 51
+      "used_in": 52
     },
     {
       "node": "ListLiteral",

@@ -10,7 +10,7 @@
 - **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
 - **领域插件：** 82（`src/domains/` 共 84 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 14（`src/plugins/`）
-- **黄金用例：** 29（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
+- **黄金用例：** 31（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 158（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
 - **测试文件：** 59（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
@@ -135,7 +135,7 @@ matha/
 │   ├── repl.py            # REPL 入口
 │   └── ...
 ├── tests/                  # 测试套件（56 个文件）
-├── golden_tests/           # 29 例逐字节黄金用例（vm/interp/native）
+├── golden_tests/           # 31 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出
 │   ├── matha-offline/
 │   │   └── matha.exe      # 独立可执行文件 (18.5 MB)

@@ -8,7 +8,7 @@
 
 > NI-001、NI-002 已修复：未定义变量与字符串/列表参与 `-` 均经 `raise_rt` 抛
 > 可捕获异常，不再静默读成裸 0 / 拿对象指针做假减。已从 `manifest.json` 的
-> `native_known_gaps` 清空，`make check`（`--native`）22/23 通过（唯一 gap 为
+> `native_known_gaps` 清空，`make check`（`--native`）30/31 通过（唯一 gap 为
 > `18_domain_lazy_load`：native 不承载领域插件符号，属设计内 SKIP）。
 
 ### 1a. 领域插件符号的设计边界（已上锁，非缺陷）
@@ -20,19 +20,23 @@
 `tests/test_native_domain_contract.py` 锁定：一旦退化回「静默造值」即红。工具链
 缺失时该测试优雅 SKIP（只约束真实机器码路径）。
 
-### 1b. NI-009（未修）：函数块内「递减」`let rec` 累加器令 native 访问违例
+### 1b. NI-009（已修复）：块内不捕获外层的 `let rec` 令 native 访问违例
 
 - **Bug 类**：合法程序在 native 编译成功却运行期崩溃（`rc=0xC0000005` 访问违例）、
   静默无任何输出——属 NI-001/002 同类「无声失败」。
-- **根因定位**：仅当 `let rec` 自累加器**在函数 `{}` 语句块内**且**递归用减法
-  `step(i-1, …)`** 时触发。等价的递增 `step(i+1, …)`、或把同一 `let rec` 放**顶层**（不在
-  函数块内）、或直接递归 `if…then…else` 均正常（已逐一探针取证）。VM 与解释器对以上
-  全部形式均正确。
-- **可复现判据**：`compile_to_exe` + 子进程跑
-  `func 阶乘(n)->Int = (n)=>{ let rec step(i,acc)= (i,acc)=>(i<=1)?acc:step(i-1,acc*i); step(6,1) }\n[阶乘(6)]`
-  → rc 非 0、stdout 为空（应输出 `720`）。
-- **当前规避**：黄金用例 `19_corpus_recursion` 采用递增累加器等价写法，已三端逐字节一致；
-  本项保留待 native 代码生成修复（涉及块内闭包槽位/寄存器分配与递减归纳的交互）。
+- **真因（修正旧误判）**：与「递减/递增」**无关**。根因是闭包 env 快照的**寻址口径不一致**：
+  `_emit_make_closure` 按**稠密序号**写入捕获槽（`off=24+8*i`），而读侧 `_emit_load_outer`
+  与 GC `gos_env` 按**原始帧槽号**取（`off=24+8*slot`、`size=(ncap+3)*8`）。二者仅当被捕获
+  槽号是从 0 起的连续段时吻合。函数块内的 `let rec` 只需捕获「递归盒」这一个**非 0 槽**
+  （槽 0 为形参、槽 1 为盒），捕获集不连续 → 读侧按原始槽号越界取到相邻堆内存、再当 Box
+  解引用 → 访问违例。（递增/捕获外层形参者槽号连续，故此前用例 19 恰好正常。）
+- **修复**：`_emit_make_closure` 改为按**原始槽号**打包（`off=24+8*slot`），`ncap`/`env_size`
+  按 `max(slot)+1` 跨度计算，与读侧、GC 三方同口径。捕获槽连续时新偏移与旧的稠密写法
+  **逐字节相同**（既有通过用例基线不变）；仅此前必崩的不连续路径被修正。
+- **回归锁**：黄金用例 `30_corpus_nested_rec_nocap`（函数块内**不捕获外层**的 `let rec` 递减
+  累加器）vm ↔ interp ↔ native 三端逐字节一致；`19_corpus_recursion`（捕获外层、槽号连续）保留。
+- **代价**：高槽号少量捕获时 env 留空洞、体积偏大（仅内存浪费，不影响正确性；空洞被保守 GC
+  扫描，`gc_mark_candidate` 的区间 + 起点位双重校验保证不误标非对象地址）。
 
 ## 二、语法层历史债务
 
@@ -57,9 +61,9 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 
 ## 四、跨后端差异（如实登记，不抹平）
 
-运行时错误主体已大幅归一，并由 9 例错误黄金用例锁定（vm ↔ interp ↔ native）：
+运行时错误主体已大幅归一，并由 10 例错误黄金用例锁定（vm ↔ interp ↔ native）：
 除零 / 取模除零 / 整除除零 / 类型不匹配 / 列表越界 / 字符串越界 / 不可调用 /
-对不可下标对象取索引——两端抛**同一异常类**且消息主体逐字一致。
+对不可下标对象取索引 / 调用未定义函数名——两端抛**同一异常类**且消息主体逐字一致。
 
 本轮修掉了 VM 两处「漏出 Python 原生异常」的跨后端分歧，归一到解释器的领域消息：
 
@@ -71,12 +75,12 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 `MathaUndefinedNameError`）也已闭合——interp 现也抛 `MathaUndefinedNameError`（它是
 `MathaRuntimeError` 子类，`except MathaRuntimeError` 与宿主 `except KeyError` 均不变）。
 
-**仍存在的残留分歧（未修，如实登记）**：调用一个**未定义的名字**（如 `foo(1)`，foo 未定义）：
-解释器把它当函数调用报 `未定义函数 'foo'`；VM 先在全局查找阶段报
-`未定义变量 'foo'`（`MathaUndefinedNameError`）。两者消息主体不同（“变量” vs “函数”）。
-根因：VM 字节码里「读变量」与「调函数」共用 `LOAD_GLOBAL`，未命中即抛，无法在加载
-位置区分调用意图；要归一需编译器为调用位置的名称加载发专用操作码，属侵入式改动，
-本轮未做。因主体不同，此路径**未进错误黄金用例**（否则 `run_golden_tests.py` 会硬失败）。
+**未定义函数名调用已归一**：此前解释器把未定义 callee 报为「未定义函数 'foo'」，VM/native
+均报「未定义变量 'foo'」（VM 字节码里「读变量」与「调函数」共用 `LOAD_GLOBAL`，未命中即报
+未定义变量）。本轮将解释器 `_eval_func_app` 的文案改写删除，与主线 VM/native 同口径上抛
+「未定义变量 'foo'」，入错误黄金用例 `31_error_undef_func`。连带修正 `AutoDebugger`（`src/autonomous.py`）：
+因其原依赖「未定义函数」文案区分调用位，现改为从**源码**判定（名字以 `name(` 出现即补恒零
+函数，否则补默认变量），自动修复行为不变（`tests/test_integration/test_auto_debug_e2e.py` 9 例全过）。
 
 判据：`python golden_tests/run_golden_tests.py` 末尾「跨后端 stderr 类名差异」报告为空。
 黄金运行器仍保留 stderr **异常类名**白名单与消息主体逐字比对，防止未来重新引入差异。

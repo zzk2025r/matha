@@ -27,7 +27,7 @@ src/lexer.py → src/parser.py → src/ast_nodes.py
   仅测试与调试可见）。全仓库 `src.interp` 的引用已改指门面。
 
 核心体量：`src/lexer.py + src/parser.py + src/ast_nodes.py + src/kernel/ + src/mbc/`
-共 **30,878 行**（`repo_facts.core_py_lines`）。
+共 **30,884 行**（`repo_facts.core_py_lines`）。
 
 ## 二、L1 纯净内核与 import 白名单
 

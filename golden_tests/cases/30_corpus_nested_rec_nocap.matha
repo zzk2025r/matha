@@ -1,0 +1,7 @@
+func 求和(n: Int) -> Int = (n) => {
+  let rec s(i: Int, acc: Int) -> Int =
+    (i, acc) => (i < 1) ? acc : s(i-1, acc + i)
+  s(n, 0)
+}
+[求和(10)]
+[求和(0)]

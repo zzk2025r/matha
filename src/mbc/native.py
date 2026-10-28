@@ -820,8 +820,14 @@ def _emit_make_closure(em: _Emitter, target: str, capt: list,
 
     env = [TYPE_ENV][parent][ncap][cap0..]（parent=本帧 env 槽，main 为 null）；
     closure = [TYPE_CLOSURE][fn_addr][env][arity]。
+
+    捕获按「定义帧原始槽号」寻址（与 _emit_load_outer 的 off=24+8*slot、
+    GC gos_env 的 size=(ncap+3)*8 同一口径）：ncap 取「最大槽号+1」的跨度，
+    未被捕获的低槽留空洞。旧写法按稠密序号打包，槽号不连续时（如块内
+    let rec 仅捕获非 0 槽的递归盒）读侧按原始槽号越界取到垃圾再解引用
+    → 访问违例（NI-009）。
     """
-    nc = len(capt)
+    nc = max((s for s, _b in capt), default=-1) + 1
     env_size = 8 * (3 + nc)
     em.emit(b"\x48\xC7\xC7" + struct.pack("<i", env_size))  # mov rdi,env_size
     em.call_rel32("alloc")
@@ -831,11 +837,11 @@ def _emit_make_closure(em: _Emitter, target: str, capt: list,
     else:
         em.emit(b"\x48\x8B\x95" + struct.pack("<i", -8 * (nlocals + 1)))
     em.emit(b"\x48\x89\x50\x08")                            # mov [rax+8],rdx（parent）
-    em.emit(b"\x48\xC7\x40\x10" + struct.pack("<i", nc))    # mov [rax+16],nc
-    for i, (slot, _boxed) in enumerate(capt):
+    em.emit(b"\x48\xC7\x40\x10" + struct.pack("<i", nc))    # mov [rax+16],ncap（跨度）
+    for slot, _boxed in capt:
         src_disp = -8 * (nlocals - slot)         # 定义帧槽（本函数帧）
         em.emit(b"\x48\x8B\x95" + struct.pack("<i", src_disp))  # mov rdx,[rbp+d32]
-        off = 24 + 8 * i
+        off = 24 + 8 * slot                        # 按原始槽号定位（与读侧一致）
         if off <= 127:
             em.emit(b"\x48\x89\x50" + bytes([off]))             # mov [rax+o8],rdx
         else:
