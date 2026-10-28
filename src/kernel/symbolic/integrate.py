@@ -342,6 +342,17 @@ def _int_single_atom(atom: str, exp: float, coef: float, var: str) -> Expr | Non
         res = Sub(Div(Mul(u, _f("log", u)), _num(a)),
                   Div(u, _num(a)))
         return _scale_expr(res, coef)
+    if isinstance(inner, FuncCall) and inner.name == "abs" and exp == 1.0 \
+            and len(inner.args) == 1:
+        # 分段代表函数：∫|a x + b| dx = (a x + b)·|a x + b| / (2a)（对标 sympy
+        # integrate(Abs(x)) = x*Abs(x)/2）。仅线性内函数、一次幂；否则落回显式 None。
+        ab = _linear_arg(inner.args[0], var)
+        if ab is None:
+            return None
+        a, b = ab
+        u = _linear_expr(a, b, var)
+        res = Div(Mul(u, _f("abs", u)), _num(2 * a))
+        return _scale_expr(res, coef)
     if isinstance(inner, Var) and inner.name != var:
         return None
     if exp == -1.0:

@@ -114,10 +114,14 @@ def test_integrate_exponential_atoms_collapse():
     assert _s(integrate(symbol_expr("exp(2*x)*exp(-x)"), "x")) == "exp(x)"
 
 
-@pytest.mark.parametrize("src", ["exp(-x**2)", "sin(x)/x", "abs(x)", "x**x",
+@pytest.mark.parametrize("src", ["exp(-x**2)", "sin(x)/x", "x**x",
                                  "1/(1+exp(x))", "sin(1/x)", "1/(x*exp(x))"])
 def test_integrate_gaps_report_unknown(src):
-    """非初等/未覆盖原函数：内核返回 None（门面转成显式错误），不得给出伪解。"""
+    """非初等/未覆盖原函数：内核返回 None（门面转成显式错误），不得给出伪解。
+
+    （`abs(x)` 已于 B 组补上分段原函数规则 ∫|ax+b|=(ax+b)|ax+b|/(2a)，
+    改由 tests/test_kernel_integrate_abs_piecewise.py 正向锁定，故不在此列。）
+    """
     assert integrate(symbol_expr(src), "x") is None
 
 

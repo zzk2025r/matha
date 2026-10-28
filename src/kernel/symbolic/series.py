@@ -64,7 +64,11 @@ def taylor(expr: Expr, var: str = "x", point: float = 0.0, order: int = 5) -> Ex
     out = terms[0]
     for t in terms[1:]:
         out = Add(out, t)
-    return canonical(out)
+    if point == 0:
+        return canonical(out)          # 麦克劳林：合并同类项得干净 x 幂展开
+    # 非零点：保留 sympy 的 (x-a)^n 中心形式，不套 canonical 乘开成 x 幂
+    # （canonical 会把 (x-a)^n 展开，丢失「在 a 处展开」的结构，见 parity 第 5 节）。
+    return out
 
 
 def maclaurin(expr: Expr, var: str = "x", order: int = 5) -> Expr:

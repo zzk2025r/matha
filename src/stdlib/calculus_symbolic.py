@@ -338,9 +338,11 @@ def taylor_series(expr: str, var: str = "x", point: float = 0, order: int = 5,
     """
     e = _parse(expr, var)
     a, k = float(point), int(order)
+    # 非零点保留内核 (x-a)^n 中心形式（不乘开）；零点沿用 canonical 展开串。
+    expand = (a == 0.0)
     try:
         return _route(backend, lambda: _k_str(_ms_taylor(e, var, a, k)),
-                      lambda: _k_str(_k_taylor(e, var, a, k)), "泰勒展开")
+                      lambda: _k_str(_k_taylor(e, var, a, k), expand=expand), "泰勒展开")
     except ValueError:
         raise
     except Exception as ex:

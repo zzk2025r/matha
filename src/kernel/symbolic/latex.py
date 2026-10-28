@@ -103,19 +103,22 @@ def parse_equation(text: str) -> Expr:
 #  Expr → 字符串
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def to_str(expr: Expr) -> str:
-    """机器可读标准串（先过 ``canonical``：合并同类项 + 稳定项序）。"""
-    return _emit(canonical(expr), _ADD, "str")
+def to_str(expr: Expr, expand: bool = True) -> str:
+    """机器可读标准串（先过 ``canonical``：合并同类项 + 稳定项序）。
+
+    ``expand=False`` 跳过 canonical，按原树发射（用于保留泰勒 (x-a)^n 中心形式）。
+    """
+    return _emit(expr if not expand else canonical(expr), _ADD, "str")
 
 
-def to_pretty(expr: Expr) -> str:
-    """Unicode 美观串：``x² + 2x + 1``。"""
-    return _emit(canonical(expr), _ADD, "pretty")
+def to_pretty(expr: Expr, expand: bool = True) -> str:
+    """Unicode 美观串：``x² + 2x + 1``。``expand=False`` 时不乘开幂。"""
+    return _emit(expr if not expand else canonical(expr), _ADD, "pretty")
 
 
-def to_latex(expr: Expr) -> str:
-    """LaTeX 发射：``x^{2} + 2 x + 1``。"""
-    return _emit(canonical(expr), _ADD, "latex")
+def to_latex(expr: Expr, expand: bool = True) -> str:
+    """LaTeX 发射：``x^{2} + 2 x + 1``。``expand=False`` 时不乘开幂。"""
+    return _emit(expr if not expand else canonical(expr), _ADD, "latex")
 
 
 def _numeral(v: float) -> str:

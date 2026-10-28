@@ -27,7 +27,7 @@ src/lexer.py → src/parser.py → src/ast_nodes.py
   仅测试与调试可见）。全仓库 `src.interp` 的引用已改指门面。
 
 核心体量：`src/lexer.py + src/parser.py + src/ast_nodes.py + src/kernel/ + src/mbc/`
-共 **30,924 行**（`repo_facts.core_py_lines`）。
+共 **30,942 行**（`repo_facts.core_py_lines`）。
 
 ## 二、L1 纯净内核与 import 白名单
 
@@ -107,7 +107,7 @@ functools unicodedata textwrap heapq datetime importlib`。
 
 | 门禁 | 判据 |
 |---|---|
-| `tests/` | 63 个测试文件（全量见最近一次 `make check`） |
+| `tests/` | 65 个测试文件（全量见最近一次 `make check`） |
 | `kernel_purity` | 白名单 + 核心无逃逸模块 + 插件不得碰 VM 私有面 |
 | `ast_vm_gap` | 78 个 AST 节点、59 发射 / 19 有意无码 / **0 不认识**、**0 阻塞缺口**；指令码 33/33/33 |
 | `golden` | 18 例 vm ↔ interp 逐字节；`--native` 追加真 exe 对拍（已知未实现 2 例显式列在 `golden_tests/manifest.json`） |

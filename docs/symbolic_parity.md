@@ -59,7 +59,8 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | 表达式 | 行为 |
 |---|---|
 | `exp(-x**2)`、`sin(x)/x`、`1/(1+exp(x))`、`1/(x*exp(x))`、`sin(1/x)` | 非初等原函数 → `None`（门面转显式错误） |
-| `abs(x)`、`x**x` | 内核无对应原函数规则 → `None` |
+| `x**x` | 内核无对应原函数规则 → `None` |
+| `abs(x)`、`abs(a*x+b)`（线性内函数） | 已覆盖（B 组）：∫|ax+b| = (ax+b)·|ax+b|/(2a)，与 sympy `integrate(Abs(x))=x*Abs(x)/2` 同式（`tests/test_kernel_integrate_abs_piecewise.py` 锁定） |
 | 三重及以上不可约因式、高次重根分式 | `_int_proper` 返回 `None` |
 
 ## 4. 极限 `limit`（`kernel/symbolic/limit.py`）
@@ -86,7 +87,7 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | 能力 | 判定 | 实测样本 |
 |---|---|---|
 | 麦克劳林/泰勒展开 | 一致 | `exp(x)` 5 阶、`log(1+x)`、`sqrt(1+x)`、`tan(x)`、`exp(-x**2)` |
-| 非 0 点泰勒 `taylor(f, x, a, n)` | 一致（值）/ 已知偏差（表示） | 内核 `series.taylor` 覆盖**任意展开点** `a`，与 sympy `series(...).removeO()` 数值一致（`tests/test_kernel_symbolic.py` 以邻域逼近真值锁定）；输出为 `x` 的展开幂形式而非 sympy 的 `(x-a)ⁿ`，属代数等价变形 |
+| 非 0 点泰勒 `taylor(f, x, a, n)` | 一致（值 + 表示） | 内核 `series.taylor` 覆盖**任意展开点** `a`，与 sympy `series(...).removeO()` 数值一致；输出已改为 sympy 的 **`(x-a)ⁿ` 中心形式**（不再乘开成 `x` 幂，B 组修），`tests/test_kernel_taylor_centered.py` 逐字锁定 |
 | Faulhaber（Σ 多项式，非负整数幂） | 一致 | `Σn=5050`、`Σn**3=3025` |
 | 几何/望远镜闭式 | 一致 | `Σ1/2**n → 1`；`Σ1/(n(n+2)) → 0.5952380952380952` |
 | `Σ x**n/n! → exp(x)`、`Σ1/n**2 → π²/6` | 一致 | 闭式识别 |
@@ -144,7 +145,7 @@ python -m pytest tests/test_kernel_symbolic.py -q
 
 ## 9. 总体缺口清单（禁止被当作「假成功」）
 
-1. 非初等原函数：`exp(-x**2)`、`sin(x)/x`、`abs(x)`、`x**x`、`1/(1+e^x)` 等。
+1. 非初等原函数：`exp(-x**2)`、`sin(x)/x`、`x**x`、`1/(1+e^x)` 等（`abs(x)` 已于 B 组补分段原函数规则）。
 2. 特殊函数体系：`factorial` 求导、Airy、Bessel、`digamma/polygamma`、`DiracDelta`。
 3. 二元函数记法：`log(x, base)` 的求导与化简。
 4. 非线性 ODE（Riccati、齐次型 `y'=(x+y)/x`、克莱罗型）与高阶非齐次特解。
