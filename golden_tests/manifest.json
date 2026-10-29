@@ -146,6 +146,26 @@
     "35_list_comp": {
       "features": ["SCOPED_BLOCKS"],
       "description": "列表推导 VM 编译补全：基本/单if/多if(AND)/空迭代/range/嵌套，三端逐字节对齐 interp（字符串入列表由 tests/test_listcomp_vm.py 锁）"
+    },
+    "36_basics_map_filter_reduce": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：map/filter/reduce 基本、空列表、单元素、内联 lambda 与 map∘reduce 组合"
+    },
+    "37_basics_sorted": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：sorted 稳定插入排序（升/降比较器、空/单元素、已排序、逆序、等值保序）"
+    },
+    "38_basics_join_split": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：join 标量输出 + split 往返（经 join/len 归一规避字符串入列表引号分歧，同 35 例口径）"
+    },
+    "39_basics_gcd": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：gcd 英文入口转调柯里化内建 最大公约数（0/负数/互质边界）"
     }
   }
 }

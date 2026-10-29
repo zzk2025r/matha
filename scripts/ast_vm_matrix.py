@@ -394,8 +394,12 @@ def render_markdown(data: dict) -> str:
                  "多 `if` 取 AND；**仅单个 `for` 生成子句**（parser 语法即如此，非 Python 多 for 嵌套）；三端逐字节对齐 "
                  "interp（`tests/test_listcomp_vm.py` + 黄金用例 `35_list_comp` 锁定） |")
     lines.append("| `#：{…}` 记录面 mbc 不发射 | — | 标准库不用该语法 |")
-    lines.append("| 无 `sorted/map/filter/join/gcd/split` 等内建 | — | "
-                 "手写升序插入排序 + 欧几里得 `gcd` |")
+    lines.append("| ~~无 `sorted/map/filter/join/gcd/split` 等内建~~ **已由纯 Matha 标准库提供** | "
+                 "`matha/library/collections_core.matha` | "
+                 "`map/filter/reduce/sorted(稳定插入排序)/join/split/gcd` 七函数零新 opcode/零新宿主内建实现"
+                 "（先例同 `35_list_comp`）；黄金用例 `36-39` 三端逐字节锁，行为另由 "
+                 "`tests/test_matha_library_basics.py` 对拍 Python 真相。注意：同名不同 arity 重载会被后定义覆盖，"
+                 "故 `sorted` 只有 `sorted(xs, lt)` 双参形式 |")
     lines.append("")
     lines.append("（历史上本表还列有「三元/or 里 `==` 误析」与「无科学计数法字面量」"
                  "两条：前者已于语句位归一为 `(a==b)?x:y`（黄金用例 `32_ternary_eq_"

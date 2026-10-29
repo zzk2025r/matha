@@ -9,6 +9,27 @@
 > 本文件不写任何自评评分与「加速 N 倍」类性能数字（口径见
 > [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第六节）。
 
+## 未发布（Unreleased，分支 `feature/kernel-plugin`）
+
+P1 内建函数库补齐：纯 Matha 标准库，零新 opcode、零新宿主内建
+（机器码平价先例同黄金用例 `35_list_comp`）。
+
+- 新增 `matha/library/collections_core.matha`：`map/filter/reduce/sorted/
+  join/split/gcd` 七函数，全部复用已三端平价面（curried func、lambda 传参、
+  `let rec` 累加器递归、`len/get/append/slice/str/+`）。`sorted` 为稳定插入
+  排序，只有 `sorted(xs, lt)` 双参形式（同名不同 arity 重载会被后定义覆盖，
+  VM/interp 实测）；`split` 对齐 Python `str.split(sep)` 口径，空分隔符报错。
+- 黄金 runner preload 机制：`manifest.json` 的 `cases.<stem>.preload` 把库源码
+  前置拼接进用例文本，三端跑同一模块（与 `tests/test_mbc_bootstrap.py`
+  多文件拼接同构）。
+- 黄金用例新增 `36_basics_map_filter_reduce` / `37_basics_sorted` /
+  `38_basics_join_split` / `39_basics_gcd`，vm ↔ interp ↔ native 逐字节锁。
+- 行为单测 `tests/test_matha_library_basics.py`：对拍 Python 真相
+  （`sorted/map/filter`、`math.gcd`、`str.split/join`），含排序稳定性等值类、
+  空分隔符报错口径、库执行零 `src.domains.*` import 纯净断言。
+- [ast_vm_gap.md](ast_vm_gap.md) 第九节「无 sorted/map/filter/join/gcd/split
+  等内建」行改写为已由标准库提供（含 `scripts/ast_vm_matrix.py` 模板同步）。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，
@@ -68,8 +89,8 @@
 ### 五、VM ↔ native 机器码平价与静默失败清零
 
 - AST×VM 覆盖矩阵：78 节点中 59 发射 / 19 有意无码 / **0 不认识、0 阻塞缺口**；
-  197 份语料 **0 解析失败**（`docs/ast_vm_gap.md`，机器生成）。
-- 指令码 33 条 VM 全分派、native 全发射；黄金用例 **35** 例 vm ↔ interp
+  202 份语料 **0 解析失败**（`docs/ast_vm_gap.md`，机器生成）。
+- 指令码 33 条 VM 全分派、native 全发射；黄金用例 **39** 例 vm ↔ interp
   逐字节一致，`--native` 真 exe 对拍已知缺口 **0** 例
   （`golden_tests/manifest.json` `native_known_gaps`；
   `18_domain_lazy_load` 属设计内 SKIP——exe 无 Python 宿主，不承载领域符号，
@@ -97,7 +118,7 @@
 - 内核符号引擎 `src/kernel/symbolic/`（纯标准库）：±∞ 极限改**精确主部比**
   （对标 sympy 主导项法，含奇偶变号）；`ln` 归一为自然对数别名；
   任意点泰勒输出 sympy 的 `(x-a)ⁿ` 中心形式；`abs` 分段原函数。
-- Matha 标准库 `matha/library/`（5 个 `.matha` 文件，mbc VM 执行）为 CLI
+- Matha 标准库 `matha/library/`（6 个 `.matha` 文件，mbc VM 执行）为 CLI
   默认符号路径，能力缺口显式「不支持」并回退内核 stage0（回退记账，非假成功）；
   与 sympy 的逐项能力对照见 [symbolic_parity.md](symbolic_parity.md)。
 

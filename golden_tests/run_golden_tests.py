@@ -20,6 +20,10 @@
   python golden_tests/run_golden_tests.py             # 校验（vm + interp）
   python golden_tests/run_golden_tests.py --update     # 重写基线（改动 VM 语义后须显式做）
   python golden_tests/run_golden_tests.py --native     # 追加原生 exe 对拍
+
+标准库预加载：manifest 的 `cases.<stem>` 可带 `"preload": ["matha/library/….matha"]`，
+库源码**前置拼接**进用例文本后三端跑同一模块 —— 与 tests/test_mbc_bootstrap.py
+多文件拼接同构，三端口径天然一致（库不是宿主内建，不需要单独注入）。
 """
 from __future__ import annotations
 
@@ -340,7 +344,10 @@ def main(argv: list[str] | None = None) -> int:
     notes: list[str] = []
     for stem in stems:
         source = (CASES_DIR / f"{stem}.matha").read_text(encoding="utf-8")
-        flags = MANIFEST["cases"].get(stem, {}).get("features", [])
+        entry = MANIFEST["cases"].get(stem, {})
+        flags = entry.get("features", [])
+        for rel in entry.get("preload", []):
+            source = (ROOT / rel).read_text(encoding="utf-8") + "\n" + source
         ok, gap, text, n, sk = check_case(stem, source, flags,
                                           update=args.update, native=args.native,
                                           cli=args.cli)

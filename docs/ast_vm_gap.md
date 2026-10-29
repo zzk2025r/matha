@@ -27,7 +27,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
 | 指令码总数 / VM 已分派 / native 已发射 | 33 / 33 / 33 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
-| 语料文件（解析成功） | 197 |
+| 语料文件（解析成功） | 202 |
 | 无法解析的语料文件 | 0 |
 
 ## 三、阻塞缺口（必须先补）
@@ -46,15 +46,15 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `AngleExpr` | emits | no | 0 |
 | `AnnotatedType` | noop | no | 0 |
 | `Annotation` | noop | no | 0 |
-| `BasicType` | noop | no | 146 |
+| `BasicType` | noop | no | 147 |
 | `Belongs` | emits | yes | 1 |
-| `BinaryOp` | emits | yes | 158 |
-| `Binding` | emits | yes | 43 |
-| `BoolLit` | emits | yes | 33 |
+| `BinaryOp` | emits | yes | 161 |
+| `Binding` | emits | yes | 45 |
+| `BoolLit` | emits | yes | 35 |
 | `BreakStmt` | emits | yes | 1 |
 | `ChainStmt` | emits | yes | 16 |
 | `ChanExpr` | emits | no | 0 |
-| `CodeBlock` | emits | yes | 61 |
+| `CodeBlock` | emits | yes | 62 |
 | `CommandLiteral` | noop | yes | 28 |
 | `ConstructorPat` | emits | yes | 0 |
 | `ContinueStmt` | emits | yes | 1 |
@@ -62,44 +62,44 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `DictLiteral` | emits | yes | 11 |
 | `EnumDef` | emits | yes | 2 |
 | `FileMarker` | noop | yes | 0 |
-| `FloatLit` | emits | yes | 84 |
+| `FloatLit` | emits | yes | 85 |
 | `ForStmt` | emits | yes | 2 |
-| `ForeignDecl` | noop | yes | 8 |
-| `FuncApp` | emits | yes | 150 |
-| `FuncDef` | emits | yes | 146 |
-| `FuncType` | noop | no | 146 |
+| `ForeignDecl` | noop | yes | 12 |
+| `FuncApp` | emits | yes | 155 |
+| `FuncDef` | emits | yes | 147 |
+| `FuncType` | noop | no | 147 |
 | `GenStmt` | emits | yes | 31 |
-| `Generate` | noop | no | 47 |
+| `Generate` | noop | no | 51 |
 | `GlobalIdStmt` | noop | yes | 15 |
 | `GlobalLoopSuffix` | noop | no | 1 |
 | `GoStmt` | emits | yes | 0 |
 | `IfElseStmt` | emits | yes | 0 |
-| `IfExpr` | emits | yes | 76 |
-| `IfStmt` | emits | yes | 13 |
+| `IfExpr` | emits | yes | 77 |
+| `IfStmt` | emits | yes | 14 |
 | `ImportDecl` | emits | yes | 11 |
-| `IndexExpr` | emits | yes | 55 |
-| `IntegerLit` | emits | yes | 172 |
+| `IndexExpr` | emits | yes | 56 |
+| `IntegerLit` | emits | yes | 177 |
 | `IsExpr` | emits | yes | 1 |
 | `Iteration` | emits | no | 0 |
-| `Lambda` | emits | yes | 147 |
-| `LetBinding` | emits | yes | 79 |
+| `Lambda` | emits | yes | 150 |
+| `LetBinding` | emits | yes | 80 |
 | `LetTupleBinding` | emits | yes | 10 |
 | `ListComp` | emits | yes | 1 |
-| `ListLiteral` | emits | yes | 52 |
+| `ListLiteral` | emits | yes | 56 |
 | `LoopFraction` | noop | no | 10 |
 | `LoopStep` | emits | no | 0 |
 | `LoopWhile` | emits | no | 0 |
 | `MatchStmt` | emits | yes | 13 |
-| `MechUnit` | emits | yes | 47 |
+| `MechUnit` | emits | yes | 51 |
 | `ModuleDecl` | emits | yes | 105 |
 | `NLBlock` | noop | no | 0 |
-| `Output` | emits | yes | 56 |
+| `Output` | emits | yes | 60 |
 | `OutputTrail` | emits | yes | 41 |
 | `PathExpr` | emits | yes | 16 |
-| `Program` | emits | no | 197 |
+| `Program` | emits | no | 202 |
 | `RaiseExpr` | emits | yes | 6 |
 | `ReadBlock` | noop | yes | 23 |
-| `ReturnStmt` | emits | yes | 7 |
+| `ReturnStmt` | emits | yes | 8 |
 | `SafePathExpr` | emits | yes | 0 |
 | `SegLoopSuffix` | noop | no | 10 |
 | `SelectStmt` | emits | no | 0 |
@@ -109,16 +109,16 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `SetUp` | emits | yes | 25 |
 | `SetUpItem` | noop | no | 25 |
 | `SliceExpr` | emits | yes | 19 |
-| `StringLit` | emits | yes | 103 |
+| `StringLit` | emits | yes | 105 |
 | `StructDef` | emits | yes | 3 |
 | `SwitchStmt` | emits | yes | 0 |
 | `ThrowStmt` | emits | yes | 0 |
 | `TryStmt` | emits | yes | 4 |
 | `TupleExpr` | emits | yes | 22 |
-| `TupleType` | noop | no | 117 |
+| `TupleType` | noop | no | 118 |
 | `TypeOfExpr` | emits | yes | 2 |
-| `UnaryOp` | emits | yes | 52 |
-| `Variable` | emits | yes | 194 |
+| `UnaryOp` | emits | yes | 53 |
+| `Variable` | emits | yes | 199 |
 | `WhileStmt` | emits | yes | 8 |
 
 ## 六、指令码 × VM / native
@@ -178,7 +178,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `if` 不能当表达式用 | `let y = if c {1} else {2}` | 先算再绑定 |
 | **列表推导 `[expr for x in iter if c ...]` VM 已编译**（旧版曾静默编译成空列表 `[]`）| `[x * x for x in nums]` | 下沉为与 `for` 同构的下标循环 + `append` 累加（零新 opcode/新内建）；多 `if` 取 AND；**仅单个 `for` 生成子句**（parser 语法即如此，非 Python 多 for 嵌套）；三端逐字节对齐 interp（`tests/test_listcomp_vm.py` + 黄金用例 `35_list_comp` 锁定） |
 | `#：{…}` 记录面 mbc 不发射 | — | 标准库不用该语法 |
-| 无 `sorted/map/filter/join/gcd/split` 等内建 | — | 手写升序插入排序 + 欧几里得 `gcd` |
+| ~~无 `sorted/map/filter/join/gcd/split` 等内建~~ **已由纯 Matha 标准库提供** | `matha/library/collections_core.matha` | `map/filter/reduce/sorted(稳定插入排序)/join/split/gcd` 七函数零新 opcode/零新宿主内建实现（先例同 `35_list_comp`）；黄金用例 `36-39` 三端逐字节锁，行为另由 `tests/test_matha_library_basics.py` 对拍 Python 真相。注意：同名不同 arity 重载会被后定义覆盖，故 `sorted` 只有 `sorted(xs, lt)` 双参形式 |
 
 （历史上本表还列有「三元/or 里 `==` 误析」与「无科学计数法字面量」两条：前者已于语句位归一为 `(a==b)?x:y`（黄金用例 `32_ternary_eq_precedence` 三端锁定），后者 `1e-15` 早已被 lexer/parser 支持（黄金用例 `33_sci_notation` 三端锁定），均已删除不复发。）
 

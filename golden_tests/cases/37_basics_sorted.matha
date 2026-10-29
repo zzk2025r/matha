@@ -1,0 +1,14 @@
+# 标准库 collections_core：sorted 稳定插入排序（比较器口径）
+# 注：同名不同 arity 重载会被后定义覆盖（VM/interp 实测），故库只提供
+# sorted(xs, lt) 双参形式，升序显式传 (a, b) => a < b。
+lt = (a, b) => a < b
+gt = (a, b) => a > b
+[sorted([5, 3, 1, 4, 2], lt)]
+[sorted([], lt)]
+[sorted([7], lt)]
+[sorted([1, 2, 3], lt)]
+[sorted([3, 2, 1], lt)]
+[sorted([1, 2, 3], gt)]
+# 稳定性：等值元素保持原相对序（插队只发生在严格更大元素之前）
+[sorted([2, 2, 1], lt)]
+[sorted([3, 1, 3, 1], lt)]
