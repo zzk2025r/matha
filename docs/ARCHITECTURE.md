@@ -27,7 +27,7 @@ src/lexer.py → src/parser.py → src/ast_nodes.py
   仅测试与调试可见）。全仓库 `src.interp` 的引用已改指门面。
 
 核心体量：`src/lexer.py + src/parser.py + src/ast_nodes.py + src/kernel/ + src/mbc/`
-共 **30,931 行**（`repo_facts.core_py_lines`）。
+共 **30,999 行**（`repo_facts.core_py_lines`）。
 
 ## 二、L1 纯净内核与 import 白名单
 
@@ -109,8 +109,8 @@ functools unicodedata textwrap heapq datetime importlib`。
 |---|---|
 | `tests/` | 66 个测试文件（全量见最近一次 `make check`） |
 | `kernel_purity` | 白名单 + 核心无逃逸模块 + 插件不得碰 VM 私有面 |
-| `ast_vm_gap` | 78 个 AST 节点、58 发射 / 19 有意无码 / **1 不认识**（ListComp：VM 编译期显式报错，不再静默返空）、**0 阻塞缺口**；指令码 33/33/33 |
-| `golden` | 18 例 vm ↔ interp 逐字节；`--native` 追加真 exe 对拍（已知未实现 2 例显式列在 `golden_tests/manifest.json`） |
+| `ast_vm_gap` | 78 个 AST 节点、59 发射 / 19 有意无码 / **0 不认识**（ListComp 已由 VM 编译为下标循环 + `append` 累加，不再静默返空）、**0 阻塞缺口**；指令码 33/33/33 |
+| `golden` | 35 例 vm ↔ interp 逐字节；`--native` 追加真 exe 对拍（已知未实现项列在 `golden_tests/manifest.json` 的 `native_known_gaps`，当前为 0） |
 | `dep_audit` | 违规 0 条、插件越界 0 条 |
 | `matha_stdlib_symbolic` | 阶段 4 逐位对拍 + 偏差双向锁定 + 缺口显式失败（107 项） |
 

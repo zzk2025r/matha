@@ -21,13 +21,13 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | 指标 | 数值 |
 |---|---|
 | AST 节点总数 | 78 |
-| VM 发射字节码 | 58 |
+| VM 发射字节码 | 59 |
 | VM 有意无码 | 19 |
-| VM 不认识 | 1 |
+| VM 不认识 | 0 |
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
 | 指令码总数 / VM 已分派 / native 已发射 | 33 / 33 / 33 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
-| 语料文件（解析成功） | 196 |
+| 语料文件（解析成功） | 197 |
 | 无法解析的语料文件 | 0 |
 
 ## 三、阻塞缺口（必须先补）
@@ -36,7 +36,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 
 ## 四、未被语料使用的缺口（低优先）
 
-`ListComp`
+无。
 
 ## 五、全表
 
@@ -48,8 +48,8 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `Annotation` | noop | no | 0 |
 | `BasicType` | noop | no | 146 |
 | `Belongs` | emits | yes | 1 |
-| `BinaryOp` | emits | yes | 157 |
-| `Binding` | emits | yes | 42 |
+| `BinaryOp` | emits | yes | 158 |
+| `Binding` | emits | yes | 43 |
 | `BoolLit` | emits | yes | 33 |
 | `BreakStmt` | emits | yes | 1 |
 | `ChainStmt` | emits | yes | 16 |
@@ -64,12 +64,12 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `FileMarker` | noop | yes | 0 |
 | `FloatLit` | emits | yes | 84 |
 | `ForStmt` | emits | yes | 2 |
-| `ForeignDecl` | noop | yes | 7 |
-| `FuncApp` | emits | yes | 149 |
+| `ForeignDecl` | noop | yes | 8 |
+| `FuncApp` | emits | yes | 150 |
 | `FuncDef` | emits | yes | 146 |
 | `FuncType` | noop | no | 146 |
 | `GenStmt` | emits | yes | 31 |
-| `Generate` | noop | no | 46 |
+| `Generate` | noop | no | 47 |
 | `GlobalIdStmt` | noop | yes | 15 |
 | `GlobalLoopSuffix` | noop | no | 1 |
 | `GoStmt` | emits | yes | 0 |
@@ -78,25 +78,25 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `IfStmt` | emits | yes | 13 |
 | `ImportDecl` | emits | yes | 11 |
 | `IndexExpr` | emits | yes | 55 |
-| `IntegerLit` | emits | yes | 171 |
+| `IntegerLit` | emits | yes | 172 |
 | `IsExpr` | emits | yes | 1 |
 | `Iteration` | emits | no | 0 |
 | `Lambda` | emits | yes | 147 |
 | `LetBinding` | emits | yes | 79 |
 | `LetTupleBinding` | emits | yes | 10 |
-| `ListComp` | missing | yes | 0 |
-| `ListLiteral` | emits | yes | 51 |
+| `ListComp` | emits | yes | 1 |
+| `ListLiteral` | emits | yes | 52 |
 | `LoopFraction` | noop | no | 10 |
 | `LoopStep` | emits | no | 0 |
 | `LoopWhile` | emits | no | 0 |
 | `MatchStmt` | emits | yes | 13 |
-| `MechUnit` | emits | yes | 46 |
+| `MechUnit` | emits | yes | 47 |
 | `ModuleDecl` | emits | yes | 105 |
 | `NLBlock` | noop | no | 0 |
-| `Output` | emits | yes | 55 |
+| `Output` | emits | yes | 56 |
 | `OutputTrail` | emits | yes | 41 |
 | `PathExpr` | emits | yes | 16 |
-| `Program` | emits | no | 196 |
+| `Program` | emits | no | 197 |
 | `RaiseExpr` | emits | yes | 6 |
 | `ReadBlock` | noop | yes | 23 |
 | `ReturnStmt` | emits | yes | 7 |
@@ -118,7 +118,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `TupleType` | noop | no | 117 |
 | `TypeOfExpr` | emits | yes | 2 |
 | `UnaryOp` | emits | yes | 52 |
-| `Variable` | emits | yes | 193 |
+| `Variable` | emits | yes | 194 |
 | `WhileStmt` | emits | yes | 8 |
 
 ## 六、指令码 × VM / native
@@ -176,7 +176,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | **裸 `[x]` 出现在语句位仍当作「打印括号」**（输出单元）；但 `return` 紧邻操作数位的 `[x]` 已归一为**列表字面量**（不再既打印又返裸值）| `func 包(x) -> List = (x) => { return [x] }` | `return [x]`→`[x]`、`return []`→`[]`、`return [a, b]` 均为正常列表（黄金用例 `34_return_list_literal` 三端锁定）；裸块尾 `[x]` 仍单次输出 |
 | `func` 缺 `-> 类型` 直接 ParseError | `func f(x) = …` | 一律写 `func f(x) -> Any = …` |
 | `if` 不能当表达式用 | `let y = if c {1} else {2}` | 先算再绑定 |
-| **列表推导 `[expr for x in iter]` VM 不编译**（旧版静默编译成空列表 `[]`）| `[x * x for x in nums]` | VM 编译期**显式报错**（`字节码编译：不支持列表推导`）；矩阵将 ListComp 归为 `missing`（非 emits，used_in=0 不构成阻塞缺口）；请改用显式循环/函数式写法（`tests/test_listcomp_vm_unsupported.py` 锁定） |
+| **列表推导 `[expr for x in iter if c ...]` VM 已编译**（旧版曾静默编译成空列表 `[]`）| `[x * x for x in nums]` | 下沉为与 `for` 同构的下标循环 + `append` 累加（零新 opcode/新内建）；多 `if` 取 AND；**仅单个 `for` 生成子句**（parser 语法即如此，非 Python 多 for 嵌套）；三端逐字节对齐 interp（`tests/test_listcomp_vm.py` + 黄金用例 `35_list_comp` 锁定） |
 | `#：{…}` 记录面 mbc 不发射 | — | 标准库不用该语法 |
 | 无 `sorted/map/filter/join/gcd/split` 等内建 | — | 手写升序插入排序 + 欧几里得 `gcd` |
 

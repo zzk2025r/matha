@@ -142,6 +142,10 @@
     "34_return_list_literal": {
       "features": ["SCOPED_BLOCKS"],
       "description": "return 后的 [x] 为列表字面量（修复单元素列表被当「打印括号」的语句位陷阱）"
+    },
+    "35_list_comp": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "列表推导 VM 编译补全：基本/单if/多if(AND)/空迭代/range/嵌套，三端逐字节对齐 interp（字符串入列表由 tests/test_listcomp_vm.py 锁）"
     }
   }
 }

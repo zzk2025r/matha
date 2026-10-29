@@ -1,0 +1,16 @@
+# A 方案回归锁：列表推导 [expr for x in iter if c ...] 三端逐字节对齐 interp
+# 修复前 VM 编译器 ListComp 分支 `BUILD_LIST 0` + `pass` → 任意推导静默编译成空列表 []
+# 注：字符串元素列表（如 `[c for c in "abc"]`）不在本黄金例覆盖：native exe 对列表内
+# 字符串加引号（print_repr，`test_native_regex` 依赖此），而黄金 native 对拍口径 format_plain
+# 刻意去引号，两者在「字符串入列表」上不可调和；该形态的 vm↔interp 正确性由
+# tests/test_listcomp_vm.py 锁定。
+nums = [1, 2, 3, 4]
+big = [1, 2, 3, 4, 5]
+mid = [1, 2, 3, 4, 5, 6]
+[ [x * x for x in nums] ]
+[ [x for x in big if x > 3] ]
+[ [x for x in mid if x > 2 if x < 5] ]
+[ [x * x for x in []] ]
+[ [x * 10 for x in range(1, 4)] ]
+m = [[1, 2], [3, 4]]
+[ [[y * 2 for y in row] for row in m] ]

@@ -142,28 +142,17 @@ def opcode_surface() -> tuple[list[str], set[str], set[str]]:
 #: 根容器节点：不由 isinstance 分派，而是被 `compile_program(program)` 直接消费。
 ROOT_NODES: frozenset[str] = frozenset({"Program"})
 
-#: 「识别但故意报错」的节点（编译期显式 `raise` 不支持）。
-#: `_handled_nodes` 只要编译器里**出现** `isinstance(x, ast.Foo)` 就把 Foo 计入
-#: `emits`，不看分支体——故一个只 `raise`/`pass` 的分支会被假报为「已覆盖」。
-#: 这里是精准豁免（**不是**通用启发式）：只列真正「VM 后端不支持、编译期必报错」
-#: 的节点，把它们从 `emits` 降为 `missing`。绝不含 StructDef——它声明位虽为
-#: `pass`，但构造子在别处产 dict，确实可用（used_in=3，降它会凭空造阻塞缺口）。
-#: 见 tests/test_listcomp_vm_unsupported.py 同时锁死这两件事。
-_RAISE_UNSUPPORTED: frozenset[str] = frozenset({"ListComp"})
-
 
 def compiler_supported(nodes: set[str]) -> tuple[set[str], set[str]]:
     """返回 (会发射字节码的节点, 编译期无码但被显式承认的节点)。
 
     `_NOOP_STMTS` 里的节点是「有意不产码」（标注/文件标记/类型节点等），与
-    「不认识而报错」完全不同，因此分开统计。`_RAISE_UNSUPPORTED` 里的节点虽然
-    编译器认得其 isinstance 分支，但分支体只 `raise`（后端不支持），故既非 emits
-    也非 benign noop，降为 missing。
+    「不认识而报错」完全不同，因此分开统计。
     """
     dispatched, noop = _handled_nodes(COMPILER_FILE)
     ext_dispatch, _ext_tables = _handled_nodes(AST_EXT_FILE)
     mentioned = (dispatched | ext_dispatch) | ROOT_NODES
-    emits = (nodes & mentioned) - noop - _RAISE_UNSUPPORTED
+    emits = (nodes & mentioned) - noop
     return emits, nodes & noop
 
 
@@ -400,10 +389,10 @@ def render_markdown(data: dict) -> str:
     lines.append("| `func` 缺 `-> 类型` 直接 ParseError | `func f(x) = …` | "
                  "一律写 `func f(x) -> Any = …` |")
     lines.append("| `if` 不能当表达式用 | `let y = if c {1} else {2}` | 先算再绑定 |")
-    lines.append("| **列表推导 `[expr for x in iter]` VM 不编译**（旧版静默编译成空列表 `[]`）| "
-                 "`[x * x for x in nums]` | VM 编译期**显式报错**（`字节码编译：不支持"
-                 "列表推导`）；矩阵将 ListComp 归为 `missing`（非 emits，used_in=0 不构成"
-                 "阻塞缺口）；请改用显式循环/函数式写法（`tests/test_listcomp_vm_unsupported.py` 锁定） |")
+    lines.append("| **列表推导 `[expr for x in iter if c ...]` VM 已编译**（旧版曾静默编译成空列表 `[]`）| "
+                 "`[x * x for x in nums]` | 下沉为与 `for` 同构的下标循环 + `append` 累加（零新 opcode/新内建）；"
+                 "多 `if` 取 AND；**仅单个 `for` 生成子句**（parser 语法即如此，非 Python 多 for 嵌套）；三端逐字节对齐 "
+                 "interp（`tests/test_listcomp_vm.py` + 黄金用例 `35_list_comp` 锁定） |")
     lines.append("| `#：{…}` 记录面 mbc 不发射 | — | 标准库不用该语法 |")
     lines.append("| 无 `sorted/map/filter/join/gcd/split` 等内建 | — | "
                  "手写升序插入排序 + 欧几里得 `gcd` |")

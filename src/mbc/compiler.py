@@ -334,7 +334,10 @@ class Compiler:
             pass  # 运行时结构体即 dict，构造子（如 做Token）直接产出 dict
         elif isinstance(decl, ast.Output):
             if decl.expr is not None:
-                self._emit_expr(decl.expr, _Scope(None), code)
+                # 顶层输出表达式在主帧求值（main_frame.locals 为空），故作用域
+                # 必须标 is_main=True：否则表达式内任何临时槽（列表推导/内联 try
+                # 等经 `_alloc_temp`）会落 STORE_LOCAL，运行期越界。
+                self._emit_expr(decl.expr, _Scope(None, is_main=True), code)
                 code.append((OP.OUTPUT,))
         elif isinstance(decl, ast.OutputTrail):
             if getattr(decl, "output", None) is not None:
@@ -754,6 +757,77 @@ class Compiler:
             code[j] = (OP.JMP, len(code))
         for j in frame["cont"]:
             code[j] = (OP.JMP, inc_pos)
+
+    def _emit_list_comp(self, node, scope: _Scope, code: list) -> None:
+        """列表推导 [expr for target in iter if c1 if c2 ...]：下沉为与 `_emit_for_stmt`
+        同构的下标循环（len/get 驱动），用 `append` 累加器收集元素，最后把结果列表
+        留栈。**不引入新 opcode、不引入新内建**（len/get/append 均 vm↔native 双端已有），
+        故机器码平价自动成立。迭代面与 `for` 一致（list/tuple/str 等可 len/get 者）。
+
+        单生成子句（parser 语法即 `[expr for tgt in iter {if cond}...]`）；多 if 取 AND：
+        任一条件为假即跳过本次 append（JZ→inc）。语义对齐 `src/interp.py` 的
+        `_eval_list_comprehension`，由黄金用例 `35_list_comp` 与 tests/test_listcomp_vm.py 锁定。
+        """
+        tgt = node.target
+        name = tgt.name if isinstance(tgt, ast.Variable) else getattr(tgt, "name", None)
+        if not name:
+            raise RuntimeError("字节码编译：列表推导目标必须是单个变量")
+        # 1) 迭代器 → 临时 xs；索引 i=0；累加器 res=[]
+        self._emit_expr(node.iter, scope, code)
+        xs_t = self._alloc_temp(scope, "lc_xs")
+        i_t = self._alloc_temp(scope, "lc_i")
+        res_t = self._alloc_temp(scope, "lc_res")
+        self._store_temp(code, xs_t)
+        code.append((OP.PUSH_CONST, self.const(0)))
+        self._store_temp(code, i_t)
+        code.append((OP.BUILD_LIST, 0))
+        self._store_temp(code, res_t)
+        # 目标变量绑定（与 for 循环同口径：泄漏作用域落全局，否则局部槽）
+        if scope.binds_global:
+            var_t = ("g", name)
+        else:
+            var_t = ("l", self._declare_slot(scope, name))
+        top = len(code)
+        # i < len(xs)
+        self._load_temp(code, i_t)
+        code.append((OP.LOAD_GLOBAL, self.sconst("len")))
+        self._load_temp(code, xs_t)
+        code.append((OP.CALL, 1))
+        code.append((OP.BINOP, self.const("<")))
+        jz_end = len(code)
+        code.append((OP.JZ, 0))
+        # elem = get(xs)(i) → 绑定目标变量
+        code.append((OP.LOAD_GLOBAL, self.sconst("get")))
+        self._load_temp(code, xs_t)
+        code.append((OP.CALL, 1))
+        self._load_temp(code, i_t)
+        code.append((OP.CALL, 1))
+        self._store_temp(code, var_t)
+        # 过滤条件（AND）：任一为假 → 跳到 inc（不 append）
+        skip_patches: list[int] = []
+        for cond in (node.ifs or []):
+            self._emit_expr(cond, scope, code)
+            skip_patches.append(len(code))
+            code.append((OP.JZ, 0))
+        # res = append(res)(expr)
+        code.append((OP.LOAD_GLOBAL, self.sconst("append")))
+        self._load_temp(code, res_t)
+        code.append((OP.CALL, 1))
+        self._emit_expr(node.expr, scope, code)
+        code.append((OP.CALL, 1))
+        self._store_temp(code, res_t)
+        # inc: i += 1（回到顶部）
+        inc_pos = len(code)
+        for jp in skip_patches:
+            code[jp] = (OP.JZ, inc_pos)
+        self._load_temp(code, i_t)
+        code.append((OP.PUSH_CONST, self.const(1)))
+        code.append((OP.BINOP, self.const("+")))
+        self._store_temp(code, i_t)
+        code.append((OP.JMP, top))
+        # 循环尾：回填条件假出口，结果列表留栈
+        code[jz_end] = (OP.JZ, len(code))
+        self._load_temp(code, res_t)
 
     def _emit_try_stmt(self, stmt: ast.TryStmt, scope: _Scope, code: list) -> None:
         """try/catch/finally：三块各编译为 thunk，VM「调用捕获」返回 tagged 结果：
@@ -1354,13 +1428,7 @@ class Compiler:
             code.append((OP.BUILD_LIST, len(node.elements)))
 
         elif isinstance(node, ast.ListComp):
-            # VM 后端不实现列表推导：旧实现在此先 `BUILD_LIST 0` 再 `pass`，
-            # 于是任意 `[expr for x in iter ...]` 被静默编译成空列表 `[]`（无报错）——
-            # 违背「缺口必须显式失败、绝不返回假成功」的内核红线。改为编译期显式报错。
-            # interp 遗留实现见 `src/interp.py._eval_list_comprehension`，但 interp 已非可选后端。
-            raise RuntimeError(
-                "字节码编译：不支持列表推导 [expr for x in iter ...]"
-                "（VM 后端未实现；请改用显式循环/函数式写法，见 docs/ast_vm_gap.md 第九节）")
+            self._emit_list_comp(node, scope, code)
 
         elif isinstance(node, ast.TupleExpr):
             for el in node.elements:
