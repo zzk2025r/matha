@@ -30,6 +30,19 @@ P1 内建函数库补齐：纯 Matha 标准库，零新 opcode、零新宿主内
 - [ast_vm_gap.md](ast_vm_gap.md) 第九节「无 sorted/map/filter/join/gcd/split
   等内建」行改写为已由标准库提供（含 `scripts/ast_vm_matrix.py` 模板同步）。
 
+P2 多端交付与 AI 前端定位（降级，不上锁）：口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第七节。
+
+- `scripts/build_exe.py` 修复 4 处致命 bug（`global` 声明晚于使用、`args.matha-cc`
+  非法属性名、`--specpath` 与 `.spec` 互斥、汇总解包元数不符）；当场实测重建
+  `matha.spec` 成功，exe `--version`/`eval`/`run` 验证通过（不入 `make check`）。
+- README 诚实化：方式 1 改本地自建口径（仓库不预构建发行版）；`matha-cc` 改
+  `python -m src.compiler.matha_cc_cli` 口径；删「Pyodide WASM 运行时」现功能主张。
+- git 索引移除：`release/`（早期版本时代快照共 1600 文件）与 `offline_package/`
+  （构建产物）不再跟踪；顶层 10 个零引用一次性脚本脱离跟踪；均本地保留不删，
+  前两者追加进 `.gitignore`。
+- 降级标注：`mobile/README.md` 头部与 AI 前端 4 文件（`src/ai_assistant*.py`、
+  `src/openai_compat_server.py`）docstring 如实登记「实验性/未背书、零门禁」。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，

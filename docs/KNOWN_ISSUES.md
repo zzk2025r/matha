@@ -96,3 +96,38 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 
 本文档集**不写**任何「加速 N 倍」「快过 X 语言」的数字：当前没有可复现的基准脚本
 与固定硬件口径。需要性能结论时，先补一个能被 `make check` 覆盖的基准，再写文档。
+
+## 七、多端交付与 AI 前端的定位（降级，非上锁）
+
+P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**，README/文档不再
+将它们作为现功能主张；各自保留在仓库内，但只按本节登记的实测口径背书。
+
+### 7a. 独立可执行文件（`dist/` + `scripts/build_exe.py`）
+
+- 构建脚本历史上带 4 处致命 bug（`global` 声明晚于使用、`args.matha-cc` 非法属性名、
+  `--specpath` 与 `.spec` 互斥、汇总解包元数不符），从未端到端跑通过；本轮已全部修复。
+- 修复后当场实测（Python 3.14 + PyInstaller 6.22）：`matha.spec` 构建成功，产物
+  `--version` 报 v4.6.0（与 `src/__version__.py` 一致）、`eval "21+21"` 得 42、
+  `run` 源文件正常——**构建链可复现，但不进门禁**，下次重建仍须当场验证。
+- `matha-cc`：模块 `src/compiler/matha_cc_cli.py` 真实存在可用，但 pip 只注册了 `matha`
+  入口点；README 已改口径为 `python -m src.compiler.matha_cc_cli` 或自建 exe。
+- 工作目录里残留的 `dist/*.exe` 为主线收官前的旧构建，`dist/` 本就在 `.gitignore` 内、
+  不受 git 跟踪，无定位效力。
+
+### 7b. 其它交付端
+
+- `mobile/`（Flutter）：仓库内实验性前端，零门禁；其 `assets/pyodide/build_wasm.{bat,sh}`
+  硬编码版本 4.4.16，已漂移于主线 v4.6.0，仅作历史脚本保留。
+- `matha_wasm/`：整目录在 `.gitignore` 内、git 零跟踪（实测 `git ls-files matha_wasm` = 0），
+  磁盘内容为旧快照副本；README 原「Pyodide WASM 运行时」主张已删除。
+- `extensions/vscode-matha`：仅语法高亮小插件，不受门禁，不作功能背书。
+
+### 7c. AI 前端（`src/ai_assistant*.py`、`src/openai_compat_server.py`、`src/ai_framework.py`）
+
+- 实测零 `tests/` 引用（grep 无命中），README 亦无 AI 助手功能主张——属仓库内
+  未背书代码，保留不删，不入门禁。
+- 已上锁的只有内核侧自动修复契约：`src/autonomous.py` 的 `AutoDebugger`/优化/自生长
+  由 `tests/test_integration/test_auto_debug_e2e.py` 等 3 个 e2e 文件覆盖，不属本节降级范围。
+
+判据：本节的实测命令（`python scripts/build_exe.py --matha --output <临时目录>`、
+`git ls-files matha_wasm`）可随时复跑；若未来某通道要「上锁」，必须先入门禁再进 README。

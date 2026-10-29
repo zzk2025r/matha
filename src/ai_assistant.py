@@ -1,6 +1,9 @@
 """
 Matha AI Assistant — 小白友好的数学计算助手
 
+【定位标注 2026-10 / P2 降级】仓库内未背书前端：零测试、不入 make check 门禁，
+不作为现功能主张；口径见 docs/KNOWN_ISSUES.md 第七节 7c。
+
 功能：
   1. 自然语言 → Matha 代码自动生成
   2. 多步骤任务分解（AI 辅助规划）

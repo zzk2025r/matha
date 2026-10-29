@@ -119,3 +119,24 @@ matha/generated/
 # matha/runtime/
 # matha/vm/
 src/test.bc
+
+# P2 定位降级：发行/构建产物不随仓库分发（见 docs/KNOWN_ISSUES.md 第七节）
+release/
+offline_package/
+installed/
+
+# P2 脱离跟踪的顶层一次性脚本（本地保留，零引用/零门禁）
+/demo_formula_library.py
+/deploy_production.py
+/health_check.py
+/inject_rules.py
+/verify_fast.py
+/verify_natural.py
+/tools_m2_cases.py
+/tools_m2_fdiff.py
+/tools_m2_probe.py
+/tools_m2_subset.py
+
+# P2 脱离跟踪的黄金旧基线散件（已被 cases/expected/vm 三目录体系取代）
+/golden_tests/test_*.stdout
+/golden_tests/test_*.stderr

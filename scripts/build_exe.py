@@ -44,7 +44,7 @@ def run_cmd(cmd: list, cwd: Path = None) -> tuple:
     """运行命令。"""
     result = subprocess.run(
         cmd, cwd=str(cwd or PROJECT_ROOT),
-        capture_output=True, text=True, timeout=300
+        capture_output=True, text=True, timeout=1800
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -58,14 +58,13 @@ def build_one(name: str, spec: str, onefile: bool = False) -> bool:
         cmd.append("--onefile")
     cmd += ["--noconfirm", "--distpath", str(DIST_DIR / name),
             "--workpath", str(BUILD_DIR / name),
-            "--specpath", str(SPEC_DIR),
             spec]
 
     log(f"  $ {' '.join(cmd)}")
     code, stdout, stderr = run_cmd(cmd)
 
     if code != 0:
-        log(f"  构建失败: {stderr[:300]}", indent=1)
+        log(f"  构建失败: {stderr[:300]}")
         return False
 
     exe_dir = DIST_DIR / name
@@ -77,17 +76,17 @@ def build_one(name: str, spec: str, onefile: bool = False) -> bool:
 
 
 def main():
+    global DIST_DIR, BUILD_DIR
     parser = argparse.ArgumentParser(description="Matha 可执行文件打包工具")
     parser.add_argument("--matha", action="store_true", help="构建 matha REPL")
-    parser.add_argument("--matha-cc", action="store_true", help="构建 matha-cc 编译器")
+    parser.add_argument("--matha-cc", dest="matha_cc", action="store_true", help="构建 matha-cc 编译器")
     parser.add_argument("--all", action="store_true", help="构建全部（默认）")
     parser.add_argument("--onefile", action="store_true", help="单文件模式")
     parser.add_argument("--output", type=Path, default=DIST_DIR, help="输出目录")
     args = parser.parse_args()
 
-    global DIST_DIR, BUILD_DIR
     DIST_DIR = args.output
-    BUILD_DIR = args.output.parent / "build"
+    BUILD_DIR = DIST_DIR.parent / (DIST_DIR.name + "_build")
 
     print("=" * 60)
     print("Matha 可执行文件打包工具")
@@ -113,7 +112,7 @@ def main():
     components = []
     if args.all or args.matha:
         components.append(("matha", "matha.spec", "--matha"))
-    if args.all or args.matha-cc:
+    if args.all or args.matha_cc:
         components.append(("matha-cc", "matha-cc.spec", "--matha-cc"))
 
     if not components:
@@ -140,7 +139,7 @@ def main():
     print(f"可执行文件位置: {DIST_DIR}")
     print()
     print("使用说明:")
-    for name, _, flag in results:
+    for name, ok in results:
         if name == "matha":
             print(f"  {DIST_DIR / name}/matha.exe          # 启动 REPL")
             print(f"  {DIST_DIR / name}/matha.exe eval 'sin(pi)'  # 计算表达式")

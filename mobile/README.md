@@ -1,5 +1,10 @@
 # matha_mobile
 
+> **定位标注（2026-10，P2 降级）：** 本目录是仓库内的**实验性 Flutter 前端**，
+> 不在 `make check` 门禁覆盖面内，不代表主线 v4.6.0 现状；其中
+> `assets/pyodide/build_wasm.{bat,sh}` 硬编码版本 4.4.16 已漂移于主线。
+> 口径见 [`docs/KNOWN_ISSUES.md`](../docs/KNOWN_ISSUES.md) 第七节 7b。
+
 A new Flutter project.
 
 ## Getting Started

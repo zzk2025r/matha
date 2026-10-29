@@ -27,26 +27,24 @@
 
 ## 快速开始
 
-### 方式 1：独立可执行文件（推荐，无需安装 Python）
+### 方式 1：独立可执行文件（本地自建，仓库不预构建发行版）
 
 ```bash
-# 下载 matha.exe 和 matha-cc.exe
-# 直接运行，无需任何环境
+# 需要 Python 3.10+ 与 PyInstaller；产物输出到 dist/（不随仓库分发）
+python scripts/build_exe.py --matha       # 产出 dist/matha/matha.exe
+python scripts/build_exe.py --matha-cc    # 产出 dist/matha-cc/matha-cc.exe
 
 # 启动交互式 REPL
-matha
+dist/matha/matha.exe
 
 # 计算表达式
-matha eval "sin(3.14)"
+dist/matha/matha.exe eval "sin(3.14)"
 
 # 运行 Matha 源文件
-matha run demo.matha
+dist/matha/matha.exe run demo.matha
 
-# 编译到 C
-matha-cc compile demo.matha -o output.c
-
-# 编译到 Python
-matha-cc compile demo.matha -o output.py
+# 编译到 LLVM / 可执行文件
+dist/matha-cc/matha-cc.exe compile demo.matha
 ```
 
 ### 方式 2：Python 包安装
@@ -63,8 +61,11 @@ pip install -e ".[performance]"   # numpy/scipy/numba 数值后端
 matha                          # 启动 REPL
 matha eval "sin(pi)"           # 计算表达式
 matha run demo.matha           # 运行源文件
-matha-cc compile demo.matha    # 编译
+python -m src.compiler.matha_cc_cli compile demo.matha   # 编译器工具链
 ```
+
+> 注：pip 安装只注册 `matha` 入口点；`matha-cc` 请以模块方式调用
+> （`python -m src.compiler.matha_cc_cli`），或用 `matha-cc.spec` 自建独立可执行文件。
 
 ### 方式 3：离线部署（无网络环境）
 
@@ -109,15 +110,13 @@ matha --version                # 显示版本
 matha --debug                  # 调试模式
 ```
 
-### matha-cc（编译器工具链）
+### matha-cc（编译器工具链，需自建 exe 或 `python -m src.compiler.matha_cc_cli`）
 ```bash
-matha-cc compile demo.matha -o c        # 编译到 C
-matha-cc compile demo.matha -o python   # 编译到 Python
-matha-cc run demo.matha                 # 编译并运行
-matha-cc llvm demo.matha -o out.ll      # 生成 LLVM IR
-matha-cc optimize demo.matha -O2        # 优化编译
-matha-cc info                           # 工具链信息
-matha-cc test                           # 运行测试
+matha-cc compile demo.matha            # 编译（LLVM 工具链在位时产机器码）
+matha-cc run demo.matha                # 编译并运行
+matha-cc llvm demo.matha -o out.ll     # 生成 LLVM IR
+matha-cc optimize demo.matha -O2       # 优化编译
+matha-cc info                          # 工具链信息
 ```
 
 ---
@@ -136,11 +135,7 @@ matha/
 │   └── ...
 ├── tests/                  # 测试套件（67 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
-├── dist/                   # 可执行文件输出
-│   ├── matha-offline/
-│   │   └── matha.exe      # 独立可执行文件 (18.5 MB)
-│   └── matha-cc-offline/
-│       └── matha-cc.exe   # 编译器独立可执行文件
+├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包
 ├── scripts/               # 工具脚本
 │   ├── package_offline.py # 离线打包
@@ -178,7 +173,6 @@ matha/
 - LLM 意图解析（自动降级到正则）
 - Growth Engine 网络搜索
 - 移动端 WebSocket 协作
-- Pyodide WASM 运行时
 
 ---
 
@@ -244,8 +238,11 @@ python scripts/build_exe.py
 ```
 
 生成的独立可执行文件：
-- `dist/matha-offline/matha.exe` — Matha REPL（18.5 MB）
-- `dist/matha-cc-offline/matha-cc.exe` — 编译器
+- `dist/matha/matha.exe` — Matha REPL
+- `dist/matha-cc/matha-cc.exe` — 编译器
+
+> 仓库不预构建发行版：`dist/` 在 `.gitignore` 内，历史快照中的 exe 不代表现状；
+> 构建链是否可用以本节命令当场实测为准（定位说明见 `docs/KNOWN_ISSUES.md`）。
 
 ---
 
@@ -259,7 +256,7 @@ python scripts/build_exe.py
 | 核心第三方依赖 | 0 |
 | 许可证 | BSD-2-Clause |
 | GitHub | https://github.com/zzk2025r/matha |
-| 独立可执行文件 | ✅ 支持（无需 Python 环境） |
+| 独立可执行文件 | 支持（本地自建，仓库不预构建发行版） |
 | 领域插件 | 82（按需加载） |
 
 历史文档（118 份一次性报告）已归档到 [`docs/history/`](docs/history/)，
