@@ -376,16 +376,15 @@ def render_markdown(data: dict) -> str:
     lines.append("")
     lines.append("本节是「VM 能发射」与「人能写对」之间的缝：阶段 4 把符号微积分")
     lines.append("重写成 `matha/library/*.matha` 时实测得到的词法/语法口径。它们不是")
-    lines.append("缺陷（除第二条外都有对应回归用例），但写库时违反就会拿到错的输出：")
+    lines.append("缺陷（都有对应回归用例），但写库时违反就会拿到错的输出：")
     lines.append("")
     lines.append("| 口径 | 实例 | 库内做法 |")
     lines.append("|---|---|---|")
-    lines.append("| **单元素列表 `[x]` 出现在语句位会被当作「打印括号」**："
-                 "`return [x]` 编译成 `ReturnStmt(Output(x))`，既打印又返回裸值 | "
-                 "`func 包(x) -> List = [x]` | 库内统一用 `包(...)` 造单元素列表；"
-                 "两元素及以上 `return [a, b]` 是正常字面量 |")
-    lines.append("| `return []` 同样不安 | `func 空表() -> List = []` | "
-                 "用 `包(0)[1:]` 切出空表 |")
+    lines.append("| **裸 `[x]` 出现在语句位仍当作「打印括号」**（输出单元）；但 `return` "
+                 "紧邻操作数位的 `[x]` 已归一为**列表字面量**（不再既打印又返裸值）| "
+                 "`func 包(x) -> List = (x) => { return [x] }` | `return [x]`→`[x]`、"
+                 "`return []`→`[]`、`return [a, b]` 均为正常列表（黄金用例 `34_return_"
+                 "list_literal` 三端锁定）；裸块尾 `[x]` 仍单次输出 |")
     lines.append("| `func` 缺 `-> 类型` 直接 ParseError | `func f(x) = …` | "
                  "一律写 `func f(x) -> Any = …` |")
     lines.append("| `if` 不能当表达式用 | `let y = if c {1} else {2}` | 先算再绑定 |")
