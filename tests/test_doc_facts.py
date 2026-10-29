@@ -6,8 +6,8 @@
 **愿望**，与仓库里真实存在的东西无关，也没人能复现。本文件把它变成机器判定：
 
   1. 权威文档（README / MATHA_COMPARISON / docs/ARCHITECTURE / docs/index /
-     docs/KNOWN_ISSUES）里出现的每个数字都必须等于 `scripts/repo_facts.py`
-     现场数出来的值；
+     docs/KNOWN_ISSUES / docs/CHANGELOG）里出现的每个数字都必须等于
+     `scripts/repo_facts.py` 现场数出来的值；
   2. 自评类脏词（评分 / 满分 / 「缺陷已全部解决」的具体数字形式）一律禁止出现；
   3. `docs/` 顶层文档数量受控（≤ 10 份现状文档，其余进 `docs/history/`）；
   4. 主执行链那句话必须在架构文档里 —— 文档不能悄悄改口。
@@ -32,6 +32,7 @@ COMPARISON = (ROOT / "MATHA_COMPARISON.md").read_text(encoding="utf-8")
 ARCH = (DOCS / "ARCHITECTURE.md").read_text(encoding="utf-8")
 INDEX = (DOCS / "index.md").read_text(encoding="utf-8")
 ISSUES = (DOCS / "KNOWN_ISSUES.md").read_text(encoding="utf-8")
+CHANGELOG = (DOCS / "CHANGELOG.md").read_text(encoding="utf-8")
 
 #: 这些旧口径是「愿望数字」，任何时候回到文档里都算造假
 FORBIDDEN_CLAIMS = (
@@ -45,9 +46,12 @@ FORBIDDEN_DOCS = {
     "MATHA_COMPARISON.md": COMPARISON,
     "docs/ARCHITECTURE.md": ARCH,
     "docs/index.md": INDEX,
+    "docs/CHANGELOG.md": CHANGELOG,
 }
 
 MAINLINE = "src/lexer.py → src/parser.py → src/ast_nodes.py"
+
+_VER_TOKEN_RE = re.compile(r"\bv\d+\.\d+(?:\.\d+)?\b")
 
 
 def test_no_wish_number_claims_survive():
@@ -136,3 +140,49 @@ def test_version_token_appears_only_as_current_in_docs():
     # README 以 `v4.6.0` 的形式写版本，故不前置 \b（仍要求版本数字后接边界）
     assert re.search(rf"{re.escape(v)}\b", README), "README 未写当前版本"
     assert not re.search(r"\bv4\.3\b|\bv4\.4\b|\bv4\.5\b", README)
+
+
+#: CHANGELOG 里只允许两个特殊形式存在旧版本号：历史条目标题（docs/index.md
+#: 声明过「旧版本号只允许出现在这里」）与本文件的「规矩」声明行。
+_CHANGELOG_VERSION_LINE_OK = re.compile(r"^#{1,3} |^> ")
+
+
+def test_changelog_current_entry_matches_single_version_source():
+    """CHANGELOG 当前版本条目必须等于唯一版本源，且不得多出一个现行条目。"""
+    import importlib
+
+    ver = importlib.import_module("src.__version__")
+    assert f"## v{ver.__version__}（" in CHANGELOG, \
+        f"CHANGELOG 缺少与唯一版本源一致的当前条目标题 v{ver.__version__}"
+    n_current = len(re.findall(rf"^## v{re.escape(ver.__version__)}（", CHANGELOG, re.M))
+    assert n_current == 1, f"现行版本条目应恰好 1 个，实际 {n_current}"
+
+
+def test_changelog_numbers_match_repo_facts():
+    """CHANGELOG 正文的可复现数字不许与仓库现场漂移（漂移即红）。"""
+    f = facts()
+    locked = {
+        "**领域插件：** 条目 {domain_plugins} 个领域插件": f"**{f['domain_plugins']} 个领域插件**",
+        "工具插件 kernel_plugins": f"**{f['kernel_plugins']} 个内核外工具插件**",
+        "黄金用例 golden_cases": f"黄金用例 **{f['golden_cases']}** 例",
+        "native 已知缺口 golden_native_gaps": f"已知缺口 **{f['golden_native_gaps']}** 例",
+        "标准库 matha_library_files": f"（{f['matha_library_files']} 个 `.matha` 文件",
+    }
+    bad = [f"{what} -> 应含 {tok!r}" for what, tok in locked.items() if tok not in CHANGELOG]
+    assert not bad, "CHANGELOG 数字与 repo_facts 漂移：\n" + "\n".join(bad)
+    # 核心安装零第三方依赖是版本源同源声明，不能漂回非 0
+    assert f["third_party_deps"] == []
+    assert "核心安装第三方依赖 **0**" in CHANGELOG
+
+
+def test_changelog_old_versions_only_in_entry_headings_and_rules():
+    """旧版本号（与唯一版本源不同的 vX.Y）只允许出现在条目标题与规矩声明行。"""
+    import importlib
+
+    want = f"v{importlib.import_module('src.__version__').__version__}"
+    bad = []
+    for line in CHANGELOG.splitlines():
+        for tok in set(_VER_TOKEN_RE.findall(line)):
+            if tok != want and not _CHANGELOG_VERSION_LINE_OK.match(line):
+                bad.append(f"{tok}: {line.strip()[:60]}")
+    assert not bad, "旧版本号离开了条目标题/规矩声明行：\n" + "\n".join(bad)
