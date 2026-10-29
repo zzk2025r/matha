@@ -21,9 +21,9 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | 指标 | 数值 |
 |---|---|
 | AST 节点总数 | 78 |
-| VM 发射字节码 | 59 |
+| VM 发射字节码 | 58 |
 | VM 有意无码 | 19 |
-| VM 不认识 | 0 |
+| VM 不认识 | 1 |
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
 | 指令码总数 / VM 已分派 / native 已发射 | 33 / 33 / 33 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
@@ -36,7 +36,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 
 ## 四、未被语料使用的缺口（低优先）
 
-无。
+`ListComp`
 
 ## 五、全表
 
@@ -84,7 +84,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `Lambda` | emits | yes | 147 |
 | `LetBinding` | emits | yes | 79 |
 | `LetTupleBinding` | emits | yes | 10 |
-| `ListComp` | emits | yes | 0 |
+| `ListComp` | missing | yes | 0 |
 | `ListLiteral` | emits | yes | 51 |
 | `LoopFraction` | noop | no | 10 |
 | `LoopStep` | emits | no | 0 |
@@ -176,6 +176,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | **裸 `[x]` 出现在语句位仍当作「打印括号」**（输出单元）；但 `return` 紧邻操作数位的 `[x]` 已归一为**列表字面量**（不再既打印又返裸值）| `func 包(x) -> List = (x) => { return [x] }` | `return [x]`→`[x]`、`return []`→`[]`、`return [a, b]` 均为正常列表（黄金用例 `34_return_list_literal` 三端锁定）；裸块尾 `[x]` 仍单次输出 |
 | `func` 缺 `-> 类型` 直接 ParseError | `func f(x) = …` | 一律写 `func f(x) -> Any = …` |
 | `if` 不能当表达式用 | `let y = if c {1} else {2}` | 先算再绑定 |
+| **列表推导 `[expr for x in iter]` VM 不编译**（旧版静默编译成空列表 `[]`）| `[x * x for x in nums]` | VM 编译期**显式报错**（`字节码编译：不支持列表推导`）；矩阵将 ListComp 归为 `missing`（非 emits，used_in=0 不构成阻塞缺口）；请改用显式循环/函数式写法（`tests/test_listcomp_vm_unsupported.py` 锁定） |
 | `#：{…}` 记录面 mbc 不发射 | — | 标准库不用该语法 |
 | 无 `sorted/map/filter/join/gcd/split` 等内建 | — | 手写升序插入排序 + 欧几里得 `gcd` |
 

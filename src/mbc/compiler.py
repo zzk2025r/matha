@@ -1354,24 +1354,13 @@ class Compiler:
             code.append((OP.BUILD_LIST, len(node.elements)))
 
         elif isinstance(node, ast.ListComp):
-            # 编译列表推导为：构造空列表，循环迭代并 append
-            code.append((OP.BUILD_LIST, 0))
-            # 创建临时作用域/循环变量：用临时变量存储迭代器与循环索引
-            # 简化：将推导编译为 for 循环等价展开（MBC 无专用 ListComp opcode）
-            # 使用已有 _emit_for 逻辑思路：但目标是 Variable/expr。先用简化方式：
-            # let tmp = iter; loop while has? -> MBC 需 While/For stmt 支持；但 ListComp 是表达式
-            # 退回：先不编译 ListComp 到 MBC 指令，标记未实现? 但需四端对齐。更好：编译为函数调用？
-            # matha 自举有 enumerate/内建，或直接生成循环代码：用 let/append 方式
-            # 但在表达式位置编译循环需 thunk 或临时变量。现阶段，先记录：跳过，后续补全
-            # 简化实现：展开为 append 序列（单层 for, 无 if）
-            # 构建循环：for target in iter: append(result_list, expr)
-            # MBC 表达式中无法直接写语句循环 -> 需要特殊处理（难）。改：在表达式位不支持，暂缓？
-            # 但分析要求列出未完成项；不过我们要「开始完成」——采用 thunk 方式：生成匿名函数执行循环返回列表
-            # _emit_expr 无法生成语句；采用 let/tmp 技巧？ 或编译为调用 Matha 函数（如基于 enumerate/map/filter）
-            # matha stdlib 没有 map/filter；可用 for-range 思路：需要 range 或迭代器。先跳过复杂 if，单层无 if 可做：
-            # 迭代器为列表：[1,2,3] -> for i,v in enumerate(iter)? target 可能是单变量（x）或元组；简化处理单变量
-            # TODO: 完整实现留待后续（语法复杂度）；暂不强行破坏现有结构
-            pass
+            # VM 后端不实现列表推导：旧实现在此先 `BUILD_LIST 0` 再 `pass`，
+            # 于是任意 `[expr for x in iter ...]` 被静默编译成空列表 `[]`（无报错）——
+            # 违背「缺口必须显式失败、绝不返回假成功」的内核红线。改为编译期显式报错。
+            # interp 遗留实现见 `src/interp.py._eval_list_comprehension`，但 interp 已非可选后端。
+            raise RuntimeError(
+                "字节码编译：不支持列表推导 [expr for x in iter ...]"
+                "（VM 后端未实现；请改用显式循环/函数式写法，见 docs/ast_vm_gap.md 第九节）")
 
         elif isinstance(node, ast.TupleExpr):
             for el in node.elements:

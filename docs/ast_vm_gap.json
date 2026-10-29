@@ -1,6 +1,6 @@
 {
   "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
-  "generated_at": "2026-10-28T19:52:06",
+  "generated_at": "2026-10-29T10:11:47",
   "generator": "scripts/ast_vm_matrix.py",
   "corpus_dirs": [
     "matha",
@@ -12,9 +12,9 @@
   "unparseable": [],
   "totals": {
     "nodes": 78,
-    "emits": 59,
+    "emits": 58,
     "noop": 19,
-    "missing": 0,
+    "missing": 1,
     "blocking": 0,
     "corpus_files": 196,
     "opcodes": 33,
@@ -23,6 +23,12 @@
     "opcode_native_gap": 0
   },
   "rows": [
+    {
+      "node": "ListComp",
+      "vm": "missing",
+      "interp": "yes",
+      "used_in": 0
+    },
     {
       "node": "Program",
       "vm": "emits",
@@ -429,12 +435,6 @@
       "node": "Iteration",
       "vm": "emits",
       "interp": "no",
-      "used_in": 0
-    },
-    {
-      "node": "ListComp",
-      "vm": "emits",
-      "interp": "yes",
       "used_in": 0
     },
     {
