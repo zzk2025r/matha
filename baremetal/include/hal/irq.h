@@ -32,6 +32,10 @@ void hal_irq_disable(void);
 /* 注册某个 PLIC 中断源的处理函数（source 为 claim 返回的中断源号）。 */
 void hal_irq_attach(uint32_t source, hal_irq_fn fn, void *ctx);
 
+/* 注册机器模式定时器中断回调：每次定时器陷入时，先调用该回调（若已装），再
+   按上次 hal_timer_arm 的间隔自动重装。fn 在中断上下文执行，务必短小、不得阻塞。 */
+void hal_timer_attach(hal_irq_fn fn, void *ctx);
+
 /* 装载下一次机器模式定时器：mtimecmp0 = mtime + ticks（写 mtimecmp 亦清除 MTIP）。 */
 void hal_timer_arm(uint32_t ticks);
 

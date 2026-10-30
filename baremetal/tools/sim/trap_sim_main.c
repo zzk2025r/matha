@@ -44,6 +44,11 @@ static int  g_isr_calls;
 static void *g_isr_ctx;
 static void test_isr(void *ctx) { g_isr_calls++; g_isr_ctx = ctx; }
 
+/* 定时器中断回调：记录被调用次数与传入 ctx（验证 hal_timer_attach 接缝）。 */
+static int  g_tick_calls;
+static void *g_tick_ctx;
+static void test_timer_cb(void *ctx) { g_tick_calls++; g_tick_ctx = ctx; }
+
 int main(void)
 {
     printf("=== FE310 中断接管 宿主寄存器级模拟 ===\n");
@@ -92,6 +97,26 @@ int main(void)
     sim_platform_reset();
     hal_trap_handler(HAL_MCAUSE_INTERRUPT | HAL_IRQ_M_SOFTWARE, 0u, 0u);
     ok("软件中断正常返回");
+
+    /* 6) 定时器回调接缝 hal_timer_attach：定时器中断先跑回调再自动重装。 */
+    sim_platform_reset();
+    int tctx = 0x77;
+    g_tick_calls = 0; g_tick_ctx = NULL;
+    hal_timer_attach(test_timer_cb, &tctx);
+    hal_timer_arm(60u);
+    sim_mtime_set(3000u);
+    hal_trap_handler(HAL_MCAUSE_INTERRUPT | HAL_IRQ_M_TIMER, 0u, 0u);
+    eq_u32("定时器回调调用次数", (uint32_t)g_tick_calls, 1u);
+    cond("定时器回调收到注册时的 ctx", g_tick_ctx == (void *)&tctx);
+    eq_u32("回调后仍自动重装 mtimecmp(=3000+60)", sim_get_mtimecmp(), 3060u);
+
+    /* 7) 卸载回调（attach NULL）：定时器中断不再跑回调，但仍重装。 */
+    hal_timer_attach(NULL, NULL);
+    g_tick_calls = 0;
+    sim_mtime_set(5000u);
+    hal_trap_handler(HAL_MCAUSE_INTERRUPT | HAL_IRQ_M_TIMER, 0u, 0u);
+    eq_u32("卸载后回调不再被调用", (uint32_t)g_tick_calls, 0u);
+    eq_u32("卸载后仍重装 mtimecmp(=5000+60)", sim_get_mtimecmp(), 5060u);
 
     if (g_fails == 0) {
         printf("结果：中断接管寄存器级模拟全部通过（真实 trap.c，未执行 vector.S）\n");

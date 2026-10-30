@@ -20,6 +20,8 @@ extern void trap_vector(void);
 static hal_irq_fn g_irq_fn[HAL_MAX_IRQ_SOURCES];
 static void      *g_irq_ctx[HAL_MAX_IRQ_SOURCES];
 static uint32_t   g_timer_ticks;   /* 上次装载的定时间隔，用于周期性重装 */
+static hal_irq_fn g_timer_fn;      /* 定时器中断回调（可为 NULL） */
+static void      *g_timer_ctx;     /* 传给回调的上下文 */
 
 void hal_irq_init(void)
 {
@@ -47,6 +49,12 @@ void hal_irq_attach(uint32_t source, hal_irq_fn fn, void *ctx)
     }
 }
 
+void hal_timer_attach(hal_irq_fn fn, void *ctx)
+{
+    g_timer_fn  = fn;
+    g_timer_ctx = ctx;
+}
+
 void hal_timer_arm(uint32_t ticks)
 {
     /* 读 CLINT mtime 低 32 位，置 mtimecmp0 = mtime + ticks；写 mtimecmp 清 MTIP。 */
@@ -63,7 +71,10 @@ void hal_trap_handler(uint32_t mcause, uint32_t mepc, uint32_t mtval)
     if ((mcause & HAL_MCAUSE_INTERRUPT) != 0u) {
         uint32_t code = mcause & ~HAL_MCAUSE_INTERRUPT;
         if (code == HAL_IRQ_M_TIMER) {
-            /* 重装下一次超时，退出后 MTIP 保持清除。 */
+            /* 先跑已注册的定时器回调（若有），再重装下一次超时，退出后 MTIP 保持清除。 */
+            if (g_timer_fn != NULL) {
+                g_timer_fn(g_timer_ctx);
+            }
             hal_timer_arm(g_timer_ticks);
         } else if (code == HAL_IRQ_M_EXTERNAL) {
             /* claim 取当前最高优先级源；处理完把源号写回 claim 寄存器即 complete。 */
