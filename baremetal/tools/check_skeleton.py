@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent   # baremetal/
@@ -31,6 +32,10 @@ REQUIRED_FILES = [
     "include/hal/mem.h", "include/hal/irq.h",
     "boot/crt0.S", "boot/vector.S",
     "hal/drivers/uart.c", "hal/mem/allocator.c", "hal/trap/trap.c",
+    "include/hal/csr.h",
+    "tools/sim/hal_mmio_sim.c", "tools/sim/uart_sim_main.c", "tools/run_uart_sim.py",
+    "tools/sim/hal_platform_sim.c", "tools/sim/trap_sim_main.c", "tools/run_trap_sim.py",
+    "tools/sim/allocator_sim_main.c", "tools/run_mem_sim.py",
 ]
 
 C_SOURCES = ["main.c", "hal/drivers/uart.c", "hal/mem/allocator.c", "hal/trap/trap.c"]
@@ -45,10 +50,17 @@ CRT0_MUST_HAVE = ["_start", "_estack", "_sidata", "_sdata", "_ebss", "main"]
 
 # 头文件应声明的 API（按分层契约存在性）。
 API_DECLARATIONS = {
-    "include/hal/uart.h": ["uart_init", "uart_putc", "uart_puts"],
-    "include/hal/mem.h": ["hal_mem_init", "hal_malloc", "hal_free"],
-    "include/hal/irq.h": ["hal_trap_handler", "hal_irq_enable", "hal_irq_disable"],
-    "include/hal/arch.h": ["FE310_UART0_BASE", "FE310_CLINT_BASE", "FE310_PLIC_BASE"],
+    "include/hal/uart.h": ["uart_init", "uart_putc", "uart_puts",
+                           "uart_getc", "uart_read", "uart_write",
+                           "hal_uart_baud_divider", "g_uart_baud_divider"],
+    "include/hal/mem.h": ["hal_mem_init", "hal_malloc", "hal_free",
+                          "hal_mem_init_region", "hal_mem_avail"],
+    "include/hal/irq.h": ["hal_trap_handler", "hal_irq_enable", "hal_irq_disable",
+                          "hal_irq_init", "hal_irq_attach", "hal_timer_arm"],
+    "include/hal/csr.h": ["HAL_CSR_MTVEC", "HAL_CSR_MIE", "MIE_MTIE", "MSTATUS_MIE"],
+    "include/hal/arch.h": ["FE310_UART0_BASE", "FE310_CLINT_BASE", "FE310_PLIC_BASE",
+                           "UART_EMPTY", "UART_OVERSAMPLE", "FE310_PRCI_BASE",
+                           "PLIC_CLAIM0", "CLINT_MTIMECMP0"],
 }
 
 
@@ -113,11 +125,37 @@ def check_syntax(fail: list[str], notes: list[str]) -> None:
             notes.append(f"语法校验通过 {rel}")
 
 
+# 宿主寄存器级模拟入口（P5 第 2/3 步行为门禁）。
+SIM_RUNNERS = ["run_uart_sim.py", "run_mem_sim.py", "run_trap_sim.py"]
+
+
+def check_sims(fail: list[str], notes: list[str]) -> None:
+    """有宿主 gcc 时，逐个跑真实驱动的寄存器级模拟；无则如实 SKIP。"""
+    if not shutil.which(os.environ.get("HOST_CC", "gcc")):
+        notes.append("未检测到宿主 gcc：SKIP 寄存器级模拟")
+        return
+    for name in SIM_RUNNERS:
+        runner = ROOT / "tools" / name
+        if not runner.exists():
+            fail.append(f"缺 tools/{name}（寄存器级模拟入口）")
+            continue
+        proc = subprocess.run([sys.executable, str(runner)],
+                              capture_output=True, text=True, cwd=str(ROOT))
+        if proc.returncode == 0:
+            notes.append(f"{name} 通过（真实驱动逐字节断言）")
+        elif proc.returncode == 2:
+            notes.append(f"{name}：无宿主编译器，SKIP")
+        else:
+            tail = (proc.stdout + "\n" + proc.stderr).strip().splitlines()
+            fail.append(f"{name} 失败：" + " | ".join(tail[-4:]))
+
+
 def main() -> int:
     fail: list[str] = []
     notes: list[str] = []
     check_structure(fail)
     check_syntax(fail, notes)
+    check_sims(fail, notes)
 
     print("=== baremetal HAL 骨架校验 ===")
     for n in notes:

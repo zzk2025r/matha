@@ -6,13 +6,18 @@
 #
 # 目标：SiFive FE310 / RV32IMAC，裸机 freestanding（-ffreestanding -nostdlib）。
 
-TOOLCHAIN_PREFIX ?= riscv64-unknown-elf-
+TOOLCHAIN_PREFIX ?= riscv-none-elf-
 CROSS_CC   = $(TOOLCHAIN_PREFIX)gcc
 CROSS_LD   = $(TOOLCHAIN_PREFIX)ld
 OBJCOPY    = $(TOOLCHAIN_PREFIX)objcopy
 
-ARCH = rv32imac
+ARCH = rv32imac_zicsr
 ABI  = ilp32
+# 说明：现代 binutils（xPack 15.2）把 CSR 访问拆成独立扩展 zicsr，
+# 不显式列入就会报 `unrecognized opcode csrr ... extension zicsr required`。
+# rv32imac 本身含 CSR（特权基线），此处只是满足工具链的新命名要求。
+# 链接统一走交叉 gcc 驱动（它会把 march/mabi 翻译为正确的 ld 仿真 elf32lriscv），
+# 裸 ld 不接受 -march/-mabi（其 -m 含义是「仿真模式」）。
 
 HAL_INC   = include
 SRC_DIR   = .
@@ -29,11 +34,17 @@ CROSS_OK := $(shell command -v $(CROSS_CC) >/dev/null 2>&1 && echo yes || echo n
 # 宿主 gcc（用于无交叉工具链时的 -fsyntax-only 语法门禁）
 HOST_CC  ?= gcc
 
-.PHONY: all check dirs clean
+.PHONY: all check sim dirs clean
 
-# ── 结构校验 + 宿主语法门禁（本机可跑，不需要交叉工具链）────────────────
+# ── 结构校验 + 宿主语法门禁 + 寄存器级/行为模拟（本机可跑，不需交叉工具链）──
 check:
 	@python3 tools/check_skeleton.py
+
+# ── 跑全部宿主模拟（真实 uart/allocator/trap.c，用宿主 gcc）──────────────
+sim:
+	@python3 tools/run_uart_sim.py
+	@python3 tools/run_mem_sim.py
+	@python3 tools/run_trap_sim.py
 
 all: check
 ifeq ($(CROSS_OK),yes)
@@ -57,7 +68,7 @@ firmware: dirs
 	  $(CROSS_CC) $(CFLAGS) -c $$f -o $(BUILD_DIR)/obj/$$(basename $$f .S).o || exit 1; \
 	done
 	@echo "  [LD ] -> $(BUILD_DIR)/matha_hal.elf"
-	@$(CROSS_LD) -march=$(ARCH) -mabi=$(ABI) -T link.ld --nmagic \
+	@$(CROSS_CC) -march=$(ARCH) -mabi=$(ABI) -nostdlib -T link.ld -Wl,--nmagic \
 	  -o $(BUILD_DIR)/matha_hal.elf $(BUILD_DIR)/obj/*.o
 	@$(OBJCOPY) -O binary $(BUILD_DIR)/matha_hal.elf $(BUILD_DIR)/matha_hal.bin
 	@echo "[baremetal] 固件产出：$(BUILD_DIR)/matha_hal.{elf,bin}"
