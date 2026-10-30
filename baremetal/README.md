@@ -34,6 +34,9 @@ baremetal/
     sim/hal_platform_sim.c FE310 CSR + CLINT + PLIC 模型（CSR/MMIO 接缝后端）
     sim/trap_sim_main.c   mtvec/mie/mstatus + 定时器重装 + PLIC claim/complete 断言
     sim/allocator_sim_main.c first-fit/对齐/复用/合并/超大返回 NULL 断言
+    qemu_virt_demo/        stock QEMU 上实跑的「中断接管」常驻样例（board-matched 变体，非 FE310 产物）
+      virt_demo.c virt_start.S virt.ld   ns16550 UART + CLINT 定时器中断演示源码（RAM@0x80000000）
+      run_qemu_virt_demo.py 交叉编译 + qemu-system-riscv32 跑并断言（工具链/QEMU 可配，缺失如实 SKIP）
 ```
 
 ## 分层依赖（自底向上）
@@ -85,6 +88,29 @@ baremetal/
   > 收集 baremetal 根下全部 `.c` 与 `boot\*.S`，对象保留相对子路径避免同名冲突，每次
   > 全量重建前清空 `obj\`。与 `make firmware` 产出逐字节等价。
 
+## QEMU 中断接管演示（board-matched 变体）
+
+真实固件 `matha_hal.elf` 跑不进 stock QEMU：标准 QEMU **无 FE310 机器**，
+`-machine virt` 的 UART 是 ns16550@0x10000000、RAM 在 0x80000000，与本驱动的
+SiFive UART0@0x10013000 / FLASH 取指@0x20000000 不匹配（直接跑会在取指阶段非法指令死循环）。
+
+但 virt 的 **CLINT 基址 0x02000000 与 FE310 一致**，故 `tools/qemu_virt_demo/` 提供一个
+**board-matched 变体**：只把 UART 换成 ns16550、内存映射换成 virt 的 RAM，其余「装 mtvec
+→ 开 MTIE/MSTATUS.MIE → CLINT mtimecmp 定时器中断 → ISR 打印 → 重装 → mret」中断接管
+链路与生产 HAL 同构。它在 QEMU 上**真跑 RV32 指令**（软件模拟 CPU），区别于 `tools/sim/`
+那种用宿主 gcc 跑的 C 行为模拟。
+
+跑法（在 `baremetal/` 下，需交叉工具链 + QEMU）：
+
+```bash
+python tools/qemu_virt_demo/run_qemu_virt_demo.py
+# 路径不可用时：--cc <riscv-none-elf-gcc> --qemu <qemu-system-riscv32>（或环境变量 RISCV_CC / QEMU）
+```
+
+输出 `mie=...0080`（MTIE 已置）、`MTIP?Y`（定时器 pending）、随后持续 `tick N`，
+runner 断言三信号齐备则 `PASS`。退出码 0=通过 / 1=失败 / **2=缺工具链或 QEMU 时如实 SKIP**。
+诚实口径：这证明中断路径能被真 RV32 指令集在 QEMU 上执行，仍**不等于在真 FE310 板实测**。
+
 ## 本机验证状态（诚实口径）
 
 - **已通过**：
@@ -102,11 +128,13 @@ baremetal/
     （ELF32 / RISC-V / EXEC / 入口 `_start`@0x20000000）并 `objcopy` 出 `.bin`。注：现代
     binutils 把 CSR 拆为独立扩展 `zicsr`，故 -march 需显式带 `_zicsr`（否则报 `csrr ... zicsr
     required`）；链接走 gcc 驱动而非裸 `ld`（裸 ld 的 `-m` 是仿真模式、不接受 -march/-mabi）。
-- **未做（诚实）**：未在真 FE310 板上实测串口时序；未把固件跑进 QEMU 看串口输出——
-  标准 QEMU 无 FE310 机器，`-machine virt` 的 UART 是 ns16550@0x10000000，与本驱动
-  UART0@0x10013000 不匹配。上板/QEMU 串口回环属真硬件联调，另计。同样，`vector.S` 的
-  trapframe 保存/恢复与 mret 仅靠交叉编译进 RV32 ELF 证明可汇编/链接，未在真硬件上跑过
-  一次实际中断（宿主无法执行 RISC-V 汇编，已在 C 层 `hal_trap_handler` 验证行为）。
+- **未做（诚实）**：未在真 FE310 板上实测串口时序；未把**真实固件** `matha_hal.elf` 跑进
+  QEMU 看串口输出——标准 QEMU 无 FE310 机器，`-machine virt` 的 UART 是 ns16550@0x10000000，
+  与本驱动 UART0@0x10013000 不匹配。不过中断接管路径已在 `tools/qemu_virt_demo/` 的
+  board-matched 变体上于 stock QEMU **实跑 RV32 指令验证通过**（见上一节），上板串口回环
+  属真硬件联调，另计。同样，生产 `vector.S` 的 trapframe 保存/恢复与 mret 靠交叉编译进
+  RV32 ELF 证明可汇编/链接，并在 QEMU virt 演示的同构中断路径上实跑过一次实际中断（非
+  真 FE310 板）；C 层 `hal_trap_handler` 行为另在宿主模拟 `run_trap_sim.py` 验证。
 - 「原生编译」当前口径 = **freestanding C/asm HAL**。Matha 字节码 → RV 机器码的
   直发后端是更远目标（现有 `src/mbc/native.py` 仅出 Windows PE / x86-64），不在本骨架范围。
 
