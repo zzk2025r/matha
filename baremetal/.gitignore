@@ -1,0 +1,5 @@
+# baremetal 构建产物与宿主模拟产物不入库
+build/
+*.o
+*.elf
+*.bin

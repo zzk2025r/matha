@@ -27,16 +27,20 @@ SECTIONS
     .data : {
         . = ALIGN(4);
         _sdata = .;
+        /* RISC-V gp 相对寻址基线：gp 指向 .sdata/.sbss 起点 +0x800，
+           使 [-0x800, +0x7FF] 窗口覆盖本固件全部数据/小数据。crt0 装载 gp。 */
+        PROVIDE(__global_pointer$ = . + 0x800);
         *(.data .data.*)
+        *(.sdata .sdata.* .sdata2 .sdata2.*)
         . = ALIGN(4);
         _edata = .;
     } > RAM AT > FLASH
 
-    /* .bss 仅存在于 RAM，crt0 清零。 */
+    /* .bss 仅存在于 RAM，crt0 清零（含 .sbss 小数据）。 */
     .bss : {
         . = ALIGN(4);
         _sbss = .;
-        *(.bss .bss.*)
+        *(.sbss .sbss.* .bss .bss.*)
         *(COMMON)
         . = ALIGN(4);
         _ebss = .;
