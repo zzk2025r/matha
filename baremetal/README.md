@@ -13,6 +13,7 @@
 baremetal/
   link.ld                 FE310 内存映射 + 段/堆栈符号（FLASH 取指、RAM 数据）
   Makefile                独立构建：make check（本机可跑）/ make firmware（需交叉工具链）
+  build.ps1               Windows/PowerShell 一键构建入口（无 make 时产出 matha_hal.elf）
   main.c                  最直 freestanding 入口（hal_init → uart_puts）
   include/hal/            HAL 契约头（对外只暴露这些）
     types.h  mmio.h  arch.h  boot.h  uart.h  mem.h  irq.h  csr.h  hal.h(伞头)
@@ -54,6 +55,35 @@ baremetal/
    mtimecmp 重装清 MTIP）与 PLIC 外设中断（claim 取源号→路由 ISR→complete 写回）。CSR
    访问走 `include/hal/csr.h` 的 `HAL_CSR_SIM` 接缝（对称于 mmio.h）；行为已在宿主寄存器级
    模拟（`tools/run_mem_sim.py` 回收 9 项、`tools/run_trap_sim.py` 中断 13 项）逐条验证通过。
+
+## 构建
+
+产出裸机固件有两条等价入口，编译/链接参数逐字一致
+（`-march=rv32imac_zicsr -mabi=ilp32 -Os -ffreestanding -nostdlib -Wall -Wextra -Iinclude`；
+链接走交叉 gcc 驱动、`-T link.ld -Wl,--nmagic`）：
+
+- **make（类 Unix / 已装 make 时）**，在 `baremetal/` 下：
+  - `make check` —— 结构校验 + 宿主 `gcc -fsyntax-only`（本机无需交叉工具链）。
+  - `make sim` —— 跑 `tools/` 下 uart/mem/trap 三套宿主模拟。
+  - `make firmware` —— 有交叉工具链时真正链出 `build/matha_hal.elf` + `.bin`。
+  - `make all` / `make clean` —— 校验+（降级或）产固件 / 清理 `build/`。
+
+- **PowerShell（Windows：无 make、系统默认 gcc 编不了 RISC-V 时）**，在 `baremetal\` 下：
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\build.ps1
+  ```
+
+  自动收集源码并交叉编译链接，一键产出 `build\matha_hal.elf`（并 `objcopy` 出 `.bin`）。
+  可选参数：
+  - `-CrossGcc <路径>` —— 自动探测（先 PATH 再常见安装目录）失败时手动指定交叉编译器；
+    `objcopy`/`size` 由编译器同目录按前缀推导。
+  - `-SkipBin` —— 只出 ELF，不生成 `.bin`。
+
+  > 脚本**刻意排除 `tools/`**：那里是宿主侧 UART/内存/中断模拟（用本机 gcc 跑、非裸机
+  > C 源），绝不能混进 RV32 固件，否则链接必炸；同时排除 `build/`（编译产物）。它自动
+  > 收集 baremetal 根下全部 `.c` 与 `boot\*.S`，对象保留相对子路径避免同名冲突，每次
+  > 全量重建前清空 `obj\`。与 `make firmware` 产出逐字节等价。
 
 ## 本机验证状态（诚实口径）
 
