@@ -1,0 +1,24 @@
+sys_env 编译期折叠 + 恒定条件剪枝（MATHA_SYSENV_FOLD，默认关闭）
+
+- src/mbc/compiler.py：_fold_sys_env（字面量键→os.environ.get→PUSH_CONST）、
+  _const_expr_value（字面量 + 折叠命中的 sys_env）、_emit_if_stmt 恒定条件剪枝
+  （含带 else 的两臂形态，即 if sys_env("K","0") == "1" { 快 } else { 原 }）。
+  键非字面量在编译期报错，绝不退化成运行期未定义变量。
+- 不做成运行期内建的定论：VM 即 Python 进程内解释器，运行期查 env 必经宿主中介；
+  且新增内建会进 _default_builtins 改变自举可见符号面 → 定点与 native API 封闭
+  基线一起红。编译期折叠消灭运行期查询，故 native 无需 GetEnvironmentVariableW。
+- 默认关闭路径不介入：OFF 态对参照修订 9b5606b（importlib 加载旧版模块，同包
+  环境对照）10 例语料 byte_mismatch=无 / value_mismatch=无；sysenv_verify 7/7
+  （折叠正确性、门控剪枝 n_jz=0、非字面量编译期报错、关闭态不读环境）。
+- native 端到端实证 4/4：折叠开→编 exe 跑通且**同一 exe 换 env 输出不变**（门控
+  烘进机器码，运行期不可选）；折叠关→编译 rc=0 但 exe 运行期 rc=1 报未定义变量，
+  与 VM 口径一致（绝不静默造值）。全程未触碰 _APIS 封闭基线。
+- 文档：KNOWN_ISSUES 新增 6a 节（两枚休眠开关口径 + 转正前置），CHANGELOG 登记，
+  ARCHITECTURE 核心行数随现场刷新至 31,159。
+- 预备资产（.trae/p4_b09_preview）：报告补 §7 native 实证；补丁按开关拆成
+  b09_fuse_preview.patch 与 sysenv_fold_preview.patch；取证脚本自清理生成物
+  （exe / compiler_ref.py 不入库），并删掉无效 attempt 留下的重复件 ref_head2.json。
+- 产物编码修正：PowerShell `>` 重定向把门禁日志写成 UTF-16（git 视为二进制）、
+  把补丁写成带 BOM 的 UTF-8，已全部改以 UTF-8 无 BOM 重生成/转存（读数未变）。
+- 门禁：本提交态全量 check.py 复跑 100.00%（4174/4174，失败 0，SKIP 1=已知未实现），
+  见 gate_sysenv_commit.log。

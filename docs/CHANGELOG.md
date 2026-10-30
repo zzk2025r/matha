@@ -66,6 +66,22 @@ P3 性能基准 + 内建调用优化 + native 并发边界（口径见 [KNOWN_IS
 - 文档数字随现场刷新（README 测试文件数、ARCHITECTURE 核心体量），由
   `tests/test_doc_facts.py` 与 `scripts/repo_facts.py` 核对。
 
+P4 预备·发射器休眠开关（默认关闭，不影响 `make check`；口径见
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第 6a 节）：
+
+- `MATHA_B09_FUSE=1`：`for` 语法糖与列表推导里手写的 `get(xs)(i)` /
+  `append(res)(e)` 两步 `CALL 1` 融成单条 `CALL N`（带顶层同名 `func` 的
+  遮蔽安全闸；`len` 为变参内建不融合）。关闭路径与历史发射逐字节等价，
+  由 HEAD worktree 导出参照语料对照证明；开启态定点红项如实登记（单侧
+  改发射器必破 stage2↔stage3 定点，转正前置为双侧同步）。
+- `MATHA_SYSENV_FOLD=1`：`sys_env("KEY", "默认")` 编译期常量折叠 + 恒定条件
+  剪枝（`if sys_env(...) == "1" { 快 } else { 原 }` 只发射选中分支，运行期零开销；
+  键非字面量则编译期报错）。故意**不做成运行期内建**：VM 路径的 env 读取必经
+  宿主，且新增内建会改自举可见符号面而破定点；折叠后 native 也无需扩展
+  `_APIS` 封闭基线。
+- 取证工件与验证报告：`.trae/p4_b09_preview/`（含 `B09_VERIFY_REPORT.md`、
+  `b09_fuse_preview.patch`、字节码/值对照与定点漂移脚本），不入 tests/ 与 golden_tests/。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，

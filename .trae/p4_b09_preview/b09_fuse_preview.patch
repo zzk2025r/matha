@@ -1,4 +1,4 @@
-﻿diff --git a/src/mbc/compiler.py b/src/mbc/compiler.py
+diff --git a/src/mbc/compiler.py b/src/mbc/compiler.py
 index ad86996..c00f2bf 100644
 --- a/src/mbc/compiler.py
 +++ b/src/mbc/compiler.py
