@@ -36,6 +36,7 @@ HOST_CC  ?= gcc
 
 .PHONY: all check sim dirs clean
 
+
 # ── 结构校验 + 宿主语法门禁 + 寄存器级/行为模拟（本机可跑，不需交叉工具链）──
 check:
 	@python3 tools/check_skeleton.py
@@ -45,6 +46,13 @@ sim:
 	@python3 tools/run_uart_sim.py
 	@python3 tools/run_mem_sim.py
 	@python3 tools/run_trap_sim.py
+
+# ── 在 stock QEMU (riscv32 -machine virt) 上实跑「中断接管 + UART 打印」演示 ──
+# board-matched 变体（ns16550 UART + virt RAM@0x80000000），非 FE310 产物、与
+# firmware 目标无关。需交叉工具链 + QEMU；缺任一由 runner 如实 SKIP（退出码 2）。
+.PHONY: qemu-demo
+qemu-demo:
+	@python3 tools/qemu_virt_demo/run_qemu_virt_demo.py
 
 all: check
 ifeq ($(CROSS_OK),yes)

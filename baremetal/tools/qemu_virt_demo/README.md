@@ -6,8 +6,9 @@
 ns16550@0x10000000、内存换成 virt RAM@0x80000000，其余中断接管链路与生产 HAL 同构：
 
 ```
-装 mtvec → 开 MTIE + MSTATUS.MIE → CLINT mtimecmp 定时器中断
-→ trap 入口判 mcause=0x80000007 → 调 C ISR 打印 tick → 重装 mtimecmp → mret
+uart_init() 初始化 ns16550 → 装 mtvec → 开 MTIE + MSTATUS.MIE → CLINT mtimecmp 定时器中断
+→ trap 入口判 mcause=0x80000007 → 调 C ISR 用 uart 打印 "Hello RISC-V! tick=N"
+→ 重装 mtimecmp → mret
 ```
 
 这在 QEMU 上**真跑 RV32 指令**（软件模拟 CPU），区别于 `../sim/` 那种用宿主 gcc 编译
@@ -15,10 +16,16 @@ ns16550@0x10000000、内存换成 virt RAM@0x80000000，其余中断接管链路
 
 ## 文件
 
-- `virt_demo.c`        演示主体（ns16550 打印 + CLINT 定时器 + 精简 trap 汇编 + 两阶段验证）
+- `uart.h` / `uart.c`  适配 QEMU virt 的 **ns16550** UART 控制台驱动（由 FE310 SiFive
+  UART 版 `hal/drivers/uart.c` 改写：同一套 init/putc/puts/getc 语义，换到 16550 寄存器）
+- `main.c`             演示主体：调 uart 驱动 + CLINT 定时器 + 精简 trap 汇编 + 两阶段验证，
+  ISR 里每隔一段时间打印 `Hello RISC-V! tick=N`
 - `virt_start.S`       极简入口：设栈顶 → `call main`
 - `virt.ld`            virt 内存映射（text/data/bss 全落 RAM，栈顶 0x80100000）
-- `run_qemu_virt_demo.py`  交叉编译 + 跑 QEMU + 断言三信号的运行器
+- `run_qemu_virt_demo.py`  交叉编译 virt_start.S+uart.c+main.c + 跑 QEMU + 断言信号的运行器
+
+> QEMU riscv **virt** 机的 UART 是 ns16550（既非 FE310 的 SiFive UART，也非 ARM virt 的
+> PL011），故本样例按 ns16550 驱动，才能在 stock QEMU 上真跑出串口输出。
 
 ## 运行
 
@@ -29,7 +36,8 @@ python run_qemu_virt_demo.py --cc <riscv-none-elf-gcc> --qemu <qemu-system-riscv
 ```
 
 预期串口输出：`mie=...0080`（MTIE 已置）、`mip=... MTIP?Y`（定时器 pending）、
-`armed, waiting IRQ`、随后持续 `tick N`。运行器断言三信号齐备则 `PASS`。
+`armed, waiting IRQ`、随后 ISR 持续打印 `Hello RISC-V! tick=N`。运行器断言这些信号
+（含 `Hello RISC-V!`）齐备则 `PASS`。
 
 退出码：`0` 通过 / `1` 失败 / `2` 缺交叉工具链或缺 QEMU 时**如实 SKIP**（不算失败）。
 产物 ELF 落在 `baremetal/build/qemu_virt_demo/`（已 gitignore）。

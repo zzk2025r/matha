@@ -35,7 +35,9 @@ baremetal/
     sim/trap_sim_main.c   mtvec/mie/mstatus + 定时器重装 + PLIC claim/complete 断言
     sim/allocator_sim_main.c first-fit/对齐/复用/合并/超大返回 NULL 断言
     qemu_virt_demo/        stock QEMU 上实跑的「中断接管」常驻样例（board-matched 变体，非 FE310 产物）
-      virt_demo.c virt_start.S virt.ld   ns16550 UART + CLINT 定时器中断演示源码（RAM@0x80000000）
+      uart.h uart.c        适配 QEMU virt 的 ns16550 UART 驱动（由 FE310 SiFive UART 版改写）
+      main.c               调 uart + CLINT 定时器中断，ISR 里打印 "Hello RISC-V! tick=N"
+      virt_start.S virt.ld ns16550 UART + CLINT 定时器中断演示入口与链接脚本（RAM@0x80000000）
       run_qemu_virt_demo.py 交叉编译 + qemu-system-riscv32 跑并断言（工具链/QEMU 可配，缺失如实 SKIP）
 ```
 
@@ -95,20 +97,23 @@ baremetal/
 SiFive UART0@0x10013000 / FLASH 取指@0x20000000 不匹配（直接跑会在取指阶段非法指令死循环）。
 
 但 virt 的 **CLINT 基址 0x02000000 与 FE310 一致**，故 `tools/qemu_virt_demo/` 提供一个
-**board-matched 变体**：只把 UART 换成 ns16550、内存映射换成 virt 的 RAM，其余「装 mtvec
-→ 开 MTIE/MSTATUS.MIE → CLINT mtimecmp 定时器中断 → ISR 打印 → 重装 → mret」中断接管
-链路与生产 HAL 同构。它在 QEMU 上**真跑 RV32 指令**（软件模拟 CPU），区别于 `tools/sim/`
-那种用宿主 gcc 跑的 C 行为模拟。
+**board-matched 变体**：把 FE310 SiFive UART 驱动改写为适配 virt 的 **ns16550 `uart.c`**
+（基址 0x10000000，同一套 init/putc/puts/getc 语义）、内存映射换成 virt 的 RAM，其余「装 mtvec
+→ 开 MTIE/MSTATUS.MIE → CLINT mtimecmp 定时器中断 → `main.c` 的 ISR 用 uart 打印
+`Hello RISC-V! tick=N` → 重装 → mret」中断接管链路与生产 HAL 同构。它在 QEMU 上**真跑
+RV32 指令**（软件模拟 CPU），区别于 `tools/sim/` 那种用宿主 gcc 跑的 C 行为模拟。
 
 跑法（在 `baremetal/` 下，需交叉工具链 + QEMU）：
 
 ```bash
 python tools/qemu_virt_demo/run_qemu_virt_demo.py
+# 或走 Makefile（同样需交叉工具链 + QEMU）：make qemu-demo
 # 路径不可用时：--cc <riscv-none-elf-gcc> --qemu <qemu-system-riscv32>（或环境变量 RISCV_CC / QEMU）
 ```
 
-输出 `mie=...0080`（MTIE 已置）、`MTIP?Y`（定时器 pending）、随后持续 `tick N`，
-runner 断言三信号齐备则 `PASS`。退出码 0=通过 / 1=失败 / **2=缺工具链或 QEMU 时如实 SKIP**。
+输出 `mie=...0080`（MTIE 已置）、`MTIP?Y`（定时器 pending）、随后 ISR 持续打印
+`Hello RISC-V! tick=N`，runner 断言这些信号（含 `Hello RISC-V!`）齐备则 `PASS`。
+退出码 0=通过 / 1=失败 / **2=缺工具链或 QEMU 时如实 SKIP**。
 诚实口径：这证明中断路径能被真 RV32 指令集在 QEMU 上执行，仍**不等于在真 FE310 板实测**。
 
 ## 本机验证状态（诚实口径）
