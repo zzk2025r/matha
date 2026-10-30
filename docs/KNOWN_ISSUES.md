@@ -38,6 +38,35 @@
 - **代价**：高槽号少量捕获时 env 留空洞、体积偏大（仅内存浪费，不影响正确性；空洞被保守 GC
   扫描，`gc_mark_candidate` 的区间 + 起点位双重校验保证不误标非对象地址）。
 
+### 1c. native 的并发边界（设计口径，已上锁，非缺陷）
+
+机器码 exe 是**单线程**产物，而且这个约束是三重的：
+
+- 运行期自行解析的 kernel32 API 面是**封闭小集合**（`GetStdHandle`/`WriteFile`/
+  `ExitProcess`/`LoadLibraryA`/`GetProcAddress`/`VirtualAlloc`），不含线程、纤程、
+  临界区、原子操作或 TLS 中任何一个；
+- 运行态（`heap_ptr`/`heap_limit`/`vstack`/`hstack_ptr`/`handler_top`/`raise_msg`/
+  `sweep_start` 与 `bclo:*` 内建闭包）全部是镜像内的**进程级单例静态区**，以 rip
+  相对寻址直接读写，没有 per-thread 隔离；
+- 并发域（registry `Concurrent`、显示名「并发编程」：`创建线程池`/`提交任务`/`等待所有`
+  等）**只经宿主的懒加载领域层进入语言**，VM 内建表里不存在这些名字，native 更没有。
+
+实测的真实行为（与 1a 同一红线）：把带并发符号的程序交给 native，运行到该符号时
+`rc=1`、stderr「未定义变量」、**stdout 一个字节都不出**——干净失败，不伪造值。
+VM 直连路径同样显式失败（未加载领域 → `未定义变量 '创建线程池'`；带 `加载领域` →
+`加载领域「并发编程」失败：本次运行未接入插件层`）；只有宿主入口（`src.kernel.exec_api.run`
+经 interp）能真正加载并跑起并发域。
+
+因此**唯一的 scale-out 路径是进程级并行**：多个 exe 各跑各的，实测同一枚 exe 并发跑
+K 个进程的输出逐字节一致（数出自 `scripts/bench.py --native --parallel K`）。要在
+native 内做线程级并行，需同时改 API 面、静态运行态与 GC 根口径，属未启动的工程项，
+不是一个可开关的特性。另需区分：时间域的 `注册任务`/`执行待办`/`待办列表` 是**协作式
+调度表**（既有口径：回调从不触发、执行待办恒返回 `[]`），三端一致，不是线程原语。
+
+判据：`tests/test_native_concurrency_contract.py`——API 面基线被隐性扩大、线程 API 混入、
+`src/mbc/` 引入并发模块、并发符号被硬编进内建表、native 对并发源码静默产值，任一发生即红；
+工具链缺失时涉及真跑 exe 的用例优雅 SKIP。
+
 ## 二、语法层历史债务
 
 曾经有 19 个 `.matha` 语料文件连 parser 都过不了（`matha/knowledge/`、`matha/resource/`、
@@ -94,8 +123,46 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 
 ## 六、性能声明的口径
 
-本文档集**不写**任何「加速 N 倍」「快过 X 语言」的数字：当前没有可复现的基准脚本
-与固定硬件口径。需要性能结论时，先补一个能被 `make check` 覆盖的基准，再写文档。
+本文档集**不写**没有方法学的性能数字。可复现量具已落地：
+
+- 量具 `scripts/bench.py`（语料 `scripts/bench_cases/`，`{N}` 参数化规模）；
+  `--selftest` 做小规模确定性校验，`--json` 落 `docs/bench_baseline.json`
+  （含版本/Python/平台/CPU/repeats/每段 min-median-max）。
+- 允许写的数字必须同时给：①命令与语料 ②同机**相邻两轮** A/B（`git stash` 改动
+  文件跑 A、恢复跑 B）③min 与 median 两个统计量 ④原始 JSON。缺任一项只准写「未测」。
+  跨时段对比无效：本机实测漂移可达 ±25%（曾据此误判过一次收益）。
+- 禁止：跨机对比、对未测路径外推、以及「加速 N 倍」式单数字营销表述。
+  CHANGELOG 不写性能数字，只指向本节。
+- 基准是**量具不是门禁**：`make check` 不设耗时判据（否则四道门禁会变成机器相关）；
+  `--selftest` 可作为正确性烟雾测挂 CI。
+
+按此口径的实测（同机 Windows/x86-64、CPython 3.14.3、repeats=5、只取 VM 单段；
+命令 `python scripts/bench.py --only b06 --repeats 5`）：
+
+| 场景 | 优化前 min/median | 优化后 min/median | 差 |
+|---|---|---|---|
+| b06 `get(xs)(i)` × 50000 | 1023.7 / 1035.6 ms | 788.6 / 791.3 ms | **-23.6%** |
+| b04 `append` 构造 × 3000 | 63.9 / 64.1 ms | 57.0 / 57.7 ms | **-10.0%** |
+| b09 `for` 语法糖 × 50000 | 879.4 / 880.7 ms | 901.9 / 906.6 ms | +2.9%（未受益） |
+
+优化共两段缺一不可：编译器把完全应用的柯里化内建调用融成单条 `CALL N`（宿主
+`_CURRIED_BUILTIN_ARITY` 与自举 `_预扫元数` 逐项同值），VM `_invoke` 对 `_Curried`
+齐 arity 时直调 `fn(*args)`。融合的**安全前提**是：`get`/`append`/`slice`/`range`
+不得在任一模块里被 `let`/形参/元组目标重绑（同名 `func` 声明合法，由元数表覆盖
+机制以用户 arity 为准）。此前提不靠人记忆，由 `tests/test_curried_builtin_paths.py`
+全仓库 `.matha` AST 扫描锁定（现扫 208 份语料，唯一命中为 `stdlib.matha` 的
+`func range(...)`）。**b09 未受益的已知欠账**：`for` 的下标读取由发射器手写、
+不经元数表，本轮未同步改写（要改必须宿主与自举两侧同时改，并保证定点一致）。
+
+**已试但未采纳**：把 VM 柯里化偏应用的中间值换成 `__slots__` 轻对象（`_CurriedPart`），
+紧邻 A/B 下无收益（b06 反而 +8%：tuple 拼接与 `__call__` 分发比闭包更贵），已回退。
+
+进程级并行（native 的唯一 scale-out 路径，见 1c）实测：命令
+`python scripts/bench.py --json --repeats 5 --native --parallel 3`（已落
+`docs/bench_baseline.json`，九场景均能编译成 exe 并 `rc=0`）。同一枚 exe 跑
+3 次串行 vs 3 进程并发，speedup 实测区间 **2.4–4.13**（最低 b08 字符串拼接
+串行 708.3ms → 并发 294.8ms；最高 b03 while 累加 104.6ms → 25.4ms），退出码全 0。
+这是本机单机的实测值，不外推到其他硬件，也不构成「线性扩展」结论。
 
 ## 七、多端交付与 AI 前端的定位（降级，非上锁）
 

@@ -43,6 +43,29 @@ P2 多端交付与 AI 前端定位（降级，不上锁）：口径见 [KNOWN_IS
 - 降级标注：`mobile/README.md` 头部与 AI 前端 4 文件（`src/ai_assistant*.py`、
   `src/openai_compat_server.py`）docstring 如实登记「实验性/未背书、零门禁」。
 
+P3 性能基准 + 内建调用优化 + native 并发边界（口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第六节与 1c）。
+
+- 新增可复现基准量具 `scripts/bench.py` 与语料 `scripts/bench_cases/`（9 场景，
+  `{N}` 参数化规模）：分 compile / vm / total 三段，`--native` 追加 exe 编译与
+  子进程两段，`--parallel K` 量进程级并行吞吐；`--selftest` 做小规模确定性校验，
+  `--json` 落 `docs/bench_baseline.json`（版本/Python/平台/CPU/repeats/每段
+  min-median-max）。方法学约束（同机相邻两轮 A/B、只报实测值）写在第六节。
+- 内建调用优化（实测幅度见第六节表）：编译器把**完全应用**的柯里化内建
+  （`get`/`append`/`slice`/`range`）融成单条 `CALL N`；VM `_curry2/_curry3` 返回
+  携带 `fn`/`arity` 的 `_Curried`，`_invoke` 在齐 arity 时直调 `fn(*args)`、不再
+  逐层物化中间闭包。arity 表宿主侧 `_CURRIED_BUILTIN_ARITY` 与自举侧
+  `matha/compiler_matha.matha` 的 `_预扫元数` **逐项同值**（否则 stage2↔stage3
+  定点会红）；模块自有同名 `func` 声明以用户 arity 为准。
+- 语义锁 `tests/test_curried_builtin_paths.py`：链式/二元/偏应用/三参、超量应用
+  错误文本 vm↔interp 逐字一致、native exe 平价、CALL N 形状锁与**双侧 arity 表
+  同值锁**（把「改这边要改那边」从约定变成可执行判据）。
+- native 并发边界上锁 `tests/test_native_concurrency_contract.py`：API 面为封闭
+  基线（不含线程/纤程/临界区/原子/TLS）、`src/mbc/` 不引入并发模块、并发域符号
+  不入 VM 内建表、native 对并发源码必须非零退出且 stdout 不产值、同一枚 exe
+  多进程输出逐字节一致；工具链缺失时 exe 类用例优雅 SKIP。
+- 文档数字随现场刷新（README 测试文件数、ARCHITECTURE 核心体量），由
+  `tests/test_doc_facts.py` 与 `scripts/repo_facts.py` 核对。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，

@@ -1,0 +1,3 @@
+func fib(n: Int) -> Int = (n) =>
+  if n <= 1 then n else fib(n - 1) + fib(n - 2)
+输出(fib({N}))

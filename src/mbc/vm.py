@@ -335,12 +335,34 @@ _UNARYOPS = {
 
 def _curry2(fn):
     """两参函数柯里化：f(a)(b) 或 f(a,b) 均可用。"""
-    return lambda a: (lambda b: fn(a, b))
+    return _Curried(fn, 2)
 
 
 def _curry3(fn):
     """三参函数柯里化：f(a)(b)(c)。"""
-    return lambda a: (lambda b: (lambda c: fn(a, b, c)))
+    return _Curried(fn, 3)
+
+
+class _Curried:
+    """柯里化 VM 内建的包装对象（arity 个参可分步喂）。
+
+    分步应用语义与原 `lambda a: (lambda b: fn(a, b))` 链逐字一致；多出来的信息只
+    有一项：底层 `fn` 与 `arity` 可直接取。VM `_invoke` 在实参恰好齐 arity 时直接
+    `fn(*args)`，不再逐层物化中间闭包（基准 scripts/bench.py 的 b06 显示链式
+    `get(xs)(i)` 是最慢的内建调用形态）。齐 arity 的 CALL N 由编译器发出，其
+    arity 表与 Matha 自举编译器严格同值（见 tests/test_curried_builtin_paths.py）。
+    """
+    __slots__ = ("fn", "arity")
+
+    def __init__(self, fn, arity: int):
+        self.fn = fn
+        self.arity = arity
+
+    def __call__(self, a):
+        fn, ar = self.fn, self.arity
+        if ar == 2:
+            return lambda b: fn(a, b)
+        return lambda b: (lambda c: fn(a, b, c))
 
 
 def _raise_builtin(msg):
@@ -951,6 +973,11 @@ class VM:
             return
 
         if callable(fn):
+            # 柯里化内建：实参恰好齐 arity 时直接调底层 fn(*args)，不物化中间闭包；
+            # 不足/超出时仍逐层应用，保持与原 lambda 链一致的偏应用值与错误行为。
+            if type(fn) is _Curried and len(args) == fn.arity:
+                caller.stack.append(fn.fn(*args))
+                return
             # Python 内建：逐参应用以兼容柯里化包装（_curry2 等）
             r = fn
             for a in args:

@@ -1,0 +1,7 @@
+let i = 0
+let s = 0.0
+while i < {N} {
+  s = s + sin(i) + cos(i)
+  i = i + 1
+}
+输出(round(s))

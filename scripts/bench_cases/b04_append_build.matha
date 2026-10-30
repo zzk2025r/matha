@@ -1,0 +1,7 @@
+let xs = []
+let i = 0
+while i < {N} {
+  xs = append(xs)(i)
+  i = i + 1
+}
+输出(len(xs))

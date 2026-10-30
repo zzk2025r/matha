@@ -183,6 +183,15 @@ def _fold_bin(op: str, left, right):
     return _NO_FOLD
 
 
+# 柯里化 VM 内建的固定 arity（由 `_curry2/_curry3` 注册）。
+# 与 matha/compiler_matha.matha 的 `_预扫元数` 初始表逐项同值——两侧任一
+# 改动都必须同步另一侧，否则宿主/自举编译器产出的字节码不再定点相等。
+# 安全前提：这四个名字不得在模块内被 `let`/形参重绑成其他 arity 的值（全仓库
+# .matha 语料实测零重绑；模块自己的 `func range(...)` 之类定义由 FuncDef 扫描
+# 覆盖本表，以用户声明为准）。
+_CURRIED_BUILTIN_ARITY = {"get": 2, "append": 2, "slice": 3, "range": 2}
+
+
 def _scan_fn_arities(program) -> dict[str, int]:
     """预扫描所有顶层 FuncDef 的 name -> arity（与声明顺序无关）。
 
@@ -253,7 +262,13 @@ class Compiler:
 
     # ---- 入口 ----
     def compile_program(self, program: ast.Program) -> MModule:
-        self._fn_arities = _scan_fn_arities(program)
+        # 元数表 = 柯里化 VM 内建的固定 arity + 顶层 FuncDef 的 arity（后者覆盖
+        # 前者，故模块自己定义了同名 `range`/`get` 时以用户声明为准）。两者合流
+        # 后，`get(xs)(i)` 这类完全应用的内建调用融成单条 CALL N（基准 b06 实测
+        # 降 23%）。该表必须与 Matha 自举编译器 `matha/compiler_matha.matha` 的
+        # `_预扫元数` **逐项同值**，否则 stage2↔stage3 定点会红（见
+        # tests/test_curried_builtin_paths.py 与 tests/test_mbc_bootstrap.py）。
+        self._fn_arities = {**_CURRIED_BUILTIN_ARITY, **_scan_fn_arities(program)}
         # `？` 公式模式库：与解释器**同源同序**，故编译期的「是否命中模式」
         # 判定与解释器运行期判定结果一致。
         self.formulas = _fs.FormulaLibrary()

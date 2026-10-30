@@ -85,8 +85,14 @@ module 编译器 {
     {"常量": bc["常量"], "函数": bc["函数"], "计数": bc["计数"], "元数表": 表}
 
   (* 预扫描顶层函数元数：仅 顶层函数定义 入表（模块内嵌的也算），
-     lambda 不在表内，故无需再按 __lam_ 前缀排除。 *)
-  func _预扫元数(decls: List) -> Dict = _预扫元数走(decls, dict_from_pairs([]))
+     lambda 不在表内，故无需再按 __lam_ 前缀排除。
+     初始表预置四个柯里化 VM 内建的固定元数，与宿主 `_CURRIED_BUILTIN_ARITY`
+     （src/mbc/compiler.py）**逐项同值**：二者共同决定 `get(xs)(i)` 这类完全应用
+     调用是否融成单条 CALL N，两侧不同值会让 stage2↔stage3 定点红。顶层若有
+     同名函数定义，下面的 dict_put 会以用户声明的元数覆盖预置值。 *)
+  func _预扫元数(decls: List) -> Dict =
+    _预扫元数走(decls,
+      dict_from_pairs([["get", 2], ["append", 2], ["slice", 3], ["range", 2]]))
 
   func _预扫元数走(decls: List, out: Dict) -> Dict =
     decls = [] ? out :

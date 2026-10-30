@@ -1,0 +1,364 @@
+{
+  "generated_at": "2026-10-30 01:40:18",
+  "matha_version": "4.6.0",
+  "python": "3.14.3",
+  "platform": "Windows/AMD64",
+  "cpu": "Intel64 Family 6 Model 156 Stepping 0, GenuineIntel",
+  "repeats": 5,
+  "native": true,
+  "parallel_workers": 3,
+  "note": "只报实测数字；结论性对比须另附方法与原始数据。",
+  "results": [
+    {
+      "case": "b01_recursion_count",
+      "n": 50000,
+      "compile": {
+        "min_ms": 0.754,
+        "median_ms": 0.802,
+        "max_ms": 1.077,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 425.756,
+        "median_ms": 447.917,
+        "max_ms": 637.317,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 429.576,
+        "median_ms": 432.159,
+        "max_ms": 447.733,
+        "repeats": 5
+      },
+      "native_compile_ms": 20.2,
+      "native_run": {
+        "min_ms": 30.242,
+        "median_ms": 31.499,
+        "max_ms": 32.756,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 89.1,
+        "parallel_ms": 22.5,
+        "speedup": 3.95,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b02_fib",
+      "n": 25,
+      "compile": {
+        "min_ms": 0.858,
+        "median_ms": 0.883,
+        "max_ms": 1.131,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 2282.883,
+        "median_ms": 2492.473,
+        "max_ms": 2921.86,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 2277.307,
+        "median_ms": 2284.969,
+        "max_ms": 2382.719,
+        "repeats": 5
+      },
+      "native_compile_ms": 19.8,
+      "native_run": {
+        "min_ms": 41.725,
+        "median_ms": 41.97,
+        "max_ms": 42.216,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 126.7,
+        "parallel_ms": 33.9,
+        "speedup": 3.74,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b03_while_accum",
+      "n": 100000,
+      "compile": {
+        "min_ms": 0.746,
+        "median_ms": 0.755,
+        "max_ms": 1.012,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 979.755,
+        "median_ms": 984.511,
+        "max_ms": 990.058,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 984.135,
+        "median_ms": 986.906,
+        "max_ms": 992.053,
+        "repeats": 5
+      },
+      "native_compile_ms": 18.8,
+      "native_run": {
+        "min_ms": 35.005,
+        "median_ms": 35.726,
+        "max_ms": 36.447,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 104.6,
+        "parallel_ms": 25.4,
+        "speedup": 4.13,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b04_append_build",
+      "n": 3000,
+      "compile": {
+        "min_ms": 0.901,
+        "median_ms": 0.915,
+        "max_ms": 1.1,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 62.676,
+        "median_ms": 64.093,
+        "max_ms": 65.439,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 65.148,
+        "median_ms": 66.214,
+        "max_ms": 66.552,
+        "repeats": 5
+      },
+      "native_compile_ms": 18.9,
+      "native_run": {
+        "min_ms": 60.999,
+        "median_ms": 61.388,
+        "max_ms": 61.777,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 181.4,
+        "parallel_ms": 54.5,
+        "speedup": 3.33,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b05_builtin_math_call",
+      "n": 50000,
+      "compile": {
+        "min_ms": 0.909,
+        "median_ms": 0.93,
+        "max_ms": 1.433,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 699.333,
+        "median_ms": 700.833,
+        "max_ms": 707.549,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 700.421,
+        "median_ms": 704.387,
+        "max_ms": 706.842,
+        "repeats": 5
+      },
+      "native_compile_ms": 18.7,
+      "native_run": {
+        "min_ms": 35.35,
+        "median_ms": 36.209,
+        "max_ms": 37.068,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 108.3,
+        "parallel_ms": 26.9,
+        "speedup": 4.02,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b06_index_len",
+      "n": 50000,
+      "compile": {
+        "min_ms": 1.24,
+        "median_ms": 1.344,
+        "max_ms": 1.6,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 823.389,
+        "median_ms": 827.883,
+        "max_ms": 1040.842,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 826.407,
+        "median_ms": 853.575,
+        "max_ms": 983.801,
+        "repeats": 5
+      },
+      "native_compile_ms": 19.3,
+      "native_run": {
+        "min_ms": 33.532,
+        "median_ms": 33.728,
+        "max_ms": 33.923,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 101.9,
+        "parallel_ms": 28.7,
+        "speedup": 3.55,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b07_trig_branch",
+      "n": 50000,
+      "compile": {
+        "min_ms": 0.978,
+        "median_ms": 0.99,
+        "max_ms": 1.247,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 819.557,
+        "median_ms": 821.082,
+        "max_ms": 830.203,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 824.571,
+        "median_ms": 826.463,
+        "max_ms": 828.694,
+        "repeats": 5
+      },
+      "native_compile_ms": 18.7,
+      "native_run": {
+        "min_ms": 39.231,
+        "median_ms": 39.497,
+        "max_ms": 39.764,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 117.5,
+        "parallel_ms": 42.6,
+        "speedup": 2.76,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b08_str_concat",
+      "n": 20000,
+      "compile": {
+        "min_ms": 0.891,
+        "median_ms": 0.907,
+        "max_ms": 1.322,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 335.884,
+        "median_ms": 336.972,
+        "max_ms": 338.07,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 336.43,
+        "median_ms": 541.833,
+        "max_ms": 557.184,
+        "repeats": 5
+      },
+      "native_compile_ms": 31.1,
+      "native_run": {
+        "min_ms": 251.456,
+        "median_ms": 252.447,
+        "max_ms": 253.437,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 708.3,
+        "parallel_ms": 294.8,
+        "speedup": 2.4,
+        "exit_codes": [
+          0
+        ]
+      }
+    },
+    {
+      "case": "b09_for_iter",
+      "n": 50000,
+      "compile": {
+        "min_ms": 0.781,
+        "median_ms": 0.889,
+        "max_ms": 1.062,
+        "repeats": 5
+      },
+      "vm": {
+        "min_ms": 965.161,
+        "median_ms": 965.374,
+        "max_ms": 1008.935,
+        "repeats": 5
+      },
+      "total": {
+        "min_ms": 960.68,
+        "median_ms": 963.688,
+        "max_ms": 980.976,
+        "repeats": 5
+      },
+      "native_compile_ms": 19.3,
+      "native_run": {
+        "min_ms": 36.146,
+        "median_ms": 36.543,
+        "max_ms": 36.941,
+        "repeats": 2
+      },
+      "native_rc": 0,
+      "parallel": {
+        "workers": 3,
+        "serial_ms": 108.2,
+        "parallel_ms": 30.4,
+        "speedup": 3.56,
+        "exit_codes": [
+          0
+        ]
+      }
+    }
+  ]
+}
