@@ -1,0 +1,12 @@
+P4 预备资产：《b09 底层重构验证报告》+ 独立补丁与取证工件（休眠开关 .trae/p4_b09_preview/）
+
+- B09_VERIFY_REPORT.md：验证矩阵 8 项全实测登记——OFF 态字节码=HEAD 逐字节
+  （HEAD worktree 对照法）、ON 态 10 例语料值等价、9/10 形状融合证据、
+  遮蔽安全闸反例、紧邻 A/B b09 −15.6%/−16.0%、ON 态定点漂移真实读数
+  （869/870 绿，唯一红项 for_loop 定点；黄金 39/39）、OFF 态全量门禁 100.00%
+  （4174/4174，gate_off_final.log）、doc_facts 18/18
+- b09_fuse_preview.patch：独立变更补丁（仅 src/mbc/compiler.py，已随 9b5606b 入库）
+- 取证脚本与原始读数：b09_fuse_compare.py / ref_head.json / ws_off.json /
+  ws_on.json / diff_shapes.py / fuse_ab.py / drift_readout.py / drift_on_report.txt
+- 纪律声明：不绕过、不修改 make check 任何判据；开启态定点红项如实登记；
+  P4 正式合并前置条件（双侧同步 + 开关退役 + 形状锁）见报告 §5
