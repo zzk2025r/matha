@@ -269,3 +269,115 @@ def test_corpus_never_rebinds_curried_builtin_names():
 def _curried_arity_table() -> dict:
     from src.mbc.compiler import _CURRIED_BUILTIN_ARITY
     return _CURRIED_BUILTIN_ARITY
+
+
+# ---------------------------------------------------- 7：b09 for/推导语法糖融合形状锁
+#
+# MATHA_B09_FUSE 休眠开关已**退役转正**：for 语法糖与列表推导里手写的
+# get(xs)(i) / append(res)(e) 恒融成单条 CALL N（宿主 _emit_curried_builtin
+# 与自举 _for循环码 的 _get齐参/_get逐步 分支同判据、同入池顺序）。以下锁把
+# 「转正后的发射形状」与「遮蔽 arity 不匹配退回逐步」的边界固化，确保这两侧
+# 融合以后不会再破坏 stage2↔stage3 逐字节定点。
+
+B09_FUSE_SHAPES = [
+    # for 语法糖：len 判定 CALL 1 + get(xs)(i) 融合 CALL 2 + 输出 CALL 1
+    ("for_sugar", "t = 0\nfor x in [1, 2, 3] {\n  t = t + x\n}\n输出(t)\n", [1, 2, 1]),
+    # 列表推导：len CALL 1 + get 融合 CALL 2 + append 融合 CALL 2 + 输出 CALL 1
+    ("list_comp", "r = [x * 2 for x in [1, 2, 3]]\n输出(r)\n", [1, 2, 2, 1]),
+]
+
+
+@pytest.mark.parametrize("name,src,expect", B09_FUSE_SHAPES,
+                         ids=[c[0] for c in B09_FUSE_SHAPES])
+def test_b09_for_sugar_fuses_get_append(name, src, expect):
+    """for/列表推导语法糖里的 get/append 完全应用恒融成单条 CALL 2（转正后默认形态）。
+
+    该形态是宿主与自举编译器必须逐字节一致的产物（tests/test_mbc_bootstrap.py 的
+    stage2↔stage3 定点，含 for_loop 用例）；未融合时会退化成 [1, 1, 1, ...] 的
+    逐步 CALL 1，两侧任一改动破坏融合都会在此红——比逐字节定点更早给出可读信号。
+    """
+    argc = _call_argcs(compile_source(src))
+    assert argc == expect, f"{name}: CALL argc 序列 {argc}，预期 {expect}"
+
+
+def test_b09_shadowed_arity_mismatch_keeps_stepwise():
+    """用户把 get 定义成 arity≠2 的顶层函数遮蔽内建 → 融合守卫判假，保持逐步 CALL 1。
+
+    融合判据是 `_fn_arities.get(name) == 实参数`（自举侧 `_查元数(元数表,name)==len`）：
+    arity 不匹配时绝不硬融成 CALL 2（否则 CALL 2 会消费错误的栈布局）。历史 [1,1,1,1]
+    形态在此固化，与 test_shadowed_curried_name_keeps_stepwise_semantics 互为形状/值锁。
+    """
+    src = ("func get(x: Int) -> Int = (x) => x\n"
+           "t = 0\nfor i in [1, 2] {\n  t = t + i\n}\n输出(t)\n")
+    argc = _call_argcs(compile_source(src))
+    assert argc.count(2) == 0, f"遮蔽 get(arity=1) 不应触发 CALL 2 融合：{argc}"
+    assert argc == [1, 1, 1, 1], f"逐步形态应保持历史 [1,1,1,1]，实得 {argc}"
+
+
+# ---------------------------------------------------- 8：sys_env 编译期折叠（宿主恒开）
+#
+# MATHA_SYSENV_FOLD 开关已**退役转正**为宿主编译器恒开。sys_env 是宿主独有能力：
+# 纯 Matha 自举编译器无 OS 环境入口，故**不可能双侧同步**——恒定条件剪枝严格限定为
+# 「仅折叠驱动」（纯字面量比较不剪），从而不含 sys_env 的源码 stage2↔stage3 逐字节
+# 完全一致。以下锁固化宿主折叠形状，并以「语料禁用 sys_env」守卫兜底定点安全。
+
+SYSENV_FOLD_CASES = [
+    ("fold_eq_false", 'n = 0\nif sys_env("MATHA_NOPE_K", "0") == "1" {\n  n = 99\n} '
+                      'else {\n  n = 1\n}\n输出(n)\n'),
+    ("fold_eq_true", 'n = 0\nif sys_env("MATHA_NOPE_K", "1") == "1" {\n  n = 9\n} '
+                     'else {\n  n = 8\n}\n输出(n)\n'),
+    ("fold_bare", '输出(sys_env("MATHA_NOPE_K", "7"))\n'),
+]
+
+
+@pytest.mark.parametrize("name,src", SYSENV_FOLD_CASES,
+                         ids=[c[0] for c in SYSENV_FOLD_CASES])
+def test_sysenv_host_fold_shape(name, src):
+    """宿主恒开：sys_env(字面量[,字面量]) 编译期折成字符串常量，恒定条件剪掉分支。
+
+    断言三点：① 折叠值入常量池（'7'/'9'/'1' 命中，随环境变量而定）；② 常量池里
+    没有 `sys_env` 全名（不作可调用全局入池，运行期无对应物）；③ 比较分支被剪，
+    不发射任何 JZ（if 整体消失，只留选中分支）。
+    """
+    from src.mbc import opcodes as OP
+    mod = compile_source(src)
+    strs = [c for c in mod.constants if isinstance(c, str)]
+    assert "sys_env" not in strs, f"{name}: sys_env 不应作可调用名入常量池"
+    argc = _call_argcs(mod)
+    assert argc == [1], f"{name}: 折叠+剪枝后应只剩输出 CALL 1，实得 {argc}"
+    codes = [mod.main_code] + [f.code for f in mod.functions.values()]
+    n_jz = sum(1 for c in codes for ins in c if ins[0] == OP.JZ)
+    assert n_jz == 0, f"{name}: 折叠驱动的恒定条件应被剪枝，不应残留 JZ"
+
+
+def test_sysenv_nonliteral_key_raises_at_compile():
+    """非字面量键：编译期报错，不退化成运行期 CALL（本特性无运行期内建）。"""
+    with pytest.raises(RuntimeError):
+        compile_source('k = "X"\n输出(sys_env(k))\n')
+
+
+def test_sysenv_never_appears_in_bootstrap_or_corpus():
+    """防呆守卫：任何定点/自举语料都不得出现 sys_env。
+
+    sys_env 是宿主编译器独有的编译期折叠能力，纯 Matha 自举编译器无 OS 入口、
+    不可能双侧同步。只要定点/自举语料不写 sys_env，折叠就永不介入 stage2↔stage3
+    比对，宿主恒开折叠不会影响逐字节一致性。此守卫把这条不变量变成可执行判据：
+    若将来有人把 sys_env 写进定点语料或自举源，本锁立即红，提示须先解决双侧同步。
+    """
+    from tests.test_mbc_bootstrap import _M2_CASES, _COMPILER_BOOT_FILES
+
+    for name, src in _M2_CASES:
+        assert "sys_env" not in src, f"定点用例 {name} 不得出现 sys_env（破坏双侧同步前提）"
+
+    for rel in _COMPILER_BOOT_FILES:
+        p = Path(ROOT, rel)
+        if p.is_file():
+            text = p.read_text(encoding="utf-8", errors="replace")
+            assert "sys_env" not in text, f"自举源 {rel} 不得出现 sys_env（无 OS 入口，不可折叠）"
+
+    scanned = [f for d in (Path(ROOT, "golden_tests"),
+                           Path(ROOT, "scripts", "bench_cases"))
+               if d.is_dir() for f in d.rglob("*.matha")]
+    for f in scanned:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        assert "sys_env" not in text, f"语料 {f} 不得出现 sys_env（宿主独有，不可双侧同步）"

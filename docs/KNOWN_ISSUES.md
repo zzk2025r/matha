@@ -151,9 +151,10 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 不得在任一模块里被 `let`/形参/元组目标重绑（同名 `func` 声明合法，由元数表覆盖
 机制以用户 arity 为准）。此前提不靠人记忆，由 `tests/test_curried_builtin_paths.py`
 全仓库 `.matha` AST 扫描锁定（现扫 208 份语料，唯一命中为 `stdlib.matha` 的
-`func range(...)`）。**b09 欠账与它的休眠开关**：`for` 的下标读取由发射器手写、
-不经元数表，因此正式修复必须**宿主与自举两侧同时改**并保证定点一致。当前以
-默认关闭的环境变量形式存在（下节 6a），开启仅供实测，不属于主门禁语义。
+`func range(...)`）。**b09 已转正**：`for` 的下标读取由发射器手写、不经元数表，
+故正式修复必须**宿主与自举两侧同时改**并保证定点一致——本轮已两侧同步（宿主
+`_emit_curried_builtin` 恒融合、自举 `_for循环码` 经 `_get齐参`/`_get逐步` 同判据分
+支融成 `CALL 2`），原默认关闭的休眠开关已退役并入主门禁（下节 6a）。
 
 **已试但未采纳**：把 VM 柯里化偏应用的中间值换成 `__slots__` 轻对象（`_CurriedPart`），
 紧邻 A/B 下无收益（b06 反而 +8%：tuple 拼接与 `__call__` 分发比闭包更贵），已回退。
@@ -165,26 +166,33 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 串行 708.3ms → 并发 294.8ms；最高 b03 while 累加 104.6ms → 25.4ms），退出码全 0。
 这是本机单机的实测值，不外推到其他硬件，也不构成「线性扩展」结论。
 
-### 6a. 两枚默认关闭的发射器开关（预备能力，非门禁语义）
+### 6a. 两枚发射器开关已退役转正（b09 双侧同步入门禁；sys_env 宿主恒开，属宿主独有能力）
 
-`src/mbc/compiler.py` 里有两枚只在环境变量下生效的开关，**默认关闭时字节码与历史
-路径逐字节等价**（b09 那枚用 HEAD worktree 导出参照语料对照；sys_env 那枚因 worktree
-参照法一次 `cd` 失败改为 `git show` + importlib 在同包环境加载旧修订对照，见报告 §7），
-故不影响 `make check`、定点与三端平价：
+原先两枚「默认关闭、开启仅供实测」的环境变量开关（`MATHA_B09_FUSE`、
+`MATHA_SYSENV_FOLD`）本轮已**全部退役**——从 `src/mbc/compiler.py` 删除开关分支，
+把转正后的**发射形状**与**安全边界**锁进 `tests/test_curried_builtin_paths.py`，确保
+它们以后不会再破坏主线（b09 融合真双侧同步、逐字节定点；sys_env 属宿主独有、
+靠防呆守卫兜底）。转正前各自的等价性参照（b09 用 HEAD worktree 导出语料对照；
+sys_env 因 worktree 一次 `cd` 失败改为 `git show` + importlib 同包加载旧修订对照）见报告 §7：
 
-- `MATHA_B09_FUSE=1`：把 `for`/列表推导里手写的 `get(xs)(i)`、`append(res)(e)`
-  两步 `CALL 1` 融成单条 `CALL N`。带**遮蔽安全闸**：模块顶层若声明同名
-  `func get`/`func append`，恒走历史路径。`len(xs)` **不融合**——`len` 是原生变参
-  内建而非柯里化内建，`CALL 2` 会调用错误的函数。开启态紧邻 A/B（同机、7 次
-  重复×4 轮交替、N=50000、只取 VM 纯执行段）：OFF min 858.8/863.0ms → ON min
-  724.5/724.3ms，即 **-15.6% / -16.0%**（median -16.0% / -15.9%）。开启态定点
-  真实读数：`tests/test_mbc_bootstrap.py` + `tests/test_mbc_vm_matha.py` 共 870 例
-  **869 绿 / 1 红**，唯一红项为 `test_m2_stage2_equals_stage3[for_loop]`——这就是
-  「单侧改发射器必破定点」的直接证据，转正必须先同步 `matha/compiler_matha.matha`。
-- `MATHA_SYSENV_FOLD=1`：启用 `sys_env("KEY", "默认")` 的**编译期常量折叠**（字面量
-  键→读宿主环境→`PUSH_CONST`），并连带支持 `if sys_env(...) == "1" { 快 } else { 原 }`
-  的恒定条件剪枝（只发射选中分支，实测残留 `JZ` 为 0、`CALL` 仅余 `输出` 一条）。
-  键非字面量时在**编译期报错**，不退化成运行期未定义变量。
+- **b09 语法糖融合（真双侧同步转正）**：`for`/列表推导里手写的 `get(xs)(i)`、
+  `append(res)(e)` 两步 `CALL 1` 融成单条 `CALL N`——宿主 `_emit_curried_builtin` 与
+  自举 `_for循环码`（`_get齐参`/`_get逐步`）**两侧同判据**（`_fn_arities.get(name)==实参数`
+  ⇔ `_查元数(元数表,name)==len`）、同入池顺序（get→xs→i，中间 CALL 不入池）。遮蔽安全闸
+  保留：用户把同名 `func get` 定义成 arity≠2 时判据为假，退回历史逐步 `CALL 1`。`len(xs)`
+  **不融合**（原生变参内建，`CALL 2` 会调错函数）。转正后定点真实读数：
+  `tests/test_mbc_bootstrap.py` + `tests/test_mbc_vm_matha.py` 共 870 例**全绿**（原 ON 态
+  唯一的红项 `test_m2_stage2_equals_stage3[for_loop]` 已随双侧同步转绿）；形状锁见
+  `test_b09_for_sugar_fuses_get_append`（for→`[1,2,1]`、列表推导→`[1,2,2,1]`）与
+  `test_b09_shadowed_arity_mismatch_keeps_stepwise`（遮蔽→`[1,1,1,1]`）。紧邻 A/B 收益保留
+  （OFF min 858.8/863.0ms → ON min 724.5/724.3ms，约 -16%）。
+- **sys_env 编译期折叠（宿主恒开，不可能双侧同步）**：`sys_env("KEY", "默认")` 遇字面量
+  键→读宿主环境→`PUSH_CONST`，整调用折成字符串常量；恒定条件剪枝**仅折叠驱动**
+  （比较至少一侧来自折叠才剪，纯字面量比较不剪），从而不含 sys_env 的源码与从不剪枝的
+  自举侧逐字节一致。键非字面量时**编译期报错**，不退化成运行期未定义变量。因纯 Matha
+  自举编译器无 OS 环境入口，折叠**无法双侧同步**——防呆靠守卫：`test_sysenv_never_appears_in_
+  bootstrap_or_corpus` 断言定点/自举语料禁出现 sys_env，`test_sysenv_host_fold_shape` 锁宿主
+  折叠形状（常量池无 sys_env 名、剪枝后 JZ 为 0、只剩 `输出` 一条 CALL）。
 
 **为何不做成运行期内建**（设计边界，非偷懒）：VM 本身就是 Python 进程里的解释器，
 运行期查环境变量必然经宿主 `os.environ` 中介；而把 `sys_env` 注册成 VM 内建会进
@@ -192,9 +200,8 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 编译期折叠把运行期查询彻底消灭，因此 **native 也无需 `GetEnvironmentVariableW`**，
 `_APIS` 封闭基线（1c 节）可以一动不动。代价是该能力只认字面量键、且属编译期而非
 运行期语义；「同一份字节码在运行期按环境自选快/慢路径」在本架构下不成立——指令
-形状由发射器在编译期决定，运行期没有可切换的第二套形状。转正前还需与
-`matha/compiler_matha.matha` 同步折叠逻辑（同 `MATHA_B09_FUSE` 的前置条件）。
-取证工件与逐项读数见 `.trae/p4_b09_preview/B09_VERIFY_REPORT.md` 与 `sysenv_verify.py`。
+形状由发射器在编译期决定，运行期没有可切换的第二套形状，这也是它**只能宿主恒开、
+无法与自举侧同步**的根本定论。取证工件与逐项读数见 `.trae/p4_b09_preview/B09_VERIFY_REPORT.md`。
 
 ## 七、多端交付与 AI 前端的定位（降级，非上锁）
 

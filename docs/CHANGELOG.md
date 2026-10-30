@@ -66,21 +66,23 @@ P3 性能基准 + 内建调用优化 + native 并发边界（口径见 [KNOWN_IS
 - 文档数字随现场刷新（README 测试文件数、ARCHITECTURE 核心体量），由
   `tests/test_doc_facts.py` 与 `scripts/repo_facts.py` 核对。
 
-P4 预备·发射器休眠开关（默认关闭，不影响 `make check`；口径见
-[KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第 6a 节）：
+P4 转正·两枚发射器开关退役入门禁（口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第 6a 节）：
 
-- `MATHA_B09_FUSE=1`：`for` 语法糖与列表推导里手写的 `get(xs)(i)` /
-  `append(res)(e)` 两步 `CALL 1` 融成单条 `CALL N`（带顶层同名 `func` 的
-  遮蔽安全闸；`len` 为变参内建不融合）。关闭路径与历史发射逐字节等价，
-  由 HEAD worktree 导出参照语料对照证明；开启态定点红项如实登记（单侧
-  改发射器必破 stage2↔stage3 定点，转正前置为双侧同步）。
-- `MATHA_SYSENV_FOLD=1`：`sys_env("KEY", "默认")` 编译期常量折叠 + 恒定条件
-  剪枝（`if sys_env(...) == "1" { 快 } else { 原 }` 只发射选中分支，运行期零开销；
-  键非字面量则编译期报错）。故意**不做成运行期内建**：VM 路径的 env 读取必经
-  宿主，且新增内建会改自举可见符号面而破定点；折叠后 native 也无需扩展
-  `_APIS` 封闭基线。
-- 取证工件与验证报告：`.trae/p4_b09_preview/`（含 `B09_VERIFY_REPORT.md`、
-  `b09_fuse_preview.patch`、字节码/值对照与定点漂移脚本），不入 tests/ 与 golden_tests/。
+- **b09 for/列表推导语法糖融合（真双侧同步转正）**：`for`/列表推导里手写的
+  `get(xs)(i)` / `append(res)(e)` 两步 `CALL 1` 融成单条 `CALL N`——宿主 `_emit_curried_builtin`
+  恒融合、自举 `matha/compiler_matha.matha` 的 `_for循环码`（`_get齐参`/`_get逐步`）同判据同步
+  发射（融合判据 `_fn_arities.get(name)==实参数` ⇔ 自举 `_查元数(元数表,name)==len`，遮蔽安全闸
+  保留、`len` 变参内建不融合）。退役 `MATHA_B09_FUSE`；转正后 870 例定点全绿（原 ON 态唯一红项
+  `test_m2_stage2_equals_stage3[for_loop]` 已随双侧同步转绿）；形状锁入
+  `tests/test_curried_builtin_paths.py`（for→`[1,2,1]`、列表推导→`[1,2,2,1]`、遮蔽→`[1,1,1,1]`）。
+- **sys_env 编译期折叠（宿主恒开）**：`sys_env("KEY", "默认")` 遇字面量键折成字符串常量；恒定条件
+  剪枝**仅折叠驱动**（纯字面量比较不剪，与从不剪枝的自举侧逐字节一致），键非字面量编译期报错。
+  退役 `MATHA_SYSENV_FOLD`。此为**宿主编译器独有能力**（纯 Matha 自举无 OS 环境入口，不可能双侧
+  同步）：靠防呆守卫 `test_sysenv_never_appears_in_bootstrap_or_corpus`（断言定点/自举语料禁出现
+  sys_env）+ 形状锁 `test_sysenv_host_fold_shape`（常量池无 sys_env 名、剪枝后 JZ 为 0、只剩 `输出`
+  一条 CALL）保证折叠永不介入 stage2↔stage3 比对、以后不再破坏主线。
+- 取证工件与验证报告：`.trae/p4_b09_preview/`（含 `B09_VERIFY_REPORT.md` 与字节码/值对照、定点
+  漂移脚本），不入 tests/ 与 golden_tests/。
 
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 

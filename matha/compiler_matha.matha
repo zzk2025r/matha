@@ -1275,6 +1275,18 @@ module 编译器 {
       (_发(code, [OP_STORE_LOCAL, r[2]]), bc) :
       (_发(code, [OP_STORE_BOX, r[2]]), bc)
 
+  (* for 语法糖 get(xs)(i) 两种发射（与宿主 _emit_curried_builtin 逐字节对齐）：
+     齐参→ LOAD_GLOBAL get; LOAD xs; LOAD i; CALL 2；逐步→ ...; CALL 1; CALL 1。
+     入池顺序两侧都是 get→xs→i（中间 CALL 不入池），故常量池逐字节一致。 *)
+  func _get齐参(code, i位置, bc) -> (List, Dict) =
+    let (cx, bcx) = _压临时(code, i位置, bc) in
+    (_发(cx, [OP_CALL, 2]), bcx)
+
+  func _get逐步(code, i位置, bc) -> (List, Dict) =
+    let c8 = _发(code, [OP_CALL, 1]) in
+    let (c9, bc9) = _压临时(c8, i位置, bc) in
+    (_发(c9, [OP_CALL, 1]), bc9)
+
   (* for 主循环（统一发射，本地/全局位置都支持）。栈布局严格遵循
      fn 在下、arg 在上。返回 (完成码, bc) *)
   func _for循环码(code, xs位置, i位置, v位置, e, sc, bc, top, zero)
@@ -1287,12 +1299,15 @@ module 编译器 {
     let c4 = _发(c3, [OP_BINOP, idxlt]) in
     let jz = len(c4) in
     let c5 = _发(c4, [OP_JZ, 0]) in
-    (* get(xs)(i) *)
+    (* get(xs)(i)：有效元数匹配（_查元数(元数表,"get")==2，即内建预置或用户
+       同名 2 元 FuncDef）则融成单条 CALL 2，否则保持逐步 CALL 1。与宿主
+       _emit_curried_builtin 同判据（_fn_arities.get(name)==实参数），入池顺序均为
+       get→xs→i（中间 CALL 不入池），故两侧字节码逐字节一致。 *)
     let (c6, bce) = _压全局名(c5, bcd, "get") in
     let (c7, bcf) = _压临时(c6, xs位置, bce) in
-    let c8 = _发(c7, [OP_CALL, 1]) in
-    let (c9, bcg) = _压临时(c8, i位置, bcf) in
-    let ca = _发(c9, [OP_CALL, 1]) in
+    let (ca, bcg) =
+      _查元数(bcd["元数表"], "get") = 2 ? _get齐参(c7, i位置, bcf) : _get逐步(c7, i位置, bcf)
+    in
     let (cb, bch) = _存临时(v位置, ca, bcg) in
     (* 循环体（栈平衡）*)
     let (cc, sc2, bci) = _发射体(e["体"], cb, sc, bch, 假) in

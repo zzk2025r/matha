@@ -192,23 +192,18 @@ def _fold_bin(op: str, left, right):
 # 覆盖本表，以用户声明为准）。
 _CURRIED_BUILTIN_ARITY = {"get": 2, "append": 2, "slice": 3, "range": 2}
 
-# 【P4 预备·休眠开关】MATHA_B09_FUSE=1 时，for 语法糖与列表推导中**手写**的
-# 柯里化内建展开（get(xs)(i) / append(res)(e)）融成单条 CALL N；默认关闭，
-# 关闭路径与历史发射逐字节等价。开启会改变宿主发射器的字节码形状而自举编译器
-# （matha/compiler_matha.matha）不读此环境变量 → stage2↔stage3 定点会漂移，
-# 故该开关不得进入 make check 主门禁；仅供独立验证脚本与紧邻 A/B 使用，
-# 合并前必须双侧同步（见 docs/KNOWN_ISSUES.md 第六节 b09 欠账登记）。
-_B09_FUSE = os.environ.get("MATHA_B09_FUSE", "") == "1"
+# b09 语法糖融合（已从 P4 休眠开关转正，现为默认路径）：`for` 语法糖与列表推导
+# 中手写的 get(xs)(i) / append(res)(e) 在**有效元数匹配**时融成单条 CALL N（判据
+# self._fn_arities.get(name)==实参数，与通用 FuncApp 完全应用同源）。自举编译器
+# （matha/compiler_matha.matha）的 _for循环码/_发射集合理解 用同值的 _查元数(表,name)
+# 做同样的融合判定，两侧形状一致 → stage2↔stage3 定点仍成立（见
+# tests/test_curried_builtin_paths.py 与 docs/KNOWN_ISSUES.md 6a）。
 
-# 【P4 预备·休眠开关】MATHA_SYSENV_FOLD=1 时启用 `sys_env("KEY", "默认")` 编译期
-# 常量折叠（字面量参→读宿主环境→PUSH_CONST，运行期零开销、native 无需任何
-# API），并连带解锁恒定条件剪枝：`if sys_env(…) == "1" { 快 } 否则 { 原 }` 折叠后
-# 条件为常量，只发射选中分支。默认关闭：两条路径均不介入，字节码与历史逐字节
-# 等价，门禁/定点/契约全不受影响。开启会改变含 sys_env/恒定条件源码的字节码形状，
-# 而自举编译器（matha/compiler_matha.matha）不折叠也不读此环境变量 →
-# stage2↔stage3 定点会漂移，故不得进入 make check 主门禁；转正前必须双侧同步
-# 折叠逻辑（与 MATHA_B09_FUSE 同一前置，见 docs/KNOWN_ISSUES.md 6a 节）。
-_SYSENV_FOLD = os.environ.get("MATHA_SYSENV_FOLD", "") == "1"
+# sys_env 编译期常量折叠（**宿主编译器独有能力**，非自举/native 的 OS 能力）：
+# `sys_env("KEY", "默认")` 的字面量键经宿主 os.environ 折叠为 PUSH_CONST，运行期
+# 零开销、native 无需 GetEnvironmentVariableW。纯 Matha 自举编译器无 OS 环境入口，
+# 故折叠只在宿主侧发生；因任何定点/自举语料都不得出现 sys_env（由防呆锁强制），
+# 折叠永不介入 stage2↔stage3 比对，双侧一致性不受影响（见 docs/KNOWN_ISSUES.md 6a）。
 
 
 def _fold_sys_env(callee, args):
@@ -230,20 +225,21 @@ def _fold_sys_env(callee, args):
 
 
 def _const_expr_value(node):
-    """编译期常量求值：字面量，以及（开关开启时）`sys_env(字面量[, 字面量])`。
+    """编译期常量求值：字面量，以及 `sys_env(字面量[, 字面量])` 折叠命中的值。
 
-    命中返回 (True, 值)，否则 (False, None)。只接受无副作用的节点：
-    变量、函数调用（除 sys_env）、算术复合均不碰。"""
+    命中返回 (True, 值, is_folded)，否则 (False, None, False)。只接受无副作用的
+    节点：变量、普通函数调用、算术复合均不碰。is_folded 标记该常量是否来自 sys_env
+    折叠——恒定条件剪枝只处理**折叠驱动**的比较，纯字面量比较不剪，从而与不折叠、
+    不剪枝的自举侧保持逐字节一致（自举编译器从不剪恒定条件）。"""
     if isinstance(node, (ast.StringLit, ast.IntegerLit, ast.FloatLit, ast.BoolLit)):
-        return (True, node.value)
+        return (True, node.value, False)
     if isinstance(node, ast.FuncApp):
         callee, args = _flatten_call(node)
-        if (_SYSENV_FOLD and isinstance(callee, ast.Variable)
-                and callee.name == "sys_env"):
+        if isinstance(callee, ast.Variable) and callee.name == "sys_env":
             v = _fold_sys_env(callee, args)
             if v is not None:
-                return (True, v)
-    return (False, None)
+                return (True, v, True)
+    return (False, None, False)
 
 
 def _scan_fn_arities(program) -> dict[str, int]:
@@ -323,9 +319,6 @@ class Compiler:
         # `_预扫元数` **逐项同值**，否则 stage2↔stage3 定点会红（见
         # tests/test_curried_builtin_paths.py 与 tests/test_mbc_bootstrap.py）。
         self._fn_arities = {**_CURRIED_BUILTIN_ARITY, **_scan_fn_arities(program)}
-        # FuncDef 声明的名字集合（融合安全闸：同名遮蔽时以用户声明为准，
-        # 语法糖内联发射不得硬编码内建 LOAD_GLOBAL 吞掉遮蔽）。
-        self._user_fn_names = set(_scan_fn_arities(program))
         # `？` 公式模式库：与解释器**同源同序**，故编译期的「是否命中模式」
         # 判定与解释器运行期判定结果一致。
         self.formulas = _fs.FormulaLibrary()
@@ -722,14 +715,18 @@ class Compiler:
             code.append((OP.STORE_LOCAL, t[1]))
 
     def _constant_branch_pick(self, cond):
-        """恒定条件识别：`常量 ==/!= 常量`（含 `sys_env("K","d") == "1"` 这类
-        经折叠后为常量的表达式）。命中返回 (True, 真假值)，未命中 (False, None)。
-        只处理单比较、不递归布尔代数——折叠面越大双侧同步越重。仅休眠开关下调用。"""
+        """恒定条件识别（折叠驱动）：`==`/`!=` 两侧均为常量，且**至少一侧来自
+        sys_env 折叠**。命中返回 (True, 真假值)，未命中 (False, None)。
+        纯字面量比较不剪（is_folded 双侧皆 False）——自举侧从不剪恒定条件，
+        只有折叠驱动的比较才可能只存在于宿主侧，故限定于此可保证两侧一致。
+        只处理单比较、不递归布尔代数——折叠面越大同步面越重。"""
         if not (isinstance(cond, ast.BinaryOp) and cond.op in ("==", "!=")):
             return (False, None)
-        hl, l = _const_expr_value(cond.left)
-        hr, r = _const_expr_value(cond.right)
+        hl, l, fl = _const_expr_value(cond.left)
+        hr, r, fr = _const_expr_value(cond.right)
         if not (hl and hr):
+            return (False, None)
+        if not (fl or fr):
             return (False, None)
         if type(l) is not type(r):
             return (False, None)
@@ -750,10 +747,10 @@ class Compiler:
             conditions = stmt.conditions
             blocks = stmt.blocks
             else_block = stmt.else_block
-        # 休眠剪枝：条件经折叠后恒定时，只发射选中分支（含带 否则 的两臂形态：
-        # 这正是 `if sys_env("…","0") == "1" { 快路径 } 否则 { 原路径 }` 的写法）。
-        # 字面量比较与 sys_env 折叠均无运行期副作用，剪枝语义成立。
-        if _SYSENV_FOLD and len(conditions) == 1:
+        # 折叠驱动的恒定条件剪枝：条件因 sys_env 折叠而恒定时，只发射选中分支（含带
+        # 否则 的两臂形态：这正是 `if sys_env("…","0") == "1" { 快路径 } 否则 { 原路径 }`）。
+        # 折叠无运行期副作用，剪枝语义成立；纯字面量比较不剪（与不剪枝的自举侧一致）。
+        if len(conditions) == 1:
             hit, pick = self._constant_branch_pick(conditions[0])
             if hit:
                 if pick:
@@ -834,7 +831,7 @@ class Compiler:
         jz = len(code)
         code.append((OP.JZ, 0))
         # elem = get(xs)(i)，多变量则 UNPACK_SEQ 解构
-        self._emit_curried_builtin("get", [xs_t, i_t], code, fuse=_B09_FUSE)
+        self._emit_curried_builtin("get", [xs_t, i_t], code)
         if len(var_ts) == 1:
             self._store_temp(code, var_ts[0])
         else:
@@ -857,19 +854,18 @@ class Compiler:
             code[j] = (OP.JMP, inc_pos)
 
     def _emit_curried_builtin(self, name: str, temps: list, code: list, *,
-                              fuse: bool, last_expr=None,
+                              last_expr=None,
                               last_expr_scope=None) -> None:
         """发射语法糖内联的柯里化内建调用（get/append 的两步展开）。
 
-        fuse=False（默认/历史路径）：LOAD_GLOBAL + 逐步 CALL 1，与旧手写发射
-        逐字节等价。fuse=True（b09 预备开关）：齐 arity 时融成单条 CALL N，
-        走 `_Curried` 直调与 FuncApp 完全应用同一执行路径。
+        有效元数匹配（`_fn_arities.get(name)==实参数`）时融成单条 CALL N，与通用
+        FuncApp 完全应用同一执行路径；否则保持逐步 CALL 1，与历史发射逐字节等价。
 
-        安全闸：若模块顶层 FuncDef 声明了同名函数（`_fn_arities` 中 FuncDef 覆盖
-        了内建预置值），则不得硬编码 LOAD_GLOBAL 内建名——那会吞掉用户定义的
-        遮蔽语义，此情形恒走历史路径，融合也不改变任何正确程序的行为。
+        安全闸：判据用 `_fn_arities`（内建预置 + 顶层 FuncDef 覆盖），与自举侧
+        `_查元数(表,name)` 同值。若内建名被用户以**不同 arity** 的 FuncDef 遮蔽，
+        有效元数≠实参数即不融合，遮蔽语义（含 arity 恰配时的用户函数直调）两侧一致。
         """
-        if fuse and name not in self._user_fn_names:
+        if self._fn_arities.get(name) == len(temps):
             code.append((OP.LOAD_GLOBAL, self.sconst(name)))
             for t in temps:
                 if t is None:
@@ -925,7 +921,7 @@ class Compiler:
         jz_end = len(code)
         code.append((OP.JZ, 0))
         # elem = get(xs)(i) → 绑定目标变量
-        self._emit_curried_builtin("get", [xs_t, i_t], code, fuse=_B09_FUSE)
+        self._emit_curried_builtin("get", [xs_t, i_t], code)
         self._store_temp(code, var_t)
         # 过滤条件（AND）：任一为假 → 跳到 inc（不 append）
         skip_patches: list[int] = []
@@ -934,7 +930,7 @@ class Compiler:
             skip_patches.append(len(code))
             code.append((OP.JZ, 0))
         # res = append(res)(expr)
-        self._emit_curried_builtin("append", [res_t, None], code, fuse=_B09_FUSE,
+        self._emit_curried_builtin("append", [res_t, None], code,
                                    last_expr=node.expr, last_expr_scope=scope)
         self._store_temp(code, res_t)
         # inc: i += 1（回到顶部）
@@ -1457,10 +1453,10 @@ class Compiler:
 
         elif isinstance(node, ast.FuncApp):
             callee, args = _flatten_call(node)
-            # sys_env 编译期折叠（休眠开关）：命中则整调用化为一个字符串常量。
+            # sys_env 编译期折叠（宿主独有能力）：命中则整调用化为一个字符串常量。
             # 未命中但确在写 sys_env → 编译期报错，不给它退化成运行期 CALL
             # （本特性是**编译期**能力，无运行期内建，故不存在「变量键查环境」）。
-            if (_SYSENV_FOLD and isinstance(callee, ast.Variable)
+            if (isinstance(callee, ast.Variable)
                     and callee.name == "sys_env"):
                 v = _fold_sys_env(callee, args)
                 if v is None:
