@@ -141,7 +141,36 @@ python tools/qemu_virt_demo/run_qemu_virt_demo.py
   RV32 ELF 证明可汇编/链接，并在 QEMU virt 演示的同构中断路径上实跑过一次实际中断（非
   真 FE310 板）；C 层 `hal_trap_handler` 行为另在宿主模拟 `run_trap_sim.py` 验证。
 - 「原生编译」当前口径 = **freestanding C/asm HAL**。Matha 字节码 → RV 机器码的
-  直发后端是更远目标（现有 `src/mbc/native.py` 仅出 Windows PE / x86-64），不在本骨架范围。
+  直发后端已从「更远目标」落地为 **P6 SPIKE**（见下节）；生产级后端（完整值模型/
+  GC/异常/标准 ABI）仍是更远目标，现有 `src/mbc/native.py` 依旧只出 Windows PE / x86-64。
+
+## 字节码 → RV32IM 直发 SPIKE（P6，tools/rv32_spike/）
+
+与 `native.py` 同一入口（`compile_source` 出的 `MModule`），纯 Python 位级编码直接
+发射 **RV32IM ELF32**（无交叉工具链、无汇编器、无 OS），覆盖 33 条 opcode 中
+**7 条正式子集**（PUSH_CONST / BINOP(+ - * // % == != < > <=) / CALL / RET /
+OUTPUT / BUILD_LIST / INDEX_GET）+ 静态模式项完整语义（全局/局部槽含
+int/bool/list/null 值型跟踪；JMP/JZ/JNZ 支持 if/elif/else 链、while 与 **for**
+（内建 len/get 编译期分派）嵌套全路径；POP/DUP/PUSH_NULL 语句位丢弃）。集合之外
+（闭包/间接调用、嵌套列表、字符串/字典值等）一律 `NotSupportedRV32` 显式拒绝。
+**字节码契约 MBR1**（`rv32bc.py`）：1 字节 OpCode + N×u32 操作数的序列化流，
+纯指令/数据指令（操作数=常量池下标，须间接解析）二分类由 OPS 表钉死覆盖全部
+33 条；magic/版本/arity/越界/截断严格校验，encode↔decode roundtrip 与直发入口
+ELF 字节一致（runner 强断言）。五个文件：`rvcoder.py`（指令编码+两遍修复发射器）、
+`rv32bc.py`（MBR1 契约编解码）、`rv32em.py`（字节码→ELF）、`rv32sim.py`（宿主严格
+解码模拟器）、`run_rv32_spike.py`（端到端 runner：sim↔mbc VM 逐字节对拍，`--qemu`
+时 stock QEMU virt 实跑复核，另含负向例断言覆盖集外必须被拒绝 + 契约 roundtrip 断言）。
+
+跑法（仓库根，无需交叉工具链）：`python baremetal/tools/rv32_spike/run_rv32_spike.py --qemu`；
+退出码 0/1/2（缺 QEMU 如实 SKIP）同 demo 约定。诚实口径：12 例（含 CALL/RET、递归、
+地板除/取模、while+if/elif/else 分支全路径、for+嵌套 if/else、列表构造/负索引/循环
+累加、bool/null 打印）在宿主 sim 与 QEMU virt 实跑均与 VM 输出逐字节一致，全部干净
+退出；5 例覆盖集外源码（字符串值/闭包/列表传参/列表拼接/字典字面量）均被显式拒绝；
+MBR1 roundtrip 产物与直发入口 ELF 字节一致；但这只证明扩展子集直发链路成立，**不是
+生产后端，也不等于真 FE310 板验证**。
+完整设计与实测踩坑（ELF section 表、sifive_test 退出、ns16550 字节宽度 MMIO、
+sim 宽松解码掩盖硬件级编码 bug 等）见同目录 `SPIKE_DESIGN.md`。本目录同受门禁
+隔离约定：不进 repo_facts / dep_audit / kernel_purity，不入门禁。
 
 ## 与遗留裸机文件的关系
 
