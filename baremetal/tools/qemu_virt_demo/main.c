@@ -12,6 +12,7 @@
  */
 #include <stdint.h>
 #include "uart.h"
+#include <hal/stack_vm.h>   /* 复用真实 hal/vm/stack_vm.c（经 runner -I include 解析）*/
 
 /* virt 的 CLINT 基址与 FE310 一致：mtimecmp@+0x4000，mtime@+0xBFF8。 */
 #define CLINT    0x02000000u
@@ -37,6 +38,29 @@ static void putdec(uint32_t x)
     if (x == 0u) { uart_putc('0'); return; }
     while (x) { buf[i++] = (char)('0' + (x % 10u)); x /= 10u; }
     while (i) { uart_putc(buf[--i]); }
+}
+
+/* 栈式引擎实跑自检：与生产 main.c 的 vm_selfcheck 同一段字节码——
+   (7+5)*3=36 存 mem[1]；(9-4)*8=40 存 mem[2]；LOAD 两值相加=76 后 OUT。
+   定宽 2 字编码（op + operand 各一字，无操作数指令 operand 位写 0）。
+   区别于宿主 C 模拟：这里由真 RV32 指令在 QEMU 上逐条 fetch-decode-execute。 */
+static const uint16_t vm_prog[] = {
+    0x01,7u, 0x01,5u, 0x03,0u, 0x01,3u, 0x05,0u, 0x11,1u,
+    0x01,9u, 0x01,4u, 0x04,0u, 0x01,8u, 0x05,0u, 0x11,2u,
+    0x10,1u, 0x10,2u, 0x03,0u, 0x0e,0u, 0x0f,0u
+};
+
+static void vm_selfcheck(void)
+{
+    hal_vm_init(vm_prog, (uint32_t)(sizeof(vm_prog) / sizeof(vm_prog[0])));
+    (void)hal_vm_run(1000u);
+    uart_puts("vm: out=");
+    if (hal_vm_out_count() == 1u && hal_vm_out_get(0) == 76) {
+        putdec((uint32_t)hal_vm_out_get(0));
+        uart_puts(" PASS\n");
+    } else {
+        uart_puts("UNEXPECTED(want 76) FAIL\n");
+    }
 }
 
 /* CSR 访问一律用符号名（数值 + "i" 约束在本工具链上会静默不生效）。 */
@@ -77,6 +101,9 @@ int main(void)
     uart_init(115200u);
     g_ticks = 0u;
     uart_puts("matha QEMU virt demo boot\n");
+
+    /* 栈式引擎实跑自检（真 RV32 指令逐条执行，先于定时器演示，输出行可独立断言）。 */
+    vm_selfcheck();
 
     /* 装向量 + 使能定时器中断源（先不开全局 MIE）。 */
     __asm__ volatile("csrw mtvec, %0" :: "r"((uint32_t)(uintptr_t)&trap_vector));

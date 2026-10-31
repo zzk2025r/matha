@@ -6,7 +6,10 @@ SECTIONS
 {
     . = 0x80000000;
     .text  : { *(.text*) *(.rodata*) *(.rodata.*) }
-    .data  : { *(.data*) *(.sdata*) }
+    .data  : { *(.data*) *(.sdata*)
+              /* gp 锚点：与 virt_a.ld 同口径，供 virt_start.S 的 la gp 消费；
+                 本基线布局 .sdata 并入 .data，仅保证符号存在，不改段布局。 */
+              __global_pointer$ = . + 0x800; }
     .bss   : { *(.bss*) *(.sbss*) *(COMMON) }
     _estack = 0x80100000;
 }

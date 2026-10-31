@@ -36,9 +36,12 @@ REQUIRED_FILES = [
     "tools/sim/hal_mmio_sim.c", "tools/sim/uart_sim_main.c", "tools/run_uart_sim.py",
     "tools/sim/hal_platform_sim.c", "tools/sim/trap_sim_main.c", "tools/run_trap_sim.py",
     "tools/sim/allocator_sim_main.c", "tools/run_mem_sim.py",
+    "include/hal/stack_vm.h", "hal/vm/stack_vm.c",
+    "tools/sim/stack_vm_sim_main.c", "tools/run_vm_sim.py",
 ]
 
-C_SOURCES = ["main.c", "hal/drivers/uart.c", "hal/mem/allocator.c", "hal/trap/trap.c"]
+C_SOURCES = ["main.c", "hal/drivers/uart.c", "hal/mem/allocator.c",
+             "hal/trap/trap.c", "hal/vm/stack_vm.c"]
 
 # link.ld 必须给出的段与符号契约。
 LD_MUST_HAVE = ["FLASH", "RAM", ".text", ".data", ".bss",
@@ -61,7 +64,14 @@ API_DECLARATIONS = {
     "include/hal/csr.h": ["HAL_CSR_MTVEC", "HAL_CSR_MIE", "MIE_MTIE", "MSTATUS_MIE"],
     "include/hal/arch.h": ["FE310_UART0_BASE", "FE310_CLINT_BASE", "FE310_PLIC_BASE",
                            "UART_EMPTY", "UART_OVERSAMPLE", "FE310_PRCI_BASE",
-                           "PLIC_CLAIM0", "CLINT_MTIMECMP0"],
+                           "PLIC_CLAIM0", "CLINT_MTIMECMP0",
+                           "HAL_RAM_ORIGIN", "HAL_RAM_BYTES"],
+    "include/hal/stack_vm.h": ["HAL_VM_PUSH", "HAL_VM_POP", "HAL_VM_ADD", "HAL_VM_SUB",
+                               "HAL_VM_MUL", "HAL_VM_DIV", "HAL_VM_DUP", "HAL_VM_SWAP",
+                               "HAL_VM_JMP", "HAL_VM_JZ", "HAL_VM_JNZ",
+                               "HAL_VM_CALL", "HAL_VM_RET", "HAL_VM_OUT", "HAL_VM_HALT",
+                               "hal_vm_init", "hal_vm_init_region", "hal_vm_run",
+                               "hal_vm_out_get", "hal_vm_out_count", "hal_vm_layout_ok"],
 }
 
 
@@ -126,8 +136,8 @@ def check_syntax(fail: list[str], notes: list[str]) -> None:
             notes.append(f"语法校验通过 {rel}")
 
 
-# 宿主寄存器级模拟入口（P5 第 2/3 步行为门禁）。
-SIM_RUNNERS = ["run_uart_sim.py", "run_mem_sim.py", "run_trap_sim.py"]
+# 宿主寄存器级模拟入口（P5 第 2/3 步行为门禁 + 栈式引擎行为门禁）。
+SIM_RUNNERS = ["run_uart_sim.py", "run_mem_sim.py", "run_trap_sim.py", "run_vm_sim.py"]
 
 
 def check_sims(fail: list[str], notes: list[str]) -> None:

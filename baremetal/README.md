@@ -16,7 +16,7 @@ baremetal/
   build.ps1               Windows/PowerShell 一键构建入口（无 make 时产出 matha_hal.elf）
   main.c                  最直 freestanding 入口（hal_init → uart_puts）
   include/hal/            HAL 契约头（对外只暴露这些）
-    types.h  mmio.h  arch.h  boot.h  uart.h  mem.h  irq.h  csr.h  hal.h(伞头)
+    types.h  mmio.h  arch.h  boot.h  uart.h  mem.h  irq.h  csr.h  stack_vm.h  hal.h(伞头)
   boot/                   启动与陷入（架构相关，汇编）
     crt0.S                栈/数据拷贝/BSS 清零 → call main
     vector.S              机器模式陷阱向量入口（真 trapframe 保存/恢复 → call hal_trap_handler → mret；仅交叉编译验证）
@@ -24,21 +24,29 @@ baremetal/
     drivers/uart.c        控制台串口驱动（第 2 步：分频校准 + 收发，已完成）
     mem/allocator.c       内存分配器（第 3 步：可回收 first-fit + 分裂 + 相邻合并，已完成）
     trap/trap.c           中断/异常处理（第 3 步：mtvec/mie/mstatus + 定时器重装 + PLIC claim/complete，已完成）
+    vm/stack_vm.c         栈式引擎（极简契约优先：四字段 ctx + switch 分发 + 显式 panic，已完成）
   tools/                  宿主侧验证工具（非裸机、非门禁 C 源）
     check_skeleton.py     骨架结构 + 宿主 gcc 语法门禁 + 触发全部寄存器级/行为模拟
     run_uart_sim.py       用宿主 gcc 编译真实 uart.c + 模拟后端并跑寄存器级测试
     run_mem_sim.py        用宿主 gcc 编译真实 allocator.c + 测试驱动跑回收行为断言
     run_trap_sim.py       用宿主 gcc 编译真实 trap.c + CSR/MMIO 后端跑中断接管断言
+    run_vm_sim.py         用宿主 gcc 编译真实 stack_vm.c + 测试驱动跑栈式引擎行为断言
     sim/hal_mmio_sim.c    FE310 SiFive UART 寄存器堆模型（MMIO 接缝后端）
     sim/uart_sim_main.c   分频/发送/接收逐字节断言
     sim/hal_platform_sim.c FE310 CSR + CLINT + PLIC 模型（CSR/MMIO 接缝后端）
     sim/trap_sim_main.c   mtvec/mie/mstatus + 定时器重装 + PLIC claim/complete 断言
     sim/allocator_sim_main.c first-fit/对齐/复用/合并/超大返回 NULL 断言
-    qemu_virt_demo/        stock QEMU 上实跑的「中断接管」常驻样例（board-matched 变体，非 FE310 产物）
+    sim/stack_vm_sim_main.c 栈式引擎 17 op 正常语义 + 全部拒绝路径 + 看门狗 cap 断言（-DHAL_VM_SIM 缝）
+    qemu_virt_demo/        stock QEMU 上实跑的「中断接管 + 栈式引擎」常驻样例（board-matched 变体，非 FE310 产物）
       uart.h uart.c        适配 QEMU virt 的 ns16550 UART 驱动（由 FE310 SiFive UART 版改写）
-      main.c               调 uart + CLINT 定时器中断，ISR 里打印 "Hello RISC-V! tick=N"
+      main.c               调 uart + CLINT 定时器中断，ISR 里打印 "Hello RISC-V! tick=N"；
+                           并编入真实 hal/vm/stack_vm.c（-I include）跑 vm_selfcheck 打印 "vm: out=76 PASS"
       virt_start.S virt.ld ns16550 UART + CLINT 定时器中断演示入口与链接脚本（RAM@0x80000000）
-      run_qemu_virt_demo.py 交叉编译 + qemu-system-riscv32 跑并断言（工具链/QEMU 可配，缺失如实 SKIP）
+      virt_a.ld     路线 A 变体：单一 RAM、VMA==LMA，补齐 boot.h/check_skeleton 全套符号契约
+                    （_sidata≡_sdata 令 crt0 拷贝空转、NOLOAD .heap、gp 锚点），可作 HAL C 源
+                    上 virt 的链接基底；实测同一 demo 固件在 virt.ld 与 virt_a.ld 下 QEMU 均 PASS
+      run_qemu_virt_demo.py 交叉编译 + qemu-system-riscv32 跑并断言（工具链/QEMU 可配，缺失如实 SKIP；
+                    --ld 可指定 virt_a.ld 验证变体；额外拉入真实 hal/vm/stack_vm.c 实跑，断言含 "vm: out=76 PASS"）
 ```
 
 ## 分层依赖（自底向上）
@@ -60,6 +68,42 @@ baremetal/
    mtimecmp 重装清 MTIP）与 PLIC 外设中断（claim 取源号→路由 ISR→complete 写回）。CSR
    访问走 `include/hal/csr.h` 的 `HAL_CSR_SIM` 接缝（对称于 mmio.h）；行为已在宿主寄存器级
    模拟（`tools/run_mem_sim.py` 回收 9 项、`tools/run_trap_sim.py` 中断 13 项）逐条验证通过。
+4. **栈式引擎（极简契约优先）** —— 已完成：`hal/vm/stack_vm.c` + `include/hal/stack_vm.h`，
+   详见下方「栈式引擎」一节。
+
+## 栈式引擎 STACK_ENGINE（baremetal 侧 · hal/vm/stack_vm.c）
+
+一个刻意**极简、不追求通用优雅**的栈式字节码 VM，作为裸机上「取指→分发→求值」的
+最小可运行内核。契约钉死如下：
+
+- **指令集（17 条 op）**：用户点名的 13 条 `PUSH/POP/ADD/SUB/MUL/DIV/DUP/SWAP/JMP/JZ/JNZ/CALL/RET`
+  为最小面；再加 4 条刚需 `LOAD/STORE`（否则 ctx 的 `mem` 字段无从访问）与 `OUT/HALT`（否则
+  无法定义「跑完」，宿主断言与 boot 自检也无从观测）。**不扩语法糖、不加寄存器/闭包/字符串**。
+- **VM 结构体只四字段**：`hal_vm_ctx_t { int32_t *stack; int32_t *mem; uint32_t pc; uint32_t sp; }`。
+  头文件按 `UINTPTR_MAX` 分支锁定字宽：RV32 = 16 字节，宿主 64 位含尾 pad = 24 字节（`_Static_assert` 钉）。
+- **分发用单 switch-case**：无函数表、无线程跳转。**指令定宽 2 字**（op + operand 各一字，
+  无操作数指令 operand 位写 0）：主循环每轮无条件取两字，`pc` 恒指向指令起点，杜绝「按需取
+  operand 的变长分发让算术/栈指令操作数位被误当下一条 op」的 pc 错位（宿主实跑复现过）。
+- **栈溢出/一切违约直接 panic，绝不静默产错值**：`stack overflow / stack underflow / divide by zero /
+  division overflow（INT_MIN/-1）/ code overrun / illegal opcode / jump/ret/call out of code / mem index
+  OOB / out ring full` 共 11 类显式拒绝。裸机 panic = 串口报因后 `wfi` 停机；宿主模拟经 `-DHAL_VM_SIM`
+  把 panic 改缝成 `setjmp/longjmp` 捕获（对齐 `allocator.c` 的 `HAL_MEM_SIM_HEAP` 先例）。
+- **对齐 link.ld 与校验脚本**：三区静态数组落 `.bss`（crt0 已清零、不占分配器堆），编译期
+  `HAL_STATIC_ASSERT` 预算守卫 + 裸机 `hal_vm_layout_ok()` 运行期用 `_sbss/_ebss/_heap_start` 符号
+  断言落位，二者合起来钉「不越 RAM 窗口、不吃进堆区」。**link.ld 未改动**。
+- **三条验证线（诚实口径）**：① 宿主行为模拟 `python tools/run_vm_sim.py`（真实 `stack_vm.c` 编译进去，
+  正常语义 + 全部拒绝路径 + 看门狗 cap 共 22 项全绿，`check_skeleton.py` 亦触发）；② `build.ps1` 交叉
+  编译把真实 `stack_vm.c` 链进 `matha_hal.elf`，`main.c` 的 `vm_selfcheck` 在 boot 期跑一段
+  `(7+5)*3+(9-4)*8==76` 字节码并经 UART 打印 `vm: out=76 PASS`；③ **真 RV32 指令实跑**——
+  `tools/qemu_virt_demo/` 的 board-matched 变体把**同一份 `hal/vm/stack_vm.c`**（非副本、经 `-I include`
+  直接编入）与演示 `main.c` 一起交叉链成 RV32 ELF，在 stock QEMU `-machine virt` 上逐条
+  fetch-decode-execute，串口输出 `vm: out=76 PASS`（`virt.ld` 与 `virt_a.ld` 两变体均 PASS，runner 已加该断言）。
+  因 stock QEMU 无 FE310 机器，③ 用的是 board-matched UART/RAM 变体而非生产固件本体；真 FE310 板实测仍属边界之外。
+
+> **命名区隔**：本目录的栈式引擎是**裸机 RV32 C 实现**，符号统一前缀 `hal_vm_`；与仓库 Python 主线
+> `src/features.py` 里**同名灰度开关 `STACK_ENGINE`**（Python 侧栈式求值引擎）是两回事，仅共享概念名，
+> 代码、构建、门禁三套口径互不引用。
+
 
 ## 构建
 
@@ -90,7 +134,7 @@ baremetal/
   > 收集 baremetal 根下全部 `.c` 与 `boot\*.S`，对象保留相对子路径避免同名冲突，每次
   > 全量重建前清空 `obj\`。与 `make firmware` 产出逐字节等价。
 
-## QEMU 中断接管演示（board-matched 变体）
+## QEMU 中断接管 + 栈式引擎演示（board-matched 变体）
 
 真实固件 `matha_hal.elf` 跑不进 stock QEMU：标准 QEMU **无 FE310 机器**，
 `-machine virt` 的 UART 是 ns16550@0x10000000、RAM 在 0x80000000，与本驱动的
@@ -100,8 +144,10 @@ SiFive UART0@0x10013000 / FLASH 取指@0x20000000 不匹配（直接跑会在取
 **board-matched 变体**：把 FE310 SiFive UART 驱动改写为适配 virt 的 **ns16550 `uart.c`**
 （基址 0x10000000，同一套 init/putc/puts/getc 语义）、内存映射换成 virt 的 RAM，其余「装 mtvec
 → 开 MTIE/MSTATUS.MIE → CLINT mtimecmp 定时器中断 → `main.c` 的 ISR 用 uart 打印
-`Hello RISC-V! tick=N` → 重装 → mret」中断接管链路与生产 HAL 同构。它在 QEMU 上**真跑
-RV32 指令**（软件模拟 CPU），区别于 `tools/sim/` 那种用宿主 gcc 跑的 C 行为模拟。
+`Hello RISC-V! tick=N` → 重装 → mret」中断接管链路与生产 HAL 同构；此外 `main.c` 还把
+**同一份 `hal/vm/stack_vm.c`**（非副本，经 `-I include` 直接编入）跑一段 `vm_selfcheck`，
+串口打印 `vm: out=76 PASS`。它在 QEMU 上**真跑 RV32 指令**（软件模拟 CPU），区别于 `tools/sim/`
+那种用宿主 gcc 跑的 C 行为模拟。
 
 跑法（在 `baremetal/` 下，需交叉工具链 + QEMU）：
 
@@ -111,10 +157,12 @@ python tools/qemu_virt_demo/run_qemu_virt_demo.py
 # 路径不可用时：--cc <riscv-none-elf-gcc> --qemu <qemu-system-riscv32>（或环境变量 RISCV_CC / QEMU）
 ```
 
-输出 `mie=...0080`（MTIE 已置）、`MTIP?Y`（定时器 pending）、随后 ISR 持续打印
-`Hello RISC-V! tick=N`，runner 断言这些信号（含 `Hello RISC-V!`）齐备则 `PASS`。
+输出首行 boot 后紧跟 `vm: out=76 PASS`（栈式引擎实跑），再 `mie=...0080`（MTIE 已置）、
+`MTIP?Y`（定时器 pending）、随后 ISR 持续打印 `Hello RISC-V! tick=N`；runner 断言这些信号
+（含 `Hello RISC-V!` 与 `vm: out=76 PASS`）齐备则 `PASS`。`virt.ld` 与 `virt_a.ld` 两变体均实测 PASS。
 退出码 0=通过 / 1=失败 / **2=缺工具链或 QEMU 时如实 SKIP**。
-诚实口径：这证明中断路径能被真 RV32 指令集在 QEMU 上执行，仍**不等于在真 FE310 板实测**。
+诚实口径：这证明中断路径与栈式引擎核心指令链都能被真 RV32 指令集在 QEMU 上执行，
+仍**不等于在真 FE310 板实测**。
 
 ## 本机验证状态（诚实口径）
 
@@ -128,15 +176,24 @@ python tools/qemu_virt_demo/run_qemu_virt_demo.py
   - `python tools/run_trap_sim.py`——**真实 `trap.c`**（`-DHAL_MMIO_SIM -DHAL_CSR_SIM`）接
     CSR/CLINT/PLIC 模型，mtvec/mie/mstatus 配置、定时器重装 mtimecmp、PLIC claim→路由→
     complete、未知源/软件中断不崩溃共 13 项全过（vector.S 为纯汇编不在此执行）。
+  - `python tools/run_vm_sim.py`——**真实 `stack_vm.c`**（`-DHAL_VM_SIM -fwrapv`）接静态区注入驱动，
+    17 op 正常语义（含 mem 往返/CALL・RET 平衡/分支全路径）+ 11 类显式拒绝 panic + 看门狗 cap +
+    四字段字宽锁共 22 项全过（`-fwrapv` 仅为把 INT_MIN 回绕乘法钉为定义行为，供除法溢出用例构造输入）。
+    每项独立 `setjmp` 守护，单例 panic 只红该项，不重启整序列。
   - 交叉编译产固件：xPack `riscv-none-elf-gcc` 15.2.0（rv32imac_zicsr/ilp32）零警告编译
-    `main/uart/allocator/trap` + `crt0.S/vector.S`，由交叉 gcc 驱动链出 `matha_hal.elf`
+    `main/uart/allocator/trap/vm(stack_vm.c)` + `crt0.S/vector.S`，由交叉 gcc 驱动链出 `matha_hal.elf`
     （ELF32 / RISC-V / EXEC / 入口 `_start`@0x20000000）并 `objcopy` 出 `.bin`。注：现代
     binutils 把 CSR 拆为独立扩展 `zicsr`，故 -march 需显式带 `_zicsr`（否则报 `csrr ... zicsr
     required`）；链接走 gcc 驱动而非裸 `ld`（裸 ld 的 `-m` 是仿真模式、不接受 -march/-mabi）。
+  - `python tools/qemu_virt_demo/run_qemu_virt_demo.py`（或 `make qemu-demo`）——**真实
+    `hal/vm/stack_vm.c`**（经 `-I include` 直接编入 board-matched 演示）在 stock QEMU
+    `-machine virt -cpu rv32` 上**逐条真 RV32 指令**跑 `vm_selfcheck`，串口打印 `vm: out=76 PASS`；
+    `virt.ld` 与 `virt_a.ld` 两变体均实测 PASS。
 - **未做（诚实）**：未在真 FE310 板上实测串口时序；未把**真实固件** `matha_hal.elf` 跑进
   QEMU 看串口输出——标准 QEMU 无 FE310 机器，`-machine virt` 的 UART 是 ns16550@0x10000000，
-  与本驱动 UART0@0x10013000 不匹配。不过中断接管路径已在 `tools/qemu_virt_demo/` 的
-  board-matched 变体上于 stock QEMU **实跑 RV32 指令验证通过**（见上一节），上板串口回环
+  与本驱动 UART0@0x10013000 不匹配。不过中断接管路径**与栈式引擎 `stack_vm.c`** 已在
+  `tools/qemu_virt_demo/` 的 board-matched 变体上于 stock QEMU **实跑 RV32 指令验证通过**
+  （中断→UART 打印 + `vm: out=76 PASS`，见上一节），上板串口回环
   属真硬件联调，另计。同样，生产 `vector.S` 的 trapframe 保存/恢复与 mret 靠交叉编译进
   RV32 ELF 证明可汇编/链接，并在 QEMU virt 演示的同构中断路径上实跑过一次实际中断（非
   真 FE310 板）；C 层 `hal_trap_handler` 行为另在宿主模拟 `run_trap_sim.py` 验证。

@@ -64,6 +64,55 @@ static void heap_selfcheck(void)
                                      : " (WARN shrunk)\r\n");
 }
 
+/* ── boot 期栈式引擎自检：跑一段固定字节码，验证四字段 VM 端到端可算可观测 ── */
+
+/* 程序：(7+5)*3=36 存 mem[1]；(9-4)*8=40 存 mem[2]；LOAD 两值相加=76 后 OUT。
+   定宽 2 字编码：op + operand（无操作数指令 operand 位写 0；LOAD/STORE 承 mem，
+   36/40 超 u16 直推面吗？不超——但语义上只能经 mem 中转回推，顺带验 mem 链路）。 */
+static const uint16_t vm_prog[] = {
+    0x01, 7u,            /* PUSH 7         */
+    0x01, 5u,            /* PUSH 5         */
+    0x03, 0u,            /* ADD   -> 12    */
+    0x01, 3u,            /* PUSH 3         */
+    0x05, 0u,            /* MUL   -> 36    */
+    0x11, 1u,            /* STORE 1 -> mem[1]=36 */
+    0x01, 9u,            /* PUSH 9         */
+    0x01, 4u,            /* PUSH 4         */
+    0x04, 0u,            /* SUB   -> 5     */
+    0x01, 8u,            /* PUSH 8         */
+    0x05, 0u,            /* MUL   -> 40    */
+    0x11, 2u,            /* STORE 2 -> mem[2]=40 */
+    0x10, 1u,            /* LOAD  mem[1] -> 36   */
+    0x10, 2u,            /* LOAD  mem[2] -> 40   */
+    0x03, 0u,            /* ADD   -> 76    */
+    0x0e, 0u,            /* OUT   [76]     */
+    0x0f, 0u             /* HALT           */
+};
+
+static void vm_selfcheck(void)
+{
+    /* 先验实体落位（对齐 link.ld 契约的运行期一半）：违约直接报 FAIL。
+       注：.bss 里还含 uart/trap 模块自有静态区，故 VM 区不要求紧贴 _sbss，
+       只要求整块落进 RAM 窗口且在堆起点之前（hal_vm_layout_ok 内部判）。 */
+    int bad = hal_vm_layout_ok(_sbss, _ebss, _heap_start);
+    if (bad != 0) {
+        uart_puts("vm: layout VIOLATION code=FAIL\r\n");
+        return;
+    }
+
+    hal_vm_init(vm_prog, (uint32_t)(sizeof(vm_prog) / sizeof(vm_prog[0])));
+    (void)hal_vm_run(1000u);
+
+    /* 断言链：停机后输出环恰好 1 个值 76（(7+5)*3 + (9-4)*8）。 */
+    uart_puts("vm: out=");
+    if (hal_vm_out_count() == 1u && hal_vm_out_get(0) == 76) {
+        uart_putu((uint32_t)hal_vm_out_get(0));
+        uart_puts(" PASS\r\n");
+    } else {
+        uart_puts("UNEXPECTED (want 76) FAIL\r\n");
+    }
+}
+
 /* ── 定时器中断回调：每次 tick 跑一遍 alloc→写→打印→free ────────────────── */
 static void on_tick(void *ctx)
 {
@@ -98,6 +147,8 @@ int main(void)
     uart_puts("boot -> hal_init -> uart : OK\r\n");
 
     heap_selfcheck();
+
+    vm_selfcheck();
 
     hal_timer_attach(on_tick, NULL);   /* 注册定时器中断回调 */
     hal_timer_arm(TICK_INTERVAL);      /* 装载第一次超时，之后由 trap 自动重装 */

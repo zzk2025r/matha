@@ -2,13 +2,16 @@
 # -*- coding: utf-8 -*-
 """在 stock QEMU (riscv32 -machine virt) 上实跑「中断接管」常驻样例。
 
-流程：用 RISC-V 交叉工具链把同目录 virt_start.S + uart.c + main.c 按 virt.ld 链成
+流程：用 RISC-V 交叉工具链把同目录 virt_start.S + uart.c + main.c（并拉入**真实
+hal/vm/stack_vm.c**）按 virt.ld 链成
 ELF，再交给 qemu-system-riscv32 -machine virt -cpu rv32 跑固定秒数，抓串口输出，
 断言这几件事都成立（证明真 RV32 指令把中断→UART 打印路径走通）：
   1. mie 读回含 MTIE（bit7）——csrs 用符号名确实置上了；
   2. 轮询阶段看到 MTIP?Y——CLINT mtimecmp 会把 mip.MTIP 拉起；
   3. 开全局 MIE 后 ISR 持续打印 "Hello RISC-V! tick=N"——mtvec→trap→mcause 分派→
      调 uart 版 C ISR→重装 mtimecmp→mret 全通。
+  4. 早期串口出现 "vm: out=76 PASS"——真实 stack_vm.c 的 fetch-decode-execute 循环
+     （PUSH/ADD/MUL/SUB/STORE/LOAD/OUT/HALT）被真 RV32 指令逐条跑通，得 76。
 
 诚实口径：这是 board-matched 变体（UART 换 ns16550、内存换 virt RAM），**非 FE310
 产物**；证明的是中断路径可被真指令集在 QEMU 上执行，不等于在真 FE310 板实测。
@@ -89,6 +92,8 @@ def main() -> int:
     ap.add_argument("--qemu", default=None, help="qemu-system-riscv32（或设环境变量 QEMU）")
     ap.add_argument("--timeout", type=float, default=float(os.environ.get("QEMU_DEMO_TIMEOUT", 5)),
                     help="QEMU 运行秒数（默认 5，之后超时终止属预期）")
+    ap.add_argument("--ld", default=None,
+                    help="链接脚本（默认 virt.ld；可指 virt_a.ld 跑路线 A 单 RAM 契约变体）")
     args = ap.parse_args()
 
     cc = find_cc(args.cc or os.environ.get("RISCV_CC"))
@@ -104,17 +109,20 @@ def main() -> int:
         return 2
 
     OUTDIR.mkdir(parents=True, exist_ok=True)
+    ldscript = Path(args.ld) if args.ld else (HERE / "virt.ld")
     elf = OUTDIR / ("virt_demo.exe" if os.name == "nt" else "virt_demo")
 
     print(f"[qemu_virt_demo] cc   = {cc}")
     print(f"[qemu_virt_demo] qemu = {qemu}")
+    print(f"[qemu_virt_demo] ld   = {ldscript}")
 
     # ── 编译链接 ──
+    stack_vm = ROOT / "hal" / "vm" / "stack_vm.c"   # 复用真实裸机 VM 实现（非副本）
     build = subprocess.run(
         [cc, f"-march={MARCH}", f"-mabi={MABI}", "-Os", "-ffreestanding", "-nostdlib",
-         "-Wall", "-Wextra", "-I", str(HERE), "-T", str(HERE / "virt.ld"),
+         "-Wall", "-Wextra", "-I", str(HERE), "-I", str(ROOT / "include"), "-T", str(ldscript),
          "-o", str(elf),
-         str(HERE / "virt_start.S"), str(HERE / "uart.c"), str(HERE / "main.c")],
+         str(HERE / "virt_start.S"), str(HERE / "uart.c"), str(stack_vm), str(HERE / "main.c")],
         capture_output=True, text=True)
     if build.stdout:
         sys.stdout.write(build.stdout)
@@ -154,6 +162,8 @@ def main() -> int:
         fails.append("未见 ISR 打印 tick（中断投递/mret 路径未跑通）")
     if "Hello RISC-V!" not in serial:
         fails.append("未见 ISR 打印 'Hello RISC-V!'（uart 驱动 + 中断打印集成未跑通）")
+    if "vm: out=76 PASS" not in serial:
+        fails.append("未见 'vm: out=76 PASS'（真实 stack_vm.c 在真 RV32 上未跑通）")
     # mie 读回应含 MTIE bit7（低 8 位含 0x80）
     mie_ok = any(line.startswith("mie=") and (int(line[4:12], 16) & 0x80)
                  for line in serial.splitlines() if line.startswith("mie=") and len(line) >= 12)
@@ -164,7 +174,8 @@ def main() -> int:
         for f in fails:
             print("[qemu_virt_demo] FAIL：" + f)
         return 1
-    print("[qemu_virt_demo] PASS：uart 驱动 + mtvec→trap→mcause 分派→C ISR(打印 Hello RISC-V!+tick)→重装→mret 在 QEMU RV32 上跑通。")
+    print("[qemu_virt_demo] PASS：uart 驱动 + mtvec→trap→mcause 分派→C ISR(打印 Hello RISC-V!+tick)→重装→mret 在 QEMU RV32 上跑通；"
+          "真实 stack_vm.c 亦在 RV32 实跑出 vm: out=76 PASS。")
     return 0
 
 

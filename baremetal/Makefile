@@ -23,7 +23,7 @@ HAL_INC   = include
 SRC_DIR   = .
 BUILD_DIR = build
 
-C_SRCS = main.c hal/drivers/uart.c hal/mem/allocator.c hal/trap/trap.c
+C_SRCS = main.c hal/drivers/uart.c hal/mem/allocator.c hal/trap/trap.c hal/vm/stack_vm.c
 S_SRCS = boot/crt0.S boot/vector.S
 
 CFLAGS = -march=$(ARCH) -mabi=$(ABI) -Os -ffreestanding -nostdlib \
@@ -41,11 +41,12 @@ HOST_CC  ?= gcc
 check:
 	@python3 tools/check_skeleton.py
 
-# ── 跑全部宿主模拟（真实 uart/allocator/trap.c，用宿主 gcc）──────────────
+# ── 跑全部宿主模拟（真实 uart/allocator/trap/stack_vm.c，用宿主 gcc）────────
 sim:
 	@python3 tools/run_uart_sim.py
 	@python3 tools/run_mem_sim.py
 	@python3 tools/run_trap_sim.py
+	@python3 tools/run_vm_sim.py
 
 # ── 在 stock QEMU (riscv32 -machine virt) 上实跑「中断接管 + UART 打印」演示 ──
 # board-matched 变体（ns16550 UART + virt RAM@0x80000000），非 FE310 产物、与

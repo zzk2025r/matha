@@ -8,6 +8,7 @@
  *   uart   控制台输出（hal/uart.h，第 2 步）
  *   mem    内存接管（hal/mem.h，第 3 步）
  *   irq    中断接管（hal/irq.h，第 3 步）
+ *   vm     栈式引擎（hal/stack_vm.h，极简契约优先）
  *
  * 一切 freestanding：不链接任何 libc / OS 运行时。
  */
@@ -22,6 +23,7 @@
 #include <hal/uart.h>
 #include <hal/mem.h>
 #include <hal/irq.h>
+#include <hal/stack_vm.h>
 
 /* 骨架版本标记（非发布版本号，仅标识 HAL 契约代际）。 */
 #define HAL_SKELETON_ABI 1

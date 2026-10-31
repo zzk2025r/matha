@@ -54,6 +54,13 @@
 #define PLIC_THRESH0     0x200000u  /* context0 优先级阈值（base+0x1000*ctx） */
 #define PLIC_CLAIM0      0x200004u  /* context0 claim/complete（base+0x1000*ctx+4） */
 
+/* RAM 窗口口径：与 baremetal/link.ld 的 MEMORY{ RAM } 逐字一致（基址/容量/末端），
+   供编译期布局断言使用（不引用链接符号地址，保证 _Static_assert 可常量求值；
+   check_skeleton.py 的 link.ld 存在性契约另锁符号名）。改 link.ld 必须同步改这里。 */
+#define HAL_RAM_ORIGIN   0x80000000u
+#define HAL_RAM_BYTES    0x20000u          /* 128K，= link.ld LENGTH(RAM) */
+#define HAL_RAM_END      (HAL_RAM_ORIGIN + HAL_RAM_BYTES)
+
 /* 核频率：名义值，实际由 PLL 配置决定；第 2 步串口分频会据此校准。 */
 #define CPU_FREQ_HZ      165350964u
 
