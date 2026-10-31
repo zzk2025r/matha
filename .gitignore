@@ -125,6 +125,9 @@ release/
 offline_package/
 installed/
 
+# 体检阶段 1b：Flutter 实验田与 vendored llvmlite 脱离跟踪，本地保留（零引用/零门禁）
+test_app/
+
 # P2 脱离跟踪的顶层一次性脚本（本地保留，零引用/零门禁）
 /demo_formula_library.py
 /deploy_production.py
