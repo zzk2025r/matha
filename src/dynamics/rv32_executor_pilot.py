@@ -12,8 +12,10 @@
 - **插件生命周期不外溢**：本入口未激活任何后端时才会 ``load_plugin`` 并在返回时
   复位为 ``None``，绝不把插件停在调用方的进程里造成隐性副作用；若调用方已自行
   激活后端，则本入口原样复用、不做复位。
-- **诚实覆盖**：默认要求每条取到的指令都被当前后端 ``supports``；遇未接线指令
-  显式抛 :class:`PilotUnsupported`，绝不静默当 nop 放过（与契约的
+- **诚实覆盖**：默认要求每条取到的指令都被当前后端 ``supports`` **且真正落地**；
+  无论后端不认领（``supports`` 为假），还是认领却未落地（``supports`` 真而
+  ``execute`` 假，如 CSR 若机器未探测到 ``csr_read/csr_write``、非复位 ``ecall``），
+  都显式抛 :class:`PilotUnsupported`，绝不静默当 nop 放过（与契约的
   ``DynamicSemanticsNotWired`` 精神一致）。确需回退原生时，须显式传
   ``require_plugin_coverage=False`` 并提供 ``native`` 回调，其回退指令会被记入
   返回报告，绝不隐藏。若同时把后端置为 ``None``，即构成**纯原生跑法**（不加载任何
@@ -145,11 +147,20 @@ def drive_program(
             if steps >= max_steps:
                 raise PilotRunaway(f"试点：疑似死循环（超过 {max_steps} 步仍未停机）")
             instr = decode(fetch(pc), pc)
-            if require_plugin_coverage and not backend.supports(instr):
-                raise PilotUnsupported(
-                    f"未接线的指令 {instr.op!r} @pc=0x{pc:08X}（当前后端不覆盖）")
             view = view_factory(pc)
-            execute_or_default(instr, view, _native)
+            if require_plugin_coverage:
+                # 上面已保证：要求全覆盖时 backend 必非 None（否则已 ValueError）
+                assert backend is not None
+                if not backend.supports(instr):
+                    raise PilotUnsupported(
+                        f"未接线的指令 {instr.op!r} @pc=0x{pc:08X}（当前后端不覆盖）")
+                if not execute_or_default(instr, view, _native):
+                    # 后端认领却未落地（supports=True/execute=False，如 CSR 未探测到
+                    # csr_read/write、非复位 ecall）：同样显式失败，绝不静默当 nop。
+                    raise PilotUnsupported(
+                        f"后端认领但未落地的指令 {instr.op!r} @pc=0x{pc:08X}")
+            else:
+                execute_or_default(instr, view, _native)
             if is_halted():
                 break                        # 停机步不再推进 PC：end_pc 停在 halt 现场
             pc = _next_pc(view, pc, step_over)

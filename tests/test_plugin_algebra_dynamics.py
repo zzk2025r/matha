@@ -1049,6 +1049,38 @@ def test_drive_program_rejects_unwired_instruction():
     assert m.halted_with is None
 
 
+def test_drive_program_rejects_claimed_but_unexecuted():
+    """后端认领（supports 真）却未落地（execute 假）时同样显式失败，不静默当 nop。
+
+    对应真实插件行为：CSR 若机器未提供 csr_read/csr_write、非复位 ecall 都会
+    supports=True 而 execute=False。旧实现丢弃 execute_or_default 返回值会将其静默跳过。
+    """
+    m = _FakeMachine([0] * 4, {})
+    prog = [_mini_decode("csrrw", 0, rd=5, imm=0x300),   # 认领但执行为假
+            _mini_decode("ecall", 4)]
+    dyn.set_active(None)
+    # 认领 csrrw 但 execute 恒返回 False（模拟无 CSR 动作面的机器）
+    dyn.register_backend(
+        _OpSubsetBackend("pilot-claim", {"csrrw", "ecall"},
+                         fn=lambda i, machine: i.op == "ecall"),
+        activate=True)
+
+    def _decode_at(w, pc):
+        return prog[pc // 4]
+
+    try:
+        with pytest.raises(pilot.PilotUnsupported, match="csrrw"):
+            pilot.drive_program(
+                entry_pc=0, fetch=lambda pc: 0, decode=_decode_at,
+                view_factory=lambda pc: m,
+                is_halted=lambda: m.halted_with is not None,
+                ensure_backend=None)
+    finally:
+        dyn.unregister_backend("pilot-claim")
+        dyn.set_active(None)
+    assert m.halted_with is None                    # 认领未落地即在当时报错，不往后跑
+
+
 def test_drive_program_guard_rails_runaway_and_no_backend():
     """护栏：死循环超预算报 PilotRunaway；无后端且未交 ensure_backend 时显式报错。"""
     dyn.set_active(None)
