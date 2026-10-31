@@ -182,6 +182,184 @@ def _frac_str(f: Fraction) -> str:
     return f"{f.numerator}/{f.denominator}"
 
 
+# ============================================================
+# 扩面：多根式域 ℚ(√d1, …, √dk) 的结构精确还原（SurdVector）
+#   元素表示为 dict[D] = Fraction，语义 Σ c_D · √D（D 为无平方因子整数，D=1 为有理基）。
+#   仅用标准库；无法结构化精确还原（嵌套根式 / 混合高次 / 符号）一律回 None，绝不臆造。
+# ============================================================
+
+
+def _mc_add(e1: "dict[int, Fraction] | None", e2: "dict[int, Fraction] | None",
+            sign: int = 1) -> "dict[int, Fraction] | None":
+    if e1 is None or e2 is None:
+        return None
+    out = dict(e1)
+    for D, c in e2.items():
+        out[D] = out.get(D, Fraction(0)) + sign * c
+    return {D: c for D, c in out.items() if c != 0}
+
+
+def _mc_mul(e1: "dict[int, Fraction] | None", e2: "dict[int, Fraction] | None") -> "dict[int, Fraction] | None":
+    if e1 is None or e2 is None:
+        return None
+    out: dict[int, Fraction] = {}
+    for D1, a in e1.items():
+        for D2, b in e2.items():
+            m, D = _squarefree_part(D1 * D2)   # √D1 · √D2 = m·√D
+            out[D] = out.get(D, Fraction(0)) + a * b * m
+    return {D: c for D, c in out.items() if c != 0}
+
+
+def _sqrt_of_rational(r: Fraction) -> "dict[int, Fraction] | None":
+    """√r（r≥0 有理）→ SurdVector。√(num/den) = m√D/den。"""
+    r = Fraction(r)
+    if r < 0:
+        return None
+    m, D = _squarefree_part(r.numerator * r.denominator)
+    coef = Fraction(m, r.denominator)
+    if coef == 0:
+        return {}
+    return {D: coef}
+
+
+def _mc_div(E: "dict[int, Fraction] | None", F: "dict[int, Fraction] | None") -> "dict[int, Fraction] | None":
+    """仅除以有理数或单项根式 c√D（可分母有理化）；多式和倒数不保证封闭，回 None。"""
+    if E is None or F is None or not F:
+        return None
+    if len(F) == 1:
+        D, c = next(iter(F.items()))
+        if c == 0:
+            return None
+        if D == 1:
+            return {X: coef / c for X, coef in E.items() if coef / c != 0}
+        num = _mc_mul(E, {D: Fraction(1)})           # 乘 √D 再除 (c·D)：1/√D = √D/D
+        if num is None:
+            return None
+        return {X: coef / (c * D) for X, coef in num.items() if coef != 0}
+    return None
+
+
+def _mc_pow(E: "dict[int, Fraction] | None", n: int) -> "dict[int, Fraction] | None":
+    if E is None or n < 0 or n > 8:
+        return None
+    res: dict[int, Fraction] = {1: Fraction(1)}
+    for _ in range(n):
+        res = _mc_mul(res, E)
+        if res is None:
+            return None
+    return res
+
+
+def _mc_eval(term: Term) -> "dict[int, Fraction] | None":
+    """把项树解析为 SurdVector；落在多根式域外（嵌套根/非整数指数/符号/无界除法）回 None。"""
+    if isinstance(term, Const):
+        return {1: Fraction(term.value)}
+    if isinstance(term, Symbol):
+        return None
+    if isinstance(term, UnaryOp):
+        if term.op == "+":
+            return _mc_eval(term.operand)
+        if term.op == "-":
+            e = _mc_eval(term.operand)
+            if e is None:
+                return None
+            return {D: -c for D, c in e.items() if c != 0}
+        if term.op == "sqrt":
+            inner = _mc_eval(term.operand)
+            if inner is None or set(inner) != {1}:   # 只对纯有理数开方，不做根式嵌套/denest
+                return None
+            return _sqrt_of_rational(inner[1])
+        return None
+    if isinstance(term, BinOp):
+        a = _mc_eval(term.left)
+        b = _mc_eval(term.right)
+        if a is None or b is None:
+            return None
+        if term.op == "+":
+            return _mc_add(a, b)
+        if term.op == "-":
+            return _mc_add(a, b, -1)
+        if term.op == "*":
+            return _mc_mul(a, b)
+        if term.op == "/":
+            return _mc_div(a, b)
+        if term.op == "^":
+            if isinstance(term.right, Const):
+                e = Fraction(term.right.value)
+                if e.denominator == 1:            # 仅整数次幂留在多根式域内
+                    return _mc_pow(a, int(e))
+            return None
+        return None
+    return None
+
+
+def _mc_to_str(elem: "dict[int, Fraction] | None") -> str | None:
+    """SurdVector → 规范根式和串。纯有理（无 √ 基）返回 None，交由二次/有理路径负责。"""
+    if not elem or not any(D != 1 for D in elem):
+        return None
+    order = sorted(elem, key=lambda D: (D != 1, D))
+
+    def mag(D: int) -> str:
+        c = abs(elem[D])
+        if D == 1:
+            return _frac_str(c)
+        rad = f"sqrt({D})"
+        if c == 1:
+            return rad
+        return f"{_frac_str(c)}*{rad}"
+
+    parts: list[str] = []
+    for idx, D in enumerate(order):
+        txt = mag(D)
+        neg = elem[D] < 0
+        if idx == 0:
+            parts.append(("-" if neg else "") + txt)
+        else:
+            parts.append((" - " if neg else " + ") + txt)
+    return "".join(parts)
+
+
+def _mc_nthroot(term: Term, x: float, tol: float) -> str | None:
+    """识别 base^(1/n)（n≥3，整数被开方数）为纯高次根 k·ⁿ√r，规范串 root(n,r)。
+
+    仅处理形如 :class:`BinOp` ``^`` 且右指数为 1/n 的**结构化**输入；扁平浮点无树形线索，
+    诚实回退 None（不过度把某个 double 猜成某高次根）。"""
+    if not (isinstance(term, BinOp) and term.op == "^"):
+        return None
+    if not (isinstance(term.left, Const) and isinstance(term.right, Const)):
+        return None
+    base = Fraction(term.left.value)
+    exp = Fraction(term.right.value)
+    if exp.numerator != 1:
+        return None
+    n = exp.denominator
+    if n < 3 or base.denominator != 1:        # n==2 由 sqrt/二次路径处理；被开方数须为整数
+        return None
+    b = base.numerator
+    sign = 1
+    if b < 0:
+        if n % 2 == 0:
+            return None                        # 负数偶次根非实
+        sign, b = -1, -b
+    if b <= 0:
+        return None
+    k = 1
+    top = int(round(b ** (1.0 / n)))
+    for cand in range(top, 1, -1):
+        if cand ** n <= b and b % (cand ** n) == 0:
+            k = cand
+            break
+    r = b // (k ** n)
+    if r == 1:                                 # 纯整数根 → 有理路径已处理
+        return None
+    val = sign * k * (r ** (1.0 / n))
+    if abs(val - x) > tol * max(1.0, abs(x)):
+        return None
+    root = f"root({n},{r})"
+    term_str = root if k == 1 else f"{_frac_str(Fraction(k))}*{root}"
+    return ("-" if sign < 0 else "") + term_str
+
+
 class ExactAlgebraicPrinter(AlgebraicNumberPrinter):
     """把常数代数项渲染为精确二次根式的能力实现(满足 AlgebraicNumberPrinter 协议)。"""
 
@@ -221,26 +399,33 @@ class ExactAlgebraicPrinter(AlgebraicNumberPrinter):
                 return left / right if right != 0 else None
             if term.op == "^":
                 try:
-                    return left ** right
-                except (OverflowError, ValueError, ZeroDivisionError):
+                    r = left ** right
+                except (OverflowError, ValueError, ZeroDivisionError, TypeError):
                     return None
-            return None
+                if isinstance(r, complex):        # 负数开非整数次幂 → 非实数，诚实回退
+                    return None
+                return r
         return None
 
     def can_render(self, term: Term) -> bool:
-        x = self._eval_float(term)
-        if x is None or not math.isfinite(x):
-            return False
-        return QuadraticSurd.from_float(x) is not None
+        return self.render(term) is not None
 
     def render(self, term: Term, *, tol: float = _DEFAULT_TOL) -> str | None:
         x = self._eval_float(term)
-        if x is None or not math.isfinite(x):
+        if x is None or isinstance(x, complex) or not math.isfinite(x):
             return None
+        # 1) 二次/有理塌缩（既有能力，扁平浮点与单根式的主路径，行为不变）
         surd = QuadraticSurd.from_float(x, tol=tol)
-        if surd is None:
-            return None
-        return surd.to_str()
+        if surd is not None:
+            return surd.to_str()
+        # 2) 多根式域 ℚ(√d1,…,√dk)：保留结构还原（如 √2+√3 这类 4 次代数数）
+        elem = _mc_eval(term)
+        if elem is not None and any(D != 1 for D in elem):
+            val = sum(float(c) * math.sqrt(D) for D, c in elem.items())
+            if abs(val - x) <= tol * max(1.0, abs(x)):
+                return _mc_to_str(elem)
+        # 3) 高次纯根 base^(1/n)（n>=3）
+        return _mc_nthroot(term, x, tol)
 
     # ---- 框架自检(可选,惰性 sympy 交叉验证;不参与渲染主路径)----
     def self_test(self) -> dict[str, str]:

@@ -32,6 +32,61 @@ def _sq(n: int):
     return alg.UnaryOp("sqrt", alg.Const(n))
 
 
+def _c(n):
+    return alg.Const(Fraction(n))
+
+
+def _add(a, b):
+    return alg.BinOp("+", a, b)
+
+
+def _sub(a, b):
+    return alg.BinOp("-", a, b)
+
+
+def _mul(a, b):
+    return alg.BinOp("*", a, b)
+
+
+def _div(a, b):
+    return alg.BinOp("/", a, b)
+
+
+def _root(d, n):
+    return alg.BinOp("^", alg.Const(Fraction(d)), alg.Const(Fraction(1, n)))
+
+
+def _canon_to_sympy(s: str):
+    """把插件规范串（sqrt(n)/root(n,d)/分数/+-*）解析回 sympy 精确表达式。"""
+    import re
+
+    import sympy as sp
+    s2 = re.sub(r"root\((\d+),(\d+)\)", r"root(\2,\1)", s)
+    return sp.sympify(s2)
+
+
+def _tree_to_sympy(t):
+    """独立地用 sympy 精确求值中性项树（与插件完全无关的第二实现，作对拍基准）。"""
+    import sympy as sp
+    if isinstance(t, alg.Const):
+        return sp.Rational(t.value)
+    if isinstance(t, alg.Symbol):
+        return sp.Symbol(t.name)
+    if isinstance(t, alg.UnaryOp):
+        inner = _tree_to_sympy(t.operand)
+        if t.op == "sqrt":
+            return sp.sqrt(inner)
+        if t.op == "-":
+            return -inner
+        if t.op == "+":
+            return inner
+    if isinstance(t, alg.BinOp):
+        L = _tree_to_sympy(t.left)
+        R = _tree_to_sympy(t.right)
+        return {"+": L + R, "-": L - R, "*": L * R, "/": L / R, "^": sp.Pow(L, R)}[t.op]
+    raise TypeError(f"未知项类型：{type(t).__name__}")
+
+
 # ============================================================
 # 1. 代数数打印：无损 + 精确 + 诚实边界
 # ============================================================
@@ -79,12 +134,83 @@ def test_algebra_recognizer_exact_forms(value, expect):
 
 
 def test_algebra_honesty_defers_unknown():
-    """高次 / 多根式 / 超越数不得被伪装成精确有理 —— render 必须回 None。"""
-    # sqrt(2)+sqrt(3)：4 次代数数，超出本插件（度数<=2）能力
-    s23 = alg.BinOp("+", _sq(2), _sq(3))
-    assert ALG_PLUGIN.render(s23) is None
-    # 圆周率型：直接以 double 近似入表，亦不得被判为精确
+    """能力边界诚实回退：无结构线索的扁平浮点 / 超越数 / 嵌套根 / 混合高次 → render 回 None。"""
+    # 扁平 double（来自门面 decorate 路径）：√2+√3 无数树形线索 → 不过度猜测，回 None
+    assert ALG_PLUGIN.render(alg.Const(Fraction(math.sqrt(2) + math.sqrt(3)))) is None
+    # 超越数 π
     assert ALG_PLUGIN.render(alg.Const(Fraction(math.pi))) is None
+    # 嵌套根式 √(√2)：本框架不做 denest → None
+    assert ALG_PLUGIN.render(alg.UnaryOp("sqrt", _sq(2))) is None
+    # 多根式 + 高次混合 √2 + ∛2：超出 ℚ(√…) 且非纯根 → None
+    assert ALG_PLUGIN.render(_add(_sq(2), _root(2, 3))) is None
+    # 含符号：不可作为常数精确还原 → None
+    assert ALG_PLUGIN.render(_add(_sq(2), alg.Symbol("x"))) is None
+    # 非实：√(-1) → None（不伪造）
+    assert ALG_PLUGIN.render(_sq(-1)) is None
+
+
+@pytest.mark.parametrize("tree,expect", [
+    (_add(_sq(2), _sq(3)), "sqrt(2) + sqrt(3)"),
+    (_sub(_sq(5), _sq(2)), "-sqrt(2) + sqrt(5)"),
+    (_mul(_add(_c(1), _sq(2)), _add(_c(1), _sq(3))), "1 + sqrt(2) + sqrt(3) + sqrt(6)"),
+    (_div(_c(1), _sq(2)), "1/2*sqrt(2)"),
+    (_add(_sq(2), _add(_sq(3), _sq(5))), "sqrt(2) + sqrt(3) + sqrt(5)"),
+    (_sub(_mul(_c(3), _sq(2)), _sq(3)), "3*sqrt(2) - sqrt(3)"),
+    (_mul(_sq(2), _sq(3)), "sqrt(6)"),
+    (_add(_c(1), _sq(2)), "1 + sqrt(2)"),
+])
+def test_algebra_multiquadratic_exact(tree, expect):
+    """多根式域 ℚ(√d1,…,√dk) 结构还原：与既有 double 塌缩不重合的高次代数数现在可精确打印。"""
+    got = ALG_PLUGIN.render(tree)
+    assert got == expect
+
+
+@pytest.mark.parametrize("tree", [
+    _add(_sq(2), _sq(3)),
+    _sub(_sq(5), _sq(2)),
+    _mul(_add(_c(1), _sq(2)), _add(_c(1), _sq(3))),
+    _div(_c(1), _sq(2)),
+    _add(_sq(2), _add(_sq(3), _sq(5))),
+    _sub(_mul(_c(3), _sq(2)), _sq(3)),
+])
+def test_algebra_multiquadratic_differential_vs_sympy(tree):
+    """对拍 sympy：插件输出的规范串解析回 sympy 后，与树的独立 sympy 精确求值符号相等。"""
+    import sympy as sp
+    got = ALG_PLUGIN.render(tree)
+    assert got is not None
+    diff = sp.simplify(_canon_to_sympy(got) - _tree_to_sympy(tree))
+    assert diff == 0, f"{got!r} vs sympy 不吻合: {diff}"
+
+
+@pytest.mark.parametrize("tree,expect", [
+    (_root(2, 3), "root(3,2)"),
+    (_root(16, 3), "2*root(3,2)"),
+    (_root(4, 3), "root(3,4)"),
+    (_root(3, 4), "root(4,3)"),
+    (_root(7, 5), "root(5,7)"),
+    (_root(32, 5), "2"),                 # 纯整数次根 → 有理路径
+])
+def test_algebra_nthroot_exact(tree, expect):
+    """高次纯根 base^(1/n)（n>=3）化简为 k·ⁿ√r，规范串 root(n,r)。"""
+    assert ALG_PLUGIN.render(tree) == expect
+
+
+@pytest.mark.parametrize("tree", [
+    _root(2, 3), _root(16, 3), _root(4, 3), _root(3, 4),
+])
+def test_algebra_nthroot_differential_vs_sympy(tree):
+    """对拍 sympy：纯高次根的插件输出与 sympy 实根数值、符号均吻合。"""
+    import sympy as sp
+    got = ALG_PLUGIN.render(tree)
+    assert got is not None
+    assert sp.simplify(_canon_to_sympy(got) - _tree_to_sympy(tree)) == 0
+    assert abs(float(_canon_to_sympy(got)) - ALG_PLUGIN._eval_float(tree)) < 1e-9
+
+
+def test_algebra_flat_float_regression_still_quadratic_only():
+    """回归锁：扁平浮点（无树形）仍仅走二次/有理识别，不得因扩面而误命中高次。"""
+    assert ALG_PLUGIN.render(alg.Const(Fraction(2 ** 0.5))) == "sqrt(2)"   # 二次仍精确
+    assert ALG_PLUGIN.render(alg.Const(Fraction(2 ** (1 / 3)))) is None     # 扁平 ∛2 无结构→诚实 None
 
 
 # ============================================================
