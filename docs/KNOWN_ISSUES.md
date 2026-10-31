@@ -223,7 +223,9 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 ### 7b. 其它交付端
 
 - `mobile/`（Flutter）：仓库内实验性前端，零门禁；其 `assets/pyodide/build_wasm.{bat,sh}`
-  硬编码版本 4.4.16，已漂移于主线 v4.6.0，仅作历史脚本保留。
+  与 `assets/deploy.{bat,sh}` 曾硬编码旧版本号 4.4.16（漂移于主线 v4.6.0），本轮已改为
+  构建时从唯一版本源 `src/__version__.py` 读取（读不到即报错退出，拒绝以硬编版本继续），
+  不再各说各话；仍零门禁，仅作实验性交付保留。
 - `matha_wasm/`：整目录在 `.gitignore` 内、git 零跟踪（实测 `git ls-files matha_wasm` = 0），
   磁盘内容为旧快照副本；README 原「Pyodide WASM 运行时」主张已删除。
 - `extensions/vscode-matha`：仅语法高亮小插件，不受门禁，不作功能背书。

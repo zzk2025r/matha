@@ -3,9 +3,18 @@ REM Matha 移动端自动化部署脚本 (Windows 版本)
 
 setlocal enabledelayedexpansion
 
+:: 从唯一版本源 src/__version__.py 读取版本号（禁止硬编，防止与主线漂移）
+set "PROJECT_ROOT=%~dp0..\.."
+set "MATHA_VERSION="
+for /f "usebackq delims=" %%v in (`python -c "import sys;L=[l for l in open(sys.argv[1],encoding='utf-8') if l.strip().startswith('__version__')][0];print(L.split(chr(34))[1])" "%PROJECT_ROOT%\src\__version__.py" 2^>nul`) do set "MATHA_VERSION=%%v"
+if not defined MATHA_VERSION (
+    echo   [错误] 无法从 src\__version__.py 读取版本号，拒绝以硬编版本继续
+    exit /b 1
+)
+
 echo ========================================
 echo   Matha 移动端自动化部署脚本
-echo   版本: 4.4.16
+echo   版本: !MATHA_VERSION!
 echo ========================================
 echo.
 

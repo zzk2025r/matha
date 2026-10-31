@@ -84,6 +84,28 @@ P4 转正·两枚发射器开关退役入门禁（口径见 [KNOWN_ISSUES.md](KN
 - 取证工件与验证报告：`.trae/p4_b09_preview/`（含 `B09_VERIFY_REPORT.md` 与字节码/值对照、定点
   漂移脚本），不入 tests/ 与 golden_tests/。
 
+P5 骨架体检·零缺陷闭环（P0 诚实红线 + P3 覆盖闭环；口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第七节）。
+
+- **mobile 版本单一源落地**：`mobile/assets/pyodide/build_wasm.{bat,sh}` 与
+  `mobile/assets/deploy.{bat,sh}` 不再硬编旧版本号，构建/部署时从唯一版本源
+  `src/__version__.py` 解析（读不到即报错退出，拒绝以硬编版本继续）。
+- **AI 前端未背书横幅补齐**：`src/ai_framework.py` 与既有 4 文件一致登记
+  「未背书 / P2 降级」；三处 web 前端 README（`web/`、`mobile/web/`、`mobile/web_new/`）
+  加降级横幅并删除指向不存在的 `tests/test_ai_assistant.py` 的失效指引。
+- **MATHA_COMPARISON 虚假主张清除**：「验证结果」小节曾以 ✅ 声称
+  `auto_web_framework`/`auto_async_io`/`auto_pattern_matching`/`auto_metaprogramming`/
+  `auto_generate_source_compiler`/`auto_compile`/`register_natural_language`——这些方法
+  全仓无定义；改为只列 `register_any`/`auto_fix`/`auto_generate_module(类型)`/`natural_to_code`
+  真实 API（均为模板/正则驱动、非真实模型），并显式标注其余为「愿景·未实现」。
+- **新增门禁锁**：`tests/test_unbacked_channel_honesty.py`（AI 前端横幅 + 内核链不得顶层
+  import AI 模块 + mobile 脚本从版本源读取）与 `tests/test_domain_plugin_smoke.py`
+  （全部领域插件物化无异常、导出非空、manifest 声明符号 ⊆ 实际导出）。
+- **体检结论（如实）**：主线执行链无阻断性缺陷、代码内 `# TODO/FIXME` 标记 0；
+  裸机 P5 栈式引擎 17 op 全覆盖（`baremetal/tools/check_skeleton.py` 全绿）、P6 SPIKE
+  覆盖集逐字节对拍 + 越界语义 `NotSupportedRV32` 显式拒绝（`run_rv32_spike.py` 全绿），
+  baremetal 保持独立门禁不并入主线；符号引擎缺口全部处于「一致 / 插件回退 / 显式失败」
+  三态并有测试锁定（§9.6 精确代数数打印为已登记、数值正确的已知偏差）。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，

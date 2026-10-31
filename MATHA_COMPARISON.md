@@ -311,18 +311,21 @@ Matha 是由独立二进制代码为基础、自身语言为核心的高级语�
 
 ### 验证结果
 
-通过 `VirtualCodeEngine` 终极增强版的测试验证：
+以下为 `src/virtual_code.py` / `MathaSystem` 中**实测真实存在**的 API（**模板/正则
+驱动，非真实模型**；无专项单测、不入 `make check` 门禁，口径见
+[`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) 第七节）：
 
-- ✅ 自主注册中文标识符（"测试函数" → 自动注册）
-- ✅ 中文语义推导（"求和函数" → `lambda *args: sum(args)`）
-- ✅ 英文标识符推导（"missing_add" → 加法函数）
-- ✅ 自动生成Web框架（`auto_web_framework("MyApp", port=3000)`）
-- ✅ 自动生成异步I/O（`auto_async_io("my_handler")`）
-- ✅ 自动生成模式匹配（`auto_pattern_matching("match_func")`）
-- ✅ 自动生成元编程（`auto_metaprogramming("meta_func")`）
-- ✅ 自动生成源代码编译器（`auto_generate_source_compiler("my_compiler")`）
-- ✅ 自然语言转代码（"计算 正弦 余弦 平方根" → 自动注册）
-- ✅ 自动编译源代码（`auto_compile("result = 1 + 2 * 3")`）
+- ✅ 自主注册标识符（`VirtualCodeEngine.register_any`：中文/英文标识符 → 注册）
+- ✅ 自动修复未知名（`VirtualCodeEngine.auto_fix`）
+- ✅ 自动分类型生成模块（`auto_generate_module(类型)`，仅覆盖
+  `game`/`office`/`os`/`graphics`/`networking`/`display`/`recorder`/`player`）
+- ✅ 自然语言转代码（`MathaSystem.natural_to_code`，模板规则，非模型）
+
+> ❗ **诚实标注**：上方「终极增强版」框图中的 `auto_web_framework`、
+> `auto_async_io`、`auto_pattern_matching`、`auto_metaprogramming`、
+> `auto_generate_source_compiler`、`auto_compile`、`register_natural_language` 是
+> **愿景设计**，当前代码库**未实现这些方法**（全仓 grep 无定义），不作为已交付
+> 能力主张；它们也不能与上面的真实 API 混为“已验证”。
 
 ---
 

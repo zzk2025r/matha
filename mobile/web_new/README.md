@@ -1,6 +1,10 @@
 # Matha AI Assistant — 小白友好型数学计算平台
 
-> 🧮 零安装门槛 · 自然语言计算 · 全平台支持
+> ⚠️ **定位标注（P2 降级）**：本目录所属的 AI 助手（`src/ai_assistant*.py`）是仓库内
+> **未背书、零门禁** 的实验性前端，**不作为主线 v4.6.0 的现功能主张**；下述自然语言
+> 解析为模板/正则规则，非真实模型。口径见仓库根 `docs/KNOWN_ISSUES.md` 第七节 7c。
+
+> 🧮 实验性演示：自然语言示例 · 仅供参考
 
 ## 快速开始
 
@@ -112,6 +116,6 @@ pyinstaller --onefile --windowed src/ai_assistant_desktop.py
 
 ## 测试
 
-```bash
-python tests/test_ai_assistant.py
-```
+本 AI 前端属仓库内未背书通道，无专项测试、不入 `make check` 门禁。
+历史上本节指向的 `tests/test_ai_assistant.py` 并不存在于仓库，故移除该指引；
+口径见仓库根 `docs/KNOWN_ISSUES.md` 第七节 7c。

@@ -18,11 +18,6 @@ set "MATHA_WASM_DIR=%WASM_DIR%\matha-wasm"
 :: Matha 模块列表
 set "MODULES=calculus_symbolic linear_algebra probability_stats graph computer_science"
 
-echo ========================================
-echo   Matha WebAssembly 打包工具 v4.4.16
-echo ========================================
-echo.
-
 :: 检查 Python
 echo [Matha WASM] 检查 Python 环境...
 python --version >nul 2>&1
@@ -32,6 +27,19 @@ if errorlevel 1 (
 )
 for /f "tokens=2" %%i in ('python --version 2^>^&1') do set "PYTHON_VERSION=%%i"
 echo [Matha WASM] [信息] Python 版本: !PYTHON_VERSION!
+
+:: 从唯一版本源 src/__version__.py 读取版本号（禁止硬编，防止与主线漂移）
+set "MATHA_VERSION="
+for /f "usebackq delims=" %%v in (`python -c "import sys;L=[l for l in open(sys.argv[1],encoding='utf-8') if l.strip().startswith('__version__')][0];print(L.split(chr(34))[1])" "%PROJECT_ROOT%\src\__version__.py" 2^>nul`) do set "MATHA_VERSION=%%v"
+if not defined MATHA_VERSION (
+    echo [Matha WASM] [错误] 无法从 src\__version__.py 读取版本号，拒绝以硬编版本继续
+    exit /b 1
+)
+
+echo ========================================
+echo   Matha WebAssembly 打包工具 v!MATHA_VERSION!
+echo ========================================
+echo.
 
 :: 创建目录
 echo [Matha WASM] 创建目录结构...
@@ -65,7 +73,7 @@ for %%M in (%MODULES%) do (
 :: 创建 __init__.py
 (
 echo """Matha 数学计算库 - WebAssembly 版本"""
-echo __version__ = "4.4.16"
+echo __version__ = "!MATHA_VERSION!"
 ) > matha\__init__.py
 
 (
@@ -82,7 +90,7 @@ echo [Matha WASM] [成功] Matha 模块打包完成
 (
 echo {
 echo   "name": "matha-wasm",
-echo   "version": "4.4.16",
+echo   "version": "!MATHA_VERSION!",
 echo   "description": "Matha 数学计算库 WebAssembly 版本",
 echo   "main": "matha/__init__.py",
 echo   "pyodide": {
@@ -96,7 +104,7 @@ echo }
 echo [Matha WASM] 生成构建配置...
 (
 echo {
-echo   "version": "4.4.16",
+echo   "version": "!MATHA_VERSION!",
 echo   "pyodideVersion": "0.24.1",
 echo   "pythonVersion": "!PYTHON_VERSION!",
 echo   "modules": ["calculus_symbolic", "linear_algebra", "probability_stats", "graph", "computer_science"],
