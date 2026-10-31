@@ -14,6 +14,12 @@
 ``docs/matha_stdlib_symbolic.md``；与 sympy 的能力对照见 ``docs/symbolic_parity.md``。
 **缺口一律显式报错并指向文档，不做静默降级、不返回「无法求解」这类假成功。**
 
+代数数精确打印（插件化，默认关）：门面发射不再把内核 ``to_str`` 当作终态，而是
+统一过一层 :func:`src.algebra.interface.decorate_numeric`。未加载插件时逐字节
+不变；调用 :func:`enable_exact_algebra` 后，``to_str`` 中的 double 系数会被还原为
+精确根式（如 ``0.7071067811865476`` → ``1/2*sqrt(2)``）。内核代码零改动，详见
+``docs/symbolic_parity.md`` 打印层偏差（§9.6）。
+
 用法：
   from src.stdlib.calculus_symbolic import (
       symbolic_derivative,
@@ -51,6 +57,11 @@ from src.kernel.symbolic.series import taylor as _k_taylor
 from src.kernel.symbolic.expr import Expr  # noqa: F401  (公开类型注解用)
 from src.kernel.symbolic.expr import Add, Mul, Neg, Num, Pow, Var
 from src.stdlib import matha_symbolic as _ms
+# 代数数精确打印插件接口（可选、默认不加载）：内核 to_str 发射后经此装饰。
+from src.algebra.interface import active_printer as _active_printer
+from src.algebra.interface import decorate_numeric as _decorate
+from src.algebra.interface import load_plugin as _load_plugin
+from src.algebra.interface import set_active as _set_active
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +90,34 @@ def _parse(expr, var_hint: str = "") -> Expr:
 def _fail(op: str, err: Exception):
     """统一错误出口：带上缺口文档指引，绝不返回占位字符串。"""
     raise ValueError(f"{op}失败: {err}（能力缺口对照见 {_PARITY}）") from err
+
+
+# ------------------------------------------------------------
+# 发射层：内核 to_str 是唯一基底，代数数精确打印为可选装饰。
+#   未加载插件（active_printer() is None）→ 输出与 to_str 逐字节相同；
+#   加载后（enable_exact_algebra）→ 把 to_str 里的 double 系数还原为精确根式。
+#   内核代码零改动，剥离只发生在门面发射这一层。
+# ------------------------------------------------------------
+
+
+def _emit(expr: Expr, *, expand: bool = True) -> str:
+    """内核 ``to_str`` + 可选的代数数精确装饰（门面唯一文本发射口）。"""
+    return _decorate(_k_str(expr, expand=expand))
+
+
+def enable_exact_algebra(spec: str = "algebra") -> None:
+    """加载并激活代数数精确打印插件（默认关闭；调用后本进程门面输出转精确）。"""
+    _load_plugin(spec)
+
+
+def use_kernel_printing() -> None:
+    """关闭精确打印，回到内核 ``to_str`` 原始 double 输出（逐字节无损）。"""
+    _set_active(None)
+
+
+def exact_algebra_enabled() -> bool:
+    """当前是否已激活某个代数数精确打印器。"""
+    return _active_printer() is not None
 
 
 # ============================================================
@@ -191,8 +230,8 @@ def symbolic_derivative(expr: str, var: str = "x", backend: str = "auto") -> str
     """
     e = _parse(expr, var)
     try:
-        return _route(backend, lambda: _k_str(canonical(_ms.derivative(e, var))),
-                      lambda: _k_str(_k_diff(e, var)), "符号求导")
+        return _route(backend, lambda: _emit(canonical(_ms.derivative(e, var))),
+                      lambda: _emit(_k_diff(e, var)), "符号求导")
     except ValueError:
         raise
     except Exception as ex:
@@ -208,7 +247,7 @@ def symbolic_partial_derivative(expr: str, var: str = "x") -> str:
         '2*x'
     """
     try:
-        return _k_str(_k_partial(_parse(expr, var), var))
+        return _emit(_k_partial(_parse(expr, var), var))
     except ValueError:
         raise
     except Exception as e:
@@ -226,8 +265,8 @@ def nth_derivative(expr: str, var: str = "x", n: int = 1, *, backend: str = "aut
     e = _parse(expr, var)
     k = int(n)
     try:
-        return _route(backend, lambda: _k_str(canonical(_ms.derivative(e, var, k))),
-                      lambda: _k_str(_k_nth(e, var, k)), "高阶导数")
+        return _route(backend, lambda: _emit(canonical(_ms.derivative(e, var, k))),
+                      lambda: _emit(_k_nth(e, var, k)), "高阶导数")
     except ValueError:
         raise
     except Exception as ex:
@@ -271,7 +310,7 @@ def symbolic_integral(expr: str, var: str = "x") -> str:
         raise ValueError(
             f"符号积分失败：内核无对应闭合规则: {expr}（覆盖范围见 {_PARITY}；"
             f"定积分可用 definite_integral 走数值分支）")
-    result_str = _k_str(out)
+    result_str = _emit(out)
     logger.info(f"符号积分完成: ∫{expr}d{var} = {result_str}")
     return result_str
 
@@ -341,8 +380,8 @@ def taylor_series(expr: str, var: str = "x", point: float = 0, order: int = 5,
     # 非零点保留内核 (x-a)^n 中心形式（不乘开）；零点沿用 canonical 展开串。
     expand = (a == 0.0)
     try:
-        return _route(backend, lambda: _k_str(_ms_taylor(e, var, a, k)),
-                      lambda: _k_str(_k_taylor(e, var, a, k), expand=expand), "泰勒展开")
+        return _route(backend, lambda: _emit(_ms_taylor(e, var, a, k)),
+                      lambda: _emit(_k_taylor(e, var, a, k), expand=expand), "泰勒展开")
     except ValueError:
         raise
     except Exception as ex:
@@ -433,7 +472,7 @@ def infinite_sum(expr: str, var: str = "n", lower: int = 1, upper: int | None = 
                 return float(out.evaluate({}))
             except Exception:
                 pass
-        return _k_str(out)
+        return _emit(out)
     return float(out)
 
 
@@ -572,8 +611,8 @@ def simplify_format(expr: str, *, backend: str = "auto") -> str:
         'x**2 + 2*x + 1'
     """
     e = _parse(expr)
-    return _route(backend, lambda: _k_str(canonical(_ms.expand(e))),
-                  lambda: _k_str(canonical(e)), "标准形化简")
+    return _route(backend, lambda: _emit(canonical(_ms.expand(e))),
+                  lambda: _emit(canonical(e)), "标准形化简")
 
 
 # ============================================================
@@ -664,6 +703,7 @@ __all__ = [
     "simplify_format",
     "batch_derivative", "batch_integral", "batch_taylor",
     "backend_stats", "reset_backend_stats", "BACKEND_STATS",
+    "enable_exact_algebra", "use_kernel_printing", "exact_algebra_enabled",
     "SymbolicConstants", "PI", "E", "I", "INFINITY",
 ]
 

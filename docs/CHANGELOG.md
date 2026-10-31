@@ -106,6 +106,26 @@ P5 骨架体检·零缺陷闭环（P0 诚实红线 + P3 覆盖闭环；口径见
   baremetal 保持独立门禁不并入主线；符号引擎缺口全部处于「一致 / 插件回退 / 显式失败」
   三态并有测试锁定（§9.6 精确代数数打印为已登记、数值正确的已知偏差）。
 
+P6 插件化隔离风险·高级能力外置（代数数精确打印 opt-in + 动态语义空壳预埋；口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第七节）。
+
+- **接口与实现分离**：新增两个与纯内核正交的契约层 `src/algebra/`（中性代数项模型
+  `Const/Symbol/BinOp/UnaryOp` + `AlgebraicNumberPrinter` 协议 + 注册表 + `load_plugin`）
+  与 `src/dynamics/`（`DecodedInstr`/`MachineView` + `DynamicSemanticsBackend` 协议）。内核
+  与门面只依赖接口，严禁硬编码具体实现；契约层仅用标准库，不 import 内核内部、不引
+  sympy/numpy/scipy。
+- **代数数精确打印插件**（`src/algebra/algebra_plugin.py`）：小高度整数极小多项式识别将
+  落在二次域 ℚ(√d) 内的 double 系数还原为精确根式。门面 `calculus_symbolic.py` 发射统一
+  过一层 `decorate_numeric`（默认关，`enable_exact_algebra()` 才启用），把§9.6 的
+  `0.7071067811865475*atan(x/1.4142135624)` 还原为 `1/2*sqrt(2)*atan(x/sqrt(2))`。
+  能力之外（多根式/高次根/超越数）诚实回退 double，绝不臆造；**未加载时输出逐字节不变**。
+- **动态语义空壳预埋**（`src/dynamics/dynamic_semantics_plugin.py`）：P1-4 全动态 RV32IM
+  语义的接口 + 注册 + 加载路径全部就位但不落地：`supports` 恒 False（不认领任何指令），
+  `execute` 被显式调用即抛 `DynamicSemanticsNotWired`（显式失败，不伪造成功）。加载此
+  骨架不改变任何现有执行行为。
+- **内核零改动**：`src/kernel/**`、`src/mbc/**`、lexer/parser/ast_nodes 未新增/未修改；
+  `dep_audit` 违规 0、`test_kernel_purity` 全绿。新增 `tests/test_plugin_algebra_dynamics.py`
+  锁定无损回退/精确还原/诚实预埋 + 内核不得反向依赖插件契约层的隔离红线。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，

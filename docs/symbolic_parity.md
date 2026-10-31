@@ -54,6 +54,12 @@ python -m pytest tests/test_kernel_symbolic.py -q
 `√` 常量域。打印层用连分数还原有理系数时把 `max_den` 限制为 `1e4`，
 宁可显示小数也不把无理解伪造成大分母「精确分数」（`rational_of` 文档记录了这一取舍）。
 
+**可选精确路径（插件化，默认关）**：内核本身仍以 double 存储（代码零改动），但门面
+`calculus_symbolic.py` 的文本发射统一过一层 `decorate_numeric`；调用 `enable_exact_algebra()`
+（即 `src.algebra.interface.load_plugin("algebra")`）后，上述 double 系数会被小高度整数极小
+多项式识别还原为精确根式（如 `1/2*sqrt(2)*atan(x/sqrt(2))`）。未加载时输出逐字节不变；
+能力之外（多根式、高次根、超越数）诚实回退 double，绝不臆造。
+
 **缺口（显式失败，非静默）**：
 
 | 表达式 | 行为 |
@@ -150,7 +156,9 @@ python -m pytest tests/test_kernel_symbolic.py -q
 3. 二元函数记法：`log(x, base)` 的求导与化简。
 4. 非线性 ODE（Riccati、齐次型 `y'=(x+y)/x`、克莱罗型）与高阶非齐次特解。
 5. 振荡型极限（`sin(x)` at ∞）与三角和式累值界。
-6. 精确代数数（`√`、单位根）系数域 —— 当前以 double 表示，打印为小数。
+6. 精确代数数（`√`、单位根）系数域 —— 内核当前以 double 表示、默认打印为小数；
+   可选代数数插件（`enable_exact_algebra()`）在门面发射层把落在二次域 ℚ(√d) 的系数
+   还原为精确根式（默认关、内核零改动，能力之外诚实回退）。
 7. 多变量积分、含参积分、主值积分（Cauchy PV）。
 
 以上 7 项在内核中**全部走显式失败路径**，由 `src.stdlib.calculus_symbolic`

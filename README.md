@@ -12,7 +12,7 @@
 - **内核外工具插件：** 14（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 159（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 71（`tests/`）
+- **测试文件：** 72（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -212,7 +212,7 @@ make check-lite     # 同上，不跑需要 nasm/link 的机器码对拍
 python scripts/verify_offline.py
 ```
 
-**实测结果（最近一次 `make check`）：** 通过 4188 / 计入 4188，失败 0，**通过率 100.00%**
+**实测结果（最近一次 `make check`）：** 通过 4233 / 计入 4233，失败 0，**通过率 100.00%**
 （含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 39 逐字节 / `dep_audit` 违规 0 条；
 `native_parity` 38 过 + 1 例不计入分母（`18_domain_lazy_load`：native 不承载领域插件符号）；
 原 2 个类型校验静默错值缺口 NI-001/NI-002 已修复（未定义名与字符串参与 `-` 均抛可捕获异常），
