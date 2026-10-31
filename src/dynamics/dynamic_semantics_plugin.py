@@ -7,9 +7,15 @@
 
 诚实与隔离边界（与 SPIKE「未知指令即抛错」同构）：
   * :meth:`supports` 为 ``op ∈ _HANDLERS`` —— 只有**已落地语义**的指令才被认领；
-    未覆盖的指令（如 CSR / FENCE / ECALL）仍返回 ``False``，交回执行器原生分支。
+    未覆盖的指令（如 ``mret`` / ``wfi`` / ``ebreak`` / 其余系统操作码）仍返回
+    ``False``，交回执行器原生分支。
   * :meth:`execute` 对未落地指令抛 :class:`DynamicSemanticsNotWired`，绝不静默当
     nop、也不伪造成功。
+  * SYSTEM 子集（本轮落地）：``fence``/``fence.i`` 在单 hart 顺序模型下作为无副
+    作用 nop 退休；``ecall`` 仅落地执行器建模的 system_reset ABI（a7==0x6758 → halt），
+    其余 a7 返回 ``False`` 交回原生（与 SPIKE「未知 ecall 抛错」同构）；CSR 读写位于寄存
+    器文件之外的独立地址空间，经鸭子类型**可选**探测机器的 ``csr_read``/``csr_write``
+    能力，机器未提供则该指令返回 ``False`` 回退原生（绝不假设机器有 CSR 而崩溃/伪造）。
   * 未 ``load_plugin`` 时 ``active_backend()`` 为 ``None``，``execute_or_default``
     恒走原生 —— 加载本插件与否都不改变任何现有执行行为（内核零改动）。
 
@@ -363,6 +369,127 @@ def _rem(i, m):
 def _remu(i, m):
     a, b = _u(_ra(m, i)), _u(_rb(m, i))
     _put(m, i, a if b == 0 else a % b); return True
+
+
+# ============================================================
+# RV32I —— SYSTEM 类：FENCE / ECALL / CSR（诚实边界见各处理器注释）
+# ============================================================
+
+#: sifive/QEMU 关停约定的 ecall ABI：a7 == 0x6758（SBI system_reset）。
+_SRST = 0x6758
+
+
+def _csr_io(m: MachineView):
+    """探测机器的 CSR 动作面；不提供则返回 ``None``（该 CSR 指令回退原生）。
+
+    CSR 是寄存器文件之外的独立地址空间，``MachineView`` 的最小动作面不含它，故经
+    鸭子类型**可选**探测：具备 ``csr_read``/``csr_write`` 的机器才由本插件执行 CSR
+    指令，否则返回 ``False`` 交回执行器原生（与隔离红线同构，不耦合任何执行器私有成员）。
+    """
+    rd = getattr(m, "csr_read", None)
+    wr = getattr(m, "csr_write", None)
+    if rd is None or wr is None:
+        return None
+    return rd, wr
+
+
+@_op("fence", "fence.i")
+def _fence(i, m):
+    """内存序提示：在单 hart、顺序执行的模型下无可观测副作用 → 作为 nop 退休。
+
+    注意：权威解释器 rv32sim 并**未实现** FENCE（遇 opcode 0x0F 直接抛错），故此指令
+    无 SPIKE 对拍基准，改由规格黄金锁断言「不改动任何寄存器 / pc / 内存」。"""
+    return True
+
+
+@_op("ecall")
+def _ecall(i, m):
+    """环境调用：仅落地执行器实际建模的 system_reset ABI（a7==0x6758 → halt）。
+
+    其余 a7 无既定 ABI → 返回 ``False`` 交回原生（与 SPIKE「未知 ecall 抛错」的显式
+    失败同构），绝不把未知 ecall 当 nop 静默吞掉。"""
+    if m.read_reg(17) & _M32 == _SRST:
+        m.halt(m.read_reg(10))
+        return True
+    return False
+
+
+@_op("csrrw")
+def _csrrw(i, m):
+    io = _csr_io(m)
+    if io is None:
+        return False
+    rdc, wrc = io
+    old = rdc(i.imm) & _M32
+    _put(m, i, old)
+    wrc(i.imm, _ra(m, i) & _M32)
+    return True
+
+
+@_op("csrrs")
+def _csrrs(i, m):
+    io = _csr_io(m)
+    if io is None:
+        return False
+    rdc, wrc = io
+    old = rdc(i.imm) & _M32
+    _put(m, i, old)
+    if i.rs1:                                  # rs1==x0 → 纯读（csrr），不写回
+        wrc(i.imm, (old | _ra(m, i)) & _M32)
+    return True
+
+
+@_op("csrrc")
+def _csrrc(i, m):
+    io = _csr_io(m)
+    if io is None:
+        return False
+    rdc, wrc = io
+    old = rdc(i.imm) & _M32
+    _put(m, i, old)
+    if i.rs1:
+        wrc(i.imm, (old & ~_ra(m, i)) & _M32)
+    return True
+
+
+@_op("csrrwi")
+def _csrrwi(i, m):
+    io = _csr_io(m)
+    if io is None:
+        return False
+    rdc, wrc = io
+    old = rdc(i.imm) & _M32
+    _put(m, i, old)
+    wrc(i.imm, i.rs1 & 0x1F)                    # uimm 在 rs1 字段（5 位）
+    return True
+
+
+@_op("csrrsi")
+def _csrrsi(i, m):
+    io = _csr_io(m)
+    if io is None:
+        return False
+    rdc, wrc = io
+    old = rdc(i.imm) & _M32
+    _put(m, i, old)
+    uimm = i.rs1 & 0x1F
+    if uimm:
+        wrc(i.imm, (old | uimm) & _M32)
+    return True
+
+
+@_op("csrrci")
+def _csrrci(i, m):
+    io = _csr_io(m)
+    if io is None:
+        return False
+    rdc, wrc = io
+    old = rdc(i.imm) & _M32
+    _put(m, i, old)
+    uimm = i.rs1 & 0x1F
+    if uimm:
+        wrc(i.imm, (old & ~uimm) & _M32)
+    return True
 
 
 class DynamicSemanticsPlugin(DynamicSemanticsBackend):

@@ -250,16 +250,16 @@ def test_dynamics_loaded_executes_and_unloaded_falls_back():
 
 
 def test_dynamics_honest_on_unwired_op():
-    """未落地语义（CSR/ECALL 等）：supports=False、回退原生、直接 execute 抛显式失败。"""
-    unwired = dyn.DecodedInstr("csrrw", rd=1, rs1=2, rs2=3, imm=0)
+    """未落地语义（mret/wfi 等系统指令）：supports=False、回退原生、直接 execute 抛显式失败。"""
+    unwired = dyn.DecodedInstr("mret", rd=1, rs1=2, rs2=3, imm=0)
     try:
         backend = dyn.load_plugin("dynamic")
         assert backend.supports(unwired) is False           # 不认领未接线的
-        assert "csrrw" not in backend.wired_ops()
+        assert "mret" not in backend.wired_ops()
         calls: list[str] = []
         handled = dyn.execute_or_default(
             unwired, object(), lambda i, mm: calls.append(i.op))
-        assert handled is False and calls == ["csrrw"]      # 回退执行器原生
+        assert handled is False and calls == ["mret"]       # 回退执行器原生
         with pytest.raises(DynamicSemanticsNotWired):       # 显式失败，不伪造成功
             backend.execute(unwired, object())
     finally:
@@ -295,6 +295,7 @@ class RefMachine:
     def __init__(self, pc=0):
         self.regs = [0] * 32
         self.mem: dict[int, int] = {}      # 绝对地址 -> 字节
+        self.csrs: dict[int, int] = {}     # CSR 地址 -> 32 位值（独立地址空间）
         self._pc = pc & 0xFFFFFFFF
         self.exit = None
 
@@ -323,6 +324,13 @@ class RefMachine:
 
     def halt(self, exit_code):
         self.exit = exit_code
+
+    # ---- CSR 动作面（插件经鸭子类型可选探测；仅本参照机器建模）----
+    def csr_read(self, addr):
+        return self.csrs.get(addr, 0) & 0xFFFFFFFF
+
+    def csr_write(self, addr, value):
+        self.csrs[addr] = value & 0xFFFFFFFF
 
 
 def _s32(x):
@@ -399,6 +407,21 @@ def _decode(w, pc):
         else:
             raise AssertionError(f"未知 funct7=0x{f7:02X}")
         return dyn.DecodedInstr(name, rd, rs1, rs2, pc=pc)
+    if op == 0x73:                                       # SYSTEM: ecall/ebreak/CSR
+        csr = (w >> 20) & 0xFFF                          # imm[11:0] = CSR 地址 / funct12
+        if f3 == 0:
+            name = {0: "ecall", 1: "ebreak"}.get(csr)
+            if name is None:
+                raise AssertionError(f"未知 SYSTEM funct12=0x{csr:03X}")
+            return dyn.DecodedInstr(name, 0, 0, 0, imm=csr, pc=pc)
+        if f3 == 4:
+            raise AssertionError("非法 CSR 编码 funct3=4")
+        name = {1: "csrrw", 2: "csrrs", 3: "csrrc",
+                5: "csrrwi", 6: "csrrsi", 7: "csrrci"}[f3]
+        return dyn.DecodedInstr(name, rd, rs1, imm=csr, pc=pc)
+    if op == 0x0F:                                       # MISC-MEM: fence / fence.i
+        name = {0: "fence", 1: "fence.i"}[f3]
+        return dyn.DecodedInstr(name, 0, 0, 0, imm=0, pc=pc)
     raise AssertionError(f"未知 opcode 0x{op:02X}")
 
 
@@ -549,12 +572,14 @@ def test_dynamics_rv32im_spike_parity_mem(name, word, seed, memseed, lo, hi):
 
 
 # ---- 规格黄金锁：SPIKE 未覆盖(半字访问 / mulh 族)与关键边界，手写期望值直锁 ----
-def _exec(op, rd=7, rs1=5, rs2=6, imm=0, pc=0x1000, regs=None, mem=None):
+def _exec(op, rd=7, rs1=5, rs2=6, imm=0, pc=0x1000, regs=None, mem=None, csrs=None):
     m = RefMachine(pc + 4)
     for idx, val in (regs or {}).items():
         m.write_reg(idx, val)
     for a, b in (mem or {}).items():
         m.mem[a] = b
+    for a, v in (csrs or {}).items():
+        m.csrs[a] = v
     assert dsp.PLUGIN.execute(dyn.DecodedInstr(op, rd, rs1, rs2, imm, pc), m) is True
     return m
 
@@ -596,6 +621,81 @@ def test_golden_branch_taken_vs_not():
     assert _exec("beq", regs={5: 5, 6: 6}, imm=0x10, pc=0x1000).pc() == 0x1004   # 未转移
     assert _exec("blt", regs={5: 0xFFFFFFFF, 6: 1}, imm=-0x10, pc=0x1000).pc() == 0xFF0
     assert _exec("bgeu", regs={5: 0xFFFFFFFF, 6: 1}, imm=0x10, pc=0x1000).pc() == 0x1010   # 无符号转移
+
+
+# ---- SYSTEM 规格黄金锁：CSR 读改写 / fence nop / ecall（SPIKE 未建模 CSR/FENCE，按规格直锁）----
+def test_dynamics_system_ops_wired():
+    ops = set(dsp.PLUGIN.wired_ops())
+    for need in ("fence", "fence.i", "ecall",
+                 "csrrw", "csrrs", "csrrc", "csrrwi", "csrrsi", "csrrci"):
+        assert need in ops, need
+
+
+def test_golden_csrrw_rmw():
+    m = _exec("csrrw", rd=7, rs1=5, imm=0x300, regs={5: 0xABCD}, csrs={0x300: 0x1111})
+    assert m.read_reg(7) == 0x1111          # rd = 旧值
+    assert m.csrs[0x300] == 0xABCD          # csr = rs1
+    m = _exec("csrrw", rd=7, rs1=0, imm=0x300, csrs={0x300: 0x9})   # rs1==x0 仍无条件写 0
+    assert m.csrs[0x300] == 0
+
+
+def test_golden_csrrs_csrrc_set_clear():
+    m = _exec("csrrs", rd=7, rs1=5, imm=0x300, regs={5: 0x0F}, csrs={0x300: 0xF0})
+    assert m.read_reg(7) == 0xF0 and m.csrs[0x300] == 0xFF
+    m = _exec("csrrc", rd=7, rs1=5, imm=0x300, regs={5: 0x0F}, csrs={0x300: 0xFF})
+    assert m.read_reg(7) == 0xFF and m.csrs[0x300] == 0xF0
+
+
+def test_golden_csrr_pure_read():
+    m = _exec("csrrs", rd=7, rs1=0, imm=0x300, csrs={0x300: 0x123})   # csrrs rd,csr,x0 == csrr
+    assert m.read_reg(7) == 0x123 and m.csrs[0x300] == 0x123         # 只读不写回
+
+
+def test_golden_csr_immediate_forms():
+    m = _exec("csrrwi", rd=7, rs1=5, imm=0x300, csrs={0x300: 0xEE})   # uimm=5
+    assert m.read_reg(7) == 0xEE and m.csrs[0x300] == 5
+    m = _exec("csrrsi", rd=7, rs1=0x1, imm=0x300, csrs={0x300: 0xF0})
+    assert m.csrs[0x300] == 0xF1
+    m = _exec("csrrci", rd=7, rs1=0x1, imm=0x300, csrs={0x300: 0xFF})
+    assert m.csrs[0x300] == 0xFE
+    m = _exec("csrrsi", rd=7, rs1=0, imm=0x300, csrs={0x300: 0xF0})   # uimm==0 不写
+    assert m.csrs[0x300] == 0xF0
+
+
+def test_golden_fence_is_noop():
+    for nm in ("fence", "fence.i"):
+        m = _exec(nm, regs={5: 0x99}, mem={_ADDR: 0x77})
+        assert m.read_reg(5) == 0x99 and m.read_reg(7) == 0
+        assert m.mem[_ADDR] == 0x77 and m.pc() == 0x1004            # 不改寄存器/内存/pc
+
+
+def test_golden_ecall_defers_unknown_abi():
+    m = RefMachine(0x1004)
+    m.write_reg(17, 0x1234)                                          # 非 system_reset
+    assert dsp.PLUGIN.execute(dyn.DecodedInstr("ecall", pc=0x1000), m) is False
+    assert m.exit is None                                            # 不静默 halt
+
+
+def test_csr_without_machine_capability_defers():
+    # 机器不提供 csr_read/csr_write → CSR 指令返回 False 回退原生，绝不崩溃/伪造
+    for nm in ("csrrw", "csrrs", "csrrc", "csrrwi", "csrrsi", "csrrci"):
+        assert dsp.PLUGIN.execute(
+            dyn.DecodedInstr(nm, rd=7, rs1=5, imm=0x300), object()) is False
+
+
+def test_dynamics_ecall_spike_parity():
+    """ecall system_reset：SPIKE（done=True）与插件（halt）均在收到 a7==0x6758 时停机。"""
+    word = 0x00000073                                                # ecall
+    instr = _decode(word, 0x1000)
+    assert instr.op == "ecall" and instr.op in dsp.PLUGIN.wired_ops()
+    seed = {17: 0x6758, 10: 0x7}
+    sim, _ret = _spike_run(word, seed, 0x1000)
+    m = RefMachine(0x1004)
+    for idx, val in seed.items():
+        m.write_reg(idx, val)
+    assert dsp.PLUGIN.execute(instr, m) is True
+    assert sim.done is True and m.exit == 0x7                        # 二者均停机
+    assert m.read_reg(17) == _u32(sim.x[17])                         # a7 保持
 
 
 # ============================================================

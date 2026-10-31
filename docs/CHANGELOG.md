@@ -153,6 +153,22 @@ P6c 代数数精确打印扩面·多根式域 + 高次纯根（扩展上方 P6 �
   sympy 精确求值做符号相等 + 数值吻合对拍，另锁扁平浮点回归与诚实 None 边界）。门面 `decorate_numeric`
   仍只作用扁平 double，二次路径逐字节不变。**内核与 `src/algebra/interface.py` 零改动**。全量门禁 4720/4720、失败 0。
 
+P6d 动态语义补全 SYSTEM 子集·CSR / FENCE / ECALL（在上方 P6b 的 RV32IM 之上，插件层新增系统类语义；
+口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第七节）：
+
+- **CSR 读改写语义**（`src/dynamics/dynamic_semantics_plugin.py`）：落地 `csrrw/csrrs/csrrc` 与
+  `csrrwi/csrrsi/csrrci` 六条（含 `csrr`＝`csrrs rd,csr,x0` 纯读特例）——rd 取旧值、按 swap/set/clear
+  回写寄存器文件之外的独立 CSR 地址空间。CSR 不在 `MachineView` 最小动作面内，故经**鸭子类型可选
+  探测**机器的 `csr_read`/`csr_write` 能力；机器未提供则该指令返回 False 回退原生，绝不假设机器有 CSR 而崩溃/伪造。
+- **FENCE 语义**：`fence`/`fence.i` 在单 hart 顺序执行模型下无可观副作用，作为 nop 退休。rv32sim 未实现
+  FENCE（遇 opcode 0x0F 直接抛错），无对拍基准→改由规格黄金锁断言不改寄存器/pc/内存。
+- **ECALL 语义**：仅落地执行器实际建模的 system_reset ABI（`a7==0x6758 → halt`，退出码取 `a0`），与
+  SPIKE 逐条对拍（两者收到该 a7 均停机）；其余 a7 无既定 ABI → 返回 False 交回原生，与 SPIKE「未知 ecall 抛错」同构。
+- **诚实边界**：`mret`/`wfi`/`ebreak` 等仍未接线 → `supports` 返回 False 回退原生。`tests/test_plugin_algebra_dynamics.py`
+  新增 9 项（6 条 CSR 读改写规格黄金 + csrr 纯读 + 立即数形态；fence 无副作用黄金；ecall 未知 a7 回退 + 机器无
+  CSR 能力回退；ecall system_reset 对 SPIKE 停机逐位对拍），单文件 541 项全绿。**内核、执行器与
+  `src/dynamics/interface.py` 零改动**。全量门禁 4729/4729、失败 0。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，
