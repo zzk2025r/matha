@@ -1,28 +1,25 @@
-"""Matha LLVM 后端：Matha AST → LLVM IR → 原生机器码。
+"""Matha LLVM 后端：Matha AST → LLVM IR 文本（外部工具链住在插件里）。
 
 架构：
-  1. Matha AST → Matha IR (中间表示)
-  2. Matha IR → LLVM IR (文本格式)
-  3. LLVM IR → 本机机器码 (通过 llc/clang subprocess)
-  4. 原生机器码 → 可调用函数 (通过 ctypes)
+  1. Matha AST → Matha IR（中间表示）—— 本模块
+  2. Matha IR → LLVM IR（文本格式）—— 本模块
+  3. LLVM IR → 本机可执行文件 —— `src/plugins/toolchain_llvm.py`
 
-性能目标：
-  - 算术表达式：接近 Python 原生速度
-  - 递归函数：通过 LLVM 尾递归消除 + 循环转换
-  - 数值循环：向量化 (SIMD)
+诚实边界（阶段 3 去依赖）：
+  * 本模块只做 **IR 文本生成**，不启动任何子进程；`llc`/`clang` 属外部工具链，
+    缺失即抛 `ToolchainUnavailable`，不再静默返回 `None`。
+  * 旧实现的第 4 步「`ctypes.CDLL(exe)` 取函数指针」属伪能力：`CDLL` 只能装载
+    动态库，而工具链产出的是 `.exe`，必然失败，失败又被 `except Exception:
+    return None` 吞掉。现在返回 exe 路径，由调用方显式决定是否运行。
+  * 内核主链的机器码发射只承认 `src.mbc.native` 一条真实路径。
 
-依赖：
-  - 可选：llvmlite (Python LLVM bindings)
-  - 必需：llc 或 clang (LLVM 工具链)
+依赖：仅标准库 + 可选插件 `src.plugins.toolchain_llvm`（需 llc/clang）。
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
-import subprocess
-import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -572,84 +569,46 @@ class LLVMIRGenerator:
 
 
 # ============================================================
-# LLVM 编译器 (llc/clang)
+# LLVM 编译器（委托给外部工具链插件）
 # ============================================================
 
 class LLVMCompiler:
-    """将 LLVM IR 编译为原生机器码。"""
+    """把 LLVM IR 交给外部 LLVM 工具链，返回真实产物路径。
+
+    与旧实现的行为差异（阶段 3 第 5/6 项，刻意为之）：
+      * 子进程不在本模块：`llc`/`clang` 调用下沉到 `src.plugins.toolchain_llvm`；
+      * 工具缺失或编译失败 → 抛 :class:`ToolchainUnavailable`（旧实现一路
+        `return None` + `except Exception: return None`，上层无法区分「没装」
+        与「编译错」，属静默失败）；
+      * 返回 exe 路径而不是 `ctypes` 函数指针（从 `.exe` 取符号本就不可行）。
+    """
 
     def __init__(self, toolchain: str = "clang") -> None:
         self._toolchain = toolchain
-        self._cache: dict[str, Callable] = {}
+        self._cache: dict[str, str] = {}
 
-    def compile(self, llvm_ir: str, func_name: str = "main") -> Callable | None:
-        """编译 LLVM IR 为原生函数。"""
-        # 检查缓存
+    def compile(self, llvm_ir: str, output_name: str = "main") -> str:
+        """LLVM IR 文本 → 本机可执行文件路径（失败即抛，不交伪产物）。"""
+        from src.plugins import toolchain_llvm   # 惰性：import 本模块不该拖入子进程
+
         cache_key = hashlib.sha256(llvm_ir.encode()).hexdigest()[:16]
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        cached = self._cache.get(cache_key)
+        if cached is not None and os.path.exists(cached):
+            return cached
 
-        try:
-            # 写入临时文件
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.ll', delete=False) as f:
-                f.write(llvm_ir)
-                ll_file = f.name
+        exe_file = toolchain_llvm.compile_llvm(llvm_ir, output_name)
+        if not exe_file or not os.path.exists(exe_file):
+            raise toolchain_llvm.ToolchainUnavailable(
+                f"工具链未产出可执行文件：{exe_file!r}（本模块不会伪造产物）")
+        self._cache[cache_key] = exe_file
+        return exe_file
 
-            # 编译为对象文件
-            obj_file = ll_file + '.o'
-            exe_file = ll_file + '.exe'
+    def available(self) -> dict[str, str | None]:
+        """外部工具 availability（诊断用，不启动进程）。"""
+        from src.plugins import toolchain_llvm
+        return toolchain_llvm.available()
 
-            # 使用 llc 编译
-            result = subprocess.run(
-                ['llc', '-O2', ll_file, '-o', obj_file],
-                capture_output=True, text=True, timeout=30
-            )
-
-            if result.returncode != 0:
-                # 回退到 clang
-                result = subprocess.run(
-                    ['clang', '-O2', '-c', ll_file, '-o', obj_file],
-                    capture_output=True, text=True, timeout=30
-                )
-
-            if result.returncode != 0:
-                os.unlink(ll_file)
-                return None
-
-            # 链接为可执行文件
-            result = subprocess.run(
-                ['clang', obj_file, '-o', exe_file],
-                capture_output=True, text=True, timeout=30
-            )
-
-            if result.returncode != 0:
-                os.unlink(ll_file)
-                os.unlink(obj_file)
-                return None
-
-            # 加载共享库
-            import ctypes
-            lib = ctypes.CDLL(exe_file if os.path.exists(exe_file) else obj_file)
-            func = getattr(lib, func_name, None)
-            if func:
-                self._cache[cache_key] = func
-                # 清理临时文件
-                for f in [ll_file, obj_file, exe_file]:
-                    if os.path.exists(f):
-                        os.unlink(f)
-                return func
-
-            os.unlink(ll_file)
-            os.unlink(obj_file)
-            return None
-
-        except FileNotFoundError:
-            # llc/clang 不可用，返回 None
-            return None
-        except Exception:
-            return None
-
-    def get_cached(self, cache_key: str) -> Callable | None:
+    def get_cached(self, cache_key: str) -> str | None:
         return self._cache.get(cache_key)
 
     @property
@@ -671,7 +630,7 @@ class LLVMHotJIT:
         self._tracker = {}
         self._threshold = threshold
         self._compiler = LLVMCompiler()
-        self._compiled: dict[str, Callable] = {}
+        self._compiled: dict[str, str] = {}
 
     def record(self, name: str) -> None:
         self._tracker[name] = self._tracker.get(name, 0) + 1
@@ -679,15 +638,16 @@ class LLVMHotJIT:
     def should_compile(self, name: str) -> bool:
         return self._tracker.get(name, 0) >= self._threshold
 
-    def compile_and_cache(self, name: str, llvm_ir: str) -> Callable | None:
-        if name in self._compiled:
-            return self._compiled[name]
-        func = self._compiler.compile(llvm_ir, name)
-        if func:
-            self._compiled[name] = func
-        return func
+    def compile_and_cache(self, name: str, llvm_ir: str) -> str:
+        """编译并缓存，返回产物 exe 路径（工具链缺失则抛，不返回 None）。"""
+        cached = self._compiled.get(name)
+        if cached is not None:
+            return cached
+        exe = self._compiler.compile(llvm_ir, name)
+        self._compiled[name] = exe
+        return exe
 
-    def get_compiled(self, name: str) -> Callable | None:
+    def get_compiled(self, name: str) -> str | None:
         return self._compiled.get(name)
 
     @property
@@ -711,10 +671,10 @@ def matha_to_llvm_ir(ast_node: Any, module_name: str = "matha_module") -> str:
     return generator.generate(ir_nodes)
 
 
-def compile_llvm_ir(llvm_ir: str, func_name: str = "main") -> Callable | None:
-    """编译 LLVM IR 为原生函数。"""
+def compile_llvm_ir(llvm_ir: str, output_name: str = "main") -> str:
+    """LLVM IR → 本机可执行文件路径（失败抛 `ToolchainUnavailable`）。"""
     compiler = LLVMCompiler()
-    return compiler.compile(llvm_ir, func_name)
+    return compiler.compile(llvm_ir, output_name)
 
 
 def create_hot_jit(threshold: int = 5) -> LLVMHotJIT:

@@ -1,6 +1,6 @@
 """正则库测试：引擎单元 + 解释器/VM 双端一致。
 
-引擎为 src/regexlib.py（可移植回溯实现），解释器（src/interp.py）与
+引擎为 src/kernel/regex_builtin.py（可移植回溯实现），解释器（src/interp.py）与
 M3V VM（src/mbc/vm.py）复用同一注册函数 `_register_regex_builtins`，
 故两端语义必须完全一致——本文件对每条用例同时跑两端并比对。
 """
@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src import regexlib as rx
+from src.kernel import regex_builtin as rx
 from src.interp import interpret
 from src.mbc.compiler import compile_source
 from src.mbc.vm import run_module

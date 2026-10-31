@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass, field
 
 from src.multi_lang_frontend import get_frontend
-from src.vm import MathaVM
+from src.plugins.legacy_mir_vm import MathaVM   # 归档后端：仅 MIR 直执需要（非主链）
 
 # ============================================================
 # 日志

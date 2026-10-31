@@ -1,0 +1,7 @@
+func 点积(a: List, b: List) -> Int = (a, b) => {
+  let rec step(i: Int, acc: Int) -> Int =
+    (i, acc) => (i >= len(a)) ? acc : step(i+1, acc + a[i] * b[i])
+  step(0, 0)
+}
+[点积([1,2,3],[4,5,6])]
+[点积([],[])]

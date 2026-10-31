@@ -160,10 +160,10 @@ package_matha_modules() {
         fi
     done
     
-    # 创建 __init__.py
-    cat > matha/__init__.py << 'EOF'
+    # 创建 __init__.py（版本号由唯一版本源注入，heredoc 需可展开）
+    cat > matha/__init__.py << EOF
 """Matha 数学计算库 - WebAssembly 版本"""
-__version__ = "4.4.16"
+__version__ = "${MATHA_VERSION}"
 EOF
 
     cat > matha/stdlib/__init__.py << 'EOF'
@@ -174,11 +174,11 @@ from . import probability_stats
 from . import graph
 EOF
 
-    # 创建打包清单
-    cat > package.json << 'EOF'
+    # 创建打包清单（版本号由唯一版本源注入）
+    cat > package.json << EOF
 {
   "name": "matha-wasm",
-  "version": "4.4.16",
+  "version": "${MATHA_VERSION}",
   "description": "Matha 数学计算库 WebAssembly 版本",
   "main": "matha/__init__.py",
   "pyodide": {
@@ -222,7 +222,7 @@ generate_build_config() {
     
     cat > "$WASM_DIR/build_config.json" << EOF
 {
-  "version": "4.4.16",
+  "version": "${MATHA_VERSION}",
   "pyodideVersion": "0.24.1",
   "pythonVersion": "$PYTHON_VERSION",
   "modules": $(printf '%s\n' "${MATHA_MODULES[@]}" | jq -R . | jq -s .),
@@ -309,12 +309,29 @@ clean_build() {
     log_info "✓ 清理完成"
 }
 
+# 从唯一版本源 src/__version__.py 解析版本号（禁止硬编，防止与主线漂移）
+resolve_version() {
+    local ver_file="$PROJECT_ROOT/src/__version__.py"
+    if [ ! -f "$ver_file" ]; then
+        log_error "未找到版本源: $ver_file"
+        exit 1
+    fi
+    MATHA_VERSION=$(grep -E '^__version__' "$ver_file" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "$MATHA_VERSION" ]; then
+        log_error "无法从 src/__version__.py 解析版本号，拒绝以硬编版本继续"
+        exit 1
+    fi
+    export MATHA_VERSION
+}
+
 # 主函数
 main() {
     local mode="${1:---full}"
-    
+
+    resolve_version
+
     log_info "========================================"
-    log_info "  Matha WebAssembly 打包工具 v4.4.16"
+    log_info "  Matha WebAssembly 打包工具 v${MATHA_VERSION}"
     log_info "========================================"
     log_info ""
     

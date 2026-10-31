@@ -29,7 +29,7 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.interp import Interpreter, MathaRuntimeError
+from src.interp import Interpreter, MathaRuntimeError  # 仅作类型标注与异常类型
 from src.selfupgrade import Sandbox, UpgradeResult
 
 # 支持的外部语言（小写规范化）

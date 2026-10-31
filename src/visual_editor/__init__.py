@@ -42,4 +42,5 @@ __all__ = [
     "get_executor",
 ]
 
-__version__ = "1.0.0"
+#: 单一版本源（阶段 5 第 1 项）：不再自带 1.0.0 这个孤立号
+from src.__version__ import __version__  # noqa: F401

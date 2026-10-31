@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import src.ast_nodes as ast_nodes  # noqa: F401
 from src.ast_nodes import *  # noqa: F401,F403
-from src.interp import Interpreter, MathaRuntimeError, interpret  # noqa: F401
+from src.interp import Interpreter, MathaRuntimeError, interpret  # noqa: F401  （兼容出口：遗留 API 门面，新代码请用 src.kernel.exec_api）
 from src.lexer import Lexer, TokenType  # noqa: F401
 
 # ── 核心：解析器 + 解释器 ───────────────────────────────────────────────────
@@ -120,7 +120,7 @@ try:
 except ImportError:
     pass
 try:
-    from src.mathlib import MathLib  # noqa: F401
+    from src.kernel.math_builtin import MathLib  # noqa: F401
 except ImportError:
     pass
 

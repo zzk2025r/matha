@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import auto
 from typing import Any
 
@@ -109,6 +107,9 @@ class Parser:
         self._in_let_value = False     # True when parsing the value expression of a let statement
         # 正在解析三元 ? / : 的分支：此语境下 [expr] 是列表字面量而非输出
         self._in_ternary_branch = False
+        # 正在解析 return 的操作数：此语境下 [expr] 是表达式（列表字面量），
+        # 而非输出命令——避免 return [x] 被误编译成 ReturnStmt(Output(x))。
+        self._in_return_value = False
         self._if_depth: int = 0        # 当前 if 表达式嵌套深度
         # 正在解析 @(a|b|c) 括号式设定：此语境 `|` 是**项分隔符**而非位或
         self._in_setup_paren = False
@@ -1553,6 +1554,18 @@ class Parser:
         finally:
             self._in_ternary_branch = saved
 
+    def _parse_return_value(self):
+        """解析 `return` 的操作数：此语境下的 `[expr]`（含单元素 `[x]`）是
+        表达式位置的列表字面量，而非输出命令。与三元分支 / 箭头 lambda
+        体同口径，避免 `return [x]` 被误编译成 ReturnStmt(Output(x))（既打印
+        又返回裸值）。裸块尾 `[x]`（无 return）不受影响，仍为输出命令。"""
+        saved = self._in_return_value
+        self._in_return_value = True
+        try:
+            return self._parse_expr()
+        finally:
+            self._in_return_value = saved
+
     def _parse_expr(self, stop_at_comma: bool = False):
         """<expr> = <or_expr> , [ ";" , <expr> ]* （支持分号分隔的表达式序列）
 
@@ -1752,15 +1765,23 @@ class Parser:
         if self._check(TokenType.OP_ASSIGN, TokenType.OP_NEQ):
             op = self._advance().value
             # 处理连续等号：= = → ==（等于比较）
+            is_assign = False
             if op == "=" and self._check(TokenType.OP_ASSIGN):
                 self._advance()
                 op = "=="
-            # 在 lambda 体内比较语境中，= 作为比较运算符，右操作数用 _parse_set_expr
-            # 在语句层，= 作为赋值运算符，右操作数用 _parse_expr 以支持三元表达式
-            if self._in_lambda_rel:
-                right = self._parse_set_expr()
-            else:
+            elif op == "=" and not self._in_lambda_rel:
+                # 单等号且非 lambda 比较语境 → 赋值
+                is_assign = True
+            # 赋值（单 =）：右值用 _parse_expr，使绑定值能整体纳入三元
+            #   （m = 3 > 2 ? 100 : 200 → Binding(m, IfExpr(...)))。
+            # 比较（== != 及 lambda 体内的 =）：右操作数用 _parse_set_expr，
+            #   与 > < >= <= 同口径，使后续 ? 绑定到「整个比较」而非被吞进右操作数
+            #   （a == b ? x : y → (a==b) ? x : y）。此前 == / != 误用 _parse_expr，
+            #   会把三元贪心吞进右操作数，令 3 == 3 ? 100 : 200 误析为 3 == (3 ? ...)。
+            if is_assign:
                 right = self._parse_expr()
+            else:
+                right = self._parse_set_expr()
             return ast.BinaryOp(op=op, left=left, right=right)
         # → 右箭头：等价于 -> 但作为比较运算符（a → b）
         if self._check(TokenType.OP_ARROW_FW):
@@ -2389,6 +2410,10 @@ class Parser:
                 return self._parse_list_literal()
             # 三元 ? / : 分支：此语境 [expr] 为列表字面量（含单元素 [x]）
             if self._in_ternary_branch:
+                return self._parse_list_literal()
+            # return 操作数语境：`return [x]` 中的 [x] 为列表字面量（表达式），
+            # 而非输出命令——修复单元素列表无法作为返回值的语句位陷阱。
+            if getattr(self, '_in_return_value', False):
                 return self._parse_list_literal()
             # 绑定右值语境：opt = [...] 中的 [ 应解析为列表
             if getattr(self, '_in_bind_value', False):
@@ -3135,7 +3160,7 @@ class Parser:
             if (self._is_stmt_separator()
                     or (self._check(TokenType.SYMBOL) and self._current().value == ";")):
                 return ast.ReturnStmt(value=None)
-            return ast.ReturnStmt(value=self._parse_expr())
+            return ast.ReturnStmt(value=self._parse_return_value())
         # break / continue — 中断/跳过当前循环迭代
         if tok.type == TokenType.KW_BREAK:
             self._advance()
@@ -3964,7 +3989,7 @@ class Parser:
             if (self._is_stmt_separator()
                     or (self._check(TokenType.SYMBOL) and self._current().value == ";")):
                 return ast.ReturnStmt(value=None)
-            return ast.ReturnStmt(value=self._parse_expr())
+            return ast.ReturnStmt(value=self._parse_return_value())
         # break / continue — 中断/跳过当前循环迭代
         if tok.type == TokenType.KW_BREAK:
             self._advance()
@@ -4376,88 +4401,12 @@ def parse_file(path: str) -> ast.Program:
 
 
 # ============================================================
-# v2.5 ThreadPoolExecutor 并行解析（线程池复用，解决 P0 瓶颈）
+# 并行批量解析：已移出内核（重构阶段 2 第 5 项）
 # ============================================================
 #
-# 设计原则：
-#   1. 固定大小线程池（max_workers=16），避免动态创建线程的开销
-#   2. 线程池全局单例，跨调用复用
-#   3. 任务队列背压：超出队列容量时拒绝新任务
-#   4. 优雅关闭：shutdown(wait=True) 等待所有任务完成
-#
-# 与 v2.4 ProcessPoolExecutor 对比：
-#   - v2.4：进程池绕过 GIL，但进程创建/通信开销大（~200ms/进程）
-#   - v2.5：线程池无跨进程开销，但受 GIL 限制（regex 释放 GIL 可并行）
-#   - 适用场景：
-#     * v2.4 适合 CPU 密集型、无 GIL 释放的操作
-#     * v2.5 适合 I/O 密集型、regex 释放 GIL 的操作
-# ============================================================
+# 本模块是内核的一部分，必须单线程确定性：递归下降解析器读的是进程级的
+# `features` 开关与 `custom_ops` 注册表，多线程并发会破坏「同一份源码 →
+# 同一棵 AST」的可复现性；`threading` / `concurrent.futures` 也在内核 import
+# 白名单之外（由 `scripts/dep_audit.py` + `tests/test_kernel_purity.py` 把守）。
+# 需要并行吞吐的调用方请显式 `from src.plugins.parallel_parser import parse_batch`。
 
-_parse_pool_lock = threading.Lock()
-_parse_pool: ThreadPoolExecutor | None = None
-# 自适应：根据设备 CPU 核心数决定线程数（可通过 MATHA_THREAD_WORKERS 环境变量覆盖）
-from src.device_config import get_config as _get_device_config
-
-_MAX_WORKERS = _get_device_config().thread_workers
-
-
-def _parse_worker(source: str) -> ast.Program:
-    """工作线程执行的单条解析任务。"""
-    return Parser(source).parse()
-
-
-def parse_batch(
-    sources: list[str],
-    max_workers: int = _MAX_WORKERS,
-) -> list[ast.Program]:
-    """批量并行解析 Matha 源码（v2.5 线程池版本）。
-
-    参数:
-        sources: 待解析的源码列表
-        max_workers: 并发线程数（默认 16，受 GIL 限制不建议超过 32）
-
-    返回:
-        与 sources 顺序对应的 AST 列表（失败的返回空 Program）
-    """
-    if not sources:
-        return []
-
-    executor = _get_or_create_pool(max_workers)
-    futures = {executor.submit(_parse_worker, src): i for i, src in enumerate(sources)}
-    results: list[ast.Program | None] = [None] * len(sources)
-
-    for future in as_completed(futures, timeout=60):
-        idx = futures[future]
-        try:
-            results[idx] = future.result(timeout=30)
-        except Exception as e:
-            logger.error("线程解析失败 (index %d): %s", idx, e)
-            results[idx] = ast.Program()
-
-    return [r for r in results if r is not None]
-
-
-def _get_or_create_pool(max_workers: int) -> ThreadPoolExecutor:
-    """获取或创建全局线程池（线程安全）。"""
-    global _parse_pool
-    with _parse_pool_lock:
-        if _parse_pool is None or _parse_pool._shutdown:
-            _parse_pool = ThreadPoolExecutor(
-                max_workers=max(max_workers, _MAX_WORKERS),
-                thread_name_prefix="matha-parser",
-            )
-        return _parse_pool
-
-
-def shutdown_parsers(wait: bool = True) -> None:
-    """关闭解析器线程池。"""
-    global _parse_pool
-    with _parse_pool_lock:
-        if _parse_pool:
-            _parse_pool.shutdown(wait=wait)
-            _parse_pool = None
-
-
-# ============================================================
-# v2.4 遗留：ProcessPoolExecutor（供对比测试使用）
-# ============================================================

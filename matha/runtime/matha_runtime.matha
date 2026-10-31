@@ -1,0 +1,96 @@
+(* ============================================================
+   Matha 原生运行时引擎 — 标准数学库
+   ============================================================
+   宿主内建（mathlib）已提供通用函数：
+     sin cos tan asin acos atan atan2 sinh cosh tanh
+     exp log log10 log2 sqrt pow abs floor ceil round trunc
+     max min sum deg2rad rad2deg sign hypot
+   本模块用纯 Matha 实现宿主缺失的【组合数学 / 数论】函数，
+   并汇总导出为内建函数表，供 VM 与自举运行时注册使用。
+   ============================================================ *)
+
+module 运行时引擎 {
+
+  (* ===== 数学常量（大写别名；宿主常量为小写 pi/e/tau/phi）===== *)
+  let PI = 3.141592653589793
+  let E  = 2.718281828459045
+  let TAU = 6.283185307179586
+  let PHI = 1.618033988749895
+  let LN2 = 0.6931471805599453
+
+  (* ===== 组合数学 ===== *)
+
+  (* 阶乘 n! ：负数约定返回 0 *)
+  func factorial(n: Int) -> Int = (n) =>
+    if n < 0 then 0
+    else
+      let rec _iter(k: Int, acc: Int) -> Int =
+        if k <= 1 then acc
+        else _iter(k - 1, acc * k)
+      in _iter(n, 1)
+
+  (* 排列数 P(n, r) = n! / (n-r)! *)
+  func perm(n: Int, r: Int) -> Int = (n, r) =>
+    if r > n or r < 0 then 0
+    else
+      let rec _iter(k: Int, acc: Int) -> Int =
+        if k >= r then acc
+        else _iter(k + 1, acc * (n - k))
+      in _iter(0, 1)
+
+  (* 组合数 C(n, r) = n! / (r! (n-r)!) ，递推 C(k+1)=C(k)*(n-k)/(k+1) *)
+  func comb(n: Int, r: Int) -> Int = (n, r) =>
+    if r > n or r < 0 then 0
+    else
+      let r2 = if r < n - r then r else n - r in
+      let rec _iter(k: Int, acc: Int) -> Int =
+        if k >= r2 then acc
+        else _iter(k + 1, acc * (n - k) / (k + 1))
+      in _iter(0, 1)
+
+  (* 最大公约数 gcd(a, b)（欧几里得算法）*)
+  func gcd(a: Int, b: Int) -> Int = (a, b) =>
+    let aa = abs(a) in
+    let bb = abs(b) in
+    let rec _iter(x: Int, y: Int) -> Int =
+      if y = 0 then x
+      else _iter(y, x % y)
+    in _iter(aa, bb)
+
+  (* ===== 数论 ===== *)
+
+  (* 素数判定 *)
+  func is_prime(n: Int) -> Bool = (n) =>
+    if n < 2 then 假
+    else if n = 2 then 真
+    else if n % 2 = 0 then 假
+    else
+      let rec _check(k: Int) -> Bool =
+        if k * k > n then 真
+        else if n % k = 0 then 假
+        else _check(k + 2)
+      in _check(3)
+
+  (* 埃拉托色尼筛法：返回 2..n 中所有素数构成的列表 *)
+  func sieve(n: Int) -> List = (n) =>
+    let rec _collect(k: Int, acc: List) -> List =
+      if k > n then acc
+      else if is_prime(k) then _collect(k + 1, acc + [k])
+      else _collect(k + 1, acc)
+    in _collect(2, [])
+
+  (* ===== 导出表：宿主通用函数 + Matha 数论函数 ===== *)
+  let 内建函数表: Dict = {
+    "sin": sin, "cos": cos, "tan": tan,
+    "asin": asin, "acos": acos, "atan": atan, "atan2": atan2,
+    "sinh": sinh, "cosh": cosh, "tanh": tanh,
+    "exp": exp, "log": log, "log10": log10, "log2": log2,
+    "sqrt": sqrt, "pow": pow,
+    "abs": abs, "floor": floor, "ceil": ceil, "trunc": trunc, "round": round,
+    "max": max, "min": min, "sum": sum,
+    "deg2rad": deg2rad, "rad2deg": rad2deg,
+    "sign": sign, "hypot": hypot,
+    "factorial": factorial, "perm": perm, "comb": comb,
+    "gcd": gcd, "is_prime": is_prime, "sieve": sieve,
+  }
+}

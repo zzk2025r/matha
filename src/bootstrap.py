@@ -493,7 +493,7 @@ class MathaBootstrap:
             c_code = self.compile(source, target="c")
             return c_code
         except Exception:
-            from src.interp import interpret
+            from src.diag_backends import run_legacy as interpret
             out, _ = interpret(source)
             return "\n".join(str(item) for item in out)
 
@@ -547,7 +547,7 @@ def bootstrap_compile(source: str, target: str = "c", optimize: bool = True) -> 
 def compile_and_benchmark() -> dict:
     """编译并基准测试。"""
     from src.compiler.matha_cc import matha_to_llvm
-    from src.interp import Interpreter
+    from src.diag_backends import new_interpreter as Interpreter
     from src.parser import parse as interp_parse
 
     results = {}

@@ -445,9 +445,9 @@ def test_engine_deep_matha_recursion_bypasses_recursionlimit():
     )
 
     def _run(engine_on, n):
-        features.clear_feature()
-        if engine_on:
-            features.set_feature("STACK_ENGINE", True)
+        # 进程内覆盖优先于环境变量，显式置 False/True 以隔离
+        # 外部 MATHA_FEATURE_STACK_ENGINE 的环境影响。
+        features.set_feature("STACK_ENGINE", bool(engine_on))
         old = sys.getrecursionlimit()
         sys.setrecursionlimit(300)
         try:

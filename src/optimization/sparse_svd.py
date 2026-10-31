@@ -42,7 +42,7 @@ class SVDResult:
     U: Matrix          # 左奇异向量
     S: Matrix          # 奇异值矩阵
     Vt: Matrix         # 右奇异向量转置
-    method: str          # 使用的算法 ('numpy', 'sparse', 'standard')
+    method: str          # 使用的算法 ('sparse', 'standard'；'numpy' 已于阶段 3 移除)
     computation_time_ms: float = 0.0
     sparsity: float = 0.0
 
@@ -156,7 +156,7 @@ class SparseSVDOptimizer:
 
         Args:
             A: m×n 矩阵
-            use_numpy: 是否优先使用 NumPy
+            use_numpy: 已废弃（阶段 3 去依赖后 NumPy 后端不存在）；任意取值均走内核实现
             force_sparse: 强制使用稀疏算法
 
         Returns:
@@ -189,24 +189,13 @@ class SparseSVDOptimizer:
             method = 'sparse'
             self._counters['sparse_svd'] += 1
         elif use_numpy:
-            try:
-                import numpy as np
-                A_np = np.array(A.data, dtype=float)
-                U_np, s_np, Vt_np = np.linalg.svd(A_np)
-
-                from src.stdlib.linear_algebra import Matrix
-                U = Matrix(U_np.tolist())
-                S = Matrix(np.diag(s_np).tolist())
-                Vt = Matrix(Vt_np.tolist())
-
-                method = 'numpy'
-                self._counters['numpy_svd'] += 1
-                logger.info(f"使用 NumPy SVD: 形状={A.shape}")
-            except ImportError:
-                logger.warning("NumPy 未安装，使用标准 SVD")
-                U, S, Vt = svd_decompose(A)
-                method = 'standard'
-                self._counters['standard_svd'] += 1
+            # 阶段 3：核心零第三方依赖。NumPy 后端已移除（不是「装不上就静默降级」，
+            # 而是从此不再把矩阵交给外部 BLAS）。保留参数只为旧调用方不断，
+            # 实际走内核纯 Python 单侧 Jacobi 实现，method 如实记为 'standard'。
+            logger.info("use_numpy 已废弃：NumPy 后端已移出主链，改用内核纯 Python SVD")
+            U, S, Vt = svd_decompose(A)
+            method = 'standard'
+            self._counters['standard_svd'] += 1
         else:
             U, S, Vt = svd_decompose(A)
             method = 'standard'

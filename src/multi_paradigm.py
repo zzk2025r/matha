@@ -131,7 +131,7 @@ class FunctionalEngine:
                 return func(*func_args)
             # FFI 函数查找（如 sin, cos, sqrt 等）
             try:
-                from src.ffi import get_ffi
+                from src.plugins.ffi import get_ffi
                 ffi = get_ffi()
                 if ffi.is_registered(op):
                     return ffi.call(op, *func_args)

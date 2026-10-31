@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from src import ast_ext, custom_ops
@@ -36,16 +37,36 @@ class _Scope:
     """词法作用域：name -> (slot, boxed)。
 
     is_main=True 表示模块主码作用域：main_frame 无局部槽数组，
-    所有绑定/临时槽一律落全局（STORE_GLOBAL/LOAD_GLOBAL）。"""
-    __slots__ = ("parent", "names", "nslots", "is_main")
+    所有绑定/临时槽一律落全局（STORE_GLOBAL/LOAD_GLOBAL）。
 
-    def __init__(self, parent: _Scope | None, is_main: bool = False):
+    leak=True 用于 try/catch/finally 的 thunk 作用域：块内**具名绑定**同样落全局
+    （与遗留解释器 `self.env` 共享语义一致，见 `_compile_thunk`），但**编译器
+    临时槽**仍是本帧局部槽位，故 `is_main` 与 `binds_global` 必须区分开。
+    """
+    __slots__ = ("parent", "names", "nslots", "is_main", "leak")
+
+    def __init__(self, parent: _Scope | None, is_main: bool = False,
+                 leak: bool = False):
         self.parent = parent
         self.names: dict[str, tuple[int, bool]] = {}
         self.nslots = 0
         self.is_main = is_main
+        self.leak = leak
+
+    @property
+    def binds_global(self) -> bool:
+        """本作用域的具名绑定是否落全局（STORE_GLOBAL）。临时槽不受此影响。"""
+        return self.is_main or self.leak
 
     def declare(self, name: str, boxed: bool = False) -> int:
+        if self.leak:
+            # 泄漏作用域不记录具名绑定：读写一律沿父链落到全局，
+            # 记录局部槽反而会让读指令取到从未写入的槽位。
+            return -1
+        return self.declare_local(name, boxed=boxed)
+
+    def declare_local(self, name: str, boxed: bool = False) -> int:
+        """无条件分配并记录本帧局部槽位（形参、编译器临时槽）。"""
         slot = self.nslots
         self.nslots += 1
         self.names[name] = (slot, boxed)
@@ -163,6 +184,64 @@ def _fold_bin(op: str, left, right):
     return _NO_FOLD
 
 
+# 柯里化 VM 内建的固定 arity（由 `_curry2/_curry3` 注册）。
+# 与 matha/compiler_matha.matha 的 `_预扫元数` 初始表逐项同值——两侧任一
+# 改动都必须同步另一侧，否则宿主/自举编译器产出的字节码不再定点相等。
+# 安全前提：这四个名字不得在模块内被 `let`/形参重绑成其他 arity 的值（全仓库
+# .matha 语料实测零重绑；模块自己的 `func range(...)` 之类定义由 FuncDef 扫描
+# 覆盖本表，以用户声明为准）。
+_CURRIED_BUILTIN_ARITY = {"get": 2, "append": 2, "slice": 3, "range": 2}
+
+# b09 语法糖融合（已从 P4 休眠开关转正，现为默认路径）：`for` 语法糖与列表推导
+# 中手写的 get(xs)(i) / append(res)(e) 在**有效元数匹配**时融成单条 CALL N（判据
+# self._fn_arities.get(name)==实参数，与通用 FuncApp 完全应用同源）。自举编译器
+# （matha/compiler_matha.matha）的 _for循环码/_发射集合理解 用同值的 _查元数(表,name)
+# 做同样的融合判定，两侧形状一致 → stage2↔stage3 定点仍成立（见
+# tests/test_curried_builtin_paths.py 与 docs/KNOWN_ISSUES.md 6a）。
+
+# sys_env 编译期常量折叠（**宿主编译器独有能力**，非自举/native 的 OS 能力）：
+# `sys_env("KEY", "默认")` 的字面量键经宿主 os.environ 折叠为 PUSH_CONST，运行期
+# 零开销、native 无需 GetEnvironmentVariableW。纯 Matha 自举编译器无 OS 环境入口，
+# 故折叠只在宿主侧发生；因任何定点/自举语料都不得出现 sys_env（由防呆锁强制），
+# 折叠永不介入 stage2↔stage3 比对，双侧一致性不受影响（见 docs/KNOWN_ISSUES.md 6a）。
+
+
+def _fold_sys_env(callee, args):
+    """`sys_env(字面量 key[, 字面量默认])` 的编译期折叠：命中返回字符串值，
+    否则返回 None（非调用/非字面量参——拒绝静默猜测，折叠失败宁可保持原发射）。
+
+    VM 路径的 env 读取必经宿主（Python 进程），这就是「编译期门控」与
+    「切断宿主」不可兼得的定论：折叠把运行期查询消灭在编译期，native
+    因此无需 GetEnvironmentVariableW，_APIS 封闭基线不动。
+    """
+    if not (isinstance(callee, ast.Variable) and callee.name == "sys_env"):
+        return None
+    if not (1 <= len(args) <= 2 and isinstance(args[0], ast.StringLit)):
+        return None
+    if len(args) == 2 and not isinstance(args[1], ast.StringLit):
+        return None
+    default = args[1].value if len(args) == 2 else ""
+    return os.environ.get(args[0].value, default)
+
+
+def _const_expr_value(node):
+    """编译期常量求值：字面量，以及 `sys_env(字面量[, 字面量])` 折叠命中的值。
+
+    命中返回 (True, 值, is_folded)，否则 (False, None, False)。只接受无副作用的
+    节点：变量、普通函数调用、算术复合均不碰。is_folded 标记该常量是否来自 sys_env
+    折叠——恒定条件剪枝只处理**折叠驱动**的比较，纯字面量比较不剪，从而与不折叠、
+    不剪枝的自举侧保持逐字节一致（自举编译器从不剪恒定条件）。"""
+    if isinstance(node, (ast.StringLit, ast.IntegerLit, ast.FloatLit, ast.BoolLit)):
+        return (True, node.value, False)
+    if isinstance(node, ast.FuncApp):
+        callee, args = _flatten_call(node)
+        if isinstance(callee, ast.Variable) and callee.name == "sys_env":
+            v = _fold_sys_env(callee, args)
+            if v is not None:
+                return (True, v, True)
+    return (False, None, False)
+
+
 def _scan_fn_arities(program) -> dict[str, int]:
     """预扫描所有顶层 FuncDef 的 name -> arity（与声明顺序无关）。
 
@@ -213,6 +292,15 @@ class Compiler:
         # `？` 公式模式库 + 已命中的具体公式（供诊断）
         self.formulas = _fs.FormulaLibrary()
         self.formula_matches: list = []
+        # 领域插件契约（阶段 1 第 4 项）：由宿主注入，内核自身不 import 插件层。
+        # plugin_index: 符号名 -> 声明该符号的插件名列表。引用未加载领域的符号时，
+        # 编译期即报明确诊断并列出候选插件（取代旧的「静默全量注册」）。
+        # 默认 None → 不检查，既有行为不变。
+        self.plugin_index: dict[str, list[str]] | None = None
+        # domain_aliases: 写法别名（中文名 / 模块名）-> 插件唯一名。`@：【加载领域】，X`
+        # 里的 X 可以是中文，而已加载集要能跟 plugin_index 的归属名对上。
+        self.domain_aliases: dict[str, str] | None = None
+        self.loaded_domains: set[str] = set()
 
     # ---- 常量池 ----
     def const(self, value) -> int:
@@ -224,7 +312,13 @@ class Compiler:
 
     # ---- 入口 ----
     def compile_program(self, program: ast.Program) -> MModule:
-        self._fn_arities = _scan_fn_arities(program)
+        # 元数表 = 柯里化 VM 内建的固定 arity + 顶层 FuncDef 的 arity（后者覆盖
+        # 前者，故模块自己定义了同名 `range`/`get` 时以用户声明为准）。两者合流
+        # 后，`get(xs)(i)` 这类完全应用的内建调用融成单条 CALL N（基准 b06 实测
+        # 降 23%）。该表必须与 Matha 自举编译器 `matha/compiler_matha.matha` 的
+        # `_预扫元数` **逐项同值**，否则 stage2↔stage3 定点会红（见
+        # tests/test_curried_builtin_paths.py 与 tests/test_mbc_bootstrap.py）。
+        self._fn_arities = {**_CURRIED_BUILTIN_ARITY, **_scan_fn_arities(program)}
         # `？` 公式模式库：与解释器**同源同序**，故编译期的「是否命中模式」
         # 判定与解释器运行期判定结果一致。
         self.formulas = _fs.FormulaLibrary()
@@ -305,7 +399,10 @@ class Compiler:
             pass  # 运行时结构体即 dict，构造子（如 做Token）直接产出 dict
         elif isinstance(decl, ast.Output):
             if decl.expr is not None:
-                self._emit_expr(decl.expr, _Scope(None), code)
+                # 顶层输出表达式在主帧求值（main_frame.locals 为空），故作用域
+                # 必须标 is_main=True：否则表达式内任何临时槽（列表推导/内联 try
+                # 等经 `_alloc_temp`）会落 STORE_LOCAL，运行期越界。
+                self._emit_expr(decl.expr, _Scope(None, is_main=True), code)
                 code.append((OP.OUTPUT,))
         elif isinstance(decl, ast.OutputTrail):
             if getattr(decl, "output", None) is not None:
@@ -495,7 +592,7 @@ class Compiler:
                          and s.op == "=" and isinstance(s.left, ast.Variable))
             if is_assign and not (last and leave_last):
                 self._emit_expr(s.right, scope, code)
-                if scope.is_main:
+                if scope.binds_global:
                     code.append((OP.STORE_GLOBAL, self.sconst(s.left.name)))
                 else:
                     slot = self._declare_slot(scope, s.left.name)
@@ -547,13 +644,18 @@ class Compiler:
             self._emit_expr(node.value, scope, code)
             tgt = node.target
             name = tgt.name if isinstance(tgt, ast.Variable) else str(tgt)
-            slot = self._declare_slot(scope, name)
-            code.append((OP.STORE_LOCAL, slot))
+            if scope.binds_global:
+                # main / try 块泄漏作用域：绑定落全局（无局部槽可用）
+                code.append((OP.STORE_GLOBAL, self.sconst(name)))
+            else:
+                slot = self._declare_slot(scope, name)
+                code.append((OP.STORE_LOCAL, slot))
         elif isinstance(node, ast.LetTupleBinding):
             self._emit_expr(node.value, scope, code)
-            if scope.is_main:
+            if scope.binds_global:
                 for nm in node.names:
-                    scope.declare(nm, boxed=False)
+                    if not scope.leak:
+                        scope.declare(nm, boxed=False)
                 code.append((OP.UNPACK_SEQ, len(node.names)))
                 for nm in reversed(node.names):
                     code.append((OP.STORE_GLOBAL, self.sconst(nm)))
@@ -568,10 +670,16 @@ class Compiler:
             code.append((OP.POP,))
 
     def _declare_slot(self, scope: _Scope, name: str) -> int:
-        """块内绑定：已在当前帧声明则复用槽位（循环/分支重复赋值），否则新声明。"""
+        """块内绑定：已在当前帧声明则复用槽位（循环/分支重复赋值），否则新声明。
+
+        调用方必须先判 `scope.binds_global`；泄漏作用域无局部槽可用。"""
         kind, depth, slot, boxed = scope.resolve(name)
         if kind == "global":
-            return scope.declare(name)
+            slot = scope.declare(name)
+            if slot < 0:
+                raise RuntimeError(
+                    f"字节码编译：泄漏作用域不应走局部槽声明路径（{name}）")
+            return slot
         return slot
 
     def _alloc_temp(self, scope: _Scope, hint: str):
@@ -580,7 +688,8 @@ class Compiler:
         if scope.is_main:
             scope.nslots += 1
             return ("g", f"__{hint}_{self._lam_seq}_{scope.nslots}")
-        return ("l", scope.declare(hint))
+        # 临时槽永远是本帧局部存储（leak 作用域下也不落全局）
+        return ("l", scope.declare_local(hint))
 
     def _store_name(self, code: list, scope: _Scope, name: str) -> None:
         """把栈顶值写回具名变量（global / local / boxed local 皆可）。"""
@@ -605,6 +714,25 @@ class Compiler:
         else:
             code.append((OP.STORE_LOCAL, t[1]))
 
+    def _constant_branch_pick(self, cond):
+        """恒定条件识别（折叠驱动）：`==`/`!=` 两侧均为常量，且**至少一侧来自
+        sys_env 折叠**。命中返回 (True, 真假值)，未命中 (False, None)。
+        纯字面量比较不剪（is_folded 双侧皆 False）——自举侧从不剪恒定条件，
+        只有折叠驱动的比较才可能只存在于宿主侧，故限定于此可保证两侧一致。
+        只处理单比较、不递归布尔代数——折叠面越大同步面越重。"""
+        if not (isinstance(cond, ast.BinaryOp) and cond.op in ("==", "!=")):
+            return (False, None)
+        hl, l, fl = _const_expr_value(cond.left)
+        hr, r, fr = _const_expr_value(cond.right)
+        if not (hl and hr):
+            return (False, None)
+        if not (fl or fr):
+            return (False, None)
+        if type(l) is not type(r):
+            return (False, None)
+        eq = l == r
+        return (True, eq if cond.op == "==" else not eq)
+
     def _emit_if_stmt(self, stmt, scope: _Scope, code: list,
                       leave_value: bool = False) -> None:
         """if { } / if/elif/else 链：块在当前帧编译（绑定经同一帧槽位，块后可见）。
@@ -619,6 +747,21 @@ class Compiler:
             conditions = stmt.conditions
             blocks = stmt.blocks
             else_block = stmt.else_block
+        # 折叠驱动的恒定条件剪枝：条件因 sys_env 折叠而恒定时，只发射选中分支（含带
+        # 否则 的两臂形态：这正是 `if sys_env("…","0") == "1" { 快路径 } 否则 { 原路径 }`）。
+        # 折叠无运行期副作用，剪枝语义成立；纯字面量比较不剪（与不剪枝的自举侧一致）。
+        if len(conditions) == 1:
+            hit, pick = self._constant_branch_pick(conditions[0])
+            if hit:
+                if pick:
+                    self._emit_block(blocks[0], scope, code,
+                                     leave_last=leave_value)
+                elif else_block is not None:
+                    self._emit_block(else_block, scope, code,
+                                     leave_last=leave_value)
+                elif leave_value:
+                    code.append((OP.PUSH_NULL,))
+                return
         end_jumps = []
         for cond, blk in zip(conditions, blocks):
             self._emit_expr(cond, scope, code)
@@ -670,7 +813,7 @@ class Compiler:
         self._emit_expr(stmt.iterable, scope, code)
         xs_t = self._alloc_temp(scope, "for_xs")
         i_t = self._alloc_temp(scope, "for_i")
-        if scope.is_main:
+        if scope.binds_global:
             var_ts = [("g", nm) for nm in names]
         else:
             var_ts = [("l", self._declare_slot(scope, nm)) for nm in names]
@@ -688,11 +831,7 @@ class Compiler:
         jz = len(code)
         code.append((OP.JZ, 0))
         # elem = get(xs)(i)，多变量则 UNPACK_SEQ 解构
-        code.append((OP.LOAD_GLOBAL, self.sconst("get")))
-        self._load_temp(code, xs_t)
-        code.append((OP.CALL, 1))
-        self._load_temp(code, i_t)
-        code.append((OP.CALL, 1))
+        self._emit_curried_builtin("get", [xs_t, i_t], code)
         if len(var_ts) == 1:
             self._store_temp(code, var_ts[0])
         else:
@@ -714,13 +853,107 @@ class Compiler:
         for j in frame["cont"]:
             code[j] = (OP.JMP, inc_pos)
 
+    def _emit_curried_builtin(self, name: str, temps: list, code: list, *,
+                              last_expr=None,
+                              last_expr_scope=None) -> None:
+        """发射语法糖内联的柯里化内建调用（get/append 的两步展开）。
+
+        有效元数匹配（`_fn_arities.get(name)==实参数`）时融成单条 CALL N，与通用
+        FuncApp 完全应用同一执行路径；否则保持逐步 CALL 1，与历史发射逐字节等价。
+
+        安全闸：判据用 `_fn_arities`（内建预置 + 顶层 FuncDef 覆盖），与自举侧
+        `_查元数(表,name)` 同值。若内建名被用户以**不同 arity** 的 FuncDef 遮蔽，
+        有效元数≠实参数即不融合，遮蔽语义（含 arity 恰配时的用户函数直调）两侧一致。
+        """
+        if self._fn_arities.get(name) == len(temps):
+            code.append((OP.LOAD_GLOBAL, self.sconst(name)))
+            for t in temps:
+                if t is None:
+                    self._emit_expr(last_expr, last_expr_scope, code)
+                else:
+                    self._load_temp(code, t)
+            code.append((OP.CALL, len(temps)))
+            return
+        code.append((OP.LOAD_GLOBAL, self.sconst(name)))
+        for t in temps:
+            if t is None:
+                self._emit_expr(last_expr, last_expr_scope, code)
+            else:
+                self._load_temp(code, t)
+            code.append((OP.CALL, 1))
+
+    def _emit_list_comp(self, node, scope: _Scope, code: list) -> None:
+        """列表推导 [expr for target in iter if c1 if c2 ...]：下沉为与 `_emit_for_stmt`
+        同构的下标循环（len/get 驱动），用 `append` 累加器收集元素，最后把结果列表
+        留栈。**不引入新 opcode、不引入新内建**（len/get/append 均 vm↔native 双端已有），
+        故机器码平价自动成立。迭代面与 `for` 一致（list/tuple/str 等可 len/get 者）。
+
+        单生成子句（parser 语法即 `[expr for tgt in iter {if cond}...]`）；多 if 取 AND：
+        任一条件为假即跳过本次 append（JZ→inc）。语义对齐 `src/interp.py` 的
+        `_eval_list_comprehension`，由黄金用例 `35_list_comp` 与 tests/test_listcomp_vm.py 锁定。
+        """
+        tgt = node.target
+        name = tgt.name if isinstance(tgt, ast.Variable) else getattr(tgt, "name", None)
+        if not name:
+            raise RuntimeError("字节码编译：列表推导目标必须是单个变量")
+        # 1) 迭代器 → 临时 xs；索引 i=0；累加器 res=[]
+        self._emit_expr(node.iter, scope, code)
+        xs_t = self._alloc_temp(scope, "lc_xs")
+        i_t = self._alloc_temp(scope, "lc_i")
+        res_t = self._alloc_temp(scope, "lc_res")
+        self._store_temp(code, xs_t)
+        code.append((OP.PUSH_CONST, self.const(0)))
+        self._store_temp(code, i_t)
+        code.append((OP.BUILD_LIST, 0))
+        self._store_temp(code, res_t)
+        # 目标变量绑定（与 for 循环同口径：泄漏作用域落全局，否则局部槽）
+        if scope.binds_global:
+            var_t = ("g", name)
+        else:
+            var_t = ("l", self._declare_slot(scope, name))
+        top = len(code)
+        # i < len(xs)
+        self._load_temp(code, i_t)
+        code.append((OP.LOAD_GLOBAL, self.sconst("len")))
+        self._load_temp(code, xs_t)
+        code.append((OP.CALL, 1))
+        code.append((OP.BINOP, self.const("<")))
+        jz_end = len(code)
+        code.append((OP.JZ, 0))
+        # elem = get(xs)(i) → 绑定目标变量
+        self._emit_curried_builtin("get", [xs_t, i_t], code)
+        self._store_temp(code, var_t)
+        # 过滤条件（AND）：任一为假 → 跳到 inc（不 append）
+        skip_patches: list[int] = []
+        for cond in (node.ifs or []):
+            self._emit_expr(cond, scope, code)
+            skip_patches.append(len(code))
+            code.append((OP.JZ, 0))
+        # res = append(res)(expr)
+        self._emit_curried_builtin("append", [res_t, None], code,
+                                   last_expr=node.expr, last_expr_scope=scope)
+        self._store_temp(code, res_t)
+        # inc: i += 1（回到顶部）
+        inc_pos = len(code)
+        for jp in skip_patches:
+            code[jp] = (OP.JZ, inc_pos)
+        self._load_temp(code, i_t)
+        code.append((OP.PUSH_CONST, self.const(1)))
+        code.append((OP.BINOP, self.const("+")))
+        self._store_temp(code, i_t)
+        code.append((OP.JMP, top))
+        # 循环尾：回填条件假出口，结果列表留栈
+        code[jz_end] = (OP.JZ, len(code))
+        self._load_temp(code, res_t)
+
     def _emit_try_stmt(self, stmt: ast.TryStmt, scope: _Scope, code: list) -> None:
         """try/catch/finally：三块各编译为 thunk，VM「调用捕获」返回 tagged 结果：
         正常 ["__正常__", 值]；异常 ["__异常__", 消息]。
 
-        块内绑定为块作用域（thunk 私有帧）；try/catch 作为值表达式时其值为
-        正常体或捕获体的尾值，finally 的返回值丢弃。语句位置则整体 POP。"""
-        try_name = self._compile_thunk(stmt.try_block, scope)
+        块内绑定落全局（与遗留解释器一致，见 `_compile_thunk` 的 leak 参数）；
+        try/catch 作为值表达式时其值为正常体或捕获体的尾值，finally 的返回值
+        丢弃。语句位置则整体 POP。"""
+        try_name = self._compile_thunk(stmt.try_block, scope, leak=True)
         # guarded = 调用捕获(try_thunk)；result = guarded([])
         code.append((OP.LOAD_GLOBAL, self.sconst("调用捕获")))
         code.append((OP.MAKE_CLOSURE, try_name))
@@ -747,7 +980,8 @@ class Compiler:
         code[jz] = (OP.JZ, len(code))
         if stmt.catch_block is not None:
             catch_params = [stmt.catch_var] if stmt.catch_var else []
-            catch_name = self._compile_thunk(stmt.catch_block, scope, catch_params)
+            catch_name = self._compile_thunk(stmt.catch_block, scope, catch_params,
+                                             leak=True)
             code.append((OP.MAKE_CLOSURE, catch_name))
             self._load_temp(code, result_t)
             code.append((OP.PUSH_CONST, self.const(1)))
@@ -761,7 +995,7 @@ class Compiler:
         code[jmp] = (OP.JMP, len(code))
         # finally：零参 thunk，返回值丢弃
         if stmt.finally_block is not None:
-            fin_name = self._compile_thunk(stmt.finally_block, scope)
+            fin_name = self._compile_thunk(stmt.finally_block, scope, leak=True)
             code.append((OP.MAKE_CLOSURE, fin_name))
             code.append((OP.BUILD_LIST, 0))
             code.append((OP.CALL, 1))
@@ -809,16 +1043,23 @@ class Compiler:
         self.mod.functions[name] = fn
         return name
 
-    def _compile_thunk(self, body, scope: _Scope, param_names: list | None = None) -> str:
+    def _compile_thunk(self, body, scope: _Scope, param_names: list | None = None,
+                       leak: bool = False) -> str:
         """编译 try/catch/finally 块为独立零参（或带参）函数，返回函数名。
 
-        块内绑定为块作用域（thunk 私有帧）；对外层变量只读（经闭包帧链
-        LOAD_OUTER）。catch thunk 单参 e 接收异常消息字符串。"""
+        对外层变量只读（经闭包帧链 LOAD_OUTER）。catch thunk 单参 e 接收异常消息字符串。
+
+        `leak=True`（try/catch/finally 专用）：块内具名绑定落全局，故块外可读。
+        遗留解释器把块内绑定写进共享 `self.env`，`try { raise "x" } catch (e) { 结果 = e }`
+        之后 `[结果]` 取得到值；而 thunk 是独立帧，按局部槽编译会让块外的读取
+        抛 KeyError（golden 09/10 曾因此不可运行）。形参仍是本帧局部槽位。
+        """
         self._lam_seq += 1
         name = f"__lam_{self._lam_seq}"
-        inner = _Scope(scope)
+        inner = _Scope(scope, leak=leak)
         for p in (param_names or []):
-            inner.declare(p)
+            # 形参必须占本帧局部槽（declare 在 leak 下不记录，会误落全局）
+            inner.declare_local(p)
         code: list = []
         self._emit_body(body, inner, code)
         code.append((OP.RET,))
@@ -874,7 +1115,7 @@ class Compiler:
         self._emit_expr(iterable, scope, code)
         xs_t = self._alloc_temp(scope, "comp_xs")
         i_t = self._alloc_temp(scope, "comp_i")
-        if scope.is_main:
+        if scope.binds_global:
             var_t = ("g", name)
         else:
             var_t = ("l", self._declare_slot(scope, name))
@@ -1005,7 +1246,7 @@ class Compiler:
     def _emit_pattern_bind(self, name: str, scope: _Scope,
                            code: list) -> None:
         """把当前栈顶值绑定到模式变量名。"""
-        if scope.is_main:
+        if scope.binds_global:
             code.append((OP.STORE_GLOBAL, self.sconst(name)))
         else:
             code.append((OP.STORE_LOCAL, self._declare_slot(scope, name)))
@@ -1052,7 +1293,7 @@ class Compiler:
         for nm in names:
             if nm is None:
                 var_ts.append(None)
-            elif scope.is_main:
+            elif scope.binds_global:
                 var_ts.append(("g", nm))
             else:
                 var_ts.append(("l", self._declare_slot(scope, nm)))
@@ -1073,7 +1314,21 @@ class Compiler:
 
     def _emit_setup(self, node: ast.SetUp, scope: _Scope,
                     code: list) -> None:
-        """@：a=2，b=3 —— 设定项按绑定编译；?占位目标与无值项跳过。"""
+        """@：a=2，b=3 —— 设定项按绑定编译；?占位目标与无值项跳过。
+
+        例外：`@：【加载领域】，X` 是显式插件加载指令（阶段 1 第 4 项新增语法），
+        编译期登记已加载领域并发射一次 `加载领域(X)` 调用。
+        """
+        domain = self._domain_directive(node)
+        if domain is not None:
+            # 原写法与归一后的插件名都计入，使后续符号引用能对上
+            self.loaded_domains.add(domain)
+            self.loaded_domains.add((self.domain_aliases or {}).get(domain, domain))
+            code.append((OP.LOAD_GLOBAL, self.sconst("加载领域")))
+            code.append((OP.PUSH_CONST, self.const(domain)))
+            code.append((OP.CALL, 1))
+            code.append((OP.POP,))
+            return
         for item in node.items:
             if item.value is None:
                 continue
@@ -1082,7 +1337,7 @@ class Compiler:
                 continue  # ？占位符不落地
             if not isinstance(tgt, ast.Variable):
                 continue
-            if scope.is_main:
+            if scope.binds_global:
                 self._emit_expr(item.value, scope, code)
                 code.append((OP.STORE_GLOBAL, self.sconst(tgt.name)))
             else:
@@ -1198,6 +1453,18 @@ class Compiler:
 
         elif isinstance(node, ast.FuncApp):
             callee, args = _flatten_call(node)
+            # sys_env 编译期折叠（宿主独有能力）：命中则整调用化为一个字符串常量。
+            # 未命中但确在写 sys_env → 编译期报错，不给它退化成运行期 CALL
+            # （本特性是**编译期**能力，无运行期内建，故不存在「变量键查环境」）。
+            if (isinstance(callee, ast.Variable)
+                    and callee.name == "sys_env"):
+                v = _fold_sys_env(callee, args)
+                if v is None:
+                    raise RuntimeError(
+                        "字节码编译：sys_env 的键（及可选默认值）必须是字符串字面量"
+                        "——它是编译期折叠能力，无运行期对应物")
+                code.append((OP.PUSH_CONST, self.const(v)))
+                return
             # 完全应用到已知 arity 的顶层函数：融成单条 CALL N。
             # arity 0 的无参函数亦走此路径（args 为空 -> CALL 0）。
             if (isinstance(callee, ast.Variable)
@@ -1290,24 +1557,7 @@ class Compiler:
             code.append((OP.BUILD_LIST, len(node.elements)))
 
         elif isinstance(node, ast.ListComp):
-            # 编译列表推导为：构造空列表，循环迭代并 append
-            code.append((OP.BUILD_LIST, 0))
-            # 创建临时作用域/循环变量：用临时变量存储迭代器与循环索引
-            # 简化：将推导编译为 for 循环等价展开（MBC 无专用 ListComp opcode）
-            # 使用已有 _emit_for 逻辑思路：但目标是 Variable/expr。先用简化方式：
-            # let tmp = iter; loop while has? -> MBC 需 While/For stmt 支持；但 ListComp 是表达式
-            # 退回：先不编译 ListComp 到 MBC 指令，标记未实现? 但需四端对齐。更好：编译为函数调用？
-            # matha 自举有 enumerate/内建，或直接生成循环代码：用 let/append 方式
-            # 但在表达式位置编译循环需 thunk 或临时变量。现阶段，先记录：跳过，后续补全
-            # 简化实现：展开为 append 序列（单层 for, 无 if）
-            # 构建循环：for target in iter: append(result_list, expr)
-            # MBC 表达式中无法直接写语句循环 -> 需要特殊处理（难）。改：在表达式位不支持，暂缓？
-            # 但分析要求列出未完成项；不过我们要「开始完成」——采用 thunk 方式：生成匿名函数执行循环返回列表
-            # _emit_expr 无法生成语句；采用 let/tmp 技巧？ 或编译为调用 Matha 函数（如基于 enumerate/map/filter）
-            # matha stdlib 没有 map/filter；可用 for-range 思路：需要 range 或迭代器。先跳过复杂 if，单层无 if 可做：
-            # 迭代器为列表：[1,2,3] -> for i,v in enumerate(iter)? target 可能是单变量（x）或元组；简化处理单变量
-            # TODO: 完整实现留待后续（语法复杂度）；暂不强行破坏现有结构
-            pass
+            self._emit_list_comp(node, scope, code)
 
         elif isinstance(node, ast.TupleExpr):
             for el in node.elements:
@@ -1437,13 +1687,14 @@ class Compiler:
         elif isinstance(node, ast.LetTupleBinding):
             # let (a, b, ...) = <seq> in <body>
             self._emit_expr(node.value, scope, code)
-            if scope.is_main:
+            if scope.binds_global:
                 # main 无局部槽数组：声明仅为让后续读取解析为同名全局，
                 # 与 _emit_let 的 main 分支同理（否则 STORE_LOCAL 越界
                 # 访问 locals[slot]，嵌套 let (a,b) 在 main 下抛 IndexError）。
                 names = []
                 for nm in node.names:
-                    scope.declare(nm, boxed=False)
+                    if not scope.leak:
+                        scope.declare(nm, boxed=False)
                     names.append(nm)
                 code.append((OP.UNPACK_SEQ, len(names)))
                 for nm in reversed(names):
@@ -1496,11 +1747,60 @@ class Compiler:
     def _emit_load(self, name: str, scope: _Scope, code: list) -> None:
         kind, depth, slot, boxed = scope.resolve(name)
         if kind == "global":
+            self._check_domain_symbol(name)
             code.append((OP.LOAD_GLOBAL, self.sconst(name)))
         elif kind == "local":
             code.append((OP.LOAD_BOX if boxed else OP.LOAD_LOCAL, slot))
         else:
             code.append((OP.LOAD_OUTER_BOX if boxed else OP.LOAD_OUTER, depth, slot))
+
+    # ---- 领域插件指令 ----
+
+    #: `@：【加载领域】，X` 可识别的指令名（新增语法，不影响旧写法）
+    DOMAIN_DIRECTIVES = ("加载领域", "加载插件")
+
+    def _domain_directive(self, node: ast.SetUp) -> str | None:
+        """识别 `@：【加载领域】，机械设计` 形式的显式插件加载指令。
+
+        parser 把它产成 form='cmd' 的 SetUp：首项为 `？: 字符串"加载领域"`（命令名
+        落在占位目标的值上），次项为 `领域名: None`（只有目标、没有值）。两种书写
+        顺序都兼容，且只在指令名命中 DOMAIN_DIRECTIVES 时生效 —— 其余 `@：` 写法
+        行为完全不变。
+        """
+        if getattr(node, "form", None) != "cmd" or not node.items:
+            return None
+        hit = None          # 指令项下标
+        for i, item in enumerate(node.items):
+            text = None
+            if isinstance(item.value, ast.StringLit):
+                text = item.value.value
+            elif isinstance(item.target, ast.Variable):
+                text = item.target.name
+            if text in self.DOMAIN_DIRECTIVES:
+                hit = i
+                break
+        if hit is None:
+            return None
+        for item in node.items[hit + 1:]:
+            tgt = item.target
+            if (isinstance(tgt, ast.Variable) and not tgt.is_placeholder
+                    and tgt.name not in self.DOMAIN_DIRECTIVES):
+                return tgt.name
+        return None
+
+    def _check_domain_symbol(self, name: str) -> None:
+        """引用属于领域插件但未加载时的编译期诊断（plugin_index 为 None 时不检查）。"""
+        index = self.plugin_index
+        if not index:
+            return
+        owners = index.get(name)
+        if not owners:
+            return
+        if any(o in self.loaded_domains for o in owners):
+            return
+        raise RuntimeError(
+            f"字节码编译：符号「{name}」属于领域插件 {' / '.join(owners)}，但当前未加载。"
+            f"请在程序里先写：@：【加载领域】，{owners[-1]}")
 
     def _emit_let(self, node: ast.LetBinding, scope: _Scope, code: list) -> None:
         boxed = bool(node.is_recursive)
@@ -1513,8 +1813,8 @@ class Compiler:
             value = ast.Lambda(params=self._param_vars(node.params), body=node.value)
         if boxed:
             # let rec：先声明 Box 槽位，RHS 中自引用经 Box 读取（帧链共享）
-            if scope.is_main:
-                # main 无局部槽数组：rec 绑定退化为同名全局，
+            if scope.binds_global:
+                # main / 泄漏作用域无可用局部槽数组：rec 绑定退化为同名全局，
                 # 否则 MAKE_BOX/STORE_BOX 会越界访问 locals[slot]
                 # （互递归 let rec 曾在此抛 IndexError）。
                 # 同级多个 let rec 依声明顺序依次定义，body 通过
@@ -1532,8 +1832,8 @@ class Compiler:
             # 使 `let x = x + 1` 正确读取外层 x（避免读到未初始化槽位），
             # 然后再声明槽位供 body 使用
             self._emit_expr(value, scope, code)
-            if scope.is_main:
-                # main 无局部槽数组：声明仅为让后续读取解析为同名全局
+            if scope.binds_global:
+                # main / 泄漏作用域无局部槽数组：声明仅为让后续读取解析为同名全局
                 scope.declare(node.name, boxed=False)
                 code.append((OP.STORE_GLOBAL, self.sconst(node.name)))
             else:
@@ -1545,12 +1845,26 @@ class Compiler:
             code.append((OP.PUSH_NULL,))
 
 
-def compile_program(program: ast.Program) -> MModule:
-    return Compiler().compile_program(program)
+def compile_program(program: ast.Program, *,
+                    plugin_index: dict[str, list[str]] | None = None,
+                    domain_aliases: dict[str, str] | None = None) -> MModule:
+    """把一个 AST 程序编译为模块。
+
+    `plugin_index`（符号 -> 归属插件）与 `domain_aliases`（写法 -> 插件名）由宿主
+    从插件清单供入；两者都为 None 时不做「未加载领域」检查，既有行为逐字节不变。
+    """
+    c = Compiler()
+    if plugin_index is not None:
+        c.plugin_index = plugin_index
+        c.domain_aliases = domain_aliases
+    return c.compile_program(program)
 
 
-def compile_source(source: str) -> MModule:
+def compile_source(source: str, *,
+                   plugin_index: dict[str, list[str]] | None = None,
+                   domain_aliases: dict[str, str] | None = None) -> MModule:
     from src.parser import parse
     if source and source[0] == "\ufeff":  # 容忍 UTF-8 BOM
         source = source.lstrip("\ufeff")
-    return compile_program(parse(source))
+    return compile_program(parse(source), plugin_index=plugin_index,
+                           domain_aliases=domain_aliases)

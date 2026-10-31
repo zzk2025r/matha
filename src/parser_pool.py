@@ -24,7 +24,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.device_config import get_config
+from src.plugins.device_config import get_config
 
 # 延迟导入，避免主进程导入时触发子进程初始化
 from src.errors import (

@@ -89,7 +89,7 @@ class UnifiedGrowth:
             # Auto-create Interpreter if not provided
             interp = self._interp
             if interp is None:
-                from src.interp import Interpreter
+                from src.diag_backends import new_interpreter as Interpreter
                 interp = Interpreter()
                 self._auto_created_interp = True
             self._growth_engine = cls(interp)

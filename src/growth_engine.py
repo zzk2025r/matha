@@ -312,7 +312,7 @@ class GrowthEngine:
         logger.info("=== 资源审计开始 ===")
         entries = []
         from src.ai_assistant import FriendlyIntentParser
-        from src.interp import Interpreter
+        from src.diag_backends import new_interpreter as Interpreter
 
         # 获取各模块实例
         parser = FriendlyIntentParser()
@@ -543,7 +543,7 @@ class GrowthEngine:
     def diagnose_interpreter(self) -> None:
         """自检解释器。"""
         try:
-            from src.interp import interpret
+            from src.diag_backends import run_legacy as interpret
             # 测试基本运算（使用 interpret 便捷函数）
             codes = ["r = 2 + 3\n#1: [r]", "s = 10 / 2\n#1: [s]", "t = 2 ** 8\n#1: [t]"]
             for code in codes:
@@ -638,7 +638,7 @@ class GrowthEngine:
             from src.ai_assistant import MathaAIAssistant
             a = MathaAIAssistant()
             # 传递 Interpreter 实例以执行生成的代码
-            from src.interp import Interpreter
+            from src.diag_backends import new_interpreter as Interpreter
             result = a.chat("帮我算一下 2+2", Interpreter())
             # 结果类型为 "result" 或 "calculation" 均可，只要有实际结果
             if not (result.get("type") in ("result", "calculation") and result.get("result") is not None):

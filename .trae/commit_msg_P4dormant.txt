@@ -1,0 +1,13 @@
+b09 预备休眠开关：语法糖柯里化内建 CALL N 融合（MATHA_B09_FUSE，默认关闭）
+
+- src/mbc/compiler.py：新增 _B09_FUSE 环境开关与 _emit_curried_builtin 发射器；
+  for 语法糖与列表推导中手写的 get(xs)(i)/append(res)(e) 两步展开在开关开启时
+  融成单条 CALL N；关闭路径与历史发射逐字节等价（HEAD worktree 对照 10 例语料
+  byte_mismatch=无 实证）。
+- 遮蔽安全闸：顶层 FuncDef 声明同名 get/append 时恒走历史路径，融合不吞遮蔽语义。
+- len(xs) 不融合（原生变参内建，非柯里化，CALL 2 会调错函数）。
+- 开启态紧邻 A/B：b09 纯执行 −15.6%/−16.0%（min，两轮相邻）。
+- 开启态定点漂移真实读数：869/870 绿，唯一红项 test_m2_stage2_equals_stage3[for_loop]
+  ——合并进主门禁前必须与 matha/compiler_matha.matha 双侧同步（P4 前置条件）。
+- docs/ARCHITECTURE.md 核心行数 31,041→31,072（doc_facts 同步）。
+- 本开关不进入 make check 语义；验证工件见 .trae/p4_b09_preview/。

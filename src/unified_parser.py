@@ -62,7 +62,7 @@ class MathaFrontend:
 
     def run(self, source: str):
         """源码 → 执行。"""
-        from src.interp import Interpreter
+        from src.diag_backends import new_interpreter as Interpreter
         prog = parse(source)
         interp = Interpreter()
         return interp.run(prog)
@@ -90,7 +90,7 @@ def matha_compile(source: str, output_name: str = "out") -> str:
 def matha_run(source: str) -> tuple:
     """matha_cc 兼容：运行入口。"""
     prog = parse(source)
-    from src.interp import Interpreter
+    from src.diag_backends import new_interpreter as Interpreter
     interp = Interpreter()
     return interp.run(prog)
 

@@ -1,0 +1,32 @@
+=== Matha 统一检查 make check ===
+
+--- tests ---
+    python.exe -m pytest -q -p no:cacheprovider --tb=line tests --ignore=tests/test_kernel_purity.py --ignore=tests/test_ast_vm_gap.py
+    [PASS] 通过 4071 / 失败 0 / 跳过 0  (1239.7s)
+
+--- kernel_purity ---
+    python.exe -m pytest -q -p no:cacheprovider --tb=line tests/test_kernel_purity.py
+    [PASS] 通过 14 / 失败 0 / 跳过 0  (7.9s)
+
+--- ast_vm_gap ---
+    python.exe -m pytest -q -p no:cacheprovider --tb=line tests/test_ast_vm_gap.py
+    [PASS] 通过 11 / 失败 0 / 跳过 0  (9.2s)
+
+--- golden ---
+    python.exe golden_tests/run_golden_tests.py
+    [PASS] 通过 39 / 失败 0 / 跳过 0  (1.3s)
+
+--- dep_audit ---
+    python.exe scripts/dep_audit.py
+    [PASS] 通过 1 / 失败 0 / 跳过 0  (2.5s)
+    明细：违规 0 条 / 插件越界 0 条
+
+--- native_parity ---
+    python.exe golden_tests/run_golden_tests.py --native
+    [PASS] 通过 38 / 失败 0 / 跳过 1  (10.9s)
+    注：native 已知未实现 1 例（见 manifest.native_known_gaps）
+
+════════════════════════════════════════════════════════
+SKIP：未覆盖 1 项（工具链不可用 / 已知未实现），未计入通过率，不代表通过
+通过率：100.00%（通过 4174 / 计入 4174，失败 0）
+════════════════════════════════════════════════════════

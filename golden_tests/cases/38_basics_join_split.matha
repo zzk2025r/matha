@@ -1,0 +1,17 @@
+# 标准库 collections_core：join / split（Python str.split(sep) 口径）
+# 注：字符串「入列表」输出存在 native/黄金 format_plain 引号契约分歧（同 35 例注释），
+# split 的列表形态一律经 join 归一为标量字符串或 len 归一为数字后再打印；
+# 完整列表形状由 tests/test_matha_library_basics.py 对拍 Python 真相锁定。
+[join("-", [1, 2, 3])]
+[join("", [1, 2])]
+[join(",", [])]
+[join("+", ["x", "y"])]
+[join("-", [10, true, 2.5])]
+# split 往返：split 后用 join 重建语义
+[join(",", split("a,b,c", ","))]
+[len(split("a,,b", ","))]
+[join(":", split("a::b::c", "::"))]
+[join(",", split("abc", ","))]
+[len(split("", ","))]
+[join("-", split("a,b,", ","))]
+[len(split(",,", ","))]

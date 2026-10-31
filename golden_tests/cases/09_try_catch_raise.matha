@@ -1,0 +1,4 @@
+#：{
+  try { raise "boom" } catch (e) { 结果 = e }
+  [结果]
+}

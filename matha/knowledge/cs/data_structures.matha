@@ -6,18 +6,18 @@ module 数据结构 {
 
   (* ===== 链表 ===== *)
   struct 节点 {
-    值:
+    值: Any
     下一: 节点
   }
 
-  func 创建节点(值: ) -> 节点 = (值) => (值 = 值, 下一 = None)
+  func 创建节点(值: Any) -> 节点 = (值) => (值 = 值, 下一 = None)
 
   func 链表长度(head: 节点) -> Int = (head) =>
     let rec count(node: 节点, acc: Int) -> Int =
     (node, acc) => (node = None) ? acc : count(node.下一, acc + 1)
     count(head, 0)
 
-  func 链表查找(head: 节点, 目标: ) -> Bool =
+  func 链表查找(head: 节点, 目标: Any) -> Bool =
     (head, 目标) =>
     let rec find(node: 节点) -> Bool =
     (node) =>
@@ -27,12 +27,12 @@ module 数据结构 {
 
   (* ===== 树 ===== *)
   struct 二叉树节点 {
-    值:
+    值: Any
     左: 二叉树节点
     右: 二叉树节点
   }
 
-  func 创建树节点(值: ) -> 二叉树节点 = (值) =>
+  func 创建树节点(值: Any) -> 二叉树节点 = (值) =>
     (值 = 值, 左 = None, 右 = None)
 
   func 树高度(node: 二叉树节点) -> Int = (node) =>

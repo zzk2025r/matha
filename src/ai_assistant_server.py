@@ -1,6 +1,9 @@
 """
 Matha AI Assistant — Web 后端 API 服务
 提供 RESTful API 供前端调用，零依赖轻量服务
+
+【定位标注 2026-10 / P2 降级】仓库内未背书前端：零测试、不入 make check 门禁，
+不作为现功能主张；口径见 docs/KNOWN_ISSUES.md 第七节 7c。
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ from urllib.parse import urlparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ai_assistant import MathaAIAssistant
-from src.ffi import get_ffi
+from src.plugins.ffi import get_ffi
 from src.inner_loop import get_inner_loop
 from src.interp import Interpreter
 from src.math_driver import get_driver_manager

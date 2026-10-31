@@ -85,4 +85,17 @@ def stack_engine() -> bool:
     return is_enabled("STACK_ENGINE", default=False)
 
 
-__all__ = ["is_enabled", "set_feature", "clear_feature", "scoped_blocks", "stack_engine"]
+def inline_cache() -> bool:
+    """INLINE_CACHE：特化解释器的内联缓存（类型反馈），默认开启。
+
+    开启后每个二元运算调用点会学习操作数类型形状，形状稳定后走专用快速通道
+    （跳过「按运算符字符串逐条匹配 + isinstance 类型检查」的通用路径）。
+
+    该开关**不改变语义**：专用实现仅在两侧类型与缓存记录完全一致时启用，
+    且只对逐一核对过语义等价的组合开放；关闭即回到通用路径。
+    """
+    return is_enabled("INLINE_CACHE", default=True)
+
+
+__all__ = ["is_enabled", "set_feature", "clear_feature", "scoped_blocks",
+           "stack_engine", "inline_cache"]

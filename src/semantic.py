@@ -52,7 +52,7 @@ logger = logging.getLogger("matha.semantic")
 def _build_builtin_symtab() -> SymbolTable:
     """构建包含所有内建符号的符号表（模块级缓存，仅调用一次）。"""
     from src.interp import BUILTINS as _BUILTINS
-    from src.mathlib import CONSTANTS, PHYSICAL_CONSTANTS, TEMP_CONVERSIONS, UNIT_CONVERSIONS
+    from src.kernel.math_builtin import CONSTANTS, PHYSICAL_CONSTANTS, TEMP_CONVERSIONS, UNIT_CONVERSIONS
     st = SymbolTable()
     for _name in _BUILTINS:
         st.define(_name, "function", decl=None)
@@ -69,35 +69,12 @@ def _build_builtin_symtab() -> SymbolTable:
     )
     for _name in _math_names:
         st.define(_name, "function", decl=None)
-    # 领域模块内建符号
-    _domain_imports = [
-        ("src.domains.mechanics", "_mechanics_symtab_names"),
-        ("src.domains.dynamics", "_dynamics_symtab_names"),
-        ("src.domains.fluid", "_fluid_symtab_names"),
-        ("src.domains.thermo", "_thermo_symtab_names"),
-        ("src.domains.em", "_em_symtab_names"),
-        ("src.domains.acoustics", "_acoustics_symtab_names"),
-        ("src.domains.optics", "_optics_symtab_names"),
-        ("src.domains.structural", "_structural_symtab_names"),
-        ("src.domains.quantum", "_quantum_symtab_names"),
-        ("src.domains.celestial", "_celestial_symtab_names"),
-        ("src.domains.nuclear", "_nuclear_symtab_names"),
-        ("src.domains.statmech", "_statmech_symtab_names"),
-        ("src.domains.fluid_exp", "_fluid_exp_symtab_names"),
-        ("src.domains.biology", "_biology_symtab_names"),
-        ("src.domains.medical", "_medical_symtab_names"),
-        ("src.domains.medtools", "_medtools_symtab_names"),
-        ("src.domains.anatomy", "_anatomy_symtab_names"),
-        ("src.domains.architecture", "_architecture_symtab_names"),
-        ("src.domains.building_struct", "_building_struct_symtab_names"),
-        ("src.domains.mech_design", "_mech_design_symtab_names"),
-        ("src.domains.kernel_math", "kernel_symtab_names"),
-        ("src.domains.time_module", "_time_symtab_names"),
-    ]
-    for mod_path, fn_name in _domain_imports:
-        mod = __import__(mod_path, fromlist=[fn_name])
-        for _name in getattr(mod, fn_name)():
-            st.define(_name, "function", decl=None)
+    # 领域插件符号：只读静态清单（src/domains/manifest.json），不 import 任何领域模块。
+    # 旧实现在模块导入时就 __import__ 22 个领域模块，使语义分析阶段附带全量领域成本；
+    # 清单由 scripts/gen_domain_manifest.py 生成，只含符号名（数据，非代码）。
+    from src.plugin_api import get_resolver
+    for _name in get_resolver().known_symbols():
+        st.define(_name, "function", decl=None)
     return st
 
 
@@ -140,7 +117,7 @@ class SemanticAnalyzer:
         for _name in _BUILTINS:
             self.symtab.define(_name, "function", decl=None)
         # 数学函数库内建（实例化时注册，不在 BUILTINS 字典）
-        from src.mathlib import CONSTANTS, PHYSICAL_CONSTANTS, TEMP_CONVERSIONS, UNIT_CONVERSIONS
+        from src.kernel.math_builtin import CONSTANTS, PHYSICAL_CONSTANTS, TEMP_CONVERSIONS, UNIT_CONVERSIONS
         _math_names = (
             ["sin","cos","tan","asin","acos","atan","atan2",
              "sinh","cosh","tanh","log","ln","log10","log2","exp",
@@ -154,89 +131,13 @@ class SemanticAnalyzer:
         )
         for _name in _math_names:
             self.symtab.define(_name, "function", decl=None)
-        # 机械领域：运动学 + 材料力学 内建符号
-        from src.domains.mechanics import _mechanics_symtab_names
-        for _name in _mechanics_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 动力学：牛顿定律/动量/功与能/转动/振动 内建符号
-        from src.domains.dynamics import _dynamics_symtab_names
-        for _name in _dynamics_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 流体力学：静力学/运动学/动力学/粘性 内建符号
-        from src.domains.fluid import _fluid_symtab_names
-        for _name in _fluid_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 热力学：气体状态/热力学过程/热传递/热机效率/相变 内建符号
-        from src.domains.thermo import _thermo_symtab_names
-        for _name in _thermo_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 电磁学：静电学/直流电路/磁场/电磁感应/交流电路 内建符号
-        from src.domains.em import _em_symtab_names
-        for _name in _em_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 声学：声波基础/声强声压级/多普勒效应/声学现象/管道弦振动 内建符号
-        from src.domains.acoustics import _acoustics_symtab_names
-        for _name in _acoustics_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 光学：几何光学/波动光学/光度学/光学仪器/色散光谱 内建符号
-        from src.domains.optics import _optics_symtab_names
-        for _name in _optics_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 结构力学：应力状态/梁弯曲/压杆稳定/桁架结构/应变能冲击 内建符号
-        from src.domains.structural import _structural_symtab_names
-        for _name in _structural_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 量子力学：波函数/不确定性原理/角动量自旋/势阱能级/量子隧穿 内建符号
-        from src.domains.quantum import _quantum_symtab_names
-        for _name in _quantum_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 天体力学：万有引力/开普勒定律/轨道参数/潮汐引力场/相对论修正 内建符号
-        from src.domains.celestial import _celestial_symtab_names
-        for _name in _celestial_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 核物理：结合能/放射性衰变/核反应/粒子物理/核能反应堆 内建符号
-        from src.domains.nuclear import _nuclear_symtab_names
-        for _name in _nuclear_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 统计力学：麦克斯韦分布/配分函数/熵与自由能/量子统计/涨落关联 内建符号
-        from src.domains.statmech import _statmech_symtab_names
-        for _name in _statmech_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 流体力学进阶：边界层/可压缩流/明渠水力学/泵与风机/局部损失与管网
-        from src.domains.fluid_exp import _fluid_exp_symtab_names
-        for _name in _fluid_exp_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 生物学：分子生物/细胞/生化/生理种群/微生物免疫
-        from src.domains.biology import _biology_symtab_names
-        for _name in _biology_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 医疗与医药理疗：药代/药效/检验/影像放疗/理疗康复
-        from src.domains.medical import _medical_symtab_names
-        for _name in _medical_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 中医/西医医药工具机械/设备
-        from src.domains.medtools import _medtools_symtab_names
-        for _name in _medtools_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 解剖学：系统/局部/表面/影像/临床解剖
-        from src.domains.anatomy import _anatomy_symtab_names
-        for _name in _anatomy_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 建筑学：物理/材料/设计/施工/规范
-        from src.domains.architecture import _architecture_symtab_names
-        for _name in _architecture_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 建筑结构工程：混凝土/钢/砌体/木/地基/抗震
-        from src.domains.building_struct import _building_struct_symtab_names
-        for _name in _building_struct_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 机械设计：轴/轴承/齿轮/弹簧/紧固件/公差
-        from src.domains.mech_design import _mech_design_symtab_names
-        for _name in _mech_design_symtab_names():
-            self.symtab.define(_name, "function", decl=None)
-        # 内核/操作系统：syscall/PCB/页表/中断 数学模型
-        from src.domains.kernel_math import kernel_symtab_names
-        for _name in kernel_symtab_names():
+        # 领域插件符号：只读 **静态清单** src/domains/manifest.json（数据，非代码）。
+        # 旧实现在此处逐个 import 十余个 src.domains.* 以取 _xxx_symtab_names()，
+        # 把领域代码焊进了语义层；现由 scripts/gen_domain_manifest.py 在开发期把
+        # 每个领域的导出符号名固化为清单，语义层只取名字，不加载任何领域模块。
+        # 清单是否与代码一致由 `python scripts/gen_domain_manifest.py --check` 守护。
+        from src.plugin_api import get_resolver
+        for _name in get_resolver().known_symbols():
             self.symtab.define(_name, "function", decl=None)
         self.errors: list[SemanticError] = []
         # 段追踪器栈：在进入段时压入，退出时弹出

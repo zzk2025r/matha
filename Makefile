@@ -5,6 +5,9 @@
 
 SHELL := /bin/bash
 
+# Python 解释器（`make check` 用；Windows 上可 `make check PYTHON=python`）
+PYTHON ?= python3
+
 TOOLCHAIN_PREFIX ?= riscv64-unknown-elf-
 CC       = $(TOOLCHAIN_PREFIX)gcc
 AS       = $(TOOLCHAIN_PREFIX)as
@@ -367,6 +370,19 @@ assert b == 0 and p == 0 and s == 0, f'Balance error in $$f'; \
 	@echo "=== Syntax Check Complete ==="
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  统一检查口径（内核去依赖重构·阶段 5）
+#    check = tests/ + golden_tests + kernel_purity + vm_native_parity
+#            + ast_vm_gap + dep_audit，对外只产出「一个」通过率数字
+#    check-lite 同上，但不跑需要 nasm/link 的机器码对拍
+# ═══════════════════════════════════════════════════════════════════════════════
+.PHONY: check check-lite
+check:
+	@$(PYTHON) scripts/check.py
+
+check-lite:
+	@$(PYTHON) scripts/check.py --skip-native
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  查看日志
 # ═══════════════════════════════════════════════════════════════════════════════
 .PHONY: logs
@@ -399,6 +415,9 @@ help:
 	@echo "  test           - Run all tests (demo + unit + sim + integration)"
 	@echo "  generate       - Generate C code from Matha templates"
 	@echo "  syntax-check   - Check C/S code syntax (brace balance)"
+	@echo "  check          - Unified gate: tests + golden + kernel_purity +"
+	@echo "                    vm_native_parity + ast_vm_gap (one pass-rate)"
+	@echo "  check-lite     - Same as check, without the native exe parity run"
 	@echo "  logs           - Show build logs"
 	@echo "  help           - Show this help"
 	@echo ""
@@ -414,6 +433,7 @@ help:
 	@echo "  make generate         # Generate C code only"
 	@echo "  make syntax-check     # Check code syntax"
 	@echo "  make logs             # Show build logs"
+	@echo "  make check            # Unified pass-rate gate for the whole repo"
 	@echo "  make clean            # Clean build artifacts"
 
-.PHONY: all clean test generate syntax-check logs summary dirs check_toolchain
+.PHONY: all clean test generate syntax-check logs summary dirs check_toolchain check check-lite

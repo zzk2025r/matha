@@ -18,8 +18,9 @@ from typing import Any
 # 确保 src 在路径中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src import diag_backends
 from src.intent_parser import IntentParser
-from src.interp import interpret
+from src.kernel import exec_api
 from src.parser import Parser
 
 # KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载，不默认激活
@@ -59,9 +60,14 @@ class MathaREPL:
         "quit": (None, "退出"),
     }
 
-    def __init__(self, debug: bool = False):
+    def __init__(self, debug: bool = False, backend: str = "vm"):
         self.state = REPLState(intent_parser=IntentParser())
         self.debug = debug
+        # 执行后端：默认核心主线（mbc.compiler → mbc.vm）。“legacy-interp”
+        # 仅作诊断（执行轨迹 / 单步调试），不进默认路径。
+        if backend not in diag_backends.BACKENDS:
+            raise ValueError(diag_backends.describe_unknown(backend))
+        self.backend = backend
         # 初始化补全器和历史记录管理器
         self.completer = REPLCompleter(self.state)
         self.history_manager = REPLHistoryManager()
@@ -237,14 +243,18 @@ class MathaREPL:
         # 默认：Matha 表达式
         self._process_matha_expr(line)
 
+    def _execute(self, source: str) -> list:
+        """按当前后端执行一段源码（统一走 `src.kernel.exec_api` 门面）。"""
+        return exec_api.run(source, mode=self.backend)
+
     def _process_matha_expr(self, line: str) -> None:
         """处理 Matha 表达式。"""
         try:
-            # 尝试解析
+            # 先走一次 parser：语法错误在此即报，不必等到编译
             p = Parser(line)
             p.parse()
-            # 尝试执行
-            outputs, trace = interpret(line)
+            # 执行（主线为 mbc 字节码 VM）
+            outputs = self._execute(line)
             self.state.success_count += 1
             for i, out in enumerate(outputs):
                 print(f"  = {out}")
@@ -279,7 +289,7 @@ class MathaREPL:
             print()
             # 执行生成的代码
             try:
-                outputs, trace = interpret(intent.suggested_code)
+                outputs = self._execute(intent.suggested_code)
                 for out in outputs:
                     print(f"  {self.highlighter.GREEN}→ 结果:{self.highlighter.RESET} {out}")
                 self.state.success_count += 1
@@ -365,9 +375,9 @@ class MathaREPL:
 # 便捷入口
 # ============================================================
 
-def run_repl(debug: bool = False) -> None:
+def run_repl(debug: bool = False, backend: str = "vm") -> None:
     """启动 REPL。"""
-    repl = MathaREPL(debug=debug)
+    repl = MathaREPL(debug=debug, backend=backend)
     repl.run()
 
 
@@ -389,6 +399,9 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--debug", action="store_true", help="启用调试模式")
     parser.add_argument("--version", action="version", version="Matha v4.4")
+    # 执行后端：默认核心主线 vm；legacy-interp 只供诊断与对照，不对外宣传。
+    parser.add_argument("--backend", default="vm", choices=diag_backends.BACKENDS,
+                        help="执行后端（默认 vm：mbc 字节码主线；诊断后端仅测试/调试用）")
 
     sub = parser.add_subparsers(dest="command", help="子命令")
 
@@ -411,27 +424,42 @@ def main(argv=None) -> int:
         return args.func(args)
     else:
         # 无子命令 → 启动 REPL
-        run_repl(debug=args.debug)
+        run_repl(debug=args.debug, backend=args.backend)
         return 0
 
 
 def _cmd_eval(args) -> int:
-    """计算单行表达式。"""
-    from src.mir_converter import convert
-    c_code = convert(args.expr, "matha", "python")
-    print(c_code)
-    return 0
+    """计算单行表达式（经统一执行门面走核心主线 VM）。
+
+    旧实现是 `convert(expr, "matha", "python")` 后把转译出的 Python 源码打出来
+    ——它不是“计算”，而是把语言语义外包给 CPython，与内核主线无关。
+    """
+    try:
+        outputs, err = exec_api.run_expr_checked(args.expr, mode=args.backend)
+        for item in outputs:
+            print(item)
+        if err is not None:
+            print(f"计算失败: {err}", file=sys.stderr)
+            return 1
+        return 0
+    except Exception as e:
+        print(f"计算失败: {e}", file=sys.stderr)
+        return 1
 
 
 def _cmd_run(args) -> int:
-    """运行 .matha 文件。"""
-    import sys
+    """运行 .matha 文件（核心主线：mbc 字节码 VM）。
+
+    旧实现为 `convert(source, "matha", "python") + exec()`：转译执行路径已在
+    阶段 2 删除（前置件为 `docs/ast_vm_gap.md` 覆盖矩阵与 golden 逐字节基线）。
+    """
     try:
-        with open(args.file, encoding="utf-8") as f:
-            source = f.read()
-        from src.mir_converter import convert
-        py_code = convert(source, "matha", "python")
-        exec(py_code, {"__name__": "__main__"})
+        outputs, err = exec_api.run_file_checked(args.file, mode=args.backend)
+        for item in outputs:
+            print(item)
+        if err is not None:
+            print(f"错误: {err}", file=sys.stderr)
+            return 1
         return 0
     except FileNotFoundError:
         print(f"错误: 文件不存在: {args.file}", file=sys.stderr)

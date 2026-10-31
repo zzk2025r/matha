@@ -1,0 +1,7 @@
+n = 0
+if sys_env("MATHA_FAST_B09", "0") == "1" {
+  n = 99
+} else {
+  n = 1
+}
+输出(n)

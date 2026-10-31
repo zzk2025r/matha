@@ -1,10 +1,12 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "matha"
-version = "1.0.0"
+# 单一版本源（阶段 5 第 1 项）：版本号只在 `src/__version__.py` 里写一次，
+# 此处不再硬编码（旧值 1.0.0 与 `src.__version__` 的 4.6、README 的 4.4/4.5 并存）。
+dynamic = ["version"]
 description = "A high-performance symbolic calculus and matrix computation library"
 readme = "README.md"
 license = {text = "BSD-2-Clause"}
@@ -28,11 +30,19 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
-dependencies = [
+# 核心安装零第三方依赖（内核去依赖重构·阶段 3）：
+# 主执行链 lexer → parser → ast_nodes → mbc.compiler → mbc.vm 只用标准库。
+# 重型数值/符号库全部降为可选扩展；未安装时相应领域能力**显式报错**，
+# 不做静默降级（见 docs/symbolic_parity.md 与 src/kernel/symbolic/）。
+dependencies = []
+
+[project.optional-dependencies]
+# 符号微积分兼容后端（sympy）。内核自带纯标准库实现 src/kernel/symbolic/，
+# 装 sympy 只为了取得更广的极限/ODE/级数覆盖面。
+accelerated = [
     "sympy>=1.14.0",
 ]
 
-[project.optional-dependencies]
 # 性能优化依赖（强烈推荐）
 performance = [
     "numpy>=1.24.0",
@@ -52,7 +62,7 @@ dev = [
 
 # 完整安装
 all = [
-    "matha[performance,dev]",
+    "matha[accelerated,performance,dev]",
 ]
 
 [project.urls]
@@ -72,6 +82,9 @@ matha = "src.matha_main:main"
 where = ["."]
 include = ["src*"]
 exclude = ["tests*", "examples*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "src.__version__.__version__"}
 
 [tool.setuptools.package-data]
 matha = ["*.pyi", "**/*.pyi"]

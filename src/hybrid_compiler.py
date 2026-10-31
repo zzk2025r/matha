@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from src.interp import Interpreter
+from src.interp import Interpreter  # 仅作类型标注；执行入口见 src.diag_backends
 from src.parser import parse
 from src.transpiler import PythonTranspiler
 
@@ -1011,7 +1011,7 @@ def get_hybrid_compiler(interp: Interpreter | None = None) -> HybridCompiler:
     global _hybrid_compiler
     if _hybrid_compiler is None or interp is not None:
         if interp is None:
-            from src.interp import Interpreter
+            from src.interp import Interpreter  # 仅作类型标注；执行入口见 src.diag_backends
             interp = Interpreter()
         _hybrid_compiler = HybridCompiler(interp)
     return _hybrid_compiler

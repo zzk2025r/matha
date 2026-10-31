@@ -1,0 +1,119 @@
+diff --git a/src/mbc/compiler.py b/src/mbc/compiler.py
+index c00f2bf..77fdbc6 100644
+--- a/src/mbc/compiler.py
++++ b/src/mbc/compiler.py
+@@ -200,6 +200,51 @@ _CURRIED_BUILTIN_ARITY = {"get": 2, "append": 2, "slice": 3, "range": 2}
+ # 合并前必须双侧同步（见 docs/KNOWN_ISSUES.md 第六节 b09 欠账登记）。
+ _B09_FUSE = os.environ.get("MATHA_B09_FUSE", "") == "1"
+ 
++# 【P4 预备·休眠开关】MATHA_SYSENV_FOLD=1 时启用 `sys_env("KEY", "默认")` 编译期
++# 常量折叠（字面量参→读宿主环境→PUSH_CONST，运行期零开销、native 无需任何
++# API），并连带解锁恒定条件剪枝：`if sys_env(…) == "1" { 快 } 否则 { 原 }` 折叠后
++# 条件为常量，只发射选中分支。默认关闭：两条路径均不介入，字节码与历史逐字节
++# 等价，门禁/定点/契约全不受影响。开启会改变含 sys_env/恒定条件源码的字节码形状，
++# 而自举编译器（matha/compiler_matha.matha）不折叠也不读此环境变量 →
++# stage2↔stage3 定点会漂移，故不得进入 make check 主门禁；转正前必须双侧同步
++# 折叠逻辑（与 MATHA_B09_FUSE 同一前置，见 docs/KNOWN_ISSUES.md 6a 节）。
++_SYSENV_FOLD = os.environ.get("MATHA_SYSENV_FOLD", "") == "1"
++
++
++def _fold_sys_env(callee, args):
++    """`sys_env(字面量 key[, 字面量默认])` 的编译期折叠：命中返回字符串值，
++    否则返回 None（非调用/非字面量参——拒绝静默猜测，折叠失败宁可保持原发射）。
++
++    VM 路径的 env 读取必经宿主（Python 进程），这就是「编译期门控」与
++    「切断宿主」不可兼得的定论：折叠把运行期查询消灭在编译期，native
++    因此无需 GetEnvironmentVariableW，_APIS 封闭基线不动。
++    """
++    if not (isinstance(callee, ast.Variable) and callee.name == "sys_env"):
++        return None
++    if not (1 <= len(args) <= 2 and isinstance(args[0], ast.StringLit)):
++        return None
++    if len(args) == 2 and not isinstance(args[1], ast.StringLit):
++        return None
++    default = args[1].value if len(args) == 2 else ""
++    return os.environ.get(args[0].value, default)
++
++
++def _const_expr_value(node):
++    """编译期常量求值：字面量，以及（开关开启时）`sys_env(字面量[, 字面量])`。
++
++    命中返回 (True, 值)，否则 (False, None)。只接受无副作用的节点：
++    变量、函数调用（除 sys_env）、算术复合均不碰。"""
++    if isinstance(node, (ast.StringLit, ast.IntegerLit, ast.FloatLit, ast.BoolLit)):
++        return (True, node.value)
++    if isinstance(node, ast.FuncApp):
++        callee, args = _flatten_call(node)
++        if (_SYSENV_FOLD and isinstance(callee, ast.Variable)
++                and callee.name == "sys_env"):
++            v = _fold_sys_env(callee, args)
++            if v is not None:
++                return (True, v)
++    return (False, None)
++
+ 
+ def _scan_fn_arities(program) -> dict[str, int]:
+     """预扫描所有顶层 FuncDef 的 name -> arity（与声明顺序无关）。
+@@ -676,6 +721,21 @@ class Compiler:
+         else:
+             code.append((OP.STORE_LOCAL, t[1]))
+ 
++    def _constant_branch_pick(self, cond):
++        """恒定条件识别：`常量 ==/!= 常量`（含 `sys_env("K","d") == "1"` 这类
++        经折叠后为常量的表达式）。命中返回 (True, 真假值)，未命中 (False, None)。
++        只处理单比较、不递归布尔代数——折叠面越大双侧同步越重。仅休眠开关下调用。"""
++        if not (isinstance(cond, ast.BinaryOp) and cond.op in ("==", "!=")):
++            return (False, None)
++        hl, l = _const_expr_value(cond.left)
++        hr, r = _const_expr_value(cond.right)
++        if not (hl and hr):
++            return (False, None)
++        if type(l) is not type(r):
++            return (False, None)
++        eq = l == r
++        return (True, eq if cond.op == "==" else not eq)
++
+     def _emit_if_stmt(self, stmt, scope: _Scope, code: list,
+                       leave_value: bool = False) -> None:
+         """if { } / if/elif/else 链：块在当前帧编译（绑定经同一帧槽位，块后可见）。
+@@ -690,6 +750,21 @@ class Compiler:
+             conditions = stmt.conditions
+             blocks = stmt.blocks
+             else_block = stmt.else_block
++        # 休眠剪枝：条件经折叠后恒定时，只发射选中分支（含带 否则 的两臂形态：
++        # 这正是 `if sys_env("…","0") == "1" { 快路径 } 否则 { 原路径 }` 的写法）。
++        # 字面量比较与 sys_env 折叠均无运行期副作用，剪枝语义成立。
++        if _SYSENV_FOLD and len(conditions) == 1:
++            hit, pick = self._constant_branch_pick(conditions[0])
++            if hit:
++                if pick:
++                    self._emit_block(blocks[0], scope, code,
++                                     leave_last=leave_value)
++                elif else_block is not None:
++                    self._emit_block(else_block, scope, code,
++                                     leave_last=leave_value)
++                elif leave_value:
++                    code.append((OP.PUSH_NULL,))
++                return
+         end_jumps = []
+         for cond, blk in zip(conditions, blocks):
+             self._emit_expr(cond, scope, code)
+@@ -1382,6 +1457,18 @@ class Compiler:
+ 
+         elif isinstance(node, ast.FuncApp):
+             callee, args = _flatten_call(node)
++            # sys_env 编译期折叠（休眠开关）：命中则整调用化为一个字符串常量。
++            # 未命中但确在写 sys_env → 编译期报错，不给它退化成运行期 CALL
++            # （本特性是**编译期**能力，无运行期内建，故不存在「变量键查环境」）。
++            if (_SYSENV_FOLD and isinstance(callee, ast.Variable)
++                    and callee.name == "sys_env"):
++                v = _fold_sys_env(callee, args)
++                if v is None:
++                    raise RuntimeError(
++                        "字节码编译：sys_env 的键（及可选默认值）必须是字符串字面量"
++                        "——它是编译期折叠能力，无运行期对应物")
++                code.append((OP.PUSH_CONST, self.const(v)))
++                return
+             # 完全应用到已知 arity 的顶层函数：融成单条 CALL N。
+             # arity 0 的无参函数亦走此路径（args 为空 -> CALL 0）。
+             if (isinstance(callee, ast.Variable)

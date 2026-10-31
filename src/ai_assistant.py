@@ -1,6 +1,9 @@
 """
 Matha AI Assistant — 小白友好的数学计算助手
 
+【定位标注 2026-10 / P2 降级】仓库内未背书前端：零测试、不入 make check 门禁，
+不作为现功能主张；口径见 docs/KNOWN_ISSUES.md 第七节 7c。
+
 功能：
   1. 自然语言 → Matha 代码自动生成
   2. 多步骤任务分解（AI 辅助规划）
@@ -23,7 +26,7 @@ _logger = logging.getLogger("matha.ai")
 
 # ── 新功能模块导入 ─────────────────────────────────────────────────────────
 try:
-    from src.ffi import MathaFFIBridge, get_ffi  # noqa: F401
+    from src.plugins.ffi import MathaFFIBridge, get_ffi  # noqa: F401
     from src.math_driver import MathDriverManager, get_driver_manager  # noqa: F401
     from src.multi_paradigm import (  # noqa: F401
         MultiParadigmEngine,
@@ -1013,7 +1016,7 @@ class FriendlyIntentParser:
                 results.append({"step": step.description, "status": "skip", "result": None})
                 continue
             try:
-                from src.interp import Interpreter
+                from src.diag_backends import new_interpreter as Interpreter
                 from src.parser import parse
                 i = Interpreter()
                 outputs, _ = i.run(parse(step.matha_code))
@@ -1620,7 +1623,7 @@ class MathaAIAssistant:
         error = None
         if matha_code:
             try:
-                from src.interp import Interpreter
+                from src.diag_backends import new_interpreter as Interpreter
                 from src.parser import parse
                 i = interp if interp is not None else Interpreter()
                 outputs, _ = i.run(parse(matha_code))

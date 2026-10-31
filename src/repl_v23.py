@@ -27,7 +27,7 @@ from src.errors import (
     MathaError,
     RecoveryStrategy,
 )
-from src.interp import interpret
+from src.diag_backends import run_legacy as interpret
 from src.parser import Parser
 
 # KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载

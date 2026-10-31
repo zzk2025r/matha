@@ -1,0 +1,7 @@
+let i = 0
+let acc = ""
+while i < {N} {
+  acc = acc + str(i % 10)
+  i = i + 1
+}
+输出(len(acc))

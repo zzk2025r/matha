@@ -1,0 +1,5 @@
+func add(a: Int, b: Int) -> Int = (a, b) => a + b
+输出(add(3)(4))
+func mk(n: Int) -> Int = (n) => (x) => n + x
+let f = mk(10)
+输出(f(5))

@@ -22,6 +22,7 @@ Python 递归下降改写为「显式帧栈 + trampoline」。它是「整数 �
 """
 from __future__ import annotations
 
+import weakref
 from typing import Any, Callable, Optional
 
 from src import ast_nodes as ast
@@ -29,6 +30,302 @@ from src.interp_stack import (
     Machine, Frame, CallbackFrame, Dispatcher,
     ReturnSignal, ThrowSignal, BREAK, CONTINUE,
 )
+
+
+_MISSING = object()  # 哨兵：标记 env 中「该键原本不存在」
+_ABSENT = object()   # 哨兵：标记 Scope 解析缓存中「父链已确认无此键」
+
+
+class VersionedDict(dict):
+    """带版本号的 dict：任何内容变更都会递增 ``_ver``。
+
+    作为 ``Scope`` 的根容器（全局环境）时，``Scope`` 可比对 ``_ver`` 判断
+    「全局环境是否在本作用域存活期间被改过」，从而及时失效解析缓存
+    （尤其是负缓存——某键原本不存在、后来被定义）。
+    """
+
+    __slots__ = ("_ver",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._ver = 0
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._ver += 1
+
+    def __delitem__(self, key):
+        super().__delitem__(key)
+        self._ver += 1
+
+    def pop(self, *args):
+        result = super().pop(*args)
+        self._ver += 1
+        return result
+
+    def popitem(self):
+        result = super().popitem()
+        self._ver += 1
+        return result
+
+    def clear(self):
+        super().clear()
+        self._ver += 1
+
+    def update(self, *args, **kwargs):
+        super().update(*args, **kwargs)
+        self._ver += 1
+
+    def setdefault(self, key, default=None):
+        result = super().setdefault(key, default)
+        self._ver += 1
+        return result
+
+
+class Scope:
+    """叠加式作用域：本地写层 + 只读父层链。
+
+    用于在**不拷贝**父环境的前提下为新函数体提供隔离的局部命名空间：
+
+    - 读取：先查本地层，再沿父链回溯（``__getitem__``/``get``/``__contains__``）。
+    - 写入：只落本地层（``__setitem__``），父层不受影响 → 退帧即丢弃。
+    - ``items``/``keys``/``values``/``__iter__``/``__len__`` 合并父链（本地覆盖父层），
+      使其可当作普通 dict 使用（兼容 ``dict(self.env.items())`` 等既有写法）。
+
+    开销：建帧 O(arity)（仅写入参数），读取 O(层深)；不做任何父环境拷贝，
+    因此深递归不再有 O(n²) 拷贝。
+    """
+
+    __slots__ = ("_local", "_parent", "_cache", "_ver", "_pver",
+                 "_root", "_root_ver", "_root_ok", "_children", "__weakref__")
+
+    def __init__(self, parent=None, local=None):
+        self._parent = parent
+        self._local = local if local is not None else {}
+        # 解析缓存：name → 值 或 _ABSENT。链压缩（path compression）——
+        # 首次查找后把「本地层已解析」的结果缓存，深层帧可 O(1) 命中父层缓存，
+        # 避免每次变量 miss 都遍历整条父链（递归时链深=调用深度 → O(n²)）。
+        self._cache: dict = {}
+        # 版本号：本层每次变更 +1；子层通过比对父版本发现「祖先已变更」→
+        # 自身缓存可能过期（尤其是负缓存 _ABSENT），据此精准失效。
+        self._ver = 0
+        self._pver = parent._ver if isinstance(parent, Scope) else 0
+        # 链根容器（通常是全局环境 dict）与它的版本：全局环境被改写时，
+        # 链上任意深度都能立即察觉（否则深层帧会读到过期的负缓存）。
+        if isinstance(parent, Scope):
+            self._root = parent._root
+            self._root_ok = parent._root_ok
+        else:
+            self._root = parent
+            self._root_ok = isinstance(parent, VersionedDict)
+        self._root_ver = self._root._ver if self._root_ok else None
+        # 子层订阅（弱引用，避免父子互相持有造成内存滞留）
+        self._children: list = []
+        if isinstance(parent, Scope):
+            parent._subscribe(self)
+
+    def _subscribe(self, child):
+        """登记子层，便于本层变更时向下传播失效信号。"""
+        kids = self._children
+        if len(kids) > 8:
+            kids[:] = [ref for ref in kids if ref() is not None]
+        kids.append(weakref.ref(child))
+
+    def _propagate(self):
+        """把变更信号迭代式传播给所有后代层（迭代实现，避免深链宿主递归）。"""
+        stack = list(self._children)
+        while stack:
+            ref = stack.pop()
+            child = ref()
+            if child is None:
+                continue
+            child._ver += 1
+            child._cache.clear()
+            stack.extend(child._children)
+
+    def _resolve(self, key):
+        """返回 ``(found, value)``：本地层 → 缓存 → 父层（缓存/字典）。
+
+        缓存只在「链根容器可版本化」时启用：普通 dict 根无法感知外部改写，
+        缓存会读到过期值（尤其负缓存）。此时退化为逐层回溯，但普通 dict 根
+        只出现在用户自建/快照场景，引擎热路径的根都是 :class:`VersionedDict`。
+        """
+        local = self._local
+        if key in local:
+            return True, local[key]
+        stale = False
+        parent = self._parent
+        if isinstance(parent, Scope) and parent._ver != self._pver:
+            # 直接父层已变更 → 本层缓存（含负缓存）可能过期
+            stale = True
+            self._pver = parent._ver
+        if self._root_ok:
+            root_ver = self._root._ver
+            if root_ver != self._root_ver:
+                # 链根（全局环境）已变更 → 任意深度都可能读到过期值
+                stale = True
+                self._root_ver = root_ver
+        if stale:
+            self._cache.clear()
+        cacheable = self._root_ok
+        cache = self._cache
+        hit = cache.get(key, _MISSING)
+        if hit is not _MISSING:
+            return (False, None) if hit is _ABSENT else (True, hit)
+        if parent is None:
+            if cacheable:
+                cache[key] = _ABSENT
+            return False, None
+        if isinstance(parent, Scope):
+            found, value = parent._resolve(key)
+            if cacheable:
+                cache[key] = value if found else _ABSENT
+            return found, value
+        if key in parent:
+            value = parent[key]
+            if cacheable:
+                cache[key] = value
+            return True, value
+        if cacheable:
+            cache[key] = _ABSENT
+        return False, None
+
+    def __getitem__(self, key):
+        found, value = self._resolve(key)
+        if found:
+            return value
+        raise KeyError(key)
+
+    def _invalidate(self, key):
+        """精确失效：把自身及祖先链上关于 ``key`` 的缓存条目移除。
+
+        只影响该 key（而非整表清空），避免高频赋值把已建立的解析缓存整体作废。
+        """
+        node = self
+        while isinstance(node, Scope):
+            node._cache.pop(key, None)
+            node = node._parent
+
+    def __setitem__(self, key, value):
+        self._local[key] = value
+        # 仅本层写入 → 只失效本层该 key 的缓存（父层内容未变，其缓存仍有效）
+        self._cache.pop(key, None)
+        self._ver += 1
+        self._propagate()
+
+    def __delitem__(self, key):
+        if key in self._local:
+            del self._local[key]
+            self._cache.pop(key, None)
+            self._ver += 1
+            self._propagate()
+            return
+        parent = self._parent
+        if isinstance(parent, Scope):
+            del parent[key]
+            self._invalidate(key)
+            return
+        if parent is not None and key in parent:
+            del parent[key]
+            self._invalidate(key)
+            return
+        raise KeyError(key)
+
+    def __contains__(self, key):
+        return self._resolve(key)[0]
+
+    def get(self, key, default=None):
+        found, value = self._resolve(key)
+        return value if found else default
+
+    def __iter__(self):
+        seen = set()
+        scope = self
+        while scope is not None:
+            if isinstance(scope, Scope):
+                keys = scope._local.keys()
+                parent = scope._parent
+            else:
+                keys = scope.keys()
+                parent = None
+            for k in keys:
+                if k not in seen:
+                    seen.add(k)
+                    yield k
+            scope = parent
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+    def keys(self):
+        return list(self)
+
+    def items(self):
+        for k in self:
+            yield k, self[k]
+
+    def values(self):
+        for k in self:
+            yield self[k]
+
+    def copy(self):
+        return dict(self.items())
+
+    def pop(self, key, default=_MISSING):
+        if key in self._local:
+            value = self._local.pop(key)
+            self._cache.pop(key, None)
+            self._ver += 1
+            self._propagate()
+            return value
+        scope = self._parent
+        while scope is not None:
+            if isinstance(scope, Scope):
+                if key in scope._local:
+                    value = scope._local.pop(key)
+                    scope._cache.pop(key, None)
+                    scope._ver += 1
+                    scope._propagate()
+                    # 父层被删 → 本层及中间祖先缓存的 key 同样失效
+                    self._invalidate(key)
+                    return value
+                scope = scope._parent
+            else:
+                if key in scope:
+                    value = scope.pop(key)
+                    self._invalidate(key)
+                    return value
+                if default is _MISSING:
+                    raise KeyError(key)
+                return default
+        if default is _MISSING:
+            raise KeyError(key)
+        return default
+
+    def setdefault(self, key, default=None):
+        found, value = self._resolve(key)
+        if found:
+            return value
+        self._local[key] = default
+        self._cache.pop(key, None)
+        self._ver += 1
+        self._propagate()
+        return default
+
+    def update(self, other=(), **kwargs):
+        if hasattr(other, "items"):
+            other = other.items()
+        for k, v in other:
+            self._local[k] = v
+            self._cache.pop(k, None)
+        for k, v in kwargs.items():
+            self._local[k] = v
+            self._cache.pop(k, None)
+        self._ver += 1
+        self._propagate()
+
+    def __repr__(self):
+        return f"Scope({dict(self.items())!r})"
 
 
 class _ValueHolder:
@@ -184,7 +481,8 @@ class StackEngine:
 
         def after_l(lv):
             def after_r(rv):
-                machine.return_value_now(self.interp._apply_binary_values(op, lv, rv))
+                machine.return_value_now(
+                    self.interp._apply_binary_values(op, lv, rv, site=node))
             machine.eval(node.right, CallbackFrame(machine, after_r))
         machine.eval(node.left, CallbackFrame(machine, after_l))
 
@@ -524,50 +822,24 @@ class StackEngine:
         （块体，尚未迁移）——两者都不构成宿主递归调用链。
         """
         interp = self.interp
-        saved_matha_env = getattr(interp, "_matha_env", None)
-        if isinstance(captured, list):
-            local = dict(captured)
-            cur_matha_env = captured
-        else:
-            local = dict(captured)
-            cur_matha_env = getattr(interp, "_matha_env", None)
-            if cur_matha_env is None:
-                cur_matha_env = list(local.items())
-            if "env" in local and not isinstance(local["env"], list):
-                local["env"] = list(local["env"].items()) if isinstance(local["env"], dict) else local["env"]
 
         # ---- 偏应用：参数不足 → 返回闭包 ----
         if len(args) < len(params):
+            snap = self._env_snapshot(interp, captured)
             for p, a in zip(params, args):
-                local[interp._param_name(p)] = a
+                snap[interp._param_name(p)] = a
             remaining = params[len(args):]
-            new_pairs = [(interp._param_name(p), a) for p, a in zip(params, args)]
-            if isinstance(captured, list):
-                captured.extend(new_pairs)
-                cur_matha_env = captured
-            elif isinstance(cur_matha_env, list):
-                cur_matha_env = list(cur_matha_env) + new_pairs
-            else:
-                cur_matha_env = list(cur_matha_env.items()) + new_pairs
             if len(remaining) > 1:
                 b = body
                 while isinstance(b, ast.Lambda):
                     b = b.body
             else:
                 b = body
-            machine.return_value_now(("__closure__", remaining, b, cur_matha_env))
+            machine.return_value_now(("__closure__", remaining, b, snap))
             return
 
-        # ---- 完整应用 ----
-        for p, a in zip(params, args):
-            local[interp._param_name(p)] = a
-        if isinstance(cur_matha_env, list):
-            cur_matha_env = list(cur_matha_env) + [
-                (interp._param_name(p), a) for p, a in zip(params, args)]
-        extra = args[len(params):]
-
-        frame = _LambdaFrame(machine, self, body, local, cur_matha_env,
-                             saved_matha_env, extra)
+        # ---- 完整应用：引用传递 + 作用域快照（无 dict/list 拷贝）----
+        frame = _LambdaFrame(machine, self, body, params, args, captured)
         # 函数体的结果直接回填到 _LambdaFrame.resume。
         # 语句块体（CodeBlock）暂由解释器递归实现兜底，需把其 _ReturnException
         # 转换为显式 ReturnSignal，交由 _LambdaFrame 消费（避免宿主异常外泄）。
@@ -587,34 +859,89 @@ class StackEngine:
         else:
             machine.eval(body, frame)
 
+    # ---------- 环境：引用传递 + 作用域快照（Shadow / undo-log） ----------
+
+    @staticmethod
+    def _env_snapshot(interp, captured):
+        """按值构造一个 env 字典（仅偏应用/闭包捕获路径使用，非热路径）。
+
+        ``captured`` 可能是 dict（引擎闭包捕获）或 list-of-tuples（Matha env）。
+        """
+        if isinstance(captured, dict):
+            snap = dict(captured)
+        elif isinstance(captured, list):
+            snap = {}
+            for k, v in captured:
+                snap[k] = v
+        else:
+            snap = dict(getattr(interp, "env", {}) or {})
+        return snap
+
+    @staticmethod
+    def _scope_parent(captured):
+        """把 ``captured``（dict / list-of-tuples / Scope / None）归一化为父层映射。
+
+        - list-of-tuples（Matha 自举闭包）→ :class:`VersionedDict`（一次性，O(len)）。
+        - dict → 带版本号的副本（快照语义与经典 ``dict(captured)`` 一致，
+          同时让 Scope 的链根可版本化 → 缓存能正确感知改写）。
+        - Scope → 直接引用（O(1)，热路径）。
+        - None → None（无父层，仅内建/函数表可见）。
+        """
+        if isinstance(captured, list):
+            # 直接以 C 层 dict 构造器复制（避免逐项走 Python 层 __setitem__）
+            return VersionedDict(captured)
+        if isinstance(captured, dict) and not isinstance(captured, VersionedDict):
+            snap = VersionedDict(captured)
+            return snap
+        return captured
+
 
 class _LambdaFrame(Frame):
-    """lambda 调用帧：恢复环境、处理 return 信号、应用多余参数。"""
+    """lambda 调用帧：叠加式作用域（``Scope``）——隔离写、O(1) 建帧。
 
-    __slots__ = ("engine", "body", "saved_env", "saved_matha_env", "extra",
-                 "pending_exc", "_saved_depth", "skip_extras")
+    进入时把 ``interp.env`` 替换为 ``Scope(parent=captured, local=params)``：
+    函数体的局部赋值写入本地层（不泄漏给调用者）；读取沿父链回溯到闭包捕获
+    环境。退出时把 ``interp.env`` 还原为进入前的值——无任何父环境拷贝。
+    """
 
-    def __init__(self, machine, engine, body, local_env, matha_env,
-                 saved_matha_env, extra):
+    __slots__ = ("engine", "body", "saved_matha_env", "extra",
+                 "pending_exc", "_saved_depth", "skip_extras",
+                 "params", "args", "_saved_env", "_matha_len")
+
+    def __init__(self, machine, engine, body, params, args, captured=None):
         super().__init__(machine)
         self.engine = engine
         self.body = body
         self.pending_exc = None
         self.skip_extras = False
         interp = engine.interp
-        self.saved_env = interp.env
-        self.saved_matha_env = saved_matha_env
-        self.extra = extra
-        interp.env = local_env
-        interp._matha_env = matha_env
+        self.params = params
+        self.args = args
+        self.extra = args[len(params):]
+        # 叠加式作用域：父层 = 闭包捕获环境（引用传递），本地层 = 参数绑定。
+        parent = engine._scope_parent(captured)
+        local = {}
+        for p, a in zip(params, args):
+            local[interp._param_name(p)] = a
+        self._saved_env = interp.env
+        interp.env = Scope(parent=parent, local=local)
+        # matha_env（list）：引用传递，原地追加参数对，退出时截断
+        self._matha_len = None
+        me = getattr(interp, "_matha_env", None)
+        if isinstance(me, list):
+            self._matha_len = len(me)
+            me.extend((interp._param_name(p), a) for p, a in zip(params, args))
         self._saved_depth = interp._depth
         if interp.debug:
             interp._depth += 1
 
     def _restore(self):
         interp = self.engine.interp
-        interp.env = self.saved_env
-        interp._matha_env = self.saved_matha_env
+        interp.env = self._saved_env
+        if self._matha_len is not None:
+            me = getattr(interp, "_matha_env", None)
+            if isinstance(me, list) and len(me) >= self._matha_len:
+                del me[self._matha_len:]
         interp._depth = self._saved_depth
 
     def resume(self, value):
@@ -646,4 +973,4 @@ class _LambdaFrame(Frame):
         return False
 
 
-__all__ = ["StackEngine", "EngineMachine"]
+__all__ = ["StackEngine", "EngineMachine", "Scope", "VersionedDict"]

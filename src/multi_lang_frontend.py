@@ -27,22 +27,22 @@ from typing import Any
 
 # 尝试加载 tree-sitter 后端（无外部依赖的回退方案）
 try:
-    from src.tree_sitter_backends import (
+    from src.plugins.tree_sitter_backends import (
         _TS_AVAILABLE,  # noqa: F401
     )
-    from src.tree_sitter_backends import (
+    from src.plugins.tree_sitter_backends import (
         CParser as _TS_C,
     )
-    from src.tree_sitter_backends import (
+    from src.plugins.tree_sitter_backends import (
         GoParser as _TS_Go,
     )
-    from src.tree_sitter_backends import (
+    from src.plugins.tree_sitter_backends import (
         JSParser as _TS_JS,
     )
-    from src.tree_sitter_backends import (
+    from src.plugins.tree_sitter_backends import (
         RustParser as _TS_Rust,
     )
-    from src.tree_sitter_backends import (
+    from src.plugins.tree_sitter_backends import (
         get_parser as _ts_get_parser,  # noqa: F401
     )
     _USE_TS = True

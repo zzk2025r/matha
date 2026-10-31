@@ -1,0 +1,14 @@
+# A4 回归锁：return 后的 [x] 为列表字面量（非输出命令）
+# 修复前 func f(x) => { return [x] } 编译成 ReturnStmt(Output(x))，既打印又返回裸值
+func 单(x: Int) -> List = (x) => {
+  return [x]
+}
+func 对(a: Int, b: Int) -> List = (a, b) => {
+  return [a, b]
+}
+func 空() -> List = () => {
+  return []
+}
+[单(7)]
+[对(7, 8)]
+[空()]

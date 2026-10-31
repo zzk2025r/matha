@@ -1,0 +1,114 @@
+diff --git a/src/mbc/compiler.py b/src/mbc/compiler.py
+index ad86996..c00f2bf 100644
+--- a/src/mbc/compiler.py
++++ b/src/mbc/compiler.py
+@@ -7,6 +7,7 @@
+ """
+ from __future__ import annotations
+ 
++import os
+ from dataclasses import dataclass, field
+ 
+ from src import ast_ext, custom_ops
+@@ -191,6 +192,14 @@ def _fold_bin(op: str, left, right):
+ # 覆盖本表，以用户声明为准）。
+ _CURRIED_BUILTIN_ARITY = {"get": 2, "append": 2, "slice": 3, "range": 2}
+ 
++# 【P4 预备·休眠开关】MATHA_B09_FUSE=1 时，for 语法糖与列表推导中**手写**的
++# 柯里化内建展开（get(xs)(i) / append(res)(e)）融成单条 CALL N；默认关闭，
++# 关闭路径与历史发射逐字节等价。开启会改变宿主发射器的字节码形状而自举编译器
++# （matha/compiler_matha.matha）不读此环境变量 → stage2↔stage3 定点会漂移，
++# 故该开关不得进入 make check 主门禁；仅供独立验证脚本与紧邻 A/B 使用，
++# 合并前必须双侧同步（见 docs/KNOWN_ISSUES.md 第六节 b09 欠账登记）。
++_B09_FUSE = os.environ.get("MATHA_B09_FUSE", "") == "1"
++
+ 
+ def _scan_fn_arities(program) -> dict[str, int]:
+     """预扫描所有顶层 FuncDef 的 name -> arity（与声明顺序无关）。
+@@ -269,6 +278,9 @@ class Compiler:
+         # `_预扫元数` **逐项同值**，否则 stage2↔stage3 定点会红（见
+         # tests/test_curried_builtin_paths.py 与 tests/test_mbc_bootstrap.py）。
+         self._fn_arities = {**_CURRIED_BUILTIN_ARITY, **_scan_fn_arities(program)}
++        # FuncDef 声明的名字集合（融合安全闸：同名遮蔽时以用户声明为准，
++        # 语法糖内联发射不得硬编码内建 LOAD_GLOBAL 吞掉遮蔽）。
++        self._user_fn_names = set(_scan_fn_arities(program))
+         # `？` 公式模式库：与解释器**同源同序**，故编译期的「是否命中模式」
+         # 判定与解释器运行期判定结果一致。
+         self.formulas = _fs.FormulaLibrary()
+@@ -747,11 +759,7 @@ class Compiler:
+         jz = len(code)
+         code.append((OP.JZ, 0))
+         # elem = get(xs)(i)，多变量则 UNPACK_SEQ 解构
+-        code.append((OP.LOAD_GLOBAL, self.sconst("get")))
+-        self._load_temp(code, xs_t)
+-        code.append((OP.CALL, 1))
+-        self._load_temp(code, i_t)
+-        code.append((OP.CALL, 1))
++        self._emit_curried_builtin("get", [xs_t, i_t], code, fuse=_B09_FUSE)
+         if len(var_ts) == 1:
+             self._store_temp(code, var_ts[0])
+         else:
+@@ -773,6 +781,36 @@ class Compiler:
+         for j in frame["cont"]:
+             code[j] = (OP.JMP, inc_pos)
+ 
++    def _emit_curried_builtin(self, name: str, temps: list, code: list, *,
++                              fuse: bool, last_expr=None,
++                              last_expr_scope=None) -> None:
++        """发射语法糖内联的柯里化内建调用（get/append 的两步展开）。
++
++        fuse=False（默认/历史路径）：LOAD_GLOBAL + 逐步 CALL 1，与旧手写发射
++        逐字节等价。fuse=True（b09 预备开关）：齐 arity 时融成单条 CALL N，
++        走 `_Curried` 直调与 FuncApp 完全应用同一执行路径。
++
++        安全闸：若模块顶层 FuncDef 声明了同名函数（`_fn_arities` 中 FuncDef 覆盖
++        了内建预置值），则不得硬编码 LOAD_GLOBAL 内建名——那会吞掉用户定义的
++        遮蔽语义，此情形恒走历史路径，融合也不改变任何正确程序的行为。
++        """
++        if fuse and name not in self._user_fn_names:
++            code.append((OP.LOAD_GLOBAL, self.sconst(name)))
++            for t in temps:
++                if t is None:
++                    self._emit_expr(last_expr, last_expr_scope, code)
++                else:
++                    self._load_temp(code, t)
++            code.append((OP.CALL, len(temps)))
++            return
++        code.append((OP.LOAD_GLOBAL, self.sconst(name)))
++        for t in temps:
++            if t is None:
++                self._emit_expr(last_expr, last_expr_scope, code)
++            else:
++                self._load_temp(code, t)
++            code.append((OP.CALL, 1))
++
+     def _emit_list_comp(self, node, scope: _Scope, code: list) -> None:
+         """列表推导 [expr for target in iter if c1 if c2 ...]：下沉为与 `_emit_for_stmt`
+         同构的下标循环（len/get 驱动），用 `append` 累加器收集元素，最后把结果列表
+@@ -812,11 +850,7 @@ class Compiler:
+         jz_end = len(code)
+         code.append((OP.JZ, 0))
+         # elem = get(xs)(i) → 绑定目标变量
+-        code.append((OP.LOAD_GLOBAL, self.sconst("get")))
+-        self._load_temp(code, xs_t)
+-        code.append((OP.CALL, 1))
+-        self._load_temp(code, i_t)
+-        code.append((OP.CALL, 1))
++        self._emit_curried_builtin("get", [xs_t, i_t], code, fuse=_B09_FUSE)
+         self._store_temp(code, var_t)
+         # 过滤条件（AND）：任一为假 → 跳到 inc（不 append）
+         skip_patches: list[int] = []
+@@ -825,11 +859,8 @@ class Compiler:
+             skip_patches.append(len(code))
+             code.append((OP.JZ, 0))
+         # res = append(res)(expr)
+-        code.append((OP.LOAD_GLOBAL, self.sconst("append")))
+-        self._load_temp(code, res_t)
+-        code.append((OP.CALL, 1))
+-        self._emit_expr(node.expr, scope, code)
+-        code.append((OP.CALL, 1))
++        self._emit_curried_builtin("append", [res_t, None], code, fuse=_B09_FUSE,
++                                   last_expr=node.expr, last_expr_scope=scope)
+         self._store_temp(code, res_t)
+         # inc: i += 1（回到顶部）
+         inc_pos = len(code)

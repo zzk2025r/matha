@@ -40,12 +40,19 @@ theme:
 
 nav:
   - 首页: index.md
-  - 快速开始:
-    - 安装指南: getting-started/installation.md
-  - API 参考:
-    - 依赖层: api/deps.md
+  - 架构与内核:
+    - 总体架构: ARCHITECTURE.md
+    - 依赖基线: DEP_BASELINE.md
+    - AST×VM 覆盖矩阵: ast_vm_gap.md
+  - 符号能力:
+    - 能力等价表: symbolic_parity.md
+    - Matha 符号标准库: matha_stdlib_symbolic.md
+  - 使用指南:
+    - 构建指南: BUILD_GUIDE.md
+    - 离线运行: OFFLINE_GUIDE.md
+    - 已知问题: KNOWN_ISSUES.md
   - 版本历史:
-    - 更新日志: ../CHANGELOG.md
+    - 更新日志: CHANGELOG.md
 
 markdown_extensions:
   - pymdownx.highlight:

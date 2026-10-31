@@ -85,8 +85,14 @@ module 编译器 {
     {"常量": bc["常量"], "函数": bc["函数"], "计数": bc["计数"], "元数表": 表}
 
   (* 预扫描顶层函数元数：仅 顶层函数定义 入表（模块内嵌的也算），
-     lambda 不在表内，故无需再按 __lam_ 前缀排除。 *)
-  func _预扫元数(decls: List) -> Dict = _预扫元数走(decls, dict_from_pairs([]))
+     lambda 不在表内，故无需再按 __lam_ 前缀排除。
+     初始表预置四个柯里化 VM 内建的固定元数，与宿主 `_CURRIED_BUILTIN_ARITY`
+     （src/mbc/compiler.py）**逐项同值**：二者共同决定 `get(xs)(i)` 这类完全应用
+     调用是否融成单条 CALL N，两侧不同值会让 stage2↔stage3 定点红。顶层若有
+     同名函数定义，下面的 dict_put 会以用户声明的元数覆盖预置值。 *)
+  func _预扫元数(decls: List) -> Dict =
+    _预扫元数走(decls,
+      dict_from_pairs([["get", 2], ["append", 2], ["slice", 3], ["range", 2]]))
 
   func _预扫元数走(decls: List, out: Dict) -> Dict =
     decls = [] ? out :
@@ -115,14 +121,27 @@ module 编译器 {
     list_set_at(code, pos, ins)
 
   (* ===== 作用域 =====
-     [nslots, names, parent, is_main]
-     names 条目 [名, 槽位, 盒]；is_main=真 时一切绑定落全局（main 帧无局部槽） *)
-  func _新作用域(parent) -> List = [0, [], parent, 假]
-  func _新主作用域() -> List = [0, [], null, 真]
+     [nslots, names, parent, is_main, leak]
+     names 条目 [名, 槽位, 盒]；is_main=真 时一切绑定落全局（main 帧无局部槽）。
+     leak=真 用于 try/catch/finally 的 thunk 作用域：块内**具名绑定**同样落全局
+     （遗留解释器把块内绑定写进共享 env，块外可读），但**编译器临时槽与形参**仍占
+     本帧局部槽位——故 is_main 与 _绑定落全局 必须区分开（对齐宿主 _Scope.binds_global）。 *)
+  func _新作用域(parent) -> List = [0, [], parent, 假, 假]
+  func _新主作用域() -> List = [0, [], null, 真, 假]
+  func _新泄漏作用域(parent) -> List = [0, [], parent, 假, 真]
 
+  (* 具名绑定是否落全局（STORE_GLOBAL）；临时槽与形参不受此影响 *)
+  func _绑定落全局(sc: List) -> Bool = sc[3] = 真 or sc[4] = 真
+
+  (* declare：泄漏作用域**不记录**具名绑定——读写一律沿父链落到全局，
+     记录局部槽反而让读指令取到从未写入的槽位（宿主 declare 同此，返回 -1）。 *)
   func _声明(sc: List, name: String, boxed: Bool) -> (List, Int) =
+    sc[4] = 真 ? (sc, -1) : _声明局部(sc, name, boxed)
+
+  (* declare_local：无条件占用并记录本帧局部槽（形参、编译器临时槽）。 *)
+  func _声明局部(sc: List, name: String, boxed: Bool) -> (List, Int) =
     let slot = sc[0] in
-    ([slot + 1, append(sc[1])([name, slot, boxed]), sc[2], sc[3]], slot)
+    ([slot + 1, append(sc[1])([name, slot, boxed]), sc[2], sc[3], sc[4]], slot)
 
   (* 同名多次绑定取「最后一次」声明：宿主 scope.names 是 dict，重复 declare
      会覆盖旧槽位；此处 names 是列表，故先看后面有没有命中，没有才用当前项。 *)
@@ -145,7 +164,7 @@ module 编译器 {
      并按宿主语义把主作用域 nslots 递增。 *)
   func _全局临时(sc: List, bc: Dict, hint: String) -> (String, List, Dict) =
     let n = sc[0] + 1 in
-    let sc2 = [n, sc[1], sc[2], sc[3]] in
+    let sc2 = [n, sc[1], sc[2], sc[3], sc[4]] in
     ("__" + hint + "_" + str(bc["计数"]) + "_" + str(n), sc2, bc)
 
   (* ===== 参数提取：Variable 节点列表 → 名列表 ===== *)
@@ -221,7 +240,7 @@ module 编译器 {
 
   func _声明参数(sc: List, names: List) -> List =
     names = [] ? sc :
-    let (sc2, slot) = _声明(sc, names[0], 假) in
+    let (sc2, slot) = _声明局部(sc, names[0], 假) in
     _声明参数(sc2, names[1:])
 
   (* ===== 主码：声明列表（语句栈平衡）===== *)
@@ -233,7 +252,7 @@ module 编译器 {
      main 作用域的名字表从不被查（_查找 对 sc[3]=真 直接返回 global），
      故只需重置计数槽 sc[0]，不必复制整个作用域。 *)
   func _重置主作用域计数(sc: List) -> List =
-    sc[3] = 真 ? [0, sc[1], sc[2], sc[3]] : sc
+    sc[3] = 真 ? [0, sc[1], sc[2], sc[3], sc[4]] : sc
 
   func _编译声明列表(decls: List, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
@@ -344,7 +363,7 @@ module 编译器 {
     it["值"] = null ? _发射设值项(items[1:], code, sc, bc) :
     it["目标"]["名"] = "？" ? _发射设值项(items[1:], code, sc, bc) :
     let (c2, sc2, bc2) = _发射表达式(it["值"], code, sc, bc) in
-    sc2[3] = 真 ?
+    _绑定落全局(sc2) ?
       let (gidx, bc3) = _加常量名(bc2, it["目标"]["名"]) in
       _发射设值项(items[1:], _发(c2, [OP_STORE_GLOBAL, gidx]), sc2, bc3) :
       let (sc3, slot) = _绑定槽(sc2, it["目标"]["名"]) in
@@ -389,7 +408,7 @@ module 编译器 {
   func _编译绑定(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
-    sc2[3] = 真 ?
+    _绑定落全局(sc2) ?
       let (idx, bc3) = _加常量名(bc2, decl["名"]) in
       (_发(c2, [OP_STORE_GLOBAL, idx]), sc2, bc3) :
       let (sc3, slot) = _绑定槽(sc2, decl["名"]) in
@@ -402,7 +421,7 @@ module 编译器 {
   func _编译顶层let(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
-    sc2[3] = 真 ?
+    _绑定落全局(sc2) ?
       let (idx, bc3) = _加常量(bc2, decl["名"]) in
       let c3 = _发(c2, [OP_STORE_GLOBAL, idx]) in
       decl["有体"] ?
@@ -425,7 +444,7 @@ module 编译器 {
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
     let names = decl["名字"] in
     let c3 = _发(c2, [OP_UNPACK_SEQ, len(names)]) in
-    sc2[3] = 真 ?
+    _绑定落全局(sc2) ?
       let (c4, bc3) = _存储元组全局逆序(names, c3, bc2) in
       decl["有体"] ?
         let (c5, sc3, bc4) = _发射表达式(decl["体"], c4, sc2, bc3) in
@@ -552,7 +571,7 @@ module 编译器 {
      _declare_slot——解析为全局时新声明一个局部槽并 STORE_LOCAL，否则复用现有槽。 *)
   func _发射模式绑定(name: String, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
-    sc[3] = 真 ?
+    _绑定落全局(sc) ?
       let (idx, bc2) = _加常量(bc, name) in
       (_发(code, [OP_STORE_GLOBAL, idx]), sc, bc2) :
       let r = _查找(sc, name, 0) in
@@ -1103,11 +1122,12 @@ module 编译器 {
       (c3, sc3, bc3) :
       (_发(c2, [OP_PUSH_NULL]), sc2, bc2)
 
-  (* let 存储：main 作用域无局部槽数组 → 落全局（仅声明以供后续按名解析）；
-     否则声明帧槽位并 STORE_LOCAL。与宿主 _emit_let 的 is_main 分支一致。 *)
+  (* let 存储：绑定落全局（main 帧无局部槽数组 / try 块泄漏作用域）→ 落全局，
+     泄漏作用域下 _声明 不记录名，故后续读取沿父链解析为同名全局；
+     否则声明帧槽位并 STORE_LOCAL。与宿主 _emit_let 的 binds_global 分支一致。 *)
   func _发射let存储(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
-    if sc[3] = 真 then
+    if _绑定落全局(sc) then
       let (sc2, slot) = _声明(sc, e["名"], 假) in
       let (gidx, bc2) = _加常量名(bc, e["名"]) in
       (_发(code, [OP_STORE_GLOBAL, gidx]), sc2, bc2)
@@ -1115,7 +1135,23 @@ module 编译器 {
       let (sc2, slot) = _声明(sc, e["名"], 假) in
       (_发(code, [OP_STORE_LOCAL, slot]), sc2, bc)
 
+  (* 递归 let：宿主 _emit_let 的 boxed 分支对 binds_global 有特殊处理——
+     main / 泄漏作用域无可用局部槽数组，MAKE_BOX/STORE_BOX 会越界访问
+     locals[slot]（互递归 let rec 曾抛 IndexError），故退化为「求值 + 同名全局」。 *)
   func _发射let_rec(e: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    _绑定落全局(sc) ?
+      let (c1, sc1, bc1) = _发射表达式(e["值"], code, sc, bc) in
+      let (sc2, UnusedSlot) = _声明(sc1, e["名"], 假) in
+      let (gidx, bc2) = _加常量名(bc1, e["名"]) in
+      let c2 = _发(c1, [OP_STORE_GLOBAL, gidx]) in
+      e["有体"] ?
+        let (c3, sc3, bc3) = _发射表达式(e["体"], c2, sc2, bc2) in
+        (c3, sc3, bc3) :
+        (_发(c2, [OP_PUSH_NULL]), sc2, bc2) :
+      _发射let_rec局部(e, code, sc, bc)
+
+  func _发射let_rec局部(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let (sc1, slot) = _声明(sc, e["名"], 真) in
     let c1 = _发(code, [OP_MAKE_BOX, slot]) in
@@ -1205,12 +1241,14 @@ module 编译器 {
     sc[3] = 真 ?
       let (gname, sc2, bc1) = _全局临时(sc, bc, hint) in
       (["g", gname], sc2, bc1) :
-      let (sc2, slot) = _声明(sc, "__" + hint, 假) in
+      (* 临时槽永远是本帧局部存储（泄漏作用域下也不落全局）：必须走 _声明局部，
+         否则 leak 下 _声明 返回 -1，STORE_LOCAL -1 取到错误槽位。 *)
+      let (sc2, slot) = _声明局部(sc, "__" + hint, 假) in
       (["l", slot], sc2, bc)
 
   func _分配循环变量(sc: List, bc: Dict, name: String)
       -> (List, List, Dict) =
-    sc[3] = 真 ?
+    _绑定落全局(sc) ?
       (["g", name], sc, bc) :
       let (sc2, slot) = _声明(sc, name, 假) in
       (["l", slot], sc2, bc)
@@ -1237,6 +1275,18 @@ module 编译器 {
       (_发(code, [OP_STORE_LOCAL, r[2]]), bc) :
       (_发(code, [OP_STORE_BOX, r[2]]), bc)
 
+  (* for 语法糖 get(xs)(i) 两种发射（与宿主 _emit_curried_builtin 逐字节对齐）：
+     齐参→ LOAD_GLOBAL get; LOAD xs; LOAD i; CALL 2；逐步→ ...; CALL 1; CALL 1。
+     入池顺序两侧都是 get→xs→i（中间 CALL 不入池），故常量池逐字节一致。 *)
+  func _get齐参(code, i位置, bc) -> (List, Dict) =
+    let (cx, bcx) = _压临时(code, i位置, bc) in
+    (_发(cx, [OP_CALL, 2]), bcx)
+
+  func _get逐步(code, i位置, bc) -> (List, Dict) =
+    let c8 = _发(code, [OP_CALL, 1]) in
+    let (c9, bc9) = _压临时(c8, i位置, bc) in
+    (_发(c9, [OP_CALL, 1]), bc9)
+
   (* for 主循环（统一发射，本地/全局位置都支持）。栈布局严格遵循
      fn 在下、arg 在上。返回 (完成码, bc) *)
   func _for循环码(code, xs位置, i位置, v位置, e, sc, bc, top, zero)
@@ -1249,12 +1299,15 @@ module 编译器 {
     let c4 = _发(c3, [OP_BINOP, idxlt]) in
     let jz = len(c4) in
     let c5 = _发(c4, [OP_JZ, 0]) in
-    (* get(xs)(i) *)
+    (* get(xs)(i)：有效元数匹配（_查元数(元数表,"get")==2，即内建预置或用户
+       同名 2 元 FuncDef）则融成单条 CALL 2，否则保持逐步 CALL 1。与宿主
+       _emit_curried_builtin 同判据（_fn_arities.get(name)==实参数），入池顺序均为
+       get→xs→i（中间 CALL 不入池），故两侧字节码逐字节一致。 *)
     let (c6, bce) = _压全局名(c5, bcd, "get") in
     let (c7, bcf) = _压临时(c6, xs位置, bce) in
-    let c8 = _发(c7, [OP_CALL, 1]) in
-    let (c9, bcg) = _压临时(c8, i位置, bcf) in
-    let ca = _发(c9, [OP_CALL, 1]) in
+    let (ca, bcg) =
+      _查元数(bcd["元数表"], "get") = 2 ? _get齐参(c7, i位置, bcf) : _get逐步(c7, i位置, bcf)
+    in
     let (cb, bch) = _存临时(v位置, ca, bcg) in
     (* 循环体（栈平衡）*)
     let (cc, sc2, bci) = _发射体(e["体"], cb, sc, bch, 假) in
@@ -1395,7 +1448,8 @@ module 编译器 {
       -> (String, Dict) =
     let (lname, bc1) = _新lambda名(bc) in
     let names = params in
-    let sc0 = _声明参数(_新作用域(sc), names) in
+    (* try/catch/finally 块 = 泄漏作用域：块内具名绑定落全局，块外可读 *)
+    let sc0 = _声明参数(_新泄漏作用域(sc), names) in
     let (code, sc1, bc2) = _发射体(body, [], sc0, bc1, 真) in
     let info = {"参数": names, "元数": len(names), "局部数": sc1[0],
                 "码": append(code)([OP_RET])} in

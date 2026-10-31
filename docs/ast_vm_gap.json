@@ -1,0 +1,662 @@
+{
+  "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
+  "generated_at": "2026-10-29T19:57:52",
+  "generator": "scripts/ast_vm_matrix.py",
+  "corpus_dirs": [
+    "matha",
+    "examples",
+    "golden_tests",
+    "tests",
+    "stdlib"
+  ],
+  "unparseable": [],
+  "totals": {
+    "nodes": 78,
+    "emits": 59,
+    "noop": 19,
+    "missing": 0,
+    "blocking": 0,
+    "corpus_files": 202,
+    "opcodes": 33,
+    "opcode_vm": 33,
+    "opcode_native": 33,
+    "opcode_native_gap": 0
+  },
+  "rows": [
+    {
+      "node": "Program",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 202
+    },
+    {
+      "node": "Variable",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 199
+    },
+    {
+      "node": "IntegerLit",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 177
+    },
+    {
+      "node": "BinaryOp",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 161
+    },
+    {
+      "node": "FuncApp",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 155
+    },
+    {
+      "node": "Lambda",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 150
+    },
+    {
+      "node": "BasicType",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 147
+    },
+    {
+      "node": "FuncDef",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 147
+    },
+    {
+      "node": "FuncType",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 147
+    },
+    {
+      "node": "TupleType",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 118
+    },
+    {
+      "node": "ModuleDecl",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 105
+    },
+    {
+      "node": "StringLit",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 105
+    },
+    {
+      "node": "FloatLit",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 85
+    },
+    {
+      "node": "LetBinding",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 80
+    },
+    {
+      "node": "IfExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 77
+    },
+    {
+      "node": "CodeBlock",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 62
+    },
+    {
+      "node": "Output",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 60
+    },
+    {
+      "node": "IndexExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 56
+    },
+    {
+      "node": "ListLiteral",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 56
+    },
+    {
+      "node": "UnaryOp",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 53
+    },
+    {
+      "node": "Generate",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 51
+    },
+    {
+      "node": "MechUnit",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 51
+    },
+    {
+      "node": "Binding",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 45
+    },
+    {
+      "node": "OutputTrail",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 41
+    },
+    {
+      "node": "BoolLit",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 35
+    },
+    {
+      "node": "GenStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 31
+    },
+    {
+      "node": "CommandLiteral",
+      "vm": "noop",
+      "interp": "yes",
+      "used_in": 28
+    },
+    {
+      "node": "SetUp",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 25
+    },
+    {
+      "node": "SetUpItem",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 25
+    },
+    {
+      "node": "ReadBlock",
+      "vm": "noop",
+      "interp": "yes",
+      "used_in": 23
+    },
+    {
+      "node": "TupleExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 22
+    },
+    {
+      "node": "SliceExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 19
+    },
+    {
+      "node": "ChainStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 16
+    },
+    {
+      "node": "PathExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 16
+    },
+    {
+      "node": "GlobalIdStmt",
+      "vm": "noop",
+      "interp": "yes",
+      "used_in": 15
+    },
+    {
+      "node": "IfStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 14
+    },
+    {
+      "node": "MatchStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 13
+    },
+    {
+      "node": "ForeignDecl",
+      "vm": "noop",
+      "interp": "yes",
+      "used_in": 12
+    },
+    {
+      "node": "DictLiteral",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 11
+    },
+    {
+      "node": "ImportDecl",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 11
+    },
+    {
+      "node": "LetTupleBinding",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 10
+    },
+    {
+      "node": "LoopFraction",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 10
+    },
+    {
+      "node": "SegLoopSuffix",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 10
+    },
+    {
+      "node": "ReturnStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 8
+    },
+    {
+      "node": "WhileStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 8
+    },
+    {
+      "node": "RaiseExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 6
+    },
+    {
+      "node": "TryStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 4
+    },
+    {
+      "node": "SetConstruct",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 3
+    },
+    {
+      "node": "StructDef",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 3
+    },
+    {
+      "node": "EnumDef",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 2
+    },
+    {
+      "node": "ForStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 2
+    },
+    {
+      "node": "TypeOfExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 2
+    },
+    {
+      "node": "Belongs",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 1
+    },
+    {
+      "node": "BreakStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 1
+    },
+    {
+      "node": "ContinueStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 1
+    },
+    {
+      "node": "GlobalLoopSuffix",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 1
+    },
+    {
+      "node": "IsExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 1
+    },
+    {
+      "node": "ListComp",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 1
+    },
+    {
+      "node": "AliasDef",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "AngleExpr",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "AnnotatedType",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "Annotation",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "ChanExpr",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "ConstructorPat",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 0
+    },
+    {
+      "node": "DefineOp",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "FileMarker",
+      "vm": "noop",
+      "interp": "yes",
+      "used_in": 0
+    },
+    {
+      "node": "GoStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 0
+    },
+    {
+      "node": "IfElseStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 0
+    },
+    {
+      "node": "Iteration",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "LoopStep",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "LoopWhile",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "NLBlock",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "SafePathExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 0
+    },
+    {
+      "node": "SelectStmt",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "SendExpr",
+      "vm": "emits",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "SetType",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 0
+    },
+    {
+      "node": "SwitchStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 0
+    },
+    {
+      "node": "ThrowStmt",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 0
+    }
+  ],
+  "opcodes": [
+    {
+      "opcode": "BINOP",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "BUILD_DICT",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "BUILD_LIST",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "BUILD_SLICE",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "CALL",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "DUP",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "FORMULA_SCHEMA",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "GET_ATTR",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "HALT",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "INDEX_GET",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "JMP",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "JNZ",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "JZ",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "LOAD_BOX",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "LOAD_GLOBAL",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "LOAD_LOCAL",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "LOAD_OUTER",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "LOAD_OUTER_BOX",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "MAKE_BOX",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "MAKE_CLOSURE",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "OUTPUT",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "POP",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "PUSH_CONST",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "PUSH_FALSE",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "PUSH_NULL",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "PUSH_TRUE",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "RAISE",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "RET",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "STORE_BOX",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "STORE_GLOBAL",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "STORE_LOCAL",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "UNARYOP",
+      "vm": "yes",
+      "native": "yes"
+    },
+    {
+      "opcode": "UNPACK_SEQ",
+      "vm": "yes",
+      "native": "yes"
+    }
+  ]
+}

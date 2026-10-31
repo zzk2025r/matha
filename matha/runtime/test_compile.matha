@@ -1,0 +1,12 @@
+(* Matha 测试：验证 C 二进制不依赖 Python *)
+module 测试编译 {
+  let PI = 3.141592653589793
+  func 加(a: Float, b: Float) -> Float = (a, b) => a + b
+  func 阶乘(n: Int) -> Int = (n) => if n <= 1 then 1 else n * 阶乘(n - 1)
+  func 正弦近似(x: Float) -> Float = (x) => x - (x ^ 3) / 6 + (x ^ 5) / 120
+  #100：{
+    [加(3.0, 4.0)]
+    [阶乘(6)]
+    [正弦近似(1.0)]
+  }
+}

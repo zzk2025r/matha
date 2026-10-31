@@ -125,7 +125,7 @@ class MathaEngine:
 
     def _init_interpreter(self):
         """初始化解释器并加载核心模块。"""
-        from src.interp import Interpreter
+        from src.diag_backends import new_interpreter as Interpreter
         from src.matha_bootstrap import _get_interp
 
         self.interpreter = Interpreter(debug=self.debug)
@@ -284,7 +284,7 @@ class MathaEngine:
         if hasattr(kernel_math, '_register_kernel_builtins'):
             kernel_math._register_kernel_builtins(self.interpreter.builtins)
 
-        from src.mathlib import _register_math_builtins, _register_unit_builtins
+        from src.kernel.math_builtin import _register_math_builtins, _register_unit_builtins
         _register_math_builtins(self.interpreter.builtins)
         _register_unit_builtins(self.interpreter.builtins)
 
@@ -320,7 +320,7 @@ class MathaEngine:
 
     def _eval_with_interpreter(self, expr: str) -> Any:
         """通过解释器计算表达式。"""
-        from src.interp import interpret
+        from src.diag_backends import run_legacy as interpret
         wrapped = f"result = {expr}\n#1：[result]"
         out, trace = interpret(wrapped)
         return out[0] if out else None
@@ -349,7 +349,7 @@ class MathaEngine:
             self._cache_hits += 1
         else:
             try:
-                from src.interp import interpret
+                from src.diag_backends import run_legacy as interpret
                 with open(file_path, encoding="utf-8") as f:
                     source = f.read()
                 out, trace = interpret(source)

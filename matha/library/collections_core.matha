@@ -1,0 +1,98 @@
+(* ============================================================
+   Matha 标准库·基础序列集合 collections_core
+   ------------------------------------------------------------
+   语言口径补件（docs/ast_vm_gap.md 第九节曾登记「无 sorted/map/filter/
+   join/split 等内建」）：本文件用纯 Matha 实现六枚常用序列/字符串函数，
+   零新 opcode、零新宿主内建 —— 机器码平价先例同 35_list_comp。
+   复用面全部已三端平价：curried func、lambda 传参调用、let rec 累加器
+   递归、len/get/append/切片/str、字符串与列表 +、三元 ?:、柯里化内建
+   最大公约数。
+
+   行为口径（Python 真相由 tests/test_matha_library_basics.py 对拍，
+   三端逐字节锁见黄金用例 36-39；与 tests/test_mbc_bootstrap.py 同构，
+   库与用例以拼接方式进入同一模块执行）：
+     map(f, xs)          逐元素映射，保序
+     filter(p, xs)       按谓词真值保留，保序
+     reduce(f, xs, z)    左折叠，f(acc, x)
+     sorted(xs, lt)      插入排序；lt 为严格比较器 lt(a, b) -> Bool，
+                         升序传 (a, b) => a < b。稳定：等值保持原序。
+                         （同名不同 arity 的重载在 VM/interp 会被后定义
+                         覆盖，故不提供单参 sorted(xs) 形态。）
+     join(sep, xs)       str 化后按分隔符拼接（数字/布尔/字符串）
+     split(s, sep)       按 Python str.split(sep) 口径：连续分隔符产生
+                         空段、空串得 [""]、无分隔符得整串单段；
+                         sep 为空串抛 错误("不支持: 空分隔符")；
+                         多字符分隔符整段匹配（"a::b" 按 "::" 切）
+     gcd(a, b)           最大公约数英文入口，转调柯里化内建 最大公约数
+
+   写法约束（实测口径，违反会拿到错的输出而非报错）：
+     · 函数体一律走 `func f(p) -> T = (p) => 体` 的 curried 形式 ——
+       体以 `(` 开头时裸写 `= (cond) ? …` 会误入 curried-lambda 文法。
+     · append(lst)(x) 只能追加到尾部；保序构造一律用「累加器 + 下标
+       遍历」的 let rec step 模式，不用「递归返回值再追加」的回溯拼接。
+     · 单元素列表字面量在语句/三元位会被读作「打印括号」，本库一律经
+       append 构造，不出现裸 [x] 值位。
+   ============================================================ *)
+
+(* ---------- 映射 / 过滤 / 折叠 ---------- *)
+
+func map(f, xs) -> List = (f, xs) => {
+  let rec step = (i, acc) => (i >= len(xs)) ? acc : step(i + 1, append(acc)(f(xs[i])))
+  step(0, [])
+}
+
+func filter(p, xs) -> List = (p, xs) => {
+  let rec step = (i, acc) => (i >= len(xs)) ? acc : step(i + 1, (p(xs[i]) ? append(acc)(xs[i]) : acc))
+  step(0, [])
+}
+
+func reduce(f, xs, z) -> Any = (f, xs, z) => {
+  let rec step = (i, acc) => (i >= len(xs)) ? acc : step(i + 1, f(acc, xs[i]))
+  step(0, z)
+}
+
+(* ---------- 排序（稳定插入排序） ---------- *)
+
+(* 把 v 插入已升序列表 srt：「严格小于 v 的元素」保持在前，等值元素
+   不前移（lt(v, srt[i]) 为假则越过），v 落在首个严格更大元素之前 ——
+   这一处就是稳定性的定义处。 *)
+func _插(srt, v, lt) -> List = (srt, v, lt) => {
+  let rec 推尾 = (i, acc) => (i >= len(srt)) ? acc : 推尾(i + 1, append(acc)(srt[i]))
+  let rec step = (i, pre) => (i >= len(srt)) ? append(pre)(v)
+    : (lt(v, srt[i]) ? 推尾(i, append(pre)(v)) : step(i + 1, append(pre)(srt[i])))
+  step(0, [])
+}
+
+func sorted(xs, lt) -> List = (xs, lt) => {
+  let rec step = (i, acc) => (i >= len(xs)) ? acc : step(i + 1, _插(acc, xs[i], lt))
+  step(0, [])
+}
+
+(* ---------- 字符串 join / split ---------- *)
+
+func join(sep, xs) -> String = (sep, xs) => {
+  let rec step = (i, acc) => (i >= len(xs)) ? acc : step(i + 1, (i == 0) ? str(xs[0]) : acc + sep + str(xs[i]))
+  step(0, "")
+}
+
+func split(s, sep) -> List = (s, sep) => {
+  if sep == "" {
+    return 错误("不支持: 空分隔符")
+  }
+  let rec step = (i, t0, acc) => (i >= len(s)) ? append(acc)(slice(s, t0, len(s)))
+    : (_匹配(s, sep, i) ? step(i + len(sep), i + len(sep), append(acc)(slice(s, t0, i))) : step(i + 1, t0, acc))
+  step(0, 0, [])
+}
+
+(* sep 是否从 s 的 i 位起整段匹配（逐字符等值比对） *)
+func _匹配(s, sep, i) -> Bool = (s, sep, i) => (len(sep) > len(s) - i) ? false : _比(s, sep, i, 0)
+
+func _比(s, sep, i, k) -> Bool = (s, sep, i, k) => (k == len(sep)) ? true
+  : ((get(s)(i + k) == get(sep)(k)) ? _比(s, sep, i, k + 1) : false)
+
+(* ---------- 数论 ---------- *)
+
+(* 英文别名：内建 最大公约数 为 _curry2 柯里化包装，VM/native 统一走
+   f(a)(b) 单参逐步应用口径（native 契约，见 native.py 砖块 17）。 *)
+func gcd(a, b) -> Int =
+  (a, b) => 最大公约数(a)(b)

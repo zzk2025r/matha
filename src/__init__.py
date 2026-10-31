@@ -1,9 +1,7 @@
 """Matha — 自举式领域专用语言与独立可执行编程语言系统。
 
-版本：v4.6
-领域模块：87+
-测试用例：150
-通过率：100%
+版本：取自唯一版本源 `src/__version__.py`（下方 `__version__`）
+领域插件：81 个（`src/domains/`，经 `src/plugin_api.py` 按需加载）
 
 所有子系统通过 MathaSystem 编排，实现完全联动和互相调用。
 支持：游戏/建模/办公/操作系统/程序/软件/显示/录制/播放全领域开发。
@@ -28,13 +26,18 @@ import importlib
 import sys
 import types
 
-__version__ = "4.6"
+#: 单一版本源（重构阶段 5 第 1 项）：字面量只出现在 `src/__version__.py`。
+#: `__version__` 与 `VERSION` 均直接取自唯一版本源，不再绕经 `src.matha_main`
+#: （旧写法多一跳，且会为读一个版本串而拉起整个主入口模块）。`VERSION` 仍留在
+#: 下方惰性表内按需解析，避免在包初始化时 eager import；在此顶层重复绑定会遮没
+#: 惰性导出机制。
+from src.__version__ import __version__  # noqa: F401
 
 # name -> (module, attr or None, mode)
 #   attr 为 None 表示导出的是子模块本身
 #   mode "soft"：所属子模块 ImportError 时该名字为 None（与旧的 try/except 同语义）
 _LAZY = {
-    'VERSION': ('src.matha_main', 'VERSION', 'hard'),
+    'VERSION': ('src.__version__', 'VERSION', 'hard'),
     'MathaEngine': ('src.matha_engine', 'MathaEngine', 'hard'),
     'get_engine': ('src.matha_engine', 'get_engine', 'hard'),
     'reset_engine': ('src.matha_engine', 'reset_engine', 'hard'),

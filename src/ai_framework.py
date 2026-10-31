@@ -1,4 +1,9 @@
-"""Matha AI 框架：自动微分、计算图、神经网络、深度学习。"""
+"""Matha AI 框架：自动微分、计算图、神经网络、深度学习。
+
+【定位标注 2026-10 / P2 降级】仓库内未背书前端：零专项测试、不入 make check 门禁，
+仅经 `matha ai` 子命令与 `MathaSystem._init_ai` 懒加载入口触达，不作为现功能主张；
+口径见 docs/KNOWN_ISSUES.md 第七节 7c。
+"""
 from __future__ import annotations
 
 import json

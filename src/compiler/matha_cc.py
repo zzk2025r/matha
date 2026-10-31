@@ -809,49 +809,37 @@ class MathaLLVMGenerator:
 # ============================================================
 
 class MathaBackend:
+    """LLVM 后端外壳：真实工具链调用已移出主链。
+
+    子进程（llc/clang）住在插件 ``src/plugins/toolchain_llvm.py``，本类只做
+    「缓存 + 委托」。**行为变更**：旧实现在工具缺失/编译失败时返回空串，
+    调用方（``matha_compile`` / ``MathaCompiler.run``）把空串当产物路径继续
+    使用 → 静默失败；现在直接抛 ``ToolchainUnavailable``，携带安装指引。
+    """
+
     def __init__(self, toolchain: str = "clang") -> None:
         self._toolchain = toolchain
         self._cache: dict = {}
 
     def compile(self, llvm_ir: str, output_name: str = "matha_out") -> str:
         import hashlib
+        from src.plugins import toolchain_llvm
         cache_key = hashlib.sha256(llvm_ir.encode()).hexdigest()[:16]
         if cache_key in self._cache:
             return self._cache[cache_key]
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ll', delete=False, encoding='utf-8') as f:
-            f.write(llvm_ir)
-            ll_file = f.name
-        obj_file = ll_file + '.o'
-        exe_file = f"{output_name}.exe"
-        try:
-            result = subprocess.run(['llc', '-O2', ll_file, '-o', obj_file],
-                                    capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                result = subprocess.run(['clang', '-O2', '-c', ll_file, '-o', obj_file],
-                                        capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                os.unlink(ll_file)
-                return ""
-            result = subprocess.run(['clang', obj_file, '-o', exe_file],
-                                    capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                os.unlink(ll_file)
-                os.unlink(obj_file)
-                return ""
-            self._cache[cache_key] = exe_file
-            os.unlink(ll_file)
-            if os.path.exists(obj_file):
-                os.unlink(obj_file)
-            return exe_file
-        except FileNotFoundError:
-            return ""
+        exe_file = toolchain_llvm.compile_llvm(llvm_ir, output_name)
+        self._cache[cache_key] = exe_file
+        return exe_file
 
     def run(self, exe_path: str, args: list = None) -> subprocess.CompletedProcess:
-        return subprocess.run([exe_path] + (args or []), capture_output=True, text=True)
+        from src.plugins.toolchain_llvm import run_exe
+        return run_exe(exe_path, args)
 
     @property
     def cache_stats(self) -> dict:
-        return {"cached": len(self._cache), "toolchain": self._toolchain}
+        from src.plugins import toolchain_llvm
+        return {"cached": len(self._cache), "toolchain": self._toolchain,
+                "availability": toolchain_llvm.describe_availability()}
 
 
 # ============================================================

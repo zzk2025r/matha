@@ -1,0 +1,6 @@
+let xs = range(0)({N})
+let s = 0
+for x in xs {
+  s = s + x
+}
+输出(s)

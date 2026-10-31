@@ -1,5 +1,48 @@
 # Matha 变更摘要
 
+## 内核纯净化 + 插件化重构收尾（utcnow 告警 / 插件懒加载样板 / 命名卫生门禁）
+
+**日期**：2026-10-28
+
+### 背景
+
+上一轮验收（四道门禁）得到 3913 通过，但 `pytest` 汇总里残留 2 个
+`DeprecationWarning`；本轮三项任务：修告警、把「插件懒加载 + sympy 仅在
+调用时动态导入」做成可取证的事实、提交并如实更新文档。
+
+### 变更
+
+1. **`src/kernel/time_builtin.py`**：`now_utc()` 由 `datetime.utcnow()` 改为
+   `datetime.datetime.now(datetime.UTC)`；因 `isoformat()` 尾部变为 `+00:00`，
+   而 `tests/test_native_time.py` 的正则契约要求以 `Z` 结尾，故显式回贴 `Z`，
+   保持格式契约不变。全仓 `utcnow` 调用点已清零。
+2. **新增领域插件 `src/domains/symbolic_calculus.py`**（第 80 个，符号微积分）：
+   `integrate` 先问纯标准库内核引擎 `src/kernel/symbolic/`，仅当引擎返回 None
+   （能力缺口）才在**函数体内** `import sympy`；清单 `src/domains/manifest.json`
+   重生成（80 插件 / 2727 可加载符号）。
+3. **新增 `tests/test_plugin_load.matha` / `tests/test_plugin_load.py`**（7 例，全部
+   子进程取证）：启动无 sympy 无插件 → 引用符号才物化插件 → `∫x²dx` 由内核作答
+   （`x**3/3`）且 sympy 仍未导入 → 缺口 `∫e^(-x²)dx` 才动态导入 sympy 得
+   `sqrt(pi)*erf(x)/2`。
+4. **命名卫生门禁（`tests/test_plugin_contract.py` 第六节，3 例）**：插件不得导出
+   裸单字母符号，不得与 `matha/*.matha` / `matha/library/**` 顶层声明同名，参评
+   `.matha` 源必须件件解得开。
+
+### 踩到的坑（已固化为测试）
+
+插件第一版导出了裸 `x` 与 `符号`，两者越界各打挂 3 例：
+
+- `符号` —— 物化插件执行 `target.update(table)`，同名即覆盖，`matha/stdlib_symbols.matha`
+  的 `func 符号(...)` 被抬掉，自举 parser 直接碎（`test_bootstrap_host::test_bootstrap_interpret_custom_op`）。
+  → 改名 `符号原子`。
+- 裸 `x` —— 清单符号名经 `LazyBuiltinTable.__contains__` 在全进程生效，`x` 从
+  「未定义即报错」变成「已定义」，挨个影响拿 `x` 做变量名的程序（共 4 例）。
+  → 不导出裸单字母，符号变量由用户 `x = 符号原子("x")` 自己绑定。
+
+修正后 `make check` 得到 3957 / 计入 3957，失败 0（100.00%），零 DeprecationWarning。
+
+---
+
 ## 修复：内建非法/0 参实参缺失类型判定（原生静默 0/崩溃 + matha 平均值 falsy 分歧）
 
 **日期**：2026-10-20

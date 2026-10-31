@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """M3V 自举闭环测试：Matha 词法器 + 语法器 + 解释器（编译为字节码）在 VM 上运行，
 完成「Matha 源码 → token → AST → 求值」全流程——编译基础设施自举的关键里程碑。
 
@@ -1907,8 +1907,8 @@ _M16_TRY_CASES = [
     ("val_tail",     "try { #：[1] 2 } catch (e) { 3 }\n", [1]),
     ("nested",       "try { try { #：[1] } catch (e) { #：[2] } } catch (e) { #：[3] }\n", [1]),
     ("multi_units",  "try { #：[1] #：[2] } catch (e) { #：[3] }\n", [1, 2]),
-    ("assign_in_try","x = 0\ntry { x = 5 } catch (e) { x = 9 }\n#：[x]\n", [0]),
-    ("assign_catch", "x = 0\ntry { throw 1 } catch (e) { x = 9 }\n#：[x]\n", [0]),
+    ("assign_in_try","x = 0\ntry { x = 5 } catch (e) { x = 9 }\n#：[x]\n", [5]),
+    ("assign_catch", "x = 0\ntry { throw 1 } catch (e) { x = 9 }\n#：[x]\n", [9]),
     ("catch_runs",   "try { throw 5 } catch (e) { #：[10] }\n", [10]),
     ("fn_body_try",  "f = () => { try { throw 1 } catch (e) { 42 } }\n#：[f()]\n", [42]),
     ("fn_try_out",   "f = (n) => { try { n + 1 } catch (e) { 0 } }\n#：[f(3)]\n", [4]),

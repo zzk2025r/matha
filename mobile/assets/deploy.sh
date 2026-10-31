@@ -15,9 +15,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 MOBILE_DIR="$PROJECT_ROOT/mobile"
 
+# 从唯一版本源 src/__version__.py 解析版本号（禁止硬编，防止与主线漂移）
+MATHA_VERSION=$(grep -E '^__version__' "$PROJECT_ROOT/src/__version__.py" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+if [ -z "$MATHA_VERSION" ]; then
+    echo -e "${RED}  无法从 src/__version__.py 解析版本号，拒绝以硬编版本继续${NC}"
+    exit 1
+fi
+
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  Matha 移动端自动化部署脚本${NC}"
-echo -e "${BLUE}  版本: 4.4.16${NC}"
+echo -e "${BLUE}  版本: ${MATHA_VERSION}${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -95,12 +102,12 @@ mkdir -p "$DEPLOY_DIR"
 cp -r "$MOBILE_DIR/build/web" "$DEPLOY_DIR/"
 cp "$MOBILE_DIR/assets/pyodide/build_config.json" "$DEPLOY_DIR/" 2>/dev/null || true
 
-# 生成部署说明
+# 生成部署说明（用单引号 heredoc 保护反引号/代码块字面量，版本占位符随后 sed 注入）
 cat > "$DEPLOY_DIR/README.md" << 'EOF'
 # Matha 移动端部署包
 
 ## 版本信息
-- 版本: 4.4.16
+- 版本: __MATHA_VERSION__
 - 构建时间: $(date)
 
 ## 包含内容
@@ -150,6 +157,9 @@ netlify deploy --prod --dir=web
 - 检查 Python 版本兼容性
 - 查看构建日志
 EOF
+
+# 将占位符替换为唯一版本源解析出的版本号
+sed -i "s/__MATHA_VERSION__/${MATHA_VERSION}/" "$DEPLOY_DIR/README.md"
 
 echo -e "${GREEN}  ✓${NC} 部署包生成完成: $DEPLOY_DIR/"
 echo ""

@@ -1,44 +1,44 @@
 # Matha 与主流编程语言对比分析
 
-## Matha 系统全景
+## Matha 系统全景（实测）
+
+> 本节只写能当场验证的事实：数字来自 `python scripts/repo_facts.py`，
+> 能力边界来自 `make check` 的六项门禁。旧版这里的模块数量、维度满分与
+> 「缺陷已全部解决」均属手写愿望，已删除（可在 git 历史里查到）。
 
 ### 核心架构
-- **版本**：v4.6
-- **领域模块**：87+（游戏/图形/办公/OS/网络/IO/时间/显示/录制/播放/Web/数据库/安全/神经网络/并发/数据科学/区块链/量子/音视频/地理空间/化学/天文/音乐/机器人/包管理/类型检查/测试/格式化/文档/异步/科学/可视化/符号计算/ML/安全增强/HTTP/Git/构建/数据库/AI/编译器/符号/游戏引擎/完整安全/UI框架/DevOps/区块链引擎/音视频引擎/地理空间/机器人等）
-- **执行路径**：源码 → 词法/语法分析 → AST → MIR（中间表示）→ 字节码/LLVM IR → 原生机器码
-- **内置引擎**：解释器 + 编译器 + 虚拟机 + 运行时 + LSP/MCP/AI服务
-- **类型系统**：静态类型推断 + 泛型 + 函数类型 + 编译期/运行期双重校验
-- **字符编码**：三进制（Base-3）映射 → 二进制存储（汉字/字母 → 三进制编码）
-- **自举能力**：`.matha`源码 → `matha-cc`编译器 → C/Python/LLVM
-- **虚拟代码引擎**：自动注册缺失的函数/key/code，吞噬代码并自动适配
-- **HTTP 服务器**：支持 HTTP/HTTPS、反向代理、WebSocket
-- **版本控制**：Git 兼容的版本控制系统（分支/合并/标签/暂存）
-- **构建系统**：Make/CMake 兼容的构建工具
-- **数据库引擎**：SQL 引擎、事务、索引、查询优化、连接池
-- **AI 框架**：自动微分、计算图、神经网络、深度学习训练器
-- **编译器后端**：LLVM、WASM、AOT 编译、JIT 编译
 
-### 核心子系统
-| 子系统 | 状态 | 说明 |
-|--------|------|------|
-| Interpreter | ✅ | 自举式解释器，支持中文标识符 |
-| Compiler | ✅ | JIT/AOT编译，输出C/Python/LLVM IR |
-| VM | ✅ | M3V虚拟机，47+内置函数，0xB0-0xC5扩展操作码 |
-| Runtime | ✅ | 61个内置函数，数学/单位/统计 |
-| Type System | ✅ | 静态类型推断 + 泛型 |
-| LSP Server | ✅ | 语言服务器协议支持 |
-| MCP Server | ✅ | Model Context Protocol |
-| AI Assistant | ✅ | 符号引擎/FFI/多范式 |
-| Virtual Code Engine | ✅ | 动态代码吸收与自动注册 |
-| Domain Modules | ✅ | 87+ 领域模块 |
-| Display/Monitor | ✅ | 显示器配置/多屏/分辨率管理 |
-| Media Recorder | ✅ | 视频录制/音频录制/编码 |
-| Media Player | ✅ | 视频/音频播放/均衡器/播放列表 |
-| 3D Modeling | ✅ | 立方体/球体/圆柱/金字塔建模 |
-| Painting Tools | ✅ | 画笔/油漆桶/橡皮擦/绘画工具 |
-| Game Engine | ✅ | 游戏对象/动画/粒子/物理/相机/光源 |
-| UI Framework | ✅ | 按钮/标签/文本框/复选框/滑块/对话框 |
-| CLI Commands | ✅ | game/model/scene/display/record/play |
+- **版本**：v4.6.0（唯一版本源 `src/__version__.py`）
+- **领域插件**：82（枚举：`matha --list-domains`；`src/domains/` 共 84 个 `.py`，
+  其中 `__init__.py` / `registry.py` 不是插件）；按需显式加载，未加载零 import 成本
+- **内核外工具插件**：14（`src/plugins/`：numpy 加速、FFI、tree-sitter、并行解析、
+  LLVM/MSVC 工具链、归档 VM 等）
+- **执行路径（唯一主线）**：`src/lexer.py → src/parser.py → src/ast_nodes.py →
+  src/mbc/compiler.py → src/mbc/vm.py`；机器码只有一条真实路径：
+  `src/mbc/native.py` → `src/plugins/toolchain_msvc.py`（nasm/link）
+- **`MIR` 不再执行**：`src/mir.py` / `mir_opt.py` 仅作优化分析 IR；
+  原第三条 VM（`src/vm.py` / `src/m3v_vm.py`）已归档为插件 / 已删除
+- **遗留解释器**：`src/interp.py` 降为诊断后端（执行轨迹/单步），经
+  `src/kernel/exec_api.py` 显式选择，不在默认路径
+- **核心安装第三方依赖**：0（`sympy` 降为 `optional-dependencies.accelerated`）
+- **符号能力**：内核纯实现 `src/kernel/symbolic/`（stage0 引导）+ Matha 自身重写的
+  标准库 `matha/library/*.matha`（**CLI 默认路径**，与 stage0 逐位对拍）
+
+### 核心子系统状态（只列被门禁覆盖的）
+
+| 子系统 | 位置 | 由谁判定 |
+|--------|------|----------|
+| Lexer / Parser | `src/lexer.py`、`src/parser.py` | `tests/test_ast_vm_gap.py` 语料解析（158 个 `.matha`，遗留旧写法已全部改写为合法 Matha，解析失败 0） |
+| AST 节点 | `src/ast_nodes.py` | 78 个节点全部进覆盖矩阵 |
+| 编译器 | `src/mbc/compiler.py` | 59 发射 / 19 有意无码 / **0 不认识 / 0 阻塞缺口** |
+| 虚拟机 | `src/mbc/vm.py` | 33 条指令码全分派 + 18 例黄金逐字节 |
+| 机器码后端 | `src/mbc/native.py` | vm↔native 对拍；**已知未实现 2 例**（见 `golden_tests/manifest.json`） |
+| 内核内建 | `src/kernel/`（math/regex/time/file/errors + symbolic） | `tests/test_kernel_purity.py` + `scripts/dep_audit.py` |
+| 插件层 | `src/plugin_api.py` + `src/domains/manifest.json` | `tests/test_plugin_contract.py` |
+| 符号标准库 | `matha/library/` + `src/stdlib/matha_symbolic.py` | `tests/test_matha_stdlib_symbolic.py`（107 项） |
+
+领域能力（物理/工程/AI/金融/…）均以插件形式存在，可用性以
+`matha --list-domains` 与对应领域自己的测试为准，本文不再逐行打 ✅。
 
 ---
 
@@ -311,18 +311,21 @@ Matha 是由独立二进制代码为基础、自身语言为核心的高级语�
 
 ### 验证结果
 
-通过 `VirtualCodeEngine` 终极增强版的测试验证：
+以下为 `src/virtual_code.py` / `MathaSystem` 中**实测真实存在**的 API（**模板/正则
+驱动，非真实模型**；无专项单测、不入 `make check` 门禁，口径见
+[`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) 第七节）：
 
-- ✅ 自主注册中文标识符（"测试函数" → 自动注册）
-- ✅ 中文语义推导（"求和函数" → `lambda *args: sum(args)`）
-- ✅ 英文标识符推导（"missing_add" → 加法函数）
-- ✅ 自动生成Web框架（`auto_web_framework("MyApp", port=3000)`）
-- ✅ 自动生成异步I/O（`auto_async_io("my_handler")`）
-- ✅ 自动生成模式匹配（`auto_pattern_matching("match_func")`）
-- ✅ 自动生成元编程（`auto_metaprogramming("meta_func")`）
-- ✅ 自动生成源代码编译器（`auto_generate_source_compiler("my_compiler")`）
-- ✅ 自然语言转代码（"计算 正弦 余弦 平方根" → 自动注册）
-- ✅ 自动编译源代码（`auto_compile("result = 1 + 2 * 3")`）
+- ✅ 自主注册标识符（`VirtualCodeEngine.register_any`：中文/英文标识符 → 注册）
+- ✅ 自动修复未知名（`VirtualCodeEngine.auto_fix`）
+- ✅ 自动分类型生成模块（`auto_generate_module(类型)`，仅覆盖
+  `game`/`office`/`os`/`graphics`/`networking`/`display`/`recorder`/`player`）
+- ✅ 自然语言转代码（`MathaSystem.natural_to_code`，模板规则，非模型）
+
+> ❗ **诚实标注**：上方「终极增强版」框图中的 `auto_web_framework`、
+> `auto_async_io`、`auto_pattern_matching`、`auto_metaprogramming`、
+> `auto_generate_source_compiler`、`auto_compile`、`register_natural_language` 是
+> **愿景设计**，当前代码库**未实现这些方法**（全仓 grep 无定义），不作为已交付
+> 能力主张；它们也不能与上面的真实 API 混为“已验证”。
 
 ---
 
@@ -403,111 +406,51 @@ Matha 是一个**创新的领域专用语言**，在数学计算、符号计算�
 
 ---
 
-## Matha v4.5 全面对比分析报告
-
-### 综合评分: 9.0/10
-
-| 评分 | 维度 | 评分 | 维度 |
-|------|------|------|------|
-| 中文支持 | 10/10 | 标准库 | 10/10 |
-| 虚拟代码 | 10/10 | GUI框架 | 10/10 |
-| 自举编译 | 10/10 | 并发模型 | 10/10 |
-| DSL原生 | 10/10 | IDE支持 | 10/10 |
-| AI集成 | 10/10 | 测试覆盖 | 10/10 |
-| 全领域覆盖 | 10/10 | 图形渲染 | 10/10 |
-| 符号计算 | 10/10 | 网络框架 | 10/10 |
-| 生态规模 | 10/10 | 数据库 | 10/10 |
-| 游戏引擎 | 10/10 | 安全 | 10/10 |
-| 媒体系统 | 10/10 | 社区 | 5/10 |
-| UI框架 | 10/10 | | |
-| 物理引擎 | 10/10 | | |
-| 性能 | 10/10 | | |
-
-### 优势 (18个维度 ≥7分)
-
-1. **中文原生支持** — 唯一原生支持中文标识符/关键字/函数名的语言
-2. **虚拟代码引擎** — 自动注册缺失代码、吞噬代码、自动适配
-3. **自举编译** — `.matha` → C/Python/LLVM 完整自举链
-4. **原生DSL** — 无需外部库即可定义领域专用语言
-5. **AI/MCP/LSP原生集成** — 内置MathaAIAssistant + MCP协议
-6. **三进制编码** — Base-3独特字符编码系统
-7. **四范式编程** — 函数式/命令式/逻辑式/数据流
-8. **离线部署** — 独立可执行文件，无需运行时
-9. **全领域覆盖** — 46+领域模块
-10. **3D建模/绘画** — 内置3D形状和绘画工具
-11. **媒体系统** — 显示器/录制/播放器完整产业链
-12. **并发模型** — Future/Promise/Mutex/Semaphore/Parallel/Work-Stealing
-13. **LSP增强** — 代码补全/签名帮助/格式化/代码操作/诊断
-14. **标准库扩展** — 100+内置函数（列表/字符串/JSON/随机）
-15. **图形渲染** — 着色器/帧缓冲/计算着色器/Mipmap/视口
-16. **物理引擎** — PhysicsWorld/RigidBody/碰撞检测/重力模拟
-17. **网络框架** — WebServer+WebSocket完整实现
-18. **安全系统** — Hash/Encrypt/Sign/Auth完整密码学
-
-### 剩余缺陷（少数维度仍需持续优化）
-
-1. **社区** — 3/10, 无社区 vs Python/Rust百万级开发者
-2. **生态规模** — 46+模块 vs Python 400,000+ PyPI包
-3. **IDE支持** — LSP Server但无专用IDE
-
-### 与竞品对比总结
-
-| 对比维度 | Matha | Python | C++/Rust | Julia |
-|----------|-------|--------|----------|-------|
-| **中文编程** | ✅ 唯一 | ✅ Unicode | ❌ | ❌ |
-| **虚拟代码** | ✅ 独有 | ❌ | ❌ | ❌ |
-| **自举编译** | ✅ | ✅ | ✅ | ✅ |
-| **AI原生** | ✅ | ❌ 需库 | ❌ 需库 | ❌ 需库 |
-| **MCP协议** | ✅ 原生 | ❌ 需库 | ❌ 需库 | ❌ 需库 |
-| **DSL原生** | ✅ | ❌ 需库 | ❌ 需库 | ❌ 需库 |
-| **性能** | 8/10 | 2/10 | 10/10 | 8/10 |
-| **生态** | 8/10 | 10/10 | 8/10 | 6/10 |
-| **社区** | 5/10 | 10/10 | 9/10 | 6/10 |
-| **领域模块** | 10/10 | 9/10 | 3/10 | 7/10 |
-| **中文标识符** | 10/10 | 9/10 | 1/10 | 1/10 |
-| **独立可执行** | 10/10 | 2/10 | 10/10 | 3/10 |
-| **JIT性能** | 8/10 | 4/10 | 10/10 | 9/10 |
-| **离线部署** | 10/10 | 2/10 | 10/10 | 2/10 |
-| **AI/MCP** | 10/10 | 5/10 | 3/10 | 3/10 |
-| **标准库** | 9/10 | 10/10 | 5/10 | 7/10 |
-| **Web框架** | 10/10 | 10/10 | 7/10 | 4/10 |
-| **数据库** | 10/10 | 10/10 | 8/10 | 6/10 |
-| **安全加密** | 10/10 | 8/10 | 10/10 | 5/10 |
-| **GUI框架** | 10/10 | 9/10 | 10/10 | 4/10 |
-| **并发模型** | 10/10 | 8/10 | 10/10 | 8/10 |
-| **神经网络** | 10/10 | 9/10 | 6/10 | 10/10 |
-| **区块链** | 10/10 | 8/10 | 7/10 | 4/10 |
-| **量子计算** | 10/10 | 7/10 | 5/10 | 10/10 |
-| **性能** | 10/10 | 2/10 | 10/10 | 8/10 |
-| **标准库** | 10/10 | 10/10 | 5/10 | 7/10 |
-
-### 核心洞察
-
-Matha 的一切缺陷都源于虚拟代码引擎的注册能力。当注册能力足够强大时：
-- 自然语言可以直接当编程语言使用
-- 生态系统只是一个数据库
-- 中文标识符无问题
-- 所有缺失功能自动生成
-- Matha 不需要取代 Python/Rust/C++，而是证明：当虚拟代码引擎足够强大时，任何语言都可以成为编程语言，任何自然语言都可以直接当代码使用。
-
 ---
 
-### 社区文档与示例
+## 实测结论（代替以前的自评打分）
 
-Matha 提供完整的开发者文档和示例库：
+以前这一段给每个维度打了满分，并声明缺陷已全部解决。分数不是判据，
+能跑的门禁才是。下面每一条都有可执行来源。
 
-**文档路径**：
-- `docs/` — API 文档
-- `examples/` — 代码示例
-- `tutorials/` — 教程
+| 维度 | 实测状态 | 判据 |
+|---|---|---|
+| 核心零依赖 | ✅ 第三方依赖 0 | `pyproject.toml` `dependencies = []` + `tests/test_kernel_purity.py` |
+| 主执行链唯一 | ✅ lexer→parser→ast_nodes→mbc.compiler→mbc.vm | `docs/ARCHITECTURE.md`；转译 `exec()` 路径已删 |
+| AST 覆盖 | ✅ 78 节点 / 0 不认识 / 0 阻塞缺口 | `docs/ast_vm_gap.md` + `tests/test_ast_vm_gap.py` |
+| VM↔native 指令码面 | ✅ 33 / 33 / 33 | 同上第五、七节 |
+| native 正确性 | ✅ NI-001/NI-002 已修（未定义名与字符串/列表 `-` 均经 `raise_rt` 抛可捕获异常，不再静默错值），`native_known_gaps` 已清空 | `golden_tests/manifest.json` 的 `native_known_gaps` |
+| 语法层遗留 | ✅ 旧 Python 风格草稿已全部改写为合法 Matha，语料解析失败 0（文件保留不删） | `docs/ast_vm_gap.md`、`docs/KNOWN_ISSUES.md` 第二节 |
+| sympy 移出内核 | ✅ 内核纯实现 + `.matha` 符号标准库为默认路径，与 stage0 逐位对拍；sympy 仅作插件层可选后端，只在缺口调用那一刻 `import` | `docs/symbolic_parity.md`、`docs/matha_stdlib_symbolic.md`、`tests/test_plugin_load.py` |
+| 符号能力覆盖面 | ⚠️ 标准库只覆盖有理式极限与 `point=0` 级数；未覆盖即显式 `不支持` 并计数回退 | `tests/test_matha_stdlib_symbolic.py` |
+| 领域能力 | ✅ 82 个插件全部可枚举、按需懒加载；未加载零 import 成本 | `tests/test_plugin_contract.py`、`tests/test_plugin_load.py` |
+| 统一口径 | ✅ `make check` 对外只产出一个通过率数字 | `scripts/check.py` |
+| 测试规模 | 以最近一次 `make check` 输出为准（旧文档里的通过数都是过期快照） | `scripts/check.py` |
 
-**示例覆盖**：
-- 游戏开发、图形渲染、Web服务、数据科学
-- 神经网络训练、区块链应用、量子计算
-- 并发编程、音视频处理、地理空间分析
+### 与竞品的定位差异（只说事实，不打数字）
 
-*生成时间：2026-09-27 | 版本：v4.6 | 领域模块：87+ | 缺陷已解决：271/271*
-*基于 Matha v4.5 代码分析*
+| 维度 | Matha | Python | Rust | Haskell | Julia | C++ |
+|---|---|---|---|---|---|---|
+| 中文标识符/关键字 | 原生设计 | Unicode 允许，非母语设计 | 同 Python | 同 Python | 同 Python | 同 Python |
+| DSL 原生语法 | 有（`？ #： 【*/ @： >>`） | 需外部库 | 需宏 | 需类型族 | 需宏 | 需模板 |
+| 领域符号按需加载 | 插件清单 + 显式加载语句 | import 即全量 | — | — | — | — |
+| 自举机器码 | 一条真实路径（nasm/link），工具链缺失即显式失败 | 无 | 有 | 有 | 无 | 有 |
+| 核心运行时依赖 | 0 第三方包 | 巨大标准库 | 无运行时 | GHC 运行时 | Julia 运行时 | 无 |
+
+性能数字不在本文里出现：没有可复现基准，就不配写进文档。
+
+### 真正的短板（如实）
+
+1. **社区与生态规模** —— 无外部社区；82 个领域插件全由仓库自带，与
+   Python/Rust 的第三方生态不在同一量级。
+2. **机器码后端成熟度** —— NI-001/NI-002 已修、`native_known_gaps` 已清空（
+   `make check --native` 17/18，唯一 gap 为设计内 SKIP）；但 native 路径相比
+   interp/VM 仍未经受同等强度的实战回归。
+3. **语料新旧并存** —— 旧 Python 风格草稿已全部改写为合法 Matha（解析失败 0），
+   但改写后的语料多为参考/教学用途，不等于已接入主线执行回归。
+4. **符号能力是子集** —— 超越式极限、非 0 点泰勒展开、广义 ODE 仍需 stage0
+   或可选 sympy 后端兜底（兜底会留痕计数，不静默）。
+5. **IDE** —— 有 LSP 服务，无专用 IDE。
+
+*版本：v4.6.0（取自 `src/__version__.py`）| 本文数字由 `scripts/repo_facts.py` 现算*
 *对比语言：Python 3.14, Rust 1.x, Haskell 9.x, Julia 1.x, C++ 20*
-*新增分析：VirtualCodeEngine 终极增强版验证 + MathaSystem 完整系统集成*
-*全面对比分析：docs/FULL_COMPARISON.md*

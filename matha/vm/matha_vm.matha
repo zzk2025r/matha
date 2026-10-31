@@ -1,0 +1,286 @@
+(* ============================================================
+   Matha 自执行 VM — 纯 Matha 实现，零 Python 依赖
+   ============================================================
+   架构：源码 → Lexer → Parser → AST → 字节码 → VM 执行
+   
+   设计目标：
+     - 所有数学运算调用 matha_runtime 内建函数
+     - VM 完全自给自足，不依赖任何外部 Python 模块
+     - 支持递归、闭包、变量作用域
+     - 对标 Julia/Python 执行模型
+   ============================================================ *)
+
+module 虚拟机 {
+
+  use 运行时引擎
+
+  (* ===== 异常 ===== *)
+  func VM错误(msg: String) -> Value = (msg) =>
+    raise MathaVMError(msg)
+
+  (* ===== 字节码操作码 ===== *)
+  let OP_PUSH_NUM  = 0x01
+  let OP_PUSH_STR  = 0x02
+  let OP_PUSH_VAR  = 0x03
+  let OP_STORE_VAR = 0x04
+  let OP_BINOP     = 0x10
+  let OP_UNARYOP   = 0x11
+  let OP_CALL      = 0x20
+  let OP_FUNC_DEF  = 0x21
+  let OP_JUMP      = 0x30
+  let OP_JUMP_ZERO = 0x31
+  let OP_JUMP_NONZERO = 0x32
+  let OP_RETURN    = 0x40
+  let OP_HALT      = 0xFF
+
+  (* ===== 二元运算符表 ===== *)
+  let _binops = {
+    "+": (a, b) => a + b,
+    "-": (a, b) => a - b,
+    "*": (a, b) => a * b,
+    "/": (a, b) => if b = 0.0 then 2147483647.0 else a / b,
+    "^": (a, b) => pow(a, b),
+    "%": (a, b) => a - b * trunc(a / b),
+    "==": (a, b) => if a = b then 1.0 else 0.0,
+    "!=": (a, b) => if a != b then 1.0 else 0.0,
+    "<":  (a, b) => if a < b then 1.0 else 0.0,
+    ">":  (a, b) => if a > b then 1.0 else 0.0,
+    "<=": (a, b) => if a <= b then 1.0 else 0.0,
+    ">=": (a, b) => if a >= b then 1.0 else 0.0,
+    "and": (a, b) => if a != 0.0 and b != 0.0 then 1.0 else 0.0,
+    "or":  (a, b) => if a != 0.0 or b != 0.0 then 1.0 else 0.0,
+  }
+
+  let _unops = {
+    "-": (a) => -a,
+    "+": (a) => a,
+    "not": (a) => if a = 0.0 then 1.0 else 0.0,
+  }
+
+  (* ===== VM 帧 ===== *)
+  func 新帧(func名: String) -> Dict = (func名) =>
+    {"变量": {}, "返回地址": -1, "函数名": func名}
+
+  (* ===== VM 状态 ===== *)
+  func 新VM() -> Dict = () =>
+    {"帧栈": [新帧("<主>")], "栈": [], "输出": [], "用户函数": {}, "常量": {}}
+
+  (* ===== 获取帧 ===== *)
+  func _当前帧(vm: Dict) -> Dict = (vm) => vm["帧栈"][len(vm["帧栈"]) - 1]
+  func _栈顶(vm: Dict) -> Value = (vm) =>
+    let s = vm["栈"] in
+    if len(s) = 0 then VM错误("VM 栈空")
+    else s[len(s) - 1]
+  func _栈空(vm: Dict) -> Bool = (vm) => len(vm["栈"]) = 0
+
+  (* ===== 栈操作 ===== *)
+  func VM压栈(vm: Dict, val: Value) -> Dict = (vm, val) =>
+    {"帧栈": vm["帧栈"], "栈": vm["栈"] + [val], "输出": vm["输出"],
+     "用户函数": vm["用户函数"], "常量": vm["常量"]}
+
+  func VM弹栈(vm: Dict) -> (Value, Dict) = (vm) =>
+    let s = vm["栈"] in
+    if len(s) = 0 then VM错误("VM 栈空")
+    else (s[len(s) - 1], {"帧栈": vm["帧栈"], "栈": s[:len(s)-1],
+                           "输出": vm["输出"], "用户函数": vm["用户函数"],
+                           "常量": vm["常量"]})
+
+  func VM_Peek(vm: Dict) -> Value = (vm) => _栈顶(vm)
+
+  func VM压帧(vm: Dict, frame: Dict) -> Dict = (vm, frame) =>
+    {"帧栈": vm["帧栈"] + [frame], "栈": vm["栈"], "输出": vm["输出"],
+     "用户函数": vm["用户函数"], "常量": vm["常量"]}
+
+  func VM弹帧(vm: Dict) -> (Dict, Dict) = (vm) =>
+    let fs = vm["帧栈"] in
+    if len(fs) <= 1 then VM错误("无法弹出主帧")
+    else ({"帧栈": fs[:len(fs)-1], "栈": vm["栈"], "输出": vm["输出"],
+            "用户函数": vm["用户函数"], "常量": vm["常量"]}, fs[len(fs)-1])
+
+  func VM设置帧变量(vm: Dict, name: String, val: Value) -> Dict = (vm, name, val) =>
+    let fs = vm["帧栈"] in
+    let last = fs[len(fs) - 1] in
+    let new_last = {"变量": last["变量"] + [(name, val)],
+                     "返回地址": last["返回地址"], "函数名": last["函数名"]} in
+    {"帧栈": fs[:len(fs)-1] + [new_last], "栈": vm["栈"], "输出": vm["输出"],
+     "用户函数": vm["用户函数"], "常量": vm["常量"]}
+
+  func VM获取帧变量(vm: Dict, name: String) -> Value = (vm, name) =>
+    let fs = vm["帧栈"] in
+    let rec _lookup(frames: List) -> Value =
+      frames = [] ? VM错误("未定义变量: " + name)
+      else
+        let vars = frames[0]["变量"] in
+        let rec _find(vs: List) -> Value =
+          vs = [] ? _lookup(frames[1:])
+          else if vs[0][0] = name then vs[0][1]
+          else _find(vs[1:])
+        in _find(vars)
+    in _lookup(fs)
+
+  func VM查找帧变量(vm: Dict, name: String) -> Bool = (vm, name) =>
+    let fs = vm["帧栈"] in
+    let rec _has(frames: List) -> Bool =
+      frames = [] ? 假
+      else
+        let vars = frames[0]["变量"] in
+        let rec _find(vs: List) -> Bool =
+          vs = [] ? _has(frames[1:])
+          else if vs[0][0] = name then 真
+          else _find(vs[1:])
+        in _find(vars)
+    in _has(fs)
+
+  (* ===== 编译 AST 为字节码 ===== *)
+  func 编译(ast: Dict) -> List = (ast) =>
+    let rec _compile_expr(expr: Dict, insns: List) -> List =
+      expr["类型"] = "整数" ? insns + [(OP_PUSH_NUM, expr["值"])]
+      else expr["类型"] = "浮点" ? insns + [(OP_PUSH_NUM, expr["值"])]
+      else expr["类型"] = "字符串" ? insns + [(OP_PUSH_STR, expr["值"])]
+      else expr["类型"] = "布尔" ? insns + [(OP_PUSH_NUM, if expr["值"] then 1.0 else 0.0)]
+      else expr["类型"] = "变量" ? insns + [(OP_PUSH_VAR, expr["名"])]
+      else expr["类型"] = "二元运算" ?
+        let left_insns = _compile_expr(expr["左"], insns) in
+        let right_insns = _compile_expr(expr["右"], left_insns) in
+        right_insns + [(OP_BINOP, expr["运算符"])]
+      else expr["类型"] = "一元运算" ?
+        let op_insns = _compile_expr(expr["操作数"], insns) in
+        op_insns + [(OP_UNARYOP, expr["运算符"])]
+      else expr["类型"] = "函数应用" ?
+        let func_insns = _compile_expr(expr["函数"], insns) in
+        let arg_insns = _compile_expr(expr["参数"], func_insns) in
+        arg_insns + [(OP_CALL, 1)]
+      else expr["类型"] = "绑定" ?
+        let val_insns = _compile_expr(expr["值"], insns) in
+        val_insns + [(OP_STORE_VAR, expr["名"])]
+      else expr["类型"] = "if" ?
+        let cond_insns = _compile_expr(expr["条件"], insns) in
+        let else_target = len(cond_insns) + 4 in
+        let then_insns = _compile_expr(expr["真分支"], cond_insns + [(OP_JUMP_ZERO, else_target)]) in
+        let jump_target = len(then_insns) + 1 in
+        let else_insns = _compile_expr(expr["假分支"], then_insns + [(OP_JUMP, jump_target), (OP_HALT, 0)]) in
+        else_insns
+      else expr["类型"] = "程序" ?
+        let rec _compile_decls(decls: List, acc: List) -> List =
+          decls = [] ? acc + [(OP_HALT, 0)]
+          else _compile_decls(decls[1:], _compile_expr(decls[0], acc))
+        in _compile_decls(expr["声明"], insns)
+      else expr["类型"] = "函数定义" ?
+        insns + [(OP_FUNC_DEF, expr["名"])]
+      else
+        VM错误("不支持的AST节点: " + expr["类型"])
+    in
+    _compile_expr(ast, [])
+
+  (* ===== VM 执行引擎 ===== *)
+  func 执行(vm: Dict, instructions: List) -> Dict = (vm, instructions) =>
+    let rec _run(ip: Int, vm: Dict) -> Dict =
+      if ip >= len(instructions) or ip < 0 then vm
+      else
+        let instr = instructions[ip] in
+        let opcode = instr[0] in
+        if opcode = OP_PUSH_NUM then
+          _run(ip + 1, VM压栈(vm, instr[1]))
+        else if opcode = OP_PUSH_STR then
+          _run(ip + 1, VM压栈(vm, instr[1]))
+        else if opcode = OP_PUSH_VAR then
+          let name = instr[1] in
+          if VM查找帧变量(vm, name) then
+            _run(ip + 1, VM压栈(vm, VM获取帧变量(vm, name)))
+          else if name in 运行时引擎.内建函数表 then
+            _run(ip + 1, VM压栈(vm, 运行时引擎.内建函数表[name]))
+          else
+            VM错误("未定义变量: " + name)
+        else if opcode = OP_STORE_VAR then
+          let (val, _) = VM弹栈(vm) in
+          VM设置帧变量(vm, instr[1], val)
+        else if opcode = OP_BINOP then
+          let (b, vm2) = VM弹栈(vm) in
+          let (a, vm3) = VM弹栈(vm2) in
+          let op = instr[1] in
+          if op in _binops then _run(ip + 1, VM压栈(vm3, _binops[op](a, b)))
+          else VM错误("不支持的二元运算符: " + op)
+        else if opcode = OP_UNARYOP then
+          let (a, vm2) = VM弹栈(vm) in
+          let op = instr[1] in
+          if op in _unops then _run(ip + 1, VM压栈(vm2, _unops[op](a)))
+          else VM错误("不支持的一元运算符: " + op)
+        else if opcode = OP_CALL then
+          let nargs = instr[1] in
+          let rec _pop_args(n: Int, vm: Dict, args: List) -> (List, Dict) =
+            n <= 0 ? (args, vm)
+            else
+              let (v, vm2) = VM弹栈(vm) in
+              _pop_args(n - 1, vm2, args + [v])
+          in
+          let (args_rev, vm2) = _pop_args(nargs, vm, []) in
+          let args = _reverse_list(args_rev) in
+          let func_name = args[0] in
+          let func_args = args[1:] in
+          if func_name in 运行时引擎.内建函数表 then
+            let fn = 运行时引擎.内建函数表[func_name] in
+            let result = (len(func_args) >= 2) ? fn(func_args[0], func_args[1]) : (len(func_args) == 1) ? fn(func_args[0]) : fn() in
+            _run(ip + 1, VM压栈(vm2, result))
+          else if func_name in vm["用户函数"] then
+            let func_def = vm["用户函数"][func_name] in
+            let new_vm = VM压帧(vm2, 新帧(func_name)) in
+            let vm_with_args = _bind_params(new_vm, func_def["参数"], func_args) in
+            let compiled = 编译(func_def["体"]) in
+            _run(0, compiled)
+          else
+            VM错误("未定义函数: " + func_name)
+        else if opcode = OP_FUNC_DEF then
+          let name = instr[1] in
+          {"帧栈": vm["帧栈"], "栈": vm["栈"], "输出": vm["输出"],
+           "用户函数": vm["用户函数"] + [(name, {"参数": [], "体": {}})],
+           "常量": vm["常量"]}
+        else if opcode = OP_HALT then
+          vm
+        else if opcode = OP_JUMP then
+          _run(instr[1], vm)
+        else if opcode = OP_JUMP_ZERO then
+          let (val, vm2) = VM弹栈(vm) in
+          if val = 0.0 then _run(instr[1], vm2)
+          else _run(ip + 1, vm2)
+        else if opcode = OP_JUMP_NONZERO then
+          let (val, vm2) = VM弹栈(vm) in
+          if val != 0.0 then _run(instr[1], vm2)
+          else _run(ip + 1, vm2)
+        else
+          VM错误("未知指令: " + 标准库.str(opcode))
+    in
+    _run(0, vm)
+
+  (* ===== 参数绑定辅助 ===== *)
+  func _bind_params(vm: Dict, params: List, args: List) -> Dict = (vm, params, args) =>
+    if len(params) != len(args) then VM错误("参数数量不匹配")
+    else
+      let rec _bind(i: Int, vm2: Dict) -> Dict =
+        if i >= len(params) then vm2
+        else _bind(i + 1, VM设置帧变量(vm2, params[i], args[i]))
+      in _bind(0, vm)
+
+  func _reverse_list(lst: List) -> List = (lst) =>
+    let rec _rev_impl(l: List, acc: List) -> List =
+      l = [] ? acc
+      else _rev_impl(l[1:], acc + [l[0]])
+    in _rev_impl(lst, [])
+
+  (* ===== 便捷入口 ===== *)
+  func 求值源码(source: String) -> List = (source) =>
+    let tokens = 词法器.扫描(source) in
+    let ast = 语法器.parse(tokens) in
+    let vm = 新VM() in
+    let instructions = 编译(ast) in
+    let final_vm = 执行(vm, instructions) in
+    final_vm["输出"]
+
+  func 求值表达式(source: String) -> Value = (source) =>
+    let tokens = 词法器.扫描(source) in
+    let ast = 语法器.parse(tokens) in
+    let vm = 新VM() in
+    let instructions = 编译(ast) in
+    let final_vm = 执行(vm, instructions) in
+    if not VM栈空(final_vm) then _栈顶(final_vm)
+    else 0.0
+}

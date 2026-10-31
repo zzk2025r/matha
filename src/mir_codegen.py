@@ -17,6 +17,23 @@ from __future__ import annotations
 import math
 import re
 
+from src import mir_opt
+from src.mir import (
+    MIRArithInstr,
+    MIRBranchInstr,
+    MIRCallInstr,
+    MIRCImportInstr,
+    MIRCompareInstr,
+    MIRCondBranchInstr,
+    MIRConstInstr,
+    MIRLabelInstr,
+    MIRLoadInstr,
+    MIRLogicalInstr,
+    MIRReturnInstr,
+    MIRStoreInstr,
+    MIRUnaryInstr,
+)
+
 
 class MIRToCGenerator:
     """将 Matha MIR 转换为 C 代码。"""
@@ -51,6 +68,16 @@ class MIRToCGenerator:
 
     def generate(self, mir_program: any) -> str:
         """生成完整 C 代码。"""
+        # 在生成前对 MIR 进行清洗（优化管线）
+        try:
+            pipeline = mir_opt.MIRPassPipeline.create_default()
+            mir_program = pipeline.run(mir_program)
+        except Exception:
+            try:
+                mir_program = mir_opt.MIRPassPipeline().run(mir_program, mir_opt.MIRPassPipeline.default_pipeline())
+            except Exception:
+                pass
+
         lines = [
             "/* Matha MIR → C 代码生成 */",
             "/* 由 matha-cc 自动生成 */",
@@ -66,48 +93,66 @@ class MIRToCGenerator:
         ]
 
         for name, func in mir_program.functions.items():
+            lines.append(self._signature(name, func) + ";")
+        if mir_program.functions:
+            lines.append("")
+
+        for name, func in mir_program.functions.items():
             lines.extend(self._generate_function(name, func))
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _c_name(value: any) -> str:
+        return str(value).lstrip("%")
+
+    @classmethod
+    def _defines_value(cls, instr: any) -> bool:
+        if not getattr(instr, "result", ""):
+            return False
+        return isinstance(instr, (
+            MIRArithInstr,
+            MIRCallInstr,
+            MIRCompareInstr,
+            MIRConstInstr,
+            MIRLoadInstr,
+            MIRLogicalInstr,
+            MIRUnaryInstr,
+        ))
+
+    def _signature(self, name: str, func: any) -> str:
+        if name == "main":
+            return "int main(void)"
+        return_type = self.TYPE_MAP.get(func.return_type, "double")
+        param_types = list(getattr(func, "param_types", []) or [])
+        params = []
+        for index, param in enumerate(func.params):
+            param_type = param_types[index] if index < len(param_types) else "double"
+            params.append(f"{self.TYPE_MAP.get(param_type, 'double')} {param}")
+        return f"static {return_type} {name}({', '.join(params)})"
+
     def _generate_function(self, name: str, func: any) -> list[str]:
         """生成函数定义。"""
-        lines = []
-        params = ", ".join(f"double {p}" for p in func.params)
-        lines.append(f"static double {name}({params}) {{")
+        lines = [self._signature(name, func) + " {"]
 
-        # 收集所有需要声明的变量
-        all_results = set()
+        declared = set()
         for instr in func.instructions:
-            result = getattr(instr, "result", "").lstrip("%")
-            if result and not (hasattr(instr, "value") and instr.value is not None):
-                all_results.add(result)
+            if not self._defines_value(instr):
+                continue
+            result = self._c_name(instr.result)
+            if result and result not in declared:
+                lines.append(f"    double {result};")
+                declared.add(result)
 
-        # 生成常量初始化（必须在其他变量之前）
-        for instr in func.instructions:
-            result = getattr(instr, "result", "").lstrip("%")
-            if result and hasattr(instr, "value") and instr.value is not None:
-                lines.append(f"    double {result} = {instr.value};")
+        lines.extend(self._generate_instructions(func.instructions))
 
-        # 生成本地变量声明
-        for result in all_results:
-            lines.append(f"    double {result};")
-
-        # 生成指令代码
-        instructions = self._generate_instructions(func.instructions)
-        lines.extend(instructions)
-
-        # 返回值
-        return_val = None
-        for instr in reversed(func.instructions):
-            result = getattr(instr, "result", "").lstrip("%")
-            if result and result != "":
-                return_val = result
-                break
-        if return_val:
-            lines.append(f"    return {return_val};")
-        else:
-            lines.append("    return 0.0;")
+        if not any(isinstance(instr, MIRReturnInstr) for instr in func.instructions):
+            return_val = None
+            for instr in reversed(func.instructions):
+                if self._defines_value(instr):
+                    return_val = self._c_name(instr.result)
+                    break
+            lines.append(f"    return {return_val or '0.0'};")
 
         lines.append("}")
         lines.append("")
@@ -119,13 +164,15 @@ class MIRToCGenerator:
         init_lines = []
         seen = set()
         for instr in func.instructions:
-            result = getattr(instr, "result", "").lstrip("%")
-            if result and result not in seen:
-                if hasattr(instr, "value") and instr.value is not None:
-                    init_lines.append(f"    double {result} = {instr.value};")
-                else:
-                    decl_lines.append(f"    double {result};")
-                seen.add(result)
+            if not self._defines_value(instr):
+                continue
+            result = self._c_name(instr.result)
+            if result in seen:
+                continue
+            decl_lines.append(f"    double {result};")
+            if getattr(instr, "value", None) is not None and isinstance(instr, MIRConstInstr):
+                init_lines.append(f"    {result} = {instr.value};")
+            seen.add(result)
         return decl_lines, init_lines
 
     def _generate_instructions(self, instructions: list) -> list[str]:
@@ -139,57 +186,72 @@ class MIRToCGenerator:
 
     def _generate_instr_code(self, instr: any) -> str | None:
         """生成单条指令的 C 代码。"""
-        result = getattr(instr, "result", "").lstrip("%")
+        result = self._c_name(getattr(instr, "result", ""))
+        operands = [self._c_name(op) for op in getattr(instr, "operands", [])]
+        left = operands[0] if operands else "0.0"
+        right = operands[1] if len(operands) > 1 else "0.0"
 
-        # 常量
-        if hasattr(instr, "value") and instr.value is not None:
-            return None  # 已在初始化时处理
+        if isinstance(instr, MIRConstInstr):
+            return f"    {result} = {instr.value};" if result else None
 
-        # 算术运算
-        if hasattr(instr, "op") and instr.op:
-            left = instr.operands[0].lstrip("%") if instr.operands else "0"
-            right = instr.operands[1].lstrip("%") if len(instr.operands) > 1 else "0"
-            op_map = {"+": "+", "-": "-", "*": "*", "/": "/", "%": "%"}
-            c_op = op_map.get(instr.op, instr.op)
-            if c_op == "**":
-                return f"    double {result} = pow({left}, {right});"
-            return f"    double {result} = {left} {c_op} {right};"
+        if isinstance(instr, MIRArithInstr):
+            op = instr.op
+            if op == "=":
+                return f"    {result} = {left};"
+            if op == "**":
+                return f"    {result} = pow({left}, {right});"
+            if op == "//":
+                return f"    {result} = floor({left} / {right});"
+            if op == "%":
+                return f"    {result} = fmod({left}, {right});"
+            return f"    {result} = {left} {op} {right};"
 
-        # 函数调用
-        c_func = getattr(instr, "c_func", "")
-        func_name = getattr(instr, "func_name", "")
-        if c_func or func_name:
-            actual_func = c_func or func_name
-            args = ", ".join(a.lstrip("%") for a in instr.operands) if instr.operands else ""
-            return f"    double {result} = {actual_func}({args});"
+        if isinstance(instr, MIRUnaryInstr):
+            return f"    {result} = {instr.op}{left};"
 
-        # 比较运算
-        if hasattr(instr, "op") and instr.op in ("<", ">", "<=", ">=", "==", "!="):
-            left = instr.operands[0].lstrip("%") if instr.operands else "0"
-            right = instr.operands[1].lstrip("%") if len(instr.operands) > 1 else "0"
-            return f"    int {result} = ({left} {instr.op} {right});"
+        if isinstance(instr, MIRCompareInstr):
+            return f"    {result} = ({left} {instr.op} {right});"
 
-        # 逻辑运算
-        if hasattr(instr, "op") and instr.op in ("and", "or", "not"):
+        if isinstance(instr, MIRLogicalInstr):
             if instr.op == "not":
-                arg = instr.operands[0].lstrip("%") if instr.operands else "0"
-                return f"    int {result} = (!{arg});"
-            left = instr.operands[0].lstrip("%") if instr.operands else "0"
-            right = instr.operands[1].lstrip("%") if len(instr.operands) > 1 else "0"
-            c_op = "&&" if instr.op == "and" else "||"
-            return f"    int {result} = ({left} {c_op} {right});"
+                return f"    {result} = (!{left});"
+            op = "&&" if instr.op == "and" else "||"
+            return f"    {result} = ({left} {op} {right});"
 
-        # 返回
-        if hasattr(instr, "value") and instr.value:
-            return f"    return {instr.value.lstrip('%')};"
+        if isinstance(instr, MIRCallInstr):
+            actual_func = instr.c_func or instr.func_name
+            args = ", ".join(operands)
+            if actual_func == "printf":
+                value = operands[0] if operands else "0.0"
+                return f'    printf("%g\\n", {value});'
+            call = f"{actual_func}({args})"
+            return f"    {result} = {call};" if result else f"    {call};"
 
-        # 存储
-        if hasattr(instr, "target") and instr.target:
-            return f"    {instr.target.lstrip('%')} = {instr.operands[0].lstrip('%')};"
+        if isinstance(instr, MIRLoadInstr):
+            return f"    {result} = {self._c_name(instr.source)};"
 
-        # 标签和分支（简化处理）
-        if hasattr(instr, "label"):
-            return None  # C 不需要显式标签
+        if isinstance(instr, MIRStoreInstr):
+            return f"    {self._c_name(instr.target)} = {left};"
+
+        if isinstance(instr, MIRReturnInstr):
+            value = left or self._c_name(instr.value) or "0.0"
+            return f"    return {value};"
+
+        if isinstance(instr, MIRLabelInstr):
+            return f"    {instr.label}:;"
+
+        if isinstance(instr, MIRBranchInstr):
+            return f"    goto {instr.label};"
+
+        if isinstance(instr, MIRCondBranchInstr):
+            cond = self._c_name(instr.cond) if instr.cond else left
+            return f"    if ({cond}) goto {instr.true_label}; else goto {instr.false_label};"
+
+        if isinstance(instr, MIRCImportInstr):
+            return None
+
+        if getattr(instr, "value", None) is not None and result:
+            return f"    {result} = {instr.value};"
 
         return None
 
@@ -217,6 +279,14 @@ class MIRToPythonGenerator:
         self._optimize = optimize
 
     def generate(self, mir_program: any) -> str:
+        try:
+            pipeline = mir_opt.MIRPassPipeline.create_default()
+            mir_program = pipeline.run(mir_program)
+        except Exception:
+            try:
+                mir_program = mir_opt.MIRPassPipeline().run(mir_program, mir_opt.MIRPassPipeline.default_pipeline())
+            except Exception:
+                pass
         """生成 Python 代码。"""
         lines = [
             "# -*- coding: utf-8 -*-",
@@ -245,17 +315,14 @@ class MIRToPythonGenerator:
             if code:
                 lines.append(f"    {code}")
 
-        # 找到返回值（最后一个有 result 的指令）
-        return_val = None
-        for instr in reversed(func.instructions):
-            result = getattr(instr, "result", "").lstrip("%")
-            if result and result != "":
-                return_val = result
-                break
-        if return_val:
-            lines.append(f"    return {return_val}")
-        else:
-            lines.append("    return 0.0")
+        if not any(isinstance(instr, MIRReturnInstr) for instr in func.instructions):
+            return_val = None
+            for instr in reversed(func.instructions):
+                result = getattr(instr, "result", "").lstrip("%")
+                if result and result != "":
+                    return_val = result
+                    break
+            lines.append(f"    return {return_val or '0.0'}")
 
         lines.append("")
         return lines
@@ -266,27 +333,34 @@ class MIRToPythonGenerator:
         if not result:
             result = "result"
 
-        # 常量
-        if hasattr(instr, "value") and instr.value is not None:
+        if isinstance(instr, MIRConstInstr):
             return f"{result} = {instr.value}"
+
+        if isinstance(instr, MIRReturnInstr):
+            value = (instr.operands[0] if instr.operands else instr.value) or "0.0"
+            return f"return {str(value).lstrip('%')}"
 
         # 函数调用
         c_func = getattr(instr, "c_func", "")
         func_name = getattr(instr, "func_name", "")
         if c_func or func_name:
             actual_func = c_func or func_name
+            args = ", ".join(a.lstrip("%") for a in instr.operands) if instr.operands else ""
+            if actual_func == "printf":
+                return f"print({args})" if args else "print()"
             # 检查是否是 math 函数
             if actual_func in dir(math):
-                args = ", ".join(a.lstrip("%") for a in instr.operands) if instr.operands else ""
                 return f"{result} = math.{actual_func}({args})"
-            else:
-                args = ", ".join(a.lstrip("%") for a in instr.operands) if instr.operands else ""
-                return f"{result} = {actual_func}({args})"
+            return f"{result} = {actual_func}({args})"
 
         # 算术运算
         if hasattr(instr, "op") and instr.op:
             left = instr.operands[0].lstrip("%") if instr.operands else "0"
             right = instr.operands[1].lstrip("%") if len(instr.operands) > 1 else "0"
+            if instr.op == "=":
+                return f"{result} = {left}"
+            if instr.op == "//":
+                return f"{result} = {left} // {right}"
             op_map = {"+": "+", "-": "-", "*": "*", "/": "/", "**": "**", "%": "%"}
             c_op = op_map.get(instr.op, instr.op)
             if c_op == "**":

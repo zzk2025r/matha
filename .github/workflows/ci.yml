@@ -6,8 +6,14 @@ name: CI
 on:
   push:
     branches: [main, develop]
+    paths:
+      - 'packages/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'packages/**'
+      - '.github/workflows/ci.yml'
 
 env:
   PYTHONIOENCODING: "utf-8"

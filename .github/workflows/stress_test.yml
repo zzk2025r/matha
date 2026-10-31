@@ -3,8 +3,6 @@ name: HAL Stress Test
 on:
   push:
     branches: [main, master, dev]
-  pull_request:
-    branches: [main, master]
   schedule:
     # 每天 UTC 00:00 运行（北京时间 08:00）
     - cron: '0 0 * * *'

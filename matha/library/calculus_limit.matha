@@ -1,0 +1,395 @@
+(* ============================================================
+   Matha 标准库·符号微积分 ②极限（阶段 4）
+   ------------------------------------------------------------
+   覆盖范围（如实声明，超范围一律 错误("不支持: …")，绝不静默近似）：
+     · 关于 v 的**有理式**（多项式之比：允许整次幂、允许 pow(多项式, -k)）
+     · 有限点：代入 → 0/0 时用洛必达（对多项式逐次求导，最多 8 次）
+     · 极点：由 (x-a) 的阶与左右侧决定 ±∞；双侧异号者报不存在
+     · ±∞：主部次数比较（次数、首项系数都取自有理式的精确整式算术）
+   非有理式（sin/ln/exp 混在分子分母中）、根式差、0·∞ 型等
+   留在 stage0 引导实现里，由 src/stdlib/calculus_symbolic.py 显式回退。
+
+   结果节点：
+     ["数", 值]        精确代入值（整系数输入时是整数）
+     ["比", p, q]      有理数 p/q（q ≠ 0；宿主侧换算 float 做逐位对拍）
+     ["无穷", ±1]      ±∞
+   ============================================================ *)
+
+(* ---------- 布尔小工具（避开 `==` 与 and/or/三元 混排的解析陷阱）---------- *)
+
+func 等(a, b) -> Bool = {
+  if a == b {
+    return true
+  }
+  return false
+}
+
+func 零值(x) -> Bool = {
+  if x == 0 {
+    return true
+  }
+  return false
+}
+
+func 双零(x, y) -> Bool = {
+  if x == 0 {
+    if y == 0 {
+      return true
+    }
+    return false
+  }
+  return false
+}
+
+func 或值(a, b) -> Bool = {
+  if a {
+    return true
+  }
+  return b
+}
+
+func 符号(x) -> Int = {
+  if x > 0 {
+    return 1
+  }
+  if x < 0 {
+    return -1
+  }
+  return 0
+}
+
+(* ---------- 多项式项表：[[指数, 系数], ...]，不含零系数项 ---------- *)
+
+func 单项(指, 系) -> List = {
+  if 系 == 0 {
+    return []
+  }
+  return 包([指, 系])
+}
+
+func 常数项表(c) -> List = 单项(0, c)
+
+func 映射导项(表) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  let 项 = 表[0]
+  return 包([项[0] - 1, 项[1] * 项[0]]) + 映射导项(表[1:])
+}
+
+func 排序项表(表) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  return 插项(排序项表(表[1:]), 表[0])
+}
+
+func 插项(已排, 项) -> List = {
+  if len(已排) == 0 {
+    return 包(项)
+  }
+  if 项[0] <= 已排[0][0] {
+    return 包(项) + 已排
+  }
+  return 包(已排[0]) + 插项(已排[1:], 项)
+}
+
+(* 合并指数相同（含相邻）的项，并丢掉零系数；输入按指数升序 *)
+func 并项(表) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  if len(表) == 1 {
+    return 单项(表[0][0], 表[0][1])
+  }
+  let 头 = 表[0]
+  let 次 = 表[1]
+  if 头[0] == 次[0] {
+    return 并项(包([头[0], 头[1] + 次[1]]) + 表[2:])
+  }
+  return 单项(头[0], 头[1]) + 并项(表[1:])
+}
+
+func 合并项表(表) -> List = 并项(排序项表(表))
+
+func 加项表(a, b) -> List = 合并项表(a + b)
+
+func 乘项表单(项, 表) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  let 它 = 表[0]
+  return 包([项[0] + 它[0], 项[1] * 它[1]]) + 乘项表单(项, 表[1:])
+}
+
+func 乘项表(a, b) -> List = {
+  if len(a) == 0 {
+    return []
+  }
+  return 加项表(乘项表单(a[0], b), 乘项表(a[1:], b))
+}
+
+func 幂项表(表, n) -> List = {
+  if n == 0 {
+    return 常数项表(1)
+  }
+  return 乘项表(表, 幂项表(表, n - 1))
+}
+
+func 导项表(表) -> List = 合并项表(映射导项(表))
+
+func 项表值(表, x) -> Any = {
+  if len(表) == 0 {
+    return 0
+  }
+  return 表[0][1] * (x ^ 表[0][0]) + 项表值(表[1:], x)
+}
+
+func 最高指数(表) -> Any = {
+  if len(表) == 0 {
+    return 0
+  }
+  let 尾 = 表[len(表) - 1]
+  return 尾[0]
+}
+
+func 首项系数(表) -> Any = {
+  if len(表) == 0 {
+    return 0
+  }
+  let 尾 = 表[len(表) - 1]
+  return 尾[1]
+}
+
+(* ---------- 任意节点 → 关于 v 的多项式（非多项式即报错）---------- *)
+
+func 项表of(e, v) -> List = {
+  let t = e[0]
+  if t == "num" {
+    return 常数项表(e[1])
+  }
+  if t == "var" {
+    if e[1] == v {
+      return 单项(1, 1)
+    }
+    return 错误("不支持: 极限含另一个变量 " + e[1])
+  }
+  if t == "add" {
+    return 加项表(项表of(e[1], v), 项表of(e[2], v))
+  }
+  if t == "mul" {
+    return 乘项表(项表of(e[1], v), 项表of(e[2], v))
+  }
+  if t == "pow" {
+    let 指 = e[2]
+    if 指[0] == "num" {
+      let n = 指[1]
+      if n == int(n) {
+        if n >= 0 {
+          return 幂项表(项表of(e[1], v), int(n))
+        }
+      }
+    }
+    return 错误("不支持: 极限仅覆盖关于 " + v + " 的有理式")
+  }
+  return 错误("不支持: 极限仅覆盖关于 " + v + " 的有理式（含 " + t + " 节点）")
+}
+
+(* 规范形节点 → [分子项表, 分母项表]；负整数幂翻到分母，加式自动通分 *)
+func 拆有理(c, v) -> List = {
+  let t = c[0]
+  if t == "mul" {
+    return 乘分式(拆有理(c[1], v), 拆有理(c[2], v))
+  }
+  if t == "add" {
+    let a = 拆有理(c[1], v)
+    let b = 拆有理(c[2], v)
+    return [加项表(乘项表(a[0], b[1]), 乘项表(a[1], b[0])), 乘项表(a[1], b[1])]
+  }
+  if t == "pow" {
+    let 指 = c[2]
+    if 指[0] == "num" {
+      let n = 指[1]
+      if n == int(n) {
+        if n < 0 {
+          return [常数项表(1), 幂项表(项表of(c[1], v), 0 - int(n))]
+        }
+      }
+    }
+  }
+  return [项表of(c, v), 常数项表(1)]
+}
+
+func 乘分式(a, b) -> List = [乘项表(a[0], b[0]), 乘项表(a[1], b[1])]
+
+(* ---------- 主部：d^(m)(a) ≠ 0 的最小 m（m! > 0，不影响符号）---------- *)
+
+func 极点阶与符号(表, a, 限) -> List = {
+  let 当前 = 表
+  let m = 0
+  while 当前值零(当前, a) {
+    当前 = 导项表(当前)
+    m = m + 1
+    if m > 限 {
+      return 错误("不支持: 极点阶数超过 " + str(限))
+    }
+  }
+  return [m, 符号(项表值(当前, a))]
+}
+
+func 当前值零(表, a) -> Bool = {
+  if 项表值(表, a) == 0 {
+    return true
+  }
+  return false
+}
+
+func 偶数(n) -> Bool = {
+  if n % 2 == 0 {
+    return true
+  }
+  return false
+}
+
+func 次幂符号(基数, 指数) -> Int = {
+  if 基数 > 0 {
+    return 1
+  }
+  if 偶数(指数) {
+    return 1
+  }
+  return -1
+}
+
+(* ---------- 入口 ---------- *)
+
+func 极限节点(e, v, 点, 侧) -> Any = {
+  let 式 = 拆有理(规范(e), v)
+  let 母 = 式[1]
+  if 等(点, "+oo") {
+    return 极限无穷(式[0], 母, 1, 侧)
+  }
+  if 等(点, "-oo") {
+    return 极限无穷(式[0], 母, -1, 侧)
+  }
+  if 等(点, "oo") {
+    return 极限无穷(式[0], 母, 0, 侧)
+  }
+  if len(母) == 0 {
+    return 错误("不支持: 分母恒为零")
+  }
+  return 极限有限(式[0], 母, 点, 侧)
+}
+
+func 极限有限(分, 母, a, 侧) -> Any = {
+  let n = 分
+  let d = 母
+  let 次 = 0
+  while 双零(项表值(n, a), 项表值(d, a)) {
+    n = 导项表(n)
+    d = 导项表(d)
+    次 = 次 + 1
+    if 次 > 8 {
+      return 错误("不支持: 0/0 未定形洛必达超过 8 次")
+    }
+  }
+  let dv = 项表值(d, a)
+  let nv = 项表值(n, a)
+  if dv != 0 {
+    return 约分(nv, dv)
+  }
+  (* 分子非零、分母为零：极点 *)
+  let 阶 = 极点阶与符号(d, a, 8)
+  let m = 阶[0]
+  let 侧符 = 侧向符号(侧, m, 阶[1])
+  return ["无穷", 符号(nv) * 侧符]
+}
+
+(* 侧 = -1 / 0 / 1；双侧(0) 且阶为奇数 → 左右异号，极限不存在 *)
+func 侧向符号(侧, m, 母符) -> Int = {
+  if 侧 == 0 {
+    if 偶数(m) {
+      return 母符
+    }
+    return 错误("不支持: 双侧极限在极点不存在（左右异号）")
+  }
+  if 侧 < 0 {
+    return 母符 * 次幂符号(-1, m)
+  }
+  return 母符
+}
+
+func 极限无穷(分, 母, 向, 侧) -> Any = {
+  let dn = 最高指数(分)
+  let dm = 最高指数(母)
+  let cn = 首项系数(分)
+  let cm = 首项系数(母)
+  if dn < dm {
+    return ["数", 0]
+  }
+  if dn == dm {
+    return 约分(cn, cm)
+  }
+  let 差 = dn - dm
+  let 基符 = 符号(cn) * 符号(cm)
+  let 实测向 = 向
+  if 实测向 == 0 {
+    if 侧 != 0 {
+      实测向 = 侧
+    }
+  }
+  if 实测向 == 0 {
+    if 偶数(差) {
+      return ["无穷", 基符]
+    }
+    return 错误("不支持: 双侧无穷极限不存在（±∞ 异号）")
+  }
+  return ["无穷", 基符 * 次幂符号(实测向, 差)]
+}
+
+(* 结果节点的文本口径（宿主侧对拍也认这三种形状） *)
+func 极限文本(r) -> Str = {
+  let t = r[0]
+  if t == "数" {
+    return str(归一(r[1]))
+  }
+  if t == "比" {
+    return str(归一(r[1])) + "/" + str(归一(r[2]))
+  }
+  if t == "无穷" {
+    if r[1] == 1 {
+      return "+oo"
+    }
+    return "-oo"
+  }
+  return 错误("不支持: 未知极限结果节点 " + t)
+}
+
+(* 整数系数时约分成最简有理数；否则退成浮点值（与 stage0 同为 IEEE-754 除法） *)
+func 约分(子, 母) -> Any = {
+  if 母 == 1 {
+    return ["数", 子]
+  }
+  if 零值(子) {
+    return ["数", 0]
+  }
+  if 子 == int(子) {
+    if 母 == int(母) {
+      let i = int(子)
+      let j = int(母)
+      let g = gcd(abs(i), abs(j))
+      if g > 1 {
+        return ["比", i // g, j // g]
+      }
+      return ["比", i, j]
+    }
+  }
+  return ["数", 子 / 母]
+}
+
+func gcd(a, b) -> Int = {
+  if b == 0 {
+    return a
+  }
+  return gcd(b, a % b)
+}

@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 
-from src.interp import Interpreter, MathaRuntimeError, ast
+from src.interp import Interpreter, MathaRuntimeError, ast  # 代理遗留方法，非第二执行路径
 
 logger = logging.getLogger("matha.firewall")
 

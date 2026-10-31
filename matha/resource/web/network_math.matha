@@ -24,9 +24,9 @@ module Web网络 {
 
   func WebSocket帧开销(payload_len: Int) -> Int =
     (payload_len) =>
-    if if payload_len < 126 then 2 else None
-    elif payload_len < 65536: 4
-    else: 10
+    (payload_len < 126) ? 2 :
+    (payload_len < 65536) ? 4 :
+    10
 
   func WebSocket总帧大小(payload_len: Int, masked: Bool) -> Int =
     (payload_len, masked) =>
@@ -55,9 +55,9 @@ module Web网络 {
     (text, substr) =>
     let rec find(i: Int) -> Bool =
     (i) =>
-        if if i + len(substr) > len(text) then 假 else None
-        elif text[i:i+len(substr)] = substr: 真
-        else: find(i + 1)
+        (i + len(substr) > len(text)) ? 假 :
+        (text[i:i+len(substr)] == substr) ? 真 :
+        find(i + 1)
     find(0)
 
   (* ===== 会话管理 ===== *)
@@ -73,10 +73,10 @@ module Web网络 {
     当前时间 < 创建时间 + 超时时间
 
   (* ===== CSRF 防护 ===== *)
-  func CSRF Token长度() -> Int =
+  func CSRF_Token长度() -> Int =
     () => 32  (* 字节 *)
 
-  func CSRF Token安全性(bit熵: Int) -> Bool =
+  func CSRF_Token安全性(bit熵: Int) -> Bool =
     (bit熵) => bit熵 >= 128
 
   (* ===== 内容安全策略 ===== *)

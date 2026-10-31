@@ -1,0 +1,504 @@
+(* ============================================================
+   Matha 标准库·符号微积分 ①规范形 + 求导
+   ------------------------------------------------------------
+   阶段 4（符号能力迁回 Matha 自身）的第一块：本文件用 Matha 语法实现
+   「表达式规范形」与「一元求导」，由 mbc 编译执行；stage0 引导实现
+   src/kernel/symbolic/ 退位为对拍基准与未覆盖项的显式回退。
+   逐位对拍见 tests/test_matha_stdlib_symbolic.py，
+   能力口径与缺口见 docs/matha_stdlib_symbolic.md。
+
+   表达式表示（tagged list，与 src/kernel/symbolic/expr.py 的 Expr 树
+   一一对应，转换表在 tests/test_matha_stdlib_symbolic.py）：
+     ["num", 3]   ["var", "x"]   ["neg", e]   ["add", a, b]  ["sub", a, b]
+     ["mul", a, b]  ["div", a, b]  ["pow", 底, 指]  ["ln", e]
+     ["fn", "sin", e]                        (* 一元具名函数 *)
+
+   规范形**规格**（本文件与 stage0 适配层各自独立实现同一规格，然后
+   逐位比对文本；不是把一侧的计算塞进另一侧）：
+     · 节点集收敛为 num / var / add / mul / pow / fn / ln
+         neg → 乘 -1        sub → 加 负        div → 乘 幂 -1
+     · 数字归一：整值浮点转整数；-0.0 归 0
+     · add：全扁平 → 摘出数值项 → 同类项按「规范文本」分组建系数
+             → 数值项**升序**相加（消除树形状成的浮点结合顺序差异）
+             → 非数项按键字典序升序 → **右折** (a + (b + c)) → 常数项排最后
+     · mul：全扁平 → 有零因子则整体为 0 → 摘出数值因子**升序**相乘成系数
+             （系数 1 且有其它因子时省略）→ 相同因子合并为 pow(因子, 个数)
+             → 非数因子按键字典序升序 → 右折 (a * (b * c)) → 系数在最前
+     · pow：指数 1 → 底数；指数 0 → 1；底指数均为数 → 算值；
+             底为 pow(p, q) 且 q、n 为数 → pow(p, q*n)；底为 mul → 指数分配到因子
+   ============================================================ *)
+
+(* ---------- 数字归一 ---------- *)
+
+(* 单元素列表字面量必须走这里：Matha 的 `[expr]` 在**语句位**（`return`
+   之后就是语句位）是冻结符号体系里的「打印括号」，不是列表——
+   `return [x]` 会被 parser 读成「返回 打印(x)」，实测既打印又返回裸值。
+   只有表达式位（如本函数的表达式体）里的 `[x]` 才是列表字面量。
+   详见 docs/ast_vm_gap.md「语句位 [x] = 打印括号」一节。 *)
+func 包(x) -> List = [x]
+
+func 归一(v) -> Any = {
+  if v == int(v) {
+    return int(v)
+  }
+  if v == 0 {
+    return 0
+  }
+  return v
+}
+
+func 数零() -> Any = ["num", 0]
+func 数一() -> Any = ["num", 1]
+
+(* ---------- 列表小工具（Matha 里没有 map/filter/排序，全部手写）---------- *)
+
+func 升序(表) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  return 插数(升序(表[1:]), 表[0])
+}
+
+func 插数(已排, 值) -> List = {
+  if len(已排) == 0 {
+    return 包(值)
+  }
+  if 值 <= 已排[0] {
+    return 包(值) + 已排
+  }
+  return 包(已排[0]) + 插数(已排[1:], 值)
+}
+
+func 求和(表) -> Any = {
+  if len(表) == 0 {
+    return 0
+  }
+  return 表[0] + 求和(表[1:])
+}
+
+func 乘积(表) -> Any = {
+  if len(表) == 0 {
+    return 1
+  }
+  return 表[0] * 乘积(表[1:])
+}
+
+func 含零(表) -> Bool = {
+  if len(表) == 0 {
+    return false
+  }
+  if 表[0] == 0 {
+    return true
+  }
+  return 含零(表[1:])
+}
+
+(* ---------- 规范形 ---------- *)
+
+func 规范(e) -> Any = {
+  let t = e[0]
+  if t == "num" {
+    return ["num", 归一(e[1])]
+  }
+  if t == "var" {
+    return e
+  }
+  if t == "neg" {
+    let a = 规范(e[1])
+    if a[0] == "num" {
+      return ["num", 0 - a[1]]
+    }
+    return 规范(["mul", ["num", -1], a])
+  }
+  if t == "add" {
+    return 规范和(展加(e))
+  }
+  if t == "sub" {
+    return 规范和(展加(["add", e[1], ["neg", e[2]]]))
+  }
+  if t == "mul" {
+    return 规范乘(展乘(e))
+  }
+  if t == "div" {
+    return 规范乘(展乘(["mul", e[1], ["pow", e[2], ["num", -1]]]))
+  }
+  if t == "pow" {
+    return 规范幂(e[1], e[2])
+  }
+  if t == "ln" {
+    return ["ln", 规范(e[1])]
+  }
+  if t == "fn" {
+    return ["fn", e[1], 规范(e[2])]
+  }
+  return 错误("不支持: 规范形未知节点 " + t)
+}
+
+func 展加(e) -> List = {
+  if e[0] == "add" {
+    return 展加(e[1]) + 展加(e[2])
+  }
+  return 包(规范(e))
+}
+
+func 展乘(e) -> List = {
+  if e[0] == "mul" {
+    return 展乘(e[1]) + 展乘(e[2])
+  }
+  return 包(规范(e))
+}
+
+(* 把节点表分成 [数值表, 非数值表] *)
+func 摘数(表) -> List = {
+  if len(表) == 0 {
+    return [[], []]
+  }
+  let 头 = 表[0]
+  let 尾 = 摘数(表[1:])
+  if 头[0] == "num" {
+    return [包(头[1]) + 尾[0], 尾[1]]
+  }
+  return [尾[0], 包(头) + 尾[1]]
+}
+
+(* 按规范文本给节点分组计数：[[键, 代表节点, 个数], ...]（未排序） *)
+func 分组(表) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  let 头 = 表[0]
+  let 键 = 规范文本(头)
+  return 包([键, 头, 计键(表, 键)]) + 分组(删键(表, 键))
+}
+
+func 计键(表, 键) -> Int = {
+  if len(表) == 0 {
+    return 0
+  }
+  if 规范文本(表[0]) == 键 {
+    return 1 + 计键(表[1:], 键)
+  }
+  return 计键(表[1:], 键)
+}
+
+func 删键(表, 键) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  if 规范文本(表[0]) == 键 {
+    return 删键(表[1:], 键)
+  }
+  return 包(表[0]) + 删键(表[1:], 键)
+}
+
+func 排序键(表) -> List = {
+  if len(表) == 0 {
+    return []
+  }
+  return 插键(排序键(表[1:]), 表[0])
+}
+
+func 插键(已排, 项) -> List = {
+  if len(已排) == 0 {
+    return 包(项)
+  }
+  if 项[0] <= 已排[0][0] {
+    return 包(项) + 已排
+  }
+  return 包(已排[0]) + 插键(已排[1:], 项)
+}
+
+func 右折(表, 标签) -> Any = {
+  if len(表) == 1 {
+    return 表[0]
+  }
+  return [标签, 表[0], 右折(表[1:], 标签)]
+}
+
+func 项节点(系数, 节点) -> Any = {
+  if 系数 == 1 {
+    return 节点
+  }
+  return 规范(["mul", ["num", 系数], 节点])
+}
+
+func 因子节点(个数, 节点) -> Any = {
+  if 个数 == 1 {
+    return 节点
+  }
+  return 规范(["pow", 节点, ["num", 个数]])
+}
+
+func 组到项(组) -> List = {
+  if len(组) == 0 {
+    return []
+  }
+  return 包(项节点(组[0][2], 组[0][1])) + 组到项(组[1:])
+}
+
+func 组到因子(组) -> List = {
+  if len(组) == 0 {
+    return []
+  }
+  return 包(因子节点(组[0][2], 组[0][1])) + 组到因子(组[1:])
+}
+
+func 规范和(表) -> Any = {
+  let 分 = 摘数(表)
+  let c = 归一(求和(升序(分[0])))
+  let 项表 = 组到项(排序键(分组(分[1])))
+  if len(项表) == 0 {
+    return ["num", c]
+  }
+  let r = 右折(项表, "add")
+  if c == 0 {
+    return r
+  }
+  return ["add", r, ["num", c]]
+}
+
+func 规范乘(表) -> Any = {
+  let 分 = 摘数(表)
+  let 数表 = 升序(分[0])
+  if 含零(数表) {
+    return ["num", 0]
+  }
+  let 系数 = 归一(乘积(数表))
+  let 因表 = 组到因子(排序键(分组(分[1])))
+  if len(因表) == 0 {
+    return ["num", 系数]
+  }
+  if 系数 == 1 {
+    return 右折(因表, "mul")
+  }
+  return 右折(包(["num", 系数]) + 因表, "mul")
+}
+
+func 规范幂(底, 指) -> Any = {
+  let a = 规范(底)
+  let b = 规范(指)
+  if b[0] == "num" {
+    let n = b[1]
+    if n == 0 {
+      return ["num", 1]
+    }
+    if n == 1 {
+      return a
+    }
+    if a[0] == "num" {
+      return ["num", 归一(a[1] ^ n)]
+    }
+    if a[0] == "pow" {
+      if a[2][0] == "num" {
+        return 规范(["pow", a[1], ["num", a[2][1] * n]])
+      }
+    }
+    if a[0] == "mul" {
+      return 规范(分配幂(展乘(a), n))
+    }
+    return ["pow", a, b]
+  }
+  return ["pow", a, b]
+}
+
+func 分配幂(因子表, n) -> Any = {
+  if len(因子表) == 1 {
+    return ["pow", 因子表[0], ["num", n]]
+  }
+  return ["mul", ["pow", 因子表[0], ["num", n]], 分配幂(因子表[1:], n)]
+}
+
+(* 规范形的文本渲染：全括号、无歧义，两侧逐位比的就是这串文本 *)
+func 规范文本(e) -> Str = {
+  let t = e[0]
+  if t == "num" {
+    return str(归一(e[1]))
+  }
+  if t == "var" {
+    return e[1]
+  }
+  if t == "add" {
+    return "(" + 规范文本(e[1]) + " + " + 规范文本(e[2]) + ")"
+  }
+  if t == "mul" {
+    return "(" + 规范文本(e[1]) + " * " + 规范文本(e[2]) + ")"
+  }
+  if t == "pow" {
+    return "(" + 规范文本(e[1]) + "^" + 规范文本(e[2]) + ")"
+  }
+  if t == "ln" {
+    return "ln(" + 规范文本(e[1]) + ")"
+  }
+  if t == "fn" {
+    return e[1] + "(" + 规范文本(e[2]) + ")"
+  }
+  return 错误("不支持: 规范文本未知节点 " + t)
+}
+
+(* ---------- 求导 ---------- *)
+
+func 求导(e, v) -> Any = {
+  let t = e[0]
+  if t == "num" {
+    return 数零()
+  }
+  if t == "var" {
+    if e[1] == v {
+      return 数一()
+    }
+    return 数零()
+  }
+  if t == "neg" {
+    return ["neg", 求导(e[1], v)]
+  }
+  if t == "add" {
+    return ["add", 求导(e[1], v), 求导(e[2], v)]
+  }
+  if t == "sub" {
+    return ["sub", 求导(e[1], v), 求导(e[2], v)]
+  }
+  if t == "mul" {
+    let a = e[1]
+    let b = e[2]
+    return ["add", ["mul", 求导(a, v), b], ["mul", a, 求导(b, v)]]
+  }
+  if t == "div" {
+    let n = e[1]
+    let d = e[2]
+    return ["div", ["sub", ["mul", 求导(n, v), d], ["mul", n, 求导(d, v)]],
+            ["pow", d, ["num", 2]]]
+  }
+  if t == "pow" {
+    return 求导幂(e, v)
+  }
+  if t == "ln" {
+    return ["div", 求导(e[1], v), e[1]]
+  }
+  if t == "fn" {
+    return ["mul", 外导(e[1], e[2]), 求导(e[2], v)]
+  }
+  return 错误("不支持: 未实现的表达式类型 " + t)
+}
+
+(* 幂求导：指数为常数走幂法则；整体不含 v 则为 0；一般 f^g 走对数导数 *)
+func 求导幂(e, v) -> Any = {
+  let 底 = e[1]
+  let 指 = e[2]
+  if 指[0] == "num" {
+    let n = 指[1]
+    return ["mul", ["mul", ["num", n], ["pow", 底, ["num", n - 1]]], 求导(底, v)]
+  }
+  if 不含变元(e, v) {
+    return 数零()
+  }
+  return ["mul", e,
+          ["add", ["mul", 求导(指, v), ["ln", 底]],
+                  ["mul", 指, ["div", 求导(底, v), 底]]]]
+}
+
+func 变元表(e) -> List = {
+  let t = e[0]
+  if t == "num" {
+    return []
+  }
+  if t == "var" {
+    return 包(e[1])
+  }
+  if t == "fn" {
+    return 变元表(e[2])
+  }
+  if t == "ln" {
+    return 变元表(e[1])
+  }
+  if t == "neg" {
+    return 变元表(e[1])
+  }
+  return 变元表(e[1]) + 变元表(e[2])
+}
+
+func 含变元(表, v) -> Bool = {
+  if len(表) == 0 {
+    return false
+  }
+  if 表[0] == v {
+    return true
+  }
+  return 含变元(表[1:], v)
+}
+
+func 不含变元(e, v) -> Bool = {
+  if 含变元(变元表(e), v) {
+    return false
+  }
+  return true
+}
+
+(* 一元外层函数导数表（与 stage0 DERIV_RULES 同表；表外名字显式报错） *)
+func 外导(名, u) -> Any = {
+  if 名 == "sin" {
+    return ["fn", "cos", u]
+  }
+  if 名 == "cos" {
+    return ["neg", ["fn", "sin", u]]
+  }
+  if 名 == "tan" {
+    return ["div", 数一(), ["pow", ["fn", "cos", u], ["num", 2]]]
+  }
+  if 名 == "cot" {
+    return ["neg", ["div", 数一(), ["pow", ["fn", "sin", u], ["num", 2]]]]
+  }
+  if 名 == "sec" {
+    return ["mul", ["fn", "sec", u], ["fn", "tan", u]]
+  }
+  if 名 == "csc" {
+    return ["neg", ["mul", ["fn", "csc", u], ["fn", "cot", u]]]
+  }
+  if 名 == "exp" {
+    return ["fn", "exp", u]
+  }
+  if 名 == "log" {
+    return ["div", 数一(), u]
+  }
+  if 名 == "ln" {
+    return ["div", 数一(), u]
+  }
+  if 名 == "sqrt" {
+    return ["div", 数一(), ["mul", ["num", 2], ["fn", "sqrt", u]]]
+  }
+  if 名 == "abs" {
+    return ["div", u, ["fn", "abs", u]]
+  }
+  if 名 == "sinh" {
+    return ["fn", "cosh", u]
+  }
+  if 名 == "cosh" {
+    return ["fn", "sinh", u]
+  }
+  if 名 == "tanh" {
+    return ["sub", 数一(), ["pow", ["fn", "tanh", u], ["num", 2]]]
+  }
+  if 名 == "asin" {
+    return ["div", 数一(), ["fn", "sqrt", ["sub", 数一(), ["pow", u, ["num", 2]]]]]
+  }
+  if 名 == "acos" {
+    return ["neg", ["div", 数一(), ["fn", "sqrt", ["sub", 数一(), ["pow", u, ["num", 2]]]]]]
+  }
+  if 名 == "atan" {
+    return ["div", 数一(), ["add", 数一(), ["pow", u, ["num", 2]]]]
+  }
+  return 错误("不支持: 内核无 " + 名 + "(u) 的求导规则（缺口见 docs/matha_stdlib_symbolic.md）")
+}
+
+(* ---------- 对外入口 ---------- *)
+
+(* 化简/化简文本 属 algebra_simplify.matha，此处不重复定义（拼接加载会撞名） *)
+func 导数文本(e, v) -> Str = 规范文本(规范(求导(e, v)))
+
+func n阶导(e, v, n) -> Any = {
+  if n <= 0 {
+    return 规范(e)
+  }
+  return n阶导(规范(求导(e, v)), v, n - 1)
+}
+
+func n阶导文本(e, v, n) -> Str = 规范文本(n阶导(e, v, n))

@@ -1,0 +1,8 @@
+let xs = range(0)({N})
+let s = 0
+let j = 0
+while j < {N} {
+  s = s + get(xs)(j) + len(xs)
+  j = j + 1
+}
+输出(s)

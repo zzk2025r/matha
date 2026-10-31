@@ -274,13 +274,23 @@ class AutoDebugger:
                         func_def = FuncDef(name=name, body=zero_body)
                         i.funcs[name] = func_def
                         continue  # 同一 interpreter 继续尝试
-                # 检测未定义变量
+                # 检测未定义变量 / 未定义函数（B 归一：VM/native/解释器对未定义
+                # callee 统一报「未定义变量」，异常文案不再区分调用位；故改从源码
+                # 判定：名字以 `name(` 形式出现即被当作函数作用于未定义名 → 补恒零
+                # 函数，否则补默认变量）。
                 if "未定义" in err_msg or "undefined" in err_msg.lower():
                     m = re.search(r"'(\w+)'", err_msg)
                     if m:
                         name = m.group(1)
                         if name.isupper() or name.startswith('_'):
                             continue
+                        if re.search(rf"{re.escape(name)}\s*\(", src):
+                            # 名字出现在调用位置 → 注入恒零函数（与上方函数分支同形）
+                            applied_fix = f"func {name}() -> Int = () => 0"
+                            from src.ast_nodes import FuncDef, IntegerLit, Lambda
+                            zero_body = Lambda(params=[], body=IntegerLit(value=0))
+                            i.funcs[name] = FuncDef(name=name, body=zero_body)
+                            continue  # 同一 interpreter 继续尝试
                         applied_fix = f"@：{name}=0"
                         i.env[name] = 0
                         continue  # 同一 interpreter 继续尝试

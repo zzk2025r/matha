@@ -1,0 +1,171 @@
+{
+  "engine": "src.parser.parse -> src.interp.Interpreter.run",
+  "defaults": {
+    "SCOPED_BLOCKS": false,
+    "STACK_ENGINE": false,
+    "INLINE_CACHE": true
+  },
+  "native_known_gaps": {},
+  "cases": {
+    "01_arithmetic_and_relations": {
+      "features": [],
+      "description": "算术优先级、关系比较、字符串相等"
+    },
+    "02_function_definition": {
+      "features": [],
+      "description": "带参数/返回类型标注的函数定义与调用"
+    },
+    "03_curried_closure": {
+      "features": [],
+      "description": "柯里化与闭包捕获"
+    },
+    "04_block_tail_value": {
+      "features": [],
+      "description": "命令块内绑定与块尾表达式返回值"
+    },
+    "05_block_tail_if": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块中 if/else 分支作为块尾值"
+    },
+    "06_block_multi_statement": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块多语句绑定与尾表达式"
+    },
+    "07_loops": {
+      "features": [],
+      "description": "顶层 while 与 for 循环累加"
+    },
+    "08_loops_break_continue": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块内 while/break 与 for/continue"
+    },
+    "09_try_catch_raise": {
+      "features": [],
+      "description": "try/catch 捕获 raise 抛出的消息"
+    },
+    "10_try_catch_runtime_error": {
+      "features": [],
+      "description": "try/catch 捕获内建运行时错误"
+    },
+    "11_try_throw": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "函数语句块内 throw/catch 与提前 return"
+    },
+    "12_error_div_zero": {
+      "features": [],
+      "description": "除零错误：已产生的 stdout 与未捕获 stderr"
+    },
+    "13_error_undefined": {
+      "features": [],
+      "description": "未定义变量错误：已产生的 stdout 与未捕获 stderr"
+    },
+    "14_error_type": {
+      "features": [],
+      "description": "类型不匹配错误：已产生的 stdout 与未捕获 stderr"
+    },
+    "15_type_annotations_typeof": {
+      "features": [],
+      "description": "类型标注接受与 typeof 运行时类型结果（当前无静态类型推断）"
+    },
+    "16_recursion": {
+      "features": [],
+      "description": "递归函数与条件表达式返回值"
+    },
+    "17_try_block_binding": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "try/catch 块内绑定在块外可读（VM thunk 泄漏语义与解释器 env 共享一致）"
+    },
+    "18_domain_lazy_load": {
+      "features": [],
+      "description": "显式 `@：【加载领域】` + 领域常量取值（插件懒加载进入主链）"
+    },
+    "19_corpus_recursion": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：let rec 累加器递归阶乘（尾递归三元守卫）"
+    },
+    "20_corpus_sum": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：let rec + 索引 + len 列表求和（空表边界）"
+    },
+    "21_corpus_dot": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：双参数函数内 let rec 向量点积"
+    },
+    "22_corpus_cond_chain": {
+      "features": [],
+      "description": "语料镜像：嵌套三元条件链返回字符串（改写 match/tuple 匹配的合法替代）"
+    },
+    "23_corpus_tuple_index": {
+      "features": [],
+      "description": "语料镜像：Tuple 参数按下标取值（改写 t.1 数字字段访问的合法替代）"
+    },
+    "24_error_index_oob": {
+      "features": [],
+      "description": "越界索引：已产生的 stdout 与未捕获 stderr（三端消息主体一致）"
+    },
+    "25_error_mod_zero": {
+      "features": [],
+      "description": "取模除零：错误前 stdout 与未捕获 stderr（vm↔interp 逐字一致）"
+    },
+    "26_error_floordiv_zero": {
+      "features": [],
+      "description": "整除除零：错误前 stdout 与未捕获 stderr（vm↔interp 逐字一致）"
+    },
+    "27_error_str_index_oob": {
+      "features": [],
+      "description": "字符串越界索引：未捕获 stderr（无前置输出）"
+    },
+    "28_error_call_noncallable": {
+      "features": [],
+      "description": "调用非函数值：VM 不再漏出 Python RuntimeError，归一到解释器「不可调用的值」消息"
+    },
+    "29_error_index_on_int": {
+      "features": [],
+      "description": "对不可下标对象取索引：VM 不再漏出 Python TypeError，归一到「索引操作不支持: int[0]」"
+    },
+    "30_corpus_nested_rec_nocap": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "语料镜像：函数块内不捕获外层的 let rec 递减累加器（NI-009 native 闭包 env 越界回归锁）"
+    },
+    "31_error_undef_func": {
+      "features": [],
+      "description": "调用未定义函数名：解释器不再改写为「未定义函数」，三端 stderr 主体归一为「未定义变量」"
+    },
+    "32_ternary_eq_precedence": {
+      "features": [],
+      "description": "语句位 == / != 与三元优先级：3 == 3 ? 100 : 200 → (3==3)?100:200（修复右操作数贪心吞三元的误析）"
+    },
+    "33_sci_notation": {
+      "features": [],
+      "description": "科学计数法字面量 1e-15 / 2.5e3 / 1.5e-3 / 6.02e23 三端逐字节（订正「1e-15 不可写」过时声明）"
+    },
+    "34_return_list_literal": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "return 后的 [x] 为列表字面量（修复单元素列表被当「打印括号」的语句位陷阱）"
+    },
+    "35_list_comp": {
+      "features": ["SCOPED_BLOCKS"],
+      "description": "列表推导 VM 编译补全：基本/单if/多if(AND)/空迭代/range/嵌套，三端逐字节对齐 interp（字符串入列表由 tests/test_listcomp_vm.py 锁）"
+    },
+    "36_basics_map_filter_reduce": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：map/filter/reduce 基本、空列表、单元素、内联 lambda 与 map∘reduce 组合"
+    },
+    "37_basics_sorted": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：sorted 稳定插入排序（升/降比较器、空/单元素、已排序、逆序、等值保序）"
+    },
+    "38_basics_join_split": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：join 标量输出 + split 往返（经 join/len 归一规避字符串入列表引号分歧，同 35 例口径）"
+    },
+    "39_basics_gcd": {
+      "features": ["SCOPED_BLOCKS"],
+      "preload": ["matha/library/collections_core.matha"],
+      "description": "标准库 collections_core：gcd 英文入口转调柯里化内建 最大公约数（0/负数/互质边界）"
+    }
+  }
+}
