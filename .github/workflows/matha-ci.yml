@@ -79,10 +79,6 @@ jobs:
         run: |
           pip install -e ".[all]"
 
-      - name: Verify dependency status
-        run: |
-          python -c "from src.deps import get_dependency_status; import json; print(json.dumps(get_dependency_status(), indent=2))"
-
       - name: Run quality gate (scripts/check.py)
         run: |
           python scripts/check.py
