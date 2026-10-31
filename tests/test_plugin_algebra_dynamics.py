@@ -25,6 +25,7 @@ from src.algebra import interface as alg  # noqa: E402
 from src.algebra.algebra_plugin import PLUGIN as ALG_PLUGIN  # noqa: E402
 from src.dynamics import dynamic_semantics_plugin as dsp  # noqa: E402
 from src.dynamics import interface as dyn  # noqa: E402
+from src.dynamics import rv32_executor_pilot as pilot  # noqa: E402
 from src.dynamics.interface import DynamicSemanticsNotWired  # noqa: E402
 
 
@@ -742,6 +743,14 @@ class SpikeMachine:
     def set_pc(self, value):
         self._next = _u32(value)                 # 仅跳转 / 分支改写；否则驱动顺序 +4
 
+    def next_pc(self):
+        """可选能力探测点：回报跳转 / 分支后的下一地址（None = 顺序执行）。
+
+        生产集成入口 :func:`drive_program` 经此约定推进 PC，替代原先写死在
+        测试里的 ``view._next`` 私有读取，使适配器与驱动器之间的缝保持中性。
+        """
+        return self._next
+
     def halt(self, exit_code):
         self.sim.done = True
 
@@ -810,29 +819,17 @@ def _run_native(sim):
 
 
 def _run_plugin(sim):
-    pc = sim.entry
-    steps = 0
-    native_calls: list[str] = []
-
-    def _native(instr, _view):
-        native_calls.append(instr.op)
-
-    try:
-        dyn.load_plugin("dynamic")
-        while not sim.done:
-            if steps > sim.max_steps:
-                raise AssertionError("试点：疑似死循环（超步数上限）")
-            word = sim._r32(pc)
-            instr = _decode(word, pc)
-            assert instr.op in dsp.PLUGIN.wired_ops(), f"试点：未覆盖指令 {instr.op} @pc=0x{pc:08X}"
-            view = SpikeMachine(sim, pc)
-            assert dyn.execute_or_default(instr, view, _native) is True
-            pc = view._next if view._next is not None else _u32(pc + 4)
-            steps += 1
-    finally:
-        dyn.set_active(None)
-    assert native_calls == []          # 全程由插件语义驱动，无一例回退原生
-    return sim, steps
+    """经生产集成入口 :func:`drive_program` 逐条驱动真 SPIKE 机器到停机。"""
+    rep = pilot.drive_program(
+        entry_pc=sim.entry,
+        fetch=sim._r32,
+        decode=_decode,
+        view_factory=lambda pc: SpikeMachine(sim, pc),
+        is_halted=lambda: sim.done,
+        max_steps=sim.max_steps + 1,
+    )
+    assert rep.halted and rep.fully_plugin_driven   # 全程插件语义，无一例回退原生
+    return sim, rep.steps
 
 
 _PILOT_PROGRAMS = {
@@ -861,6 +858,286 @@ def test_dynamics_executor_pilot_loop_reaches_expected_sum():
     _p, steps = _run_plugin(_mk_sim(_prog_loop()))
     assert _p.x[5] == 55
     assert steps > 8                       # 循环多轮，非一次线性到底
+
+
+# ============================================================
+# 2c. 生产集成入口本体：只依赖中性契约，不依赖任何具体执行器
+# ============================================================
+
+
+class _FakeMachine:
+    """最小 MachineView 实现（纯内存 register/ram）——证明入口与执行器解耦。"""
+
+    def __init__(self, text, data, start_pc=0):
+        self.text = list(text)
+        self.data = {k: v for k, v in data.items()}
+        self.x = [0] * 32
+        self._pc = start_pc
+        self._next = None
+        self.halted_with = None
+
+    def read_reg(self, idx):
+        return self.x[idx]
+
+    def write_reg(self, idx, value):
+        if idx:
+            self.x[idx] = _s32(value)
+
+    def load(self, addr, width):
+        return self.data.get(addr, 0)
+
+    def store(self, addr, value, width):
+        self.data[addr] = _u32(value)
+
+    def pc(self):
+        return self._pc
+
+    def set_pc(self, value):
+        self._next = _u32(value)
+
+    def next_pc(self):
+        """一次性报告下一地址：读后复位，避免陈旧跳转目标污染后续顺序步。"""
+        value, self._next = self._next, None
+        return value
+
+    def halt(self, exit_code):
+        self.halted_with = exit_code
+
+
+class _OpSubsetBackend:
+    """按 op 子集认领的后端：用于验证覆盖护栏与原生回退记账。"""
+
+    def __init__(self, name, ops, fn=None):
+        self._name = name
+        self.ops = set(ops)
+        self.fn = fn
+
+    @property
+    def name(self):
+        return self._name
+
+    def supports(self, instr):
+        return instr.op in self.ops
+
+    def execute(self, instr, machine):
+        return self.fn(instr, machine) if self.fn else instr.op in self.ops
+
+
+def _drive_fake(machine, **kw):
+    """以纯假机器调用生产入口；默认走真 ``"dynamic"`` 插件语义。
+
+    取指越界回 0（RV 的 ``addi x0,x0,0`` = nop），使无 halt 程序的 PC 自由跑到
+    步数预算，从而由 :class:`PilotRunaway` 显式报错而非依赖执行器内存模型。
+    """
+    kw.setdefault("ensure_backend", "dynamic")
+    return pilot.drive_program(
+        entry_pc=0,
+        fetch=lambda pc: machine.text[pc // 4] if pc // 4 < len(machine.text) else 0,
+        decode=_decode,
+        view_factory=lambda pc: machine,
+        is_halted=lambda: machine.halted_with is not None,
+        **kw,
+    )
+
+
+def _EXIT(code=0):
+    """假机器上的停机序列：``li a7,0x6758``（lui+addi）/ ``li a0,code`` / ``ecall``。
+
+    与 SPIKE 的 ``sifive_test`` 写 MMIO 停机不同路：这里走执行器已建模的
+    system_reset ABI（插件 ``ecall`` 分支 → ``halt(a0)``），不依赖任何访存布局。
+    a7 = 0x6758 超 12 位立即数，故按 RV 惯例拆成 lui + addi（addi 立即数取
+    12 位有符号编码，与 SPIKE ``li`` 展开同形）。
+    """
+    return [encU(0x6, 17), encI(0x758, 17, 0, 17),
+            encI(code & 0xFFF, 0, 0, 10), encI(0, 0, 0, 0, op=0x73)]
+
+
+def _mini_decode(op, pc, rd=0, rs1=0, rs2=0, imm=0):
+    """直接造中性指令（不走 RV 编码）：只给本入口自检用，避免编码细节抢戏。"""
+    return dyn.DecodedInstr(op, rd, rs1, rs2, imm, pc)
+
+
+def test_drive_program_backend_agnostic_on_fake_machine():
+    """驱动器只认中性契约：在不依赖 SPIKE / baremetal 的假机器上跑通插件语义。"""
+    dyn.set_active(None)          # 只清激活态（登记表保持），避免跳用例泄漏被当成结果
+    m = _FakeMachine([encI(5, 0, 0, 5), encI(37, 0, 0, 6),
+                      encR(0x00, 6, 5, 0x0, 7)] + _EXIT(), {})
+    rep = _drive_fake(m)
+    assert m.x[7] == 42 and m.halted_with == 0
+    assert rep.steps == 6 and rep.end_pc == 6 * 4   # end_pc = halt 现场（ecall）
+    assert rep.halted and rep.fully_plugin_driven and rep.native_fallback_ops == ()
+    assert dyn.active_backend() is None          # 插件激活生命周期不外溢
+
+
+def test_drive_program_reports_native_fallback_honestly():
+    """显式关闭全覆盖护栏时，未认领指令走原生兜底并被记入报告（绝不隐没）。"""
+    dyn.set_active(None)
+    # 子集后端只认 add / ecall（两者均在其动作面内真正落地）；
+    # addi 不认领 → 必须逐条回退到原生，并且可审计。
+    m = _FakeMachine([0] * 4, {})
+    prog = [_mini_decode("addi", 0, rd=17, imm=0x6758),    # 0  预置 system_reset ABI
+            _mini_decode("add", 4, rd=7, rs1=5, rs2=6),    # 1  未认领 → 兜底
+            _mini_decode("add", 8, rd=8, rs1=5, rs2=6),    # 2  认领
+            _mini_decode("ecall", 12),                      # 3  停机（认领）
+            _mini_decode("addi", 16, rd=9, imm=7)]         # 4  不应被取到
+    seen: list[str] = []
+
+    def _decode_at(w, pc):
+        return prog[pc // 4]
+
+    def _native(instr, view):
+        """极简“原生”兜底：只补子集后端不认领的 addi。"""
+        seen.append(instr.op)
+        view.write_reg(instr.rd, _u32(instr.imm))
+
+    def _subset_execute(instr, machine):
+        if instr.op == "add":
+            machine.write_reg(instr.rd,
+                              _u32(machine.read_reg(instr.rs1) + machine.read_reg(instr.rs2)))
+            return True
+        if instr.op == "ecall":
+            machine.halt(machine.read_reg(10))
+            return True
+        return False
+
+    backend = _OpSubsetBackend("pilot-subset", {"add", "ecall"}, fn=_subset_execute)
+    dyn.register_backend(backend, activate=True)
+    try:
+        rep = pilot.drive_program(
+            entry_pc=0,
+            fetch=lambda pc: m.text[pc // 4] if pc // 4 < len(m.text) else 0,
+            decode=_decode_at,
+            view_factory=lambda pc: m,
+            is_halted=lambda: m.halted_with is not None,
+            ensure_backend=None, require_plugin_coverage=False, native=_native)
+    finally:
+        dyn.unregister_backend("pilot-subset")
+        dyn.set_active(None)                              # 不受跳用例遗留的登记影响
+    assert rep.native_fallback_ops == ("addi",)          # 回退指令逐个记账
+    assert seen == ["addi"] and m.x[17] == 0x6758
+    assert not rep.fully_plugin_driven
+    assert m.x[7] == 0 and m.x[8] == 0                   # add 由子集后端落地
+    assert m.halted_with == 0 and rep.halted and rep.steps == 3
+    assert rep.end_pc == 12                              # 停在 halt 现场，不多取一条
+    assert prog[4].rd == 9 and m.x[9] == 0               # 停机后不再取下一条
+
+
+def test_drive_program_rejects_unwired_instruction():
+    """默认要求全覆盖：取到后端不认领的指令时显式失败，不静默当 nop 放过。"""
+    m = _FakeMachine([0] * 4, {})
+    prog = [_mini_decode("addi", 0, rd=5, imm=1),
+            _mini_decode("sub", 4, rd=7, rs1=5, rs2=6),
+            _mini_decode("ecall", 8)]
+    dyn.set_active(None)
+    dyn.register_backend(
+        _OpSubsetBackend("pilot-narrow", {"addi", "ecall"}), activate=True)
+
+    def _decode_at(w, pc):
+        return prog[pc // 4]
+
+    try:
+        with pytest.raises(pilot.PilotUnsupported, match="sub"):
+            pilot.drive_program(
+                entry_pc=0, fetch=lambda pc: 0,
+                decode=_decode_at, view_factory=lambda pc: m,
+                is_halted=lambda: m.halted_with is not None,
+                ensure_backend=None)
+    finally:
+        dyn.unregister_backend("pilot-narrow")
+        dyn.set_active(None)
+    assert m.x[7] == 0                              # 失败前未产生任何副作用
+    assert m.halted_with is None
+
+
+def test_drive_program_rejects_claimed_but_unexecuted():
+    """后端认领（supports 真）却未落地（execute 假）时同样显式失败，不静默当 nop。
+
+    对应真实插件行为：CSR 若机器未提供 csr_read/csr_write、非复位 ecall 都会
+    supports=True 而 execute=False。旧实现丢弃 execute_or_default 返回值会将其静默跳过。
+    """
+    m = _FakeMachine([0] * 4, {})
+    prog = [_mini_decode("csrrw", 0, rd=5, imm=0x300),   # 认领但执行为假
+            _mini_decode("ecall", 4)]
+    dyn.set_active(None)
+    # 认领 csrrw 但 execute 恒返回 False（模拟无 CSR 动作面的机器）
+    dyn.register_backend(
+        _OpSubsetBackend("pilot-claim", {"csrrw", "ecall"},
+                         fn=lambda i, machine: i.op == "ecall"),
+        activate=True)
+
+    def _decode_at(w, pc):
+        return prog[pc // 4]
+
+    try:
+        with pytest.raises(pilot.PilotUnsupported, match="csrrw"):
+            pilot.drive_program(
+                entry_pc=0, fetch=lambda pc: 0, decode=_decode_at,
+                view_factory=lambda pc: m,
+                is_halted=lambda: m.halted_with is not None,
+                ensure_backend=None)
+    finally:
+        dyn.unregister_backend("pilot-claim")
+        dyn.set_active(None)
+    assert m.halted_with is None                    # 认领未落地即在当时报错，不往后跑
+
+
+def test_drive_program_guard_rails_runaway_and_no_backend():
+    """护栏：死循环超预算报 PilotRunaway；无后端且未交 ensure_backend 时显式报错。"""
+    dyn.set_active(None)
+    # +0 addi x5,x5,1 / +4 nop / +8 nop / +12 bge x5,x0,-12（恒真，跳回 +0）
+    loop = [_mini_decode("addi", 0, rd=5, rs1=5, imm=1),
+            _mini_decode("nop", 4), _mini_decode("nop", 8),
+            _mini_decode("bge", 12, rs1=5, rs2=0, imm=-12)]
+
+    def _decode_loop(w, pc):
+        return loop[(pc >> 2) & 3]
+
+    def _native(instr, view):                      # 无插件认领，语义全靠原生推进
+        if instr.op == "addi":
+            view.write_reg(instr.rd, _u32(view.read_reg(instr.rs1) + instr.imm))
+        elif instr.op == "bge":
+            if view.read_reg(instr.rs1) >= view.read_reg(instr.rs2):
+                view.set_pc(instr.pc + instr.imm)
+        elif instr.op == "ecall":
+            view.halt(view.read_reg(10))
+
+    m = _FakeMachine([0] * 4, {})
+    with pytest.raises(pilot.PilotRunaway):
+        pilot.drive_program(                       # 纯原生跑法：无插件也须受预算约束
+            entry_pc=0, fetch=lambda pc: 0, decode=_decode_loop,
+            view_factory=lambda pc: m, is_halted=lambda: m.halted_with is not None,
+            ensure_backend=None, require_plugin_coverage=False,
+            native=_native, max_steps=10)
+    assert m.x[5] == 3                             # 10 步内走了 3 遍 addi（预算截断于第 3 轮）
+
+    # 预算边界：刚达到 max_steps 前一步若已停机则不算 runaway
+    m3 = _FakeMachine([0] * 2, {})
+    rep3 = pilot.drive_program(
+        entry_pc=0, fetch=lambda pc: 0,
+        decode=lambda w, pc: _mini_decode("ecall", pc),
+        view_factory=lambda pc: m3, is_halted=lambda: m3.halted_with is not None,
+        ensure_backend=None, require_plugin_coverage=False,
+        native=_native, max_steps=1)
+    assert rep3.steps == 0 and rep3.halted and rep3.native_fallback_ops == ("ecall",)
+
+    m2 = _FakeMachine(_EXIT(), {})
+    with pytest.raises(ValueError, match="ensure_backend"):
+        _drive_fake(m2, ensure_backend=None)        # 默认仍要求全覆盖 → 无后端即报错
+    assert m2.halted_with is None                  # 报错发生在取指之前
+
+    with pytest.raises(ValueError, match="native"):
+        _drive_fake(m2, ensure_backend=None, require_plugin_coverage=False)
+
+
+def test_executor_pilot_entry_has_no_reverse_coupling():
+    """生产入口只依赖 interface + 标准库：不反向耦合执行器 / 内核 / 裸机。"""
+    mods = _imported_full(ROOT / "src" / "dynamics" / "rv32_executor_pilot.py")
+    bad = [m for m in mods if m.startswith(
+        ("baremetal", "rv32sim", "src.kernel", "src.algebra", "src.mbc", "src.domains"))]
+    assert not bad, f"生产入口反向耦合：{bad}"
+    assert [m for m in mods if m.startswith("src.dynamics")] == ["src.dynamics.interface"]
+    assert not _imported_roots(ROOT / "src" / "dynamics" / "rv32_executor_pilot.py") & {
+        "sympy", "numpy", "scipy"}
 
 
 # ---- 界定内核 / 执行器 / 插件 边界：原生执行器不感知插件（耦合单向：试点适配器→两边）----
