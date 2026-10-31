@@ -699,6 +699,180 @@ def test_dynamics_ecall_spike_parity():
 
 
 # ============================================================
+# 2b. 执行器试点闭环（端到端）：插件逐条驱动真实 RV32I 程序 vs SPIKE 原生
+# ============================================================
+
+class SpikeMachine:
+    """把真实权威解释器 :class:`RV32Sim` 适配到 :class:`MachineView` 最小动作面。
+
+    寄存器 / 内存 / MMIO / 停机约定全部代理给 SPIKE 实例本体（含 UART / sifive_test），
+    故“插件驱动的整程序跑”与“SPIKE 原生跑”只隔离**指令语义**一处变量。
+    """
+
+    def __init__(self, sim, pc):
+        self.sim = sim
+        self._pc = pc
+        self._next = None
+
+    def read_reg(self, idx):
+        return self.sim.x[idx]
+
+    def write_reg(self, idx, value):
+        if idx:                                  # x0 恒零（与 SPIKE setrd 同）
+            self.sim.x[idx] = _s32(value)
+
+    def load(self, addr, width):
+        if width == 4:
+            return self.sim._r32(addr)
+        if width == 1:
+            return self.sim._r8(addr)
+        raise AssertionError(f"试点：width {width} 超出 SPIKE 建模（lh/lhu/sh 未实现）")
+
+    def store(self, addr, value, width):
+        if width == 4:
+            self.sim._w32(addr, value)
+        elif width == 1:
+            self.sim._w8(addr, value)
+        else:
+            raise AssertionError(f"试点：width {width} 超出 SPIKE 建模")
+
+    def pc(self):
+        return self._pc
+
+    def set_pc(self, value):
+        self._next = _u32(value)                 # 仅跳转 / 分支改写；否则驱动顺序 +4
+
+    def halt(self, exit_code):
+        self.sim.done = True
+
+
+def _mk_sim(words, data=None):
+    """用指令字序列在 SPIKE 稀疏 RAM 的 BASE 处搭一段可原生执行的 RV32I 程序。"""
+    sim_mod = _load_spike()
+    sim = sim_mod.RV32Sim.__new__(sim_mod.RV32Sim)
+    sim.ram = bytearray(0x4000)
+    sim.out = []
+    sim.done = False
+    sim.exit_code = 0
+    sim.max_steps = 100_000
+    sim.x = [0] * 32
+    sim.entry = sim_mod.BASE
+    for i, w in enumerate(words):
+        sim.ram[4 * i:4 * i + 4] = (w & 0xFFFFFFFF).to_bytes(4, "little")
+    for off, v in (data or {}).items():
+        sim.ram[off:off + 4] = (v & 0xFFFFFFFF).to_bytes(4, "little")
+    return sim
+
+
+_HALP = [encU(0x100, 1, 0x37), encU(0x5, 2, 0x37), encI(0x555, 2, 6, 2), encS(0, 2, 1, 2)]
+
+
+def _prog_arith():
+    w = [encI(20, 0, 0, 5), encI(7, 0, 0, 6),
+         encR(0x00, 6, 5, 0x0, 7), encR(0x20, 6, 5, 0x0, 8),   # add sub
+         encR(0x00, 6, 5, 0x7, 9), encR(0x00, 6, 5, 0x6, 10),   # and or
+         encR(0x00, 6, 5, 0x4, 11), encR(0x00, 6, 5, 0x1, 12),  # xor sll
+         encR(0x00, 6, 5, 0x5, 13), encR(0x20, 6, 5, 0x5, 14),  # srl sra
+         encR(0x00, 6, 5, 0x2, 15), encR(0x00, 6, 5, 0x3, 16),  # slt sltu
+         encU(0x80000, 28, 0x37), encI(1000, 0, 0, 17),         # lui BASE; data
+         encS(0x400, 17, 28, 2), encI(0x400, 28, 2, 18)]        # sw / lw
+    return w + _HALP
+
+
+def _prog_loop():
+    w = [encI(0, 0, 0, 5), encI(1, 0, 0, 6), encI(11, 0, 0, 7),      # acc i limit
+         encR(0x00, 6, 5, 0x0, 5), encI(1, 6, 0, 6),                 # +12 LOOP add; +16 i+=1
+         encB(-8, 7, 6, 4)]                                          # +20 blt x6,x7 -> +12
+    return w + _HALP
+
+
+def _prog_call():
+    # +0 jal→FUNC(+20)；+4..+16 为 halt 序（返回落点，jal 已跳过）；FUNC 尾 jalr 回 +4
+    w = [encJ(20, 1)]                            # +0  jal x1, +20 -> FUNC, x1=+4
+    w += _HALP                                    # +4/+8/+12/+16 halt（返回至此）
+    w += [encI(42, 0, 0, 6),                      # +20 FUNC addi x6,x0,42
+          encI(0, 1, 0, 0, op=0x67)]              # +24 jalr x0, 0(x1) -> 返回 +4
+    return w
+
+
+def _prog_uart():
+    w = [encU(0x10000, 5, 0x37),      # lui x5, 0x10000 -> UART 0x10000000
+         encI(0x48, 0, 0, 6), encS(0, 6, 5, 0),   # sb 'H'
+         encI(0x69, 0, 0, 6), encS(0, 6, 5, 0)]   # sb 'i'
+    return w + _HALP
+
+
+def _run_native(sim):
+    sim.x[2] = 0
+    sim.x[1] = 0
+    sim.run()
+    return sim
+
+
+def _run_plugin(sim):
+    pc = sim.entry
+    steps = 0
+    native_calls: list[str] = []
+
+    def _native(instr, _view):
+        native_calls.append(instr.op)
+
+    try:
+        dyn.load_plugin("dynamic")
+        while not sim.done:
+            if steps > sim.max_steps:
+                raise AssertionError("试点：疑似死循环（超步数上限）")
+            word = sim._r32(pc)
+            instr = _decode(word, pc)
+            assert instr.op in dsp.PLUGIN.wired_ops(), f"试点：未覆盖指令 {instr.op} @pc=0x{pc:08X}"
+            view = SpikeMachine(sim, pc)
+            assert dyn.execute_or_default(instr, view, _native) is True
+            pc = view._next if view._next is not None else _u32(pc + 4)
+            steps += 1
+    finally:
+        dyn.set_active(None)
+    assert native_calls == []          # 全程由插件语义驱动，无一例回退原生
+    return sim, steps
+
+
+_PILOT_PROGRAMS = {
+    "arith": _prog_arith,
+    "loop": _prog_loop,
+    "call": _prog_call,
+    "uart": _prog_uart,
+}
+
+
+@pytest.mark.parametrize("name", list(_PILOT_PROGRAMS), ids=list(_PILOT_PROGRAMS))
+def test_dynamics_executor_pilot_end_to_end(name):
+    """RV32I 端到端语义闭环：同一段程序，“插件逐条驱动”与“SPIKE 原生”最终态逐位相同。"""
+    words = _PILOT_PROGRAMS[name]()
+    n = _run_native(_mk_sim(words))
+    p, _steps = _run_plugin(_mk_sim(words))
+    assert p.done and n.done
+    assert _u32(p.exit_code) == _u32(n.exit_code), (name, p.exit_code, n.exit_code)
+    assert "".join(p.out) == "".join(n.out), (name, "".join(p.out), "".join(n.out))
+    for idx in range(32):
+        assert _u32(p.x[idx]) == _u32(n.x[idx]), (name, idx, _u32(p.x[idx]), _u32(n.x[idx]))
+
+
+def test_dynamics_executor_pilot_loop_reaches_expected_sum():
+    """控制流程序（blt 循环）插件驱动跑完：acc = 1+2+…+10 = 55，且确实走了转移。"""
+    _p, steps = _run_plugin(_mk_sim(_prog_loop()))
+    assert _p.x[5] == 55
+    assert steps > 8                       # 循环多轮，非一次线性到底
+
+
+# ---- 界定内核 / 执行器 / 插件 边界：原生执行器不感知插件（耦合单向：试点适配器→两边）----
+def test_native_executor_is_plugin_agnostic():
+    """权威解释器 rv32sim 源码不得 import src.dynamics / src.algebra / src.kernel：
+    执行器对插件事务无知，集成缝单向存在于试点适配器（它同时 import 两边）。"""
+    mods = _imported_full(ROOT / "baremetal" / "tools" / "rv32_spike" / "rv32sim.py")
+    bad = [m for m in mods if m.startswith(("src.dynamics", "src.algebra", "src.kernel"))]
+    assert not bad, f"执行器反向耦合插件/内核：{bad}"
+
+
+# ============================================================
 # 3. 隔离红线：内核不依赖插件层；插件层零重型依赖
 # ============================================================
 

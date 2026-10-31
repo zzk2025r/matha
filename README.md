@@ -212,14 +212,16 @@ make check-lite     # 同上，不跑需要 nasm/link 的机器码对拍
 python scripts/verify_offline.py
 ```
 
-**实测结果（最近一次 `make check`）：** 通过 4729 / 计入 4729，失败 0，**通过率 100.00%**
+**实测结果（最近一次 `make check`）：** 通过 4735 / 计入 4735，失败 0，**通过率 100.00%**
 （含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 39 逐字节 / `dep_audit` 违规 0 条；
 `native_parity` 38 过 + 1 例不计入分母（`18_domain_lazy_load`：native 不承载领域插件符号）；
 原 2 个类型校验静默错值缺口 NI-001/NI-002 已修复（未定义名与字符串参与 `-` 均抛可捕获异常），
 详见 `docs/KNOWN_ISSUES.md`。动态语义插件（`src/dynamics/`）已逐条落地 RV32IM 与 SYSTEM 子集
-（CSR 读改写 / FENCE / ECALL），并以 471 项
+（CSR 读改写 / FENCE / ECALL），并以 477 项
 对 SPIKE 权威解释器的逐指令对拍锁 + 规格黄金锁固化（内核、执行器与契约层 `src/dynamics/interface.py` 零改动；CSR 经
-鸭子类型可选探测机器的 `csr_read`/`csr_write` 能力、机器未提供则回退原生）。代数数打印插件
+鸭子类型可选探测机器的 `csr_read`/`csr_write` 能力、机器未提供则回退原生）。并已接入原生执行器试点：`SpikeMachine`
+适配器把真实 `RV32Sim` 映射到 `MachineView`，4 段真实 RV32I 程序（算术/访存、循环、调用返回、串口输出）逐条经
+`execute_or_default` 由插件驱动至停机，与 SPIKE 原生跑的寄存器堆/串口输出/停机码逐位相同（RV32I 端到端语义闭环；执行器对插件零感知）。代数数打印插件
 （`src/algebra/`）已从二次域 ℚ(√d) 扩面到多根式域 ℚ(√d₁,…,√d_k) 与高次纯根 ⁿ√d（`√2+√3 → sqrt(2) + sqrt(3)`、
 `∛16 → 2*root(3,2)`），新增 25 项对 sympy 的结构化对拍锁与诚实边界锁（内核与接口零改动）。本轮全量跑零
 DeprecationWarning。旧快照的绝对数字

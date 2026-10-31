@@ -169,6 +169,20 @@ P6d 动态语义补全 SYSTEM 子集·CSR / FENCE / ECALL（在上方 P6b 的 RV
   CSR 能力回退；ecall system_reset 对 SPIKE 停机逐位对拍），单文件 541 项全绿。**内核、执行器与
   `src/dynamics/interface.py` 零改动**。全量门禁 4729/4729、失败 0。
 
+P6e 接入原生执行器试点·RV32I 端到端语义闭环（将上方插件语义接入真实执行器做试点，完成从逐指令到整程序的闭环；
+口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第七节）：
+
+- **执行器试点适配器**（`tests/test_plugin_algebra_dynamics.py`）：`SpikeMachine` 把权威解释器 `RV32Sim` 适配到
+  `MachineView` 最小动作面，寄存器/内存/MMIO（UART、sifive_test 停机）全代理给 SPIKE 本体，使“插件驱动整程序”
+  与“SPIKE 原生跑”只隔离**指令语义**一处变量。
+- **端到端对拍**：`_run_plugin` 以 `execute_or_default` 把 4 段真实 RV32I 程序（算术/访存、blt 循环、jal/jalr 调用
+  返回、UART 输出）逐条经插件语义驱动至停机，断言全程零回退原生，并与原生跑逐位比对最终 32 寄存器堆/串口
+  输出/停机码；另锁循环程序 `acc=1+…+10=55` 且确实多轮转移。
+- **界定内核↔执行器↔插件边界**：`test_native_executor_is_plugin_agnostic` 静态扫 `rv32sim` 源码，锁其不 import
+  `src.dynamics`/`src.algebra`/`src.kernel`——执行器对插件事务无知，集成缝单向存在于试点适配器（它同时 import 两边）。
+- **零改动红线**：本步为纯验证侧新增（适配器与测试），未改内核、未改执行器 `rv32sim`、未改插件与 `src/dynamics/interface.py`。
+  `tests/test_plugin_algebra_dynamics.py` 新增 6 项，单文件 547 项全绿。**全量门禁 4735/4735、失败 0。**
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，
