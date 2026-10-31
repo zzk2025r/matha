@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import importlib.util
 import math
 from fractions import Fraction
 from pathlib import Path
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 from src.algebra import interface as alg  # noqa: E402
 from src.algebra.algebra_plugin import PLUGIN as ALG_PLUGIN  # noqa: E402
+from src.dynamics import dynamic_semantics_plugin as dsp  # noqa: E402
 from src.dynamics import interface as dyn  # noqa: E402
 from src.dynamics.interface import DynamicSemanticsNotWired  # noqa: E402
 
@@ -86,7 +88,7 @@ def test_algebra_honesty_defers_unknown():
 
 
 # ============================================================
-# 2. 动态语义：诚实空壳预埋
+# 2. 动态语义：加载契约 + 未接线诚实 + 对 SPIKE 逐指令 对拍
 # ============================================================
 
 
@@ -95,19 +97,379 @@ def test_dynamics_default_inactive():
     assert dyn.active_backend() is None
 
 
-def test_dynamics_skeleton_claims_nothing_and_falls_back():
+def test_dynamics_loaded_executes_and_unloaded_falls_back():
+    """未加载插件时 execute_or_default 必须回退 native；加载后按契约真实执行。"""
+    dyn.set_active(None)
+    m0 = RefMachine(0x1000)
+    m0.write_reg(2, 10)
+    m0.write_reg(3, 32)
     calls: list[str] = []
+    handled = dyn.execute_or_default(
+        dyn.DecodedInstr("add", rd=1, rs1=2, rs2=3), m0,
+        lambda i, mm: calls.append(i.op))
+    assert handled is False and calls == ["add"]        # 未加载 → 走原生，插件不碰机器
+    assert m0.read_reg(1) == 0                          # 插件未执行，x1 保持
     try:
         backend = dyn.load_plugin("dynamic")
-        instr = dyn.DecodedInstr("add", rd=1, rs1=2, rs2=3)
-        assert backend.supports(instr) is False           # 不认领
-        assert backend.wired_ops() == ()                  # 空壳
-        handled = dyn.execute_or_default(instr, object(), lambda i, m: calls.append(i.op))
-        assert handled is False and calls == ["add"]      # 回退执行器原生
-        with pytest.raises(DynamicSemanticsNotWired):     # 显式失败，不伪造成功
-            backend.execute(instr, object())
+        assert backend.supports(dyn.DecodedInstr("add", rd=1, rs1=2, rs2=3)) is True
+        m1 = RefMachine(0x1000)
+        m1.write_reg(2, 10)
+        m1.write_reg(3, 32)
+        handled = dyn.execute_or_default(
+            dyn.DecodedInstr("add", rd=1, rs1=2, rs2=3), m1,
+            lambda i, mm: pytest.fail("已加载且认领的指令不应走原生"))
+        assert handled is True and m1.read_reg(1) == 42
     finally:
         dyn.set_active(None)
+
+
+def test_dynamics_honest_on_unwired_op():
+    """未落地语义（CSR/ECALL 等）：supports=False、回退原生、直接 execute 抛显式失败。"""
+    unwired = dyn.DecodedInstr("csrrw", rd=1, rs1=2, rs2=3, imm=0)
+    try:
+        backend = dyn.load_plugin("dynamic")
+        assert backend.supports(unwired) is False           # 不认领未接线的
+        assert "csrrw" not in backend.wired_ops()
+        calls: list[str] = []
+        handled = dyn.execute_or_default(
+            unwired, object(), lambda i, mm: calls.append(i.op))
+        assert handled is False and calls == ["csrrw"]      # 回退执行器原生
+        with pytest.raises(DynamicSemanticsNotWired):       # 显式失败，不伪造成功
+            backend.execute(unwired, object())
+    finally:
+        dyn.set_active(None)
+
+
+def test_dynamics_wired_ops_cover_rv32im_core():
+    ops = set(dsp.PLUGIN.wired_ops())
+    for need in ("add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu",
+                 "addi", "slti", "xori", "ori", "andi", "slli", "srli", "srai",
+                 "lui", "auipc", "jal", "jalr", "beq", "bne", "blt", "bge", "bltu", "bgeu",
+                 "lw", "lh", "lb", "sw", "sh", "sb", "mul", "div", "divu", "rem", "remu"):
+        assert need in ops, need
+
+
+def _load_spike():
+    """按需加载 SPIKE 权威解释器 rv32sim 作为逐指令黄金参照（非内核、非插件依赖）。"""
+    global _SPIKE
+    if _SPIKE is None:
+        path = ROOT / "baremetal" / "tools" / "rv32_spike" / "rv32sim.py"
+        spec = importlib.util.spec_from_file_location("rv32sim_golden", str(path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _SPIKE = mod
+    return _SPIKE
+
+
+_SPIKE = None
+
+
+# ---- 对拍机器：仅经 MachineView 动作面（寄存器 / 小端访存 / pc / halt）----
+class RefMachine:
+    def __init__(self, pc=0):
+        self.regs = [0] * 32
+        self.mem: dict[int, int] = {}      # 绝对地址 -> 字节
+        self._pc = pc & 0xFFFFFFFF
+        self.exit = None
+
+    def read_reg(self, idx):
+        return self.regs[idx] if idx else 0
+
+    def write_reg(self, idx, value):
+        if idx:
+            self.regs[idx] = value & 0xFFFFFFFF
+
+    def load(self, addr, width):
+        v = 0
+        for k in range(width):
+            v |= (self.mem.get((addr + k) & 0xFFFFFFFF, 0) & 0xFF) << (8 * k)
+        return v
+
+    def store(self, addr, value, width):
+        for k in range(width):
+            self.mem[(addr + k) & 0xFFFFFFFF] = (value >> (8 * k)) & 0xFF
+
+    def pc(self):
+        return self._pc
+
+    def set_pc(self, value):
+        self._pc = value & 0xFFFFFFFF
+
+    def halt(self, exit_code):
+        self.exit = exit_code
+
+
+def _s32(x):
+    x &= 0xFFFFFFFF
+    return x - 0x100000000 if x >= 0x80000000 else x
+
+
+def _u32(x):
+    return x & 0xFFFFFFFF
+
+
+# ---- 把 32 位指令字解码成 DecodedInstr（模拟执行器的解码步）----
+def _decode(w, pc):
+    op = w & 0x7F
+    rd = (w >> 7) & 0x1F
+    f3 = (w >> 12) & 0x7
+    rs1 = (w >> 15) & 0x1F
+    rs2 = (w >> 20) & 0x1F
+    f7 = (w >> 25) & 0x7F
+
+    def imm_i():
+        v = (w >> 20) & 0xFFF
+        return v - 0x1000 if v >= 0x800 else v
+
+    def imm_s():
+        v = ((f7 << 5) | ((w >> 7) & 0x1F)) & 0xFFF
+        return v - 0x1000 if v >= 0x800 else v
+
+    def imm_b():
+        v = (((w >> 31) & 1) << 12) | (((w >> 7) & 1) << 11) | \
+            (((w >> 25) & 0x3F) << 5) | (((w >> 8) & 0xF) << 1)
+        return _s32(v << 19) >> 19 if v & 0x1000 else v
+
+    def imm_j():
+        v = (((w >> 31) & 1) << 20) | (((w >> 12) & 0xFF) << 12) | \
+            (((w >> 20) & 1) << 11) | (((w >> 21) & 0x3FF) << 1)
+        return _s32(v << 11) >> 11 if v & 0x100000 else v
+
+    if op == 0x37:
+        return dyn.DecodedInstr("lui", rd, imm=_s32(w & 0xFFFFF000), pc=pc)
+    if op == 0x17:
+        return dyn.DecodedInstr("auipc", rd, imm=_s32(w & 0xFFFFF000), pc=pc)
+    if op == 0x6F:
+        return dyn.DecodedInstr("jal", rd, imm=imm_j(), pc=pc)
+    if op == 0x67:
+        return dyn.DecodedInstr("jalr", rd, rs1, imm=imm_i(), pc=pc)
+    if op == 0x63:
+        name = {0: "beq", 1: "bne", 4: "blt", 5: "bge", 6: "bltu", 7: "bgeu"}[f3]
+        return dyn.DecodedInstr(name, 0, rs1, rs2, imm=imm_b(), pc=pc)
+    if op == 0x03:
+        name = {0: "lb", 1: "lh", 2: "lw", 4: "lbu", 5: "lhu", 6: "lwu"}[f3]
+        return dyn.DecodedInstr(name, rd, rs1, imm=imm_i(), pc=pc)
+    if op == 0x23:
+        name = {0: "sb", 1: "sh", 2: "sw"}[f3]
+        return dyn.DecodedInstr(name, 0, rs1, rs2, imm=imm_s(), pc=pc)
+    if op == 0x13:
+        raw = (w >> 20) & 0xFFF
+        if f3 == 5:
+            sub = raw >> 6
+            name = "srli" if sub == 0 else ("srai" if sub == 0x10 else None)
+            if name is None:
+                raise AssertionError(f"未知 funct6=0x{sub:02X}")
+        else:
+            name = {0: "addi", 1: "slli", 2: "slti", 3: "sltiu",
+                    4: "xori", 6: "ori", 7: "andi"}[f3]
+        return dyn.DecodedInstr(name, rd, rs1, imm=imm_i(), pc=pc)
+    if op == 0x33:
+        if f7 == 0x00:
+            name = ["add", "sll", "slt", "sltu", "xor", "srl", "or", "and"][f3]
+        elif f7 == 0x20:
+            name = {0: "sub", 5: "sra"}[f3]
+        elif f7 == 0x01:
+            name = ["mul", "mulh", "mulhsu", "mulhu", "div", "divu", "rem", "remu"][f3]
+        else:
+            raise AssertionError(f"未知 funct7=0x{f7:02X}")
+        return dyn.DecodedInstr(name, rd, rs1, rs2, pc=pc)
+    raise AssertionError(f"未知 opcode 0x{op:02X}")
+
+
+def encR(f7, rs2, rs1, f3, rd):
+    return ((f7 & 0x7F) << 25) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15) | \
+        ((f3 & 7) << 12) | ((rd & 0x1F) << 7) | 0x33
+
+
+def encI(imm, rs1, f3, rd, op=0x13):
+    return ((imm & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | ((f3 & 7) << 12) | \
+        ((rd & 0x1F) << 7) | op
+
+
+def encS(imm, rs2, rs1, f3):
+    i = imm & 0xFFF
+    return ((i >> 5) << 25) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15) | \
+        ((f3 & 7) << 12) | ((i & 0x1F) << 7) | 0x23
+
+
+def encB(imm, rs2, rs1, f3):
+    u = imm & 0x1FFF
+    return (((u >> 12) & 1) << 31) | (((u >> 5) & 0x3F) << 25) | ((rs2 & 0x1F) << 20) | \
+        ((rs1 & 0x1F) << 15) | ((f3 & 7) << 12) | (((u >> 1) & 0xF) << 8) | \
+        (((u >> 11) & 1) << 7) | 0x63
+
+
+def encU(imm20, rd, op=0x37):
+    return ((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | op
+
+
+def encJ(imm, rd):
+    u = imm & 0x1FFFFF
+    return (((u >> 20) & 1) << 31) | (((u >> 1) & 0x3FF) << 21) | \
+        (((u >> 11) & 1) << 20) | (((u >> 12) & 0xFF) << 12) | ((rd & 0x1F) << 7) | 0x6F
+
+
+_AR_PAIRS = [(0, 0), (5, 3), (0xFFFFFFFF, 1), (0x80000000, 0xFFFFFFFF),
+             (0x7FFFFFFF, 1), (100, 7), (1, 32)]
+_A_VALS = [0, 5, 0xFFFFFFFF, 0x80000000, 0x7FFFFFFF]
+_IMM_VALS = [0, 1, -1, 5, -0x800]
+
+_RALU = {"add": (0x00, 0x0), "sub": (0x20, 0x0), "and": (0x00, 0x7), "or": (0x00, 0x6),
+         "xor": (0x00, 0x4), "sll": (0x00, 0x1), "srl": (0x00, 0x5), "sra": (0x20, 0x5),
+         "slt": (0x00, 0x2), "sltu": (0x00, 0x3), "mul": (0x01, 0x0), "div": (0x01, 0x4),
+         "divu": (0x01, 0x5), "rem": (0x01, 0x6), "remu": (0x01, 0x7)}
+
+_CORPUS: list[tuple[str, int, dict]] = []
+for _n, (_f7, _f3) in _RALU.items():
+    for _a, _b in _AR_PAIRS:
+        _CORPUS.append((_n, encR(_f7, 6, 5, _f3, 7), {5: _a, 6: _b}))
+for _n, _f3 in (("addi", 0), ("slti", 2), ("sltiu", 3), ("xori", 4), ("ori", 6), ("andi", 7)):
+    for _a in _A_VALS:
+        for _im in _IMM_VALS:
+            _CORPUS.append((_n, encI(_im, 5, _f3, 7), {5: _a}))
+for _n, (_f3, _fn) in (("slli", (1, lambda s: s)), ("srli", (5, lambda s: s)),
+                       ("srai", (5, lambda s: (1 << 10) | s))):
+    for _a in _A_VALS:
+        for _sh in (0, 1, 5, 15, 31):
+            _CORPUS.append((_n, encI(_fn(_sh), 5, _f3, 7), {5: _a}))
+for _n, _f3 in (("beq", 0), ("bne", 1), ("blt", 4), ("bge", 5), ("bltu", 6), ("bgeu", 7)):
+    for _a, _b in _AR_PAIRS:
+        for _off in (0x10, -0x10):
+            _CORPUS.append((_n, encB(_off, 6, 5, _f3), {5: _a, 6: _b}))
+for _off in (0, 0x10, -0x10, 0x100):
+    _CORPUS.append(("jal", encJ(_off, 7), {}))
+for _a in _A_VALS:
+    for _im in (0, 1, 4, -4):
+        _CORPUS.append(("jalr", encI(_im, 5, 0, 7, op=0x67), {5: _a}))
+for _imm20 in (0, 1, 0x80000, 0xFFFFF, 0x7FFFF):
+    _CORPUS.append(("lui", encU(_imm20, 7, 0x37), {}))
+    _CORPUS.append(("auipc", encU(_imm20, 7, 0x17), {}))
+
+
+def _plugin_run(instr, seed, pc_addr):
+    m = RefMachine(pc_addr + 4)
+    for idx, val in seed.items():
+        m.write_reg(idx, val)
+    dsp.PLUGIN.execute(instr, m)
+    return m
+
+
+def _spike_new(seed, memseed=None):
+    sim_mod = _load_spike()
+    sim = sim_mod.RV32Sim.__new__(sim_mod.RV32Sim)
+    sim.ram = bytearray(0x4000)
+    sim.out = []
+    sim.done = False
+    sim.exit_code = 0
+    sim.x = [0] * 32
+    for idx, val in seed.items():
+        sim.x[idx] = _s32(val)
+    for a, b in (memseed or {}).items():
+        sim.ram[a - sim_mod.BASE] = b
+    return sim
+
+
+def _spike_run(word, seed, pc_addr):
+    sim = _spike_new(seed)
+    ret = sim._step(word, _u32(pc_addr + 4))
+    return sim, ret
+
+
+@pytest.mark.parametrize(
+    "name,word,seed", _CORPUS,
+    ids=[f"{c[0]}#{i}" for i, c in enumerate(_CORPUS)])
+def test_dynamics_rv32im_spike_parity(name, word, seed):
+    """逐指令 对拍：同一指令字分别喂给 SPIKE 与插件，寄存器文件 / pc 必须逐位相同。"""
+    instr = _decode(word, 0x1000)
+    assert instr.op == name                                   # 解码助记符须与编码一致
+    assert instr.op in dsp.PLUGIN.wired_ops()
+    sim, ret = _spike_run(word, seed, 0x1000)
+    m = _plugin_run(instr, seed, 0x1000)
+    for idx in range(32):
+        assert _u32(m.read_reg(idx)) == _u32(sim.x[idx]), \
+            (name, idx, hex(m.read_reg(idx)), hex(sim.x[idx]))
+    assert _u32(m.pc()) == _u32(ret), (name, hex(m.pc()), hex(ret))
+
+
+# ---- 访存 对拍（仅取 SPIKE 实现的 lw/lb/lbu/lwu/sw/sb）----
+_ADDR = 0x80000000 + 0x100
+_MEM_CORPUS = [
+    ("sw", encS(0, 6, 5, 2), {5: _ADDR, 6: 0xDEADBEEF}, {}, _ADDR, _ADDR + 4),
+    ("sb", encS(0, 6, 5, 0), {5: _ADDR, 6: 0x11223344}, {}, _ADDR, _ADDR + 1),
+    ("lw", encI(0, 5, 2, 7, op=0x03), {5: _ADDR}, {_ADDR: 0xEF, _ADDR + 1: 0xBE, _ADDR + 2: 0xAD, _ADDR + 3: 0xDE}, _ADDR, _ADDR + 4),
+    ("lb", encI(0, 5, 0, 7, op=0x03), {5: _ADDR}, {_ADDR: 0x80}, _ADDR, _ADDR + 1),
+    ("lbu", encI(0, 5, 4, 7, op=0x03), {5: _ADDR}, {_ADDR: 0x80}, _ADDR, _ADDR + 1),
+    ("lwu", encI(0, 5, 6, 7, op=0x03), {5: _ADDR}, {_ADDR: 0xFF, _ADDR + 1: 0xFF, _ADDR + 2: 0xFF, _ADDR + 3: 0xFF}, _ADDR, _ADDR + 4),
+]
+
+
+@pytest.mark.parametrize("name,word,seed,memseed,lo,hi", _MEM_CORPUS, ids=[c[0] for c in _MEM_CORPUS])
+def test_dynamics_rv32im_spike_parity_mem(name, word, seed, memseed, lo, hi):
+    instr = _decode(word, 0x1000)
+    assert instr.op == name and instr.op in dsp.PLUGIN.wired_ops()
+    sim_mod = _load_spike()
+    m = RefMachine(0x1004)
+    for idx, val in seed.items():
+        m.write_reg(idx, val)
+    for a, b in memseed.items():
+        m.mem[a] = b
+    sim = _spike_new(seed, memseed)
+    ret = sim._step(word, 0x1004)
+    dsp.PLUGIN.execute(instr, m)
+    for idx in range(32):
+        assert _u32(m.read_reg(idx)) == _u32(sim.x[idx]), (name, idx)
+    for a in range(lo, hi):
+        assert m.mem.get(a, 0) == sim.ram[a - sim_mod.BASE], (name, hex(a))
+
+
+# ---- 规格黄金锁：SPIKE 未覆盖(半字访问 / mulh 族)与关键边界，手写期望值直锁 ----
+def _exec(op, rd=7, rs1=5, rs2=6, imm=0, pc=0x1000, regs=None, mem=None):
+    m = RefMachine(pc + 4)
+    for idx, val in (regs or {}).items():
+        m.write_reg(idx, val)
+    for a, b in (mem or {}).items():
+        m.mem[a] = b
+    assert dsp.PLUGIN.execute(dyn.DecodedInstr(op, rd, rs1, rs2, imm, pc), m) is True
+    return m
+
+
+def test_golden_mulh_family():
+    assert _exec("mulh", regs={5: 0x80000000, 6: 0xFFFFFFFF}).read_reg(7) == 0
+    assert _exec("mulhsu", regs={5: 0xFFFFFFFF, 6: 2}).read_reg(7) == 0xFFFFFFFF
+    assert _exec("mulhu", regs={5: 0xFFFFFFFF, 6: 0xFFFFFFFF}).read_reg(7) == 0xFFFFFFFE
+    assert _exec("mulh", regs={5: 0x7FFFFFFF, 6: 0x7FFFFFFF}).read_reg(7) == 0x3FFFFFFF
+
+
+def test_golden_halfword_access():
+    assert _exec("lh", regs={5: _ADDR}, mem={_ADDR: 0x00, _ADDR + 1: 0x80}).read_reg(7) == 0xFFFF8000
+    assert _exec("lhu", regs={5: _ADDR}, mem={_ADDR: 0x00, _ADDR + 1: 0x80}).read_reg(7) == 0x8000
+    m = _exec("sh", regs={5: _ADDR, 6: 0xABCD1234})
+    assert m.mem[_ADDR] == 0x34 and m.mem[_ADDR + 1] == 0x12
+
+
+def test_golden_srai_negative():
+    assert _exec("srai", regs={5: 0x80000000}, imm=4).read_reg(7) == 0xF8000000
+
+
+def test_golden_div_rem_edge():
+    assert _exec("div", regs={5: 0x80000000, 6: 0xFFFFFFFF}).read_reg(7) == 0x80000000  # INT_MIN/-1
+    assert _exec("div", regs={5: 0x12345678, 6: 0}).read_reg(7) == 0xFFFFFFFF          # 除零 => -1
+    assert _exec("rem", regs={5: 0x80000000, 6: 0xFFFFFFFF}).read_reg(7) == 0            # INT_MIN%-1
+    assert _exec("rem", regs={5: 0x12345678, 6: 0}).read_reg(7) == 0x12345678           # 除零 => 被除数
+    assert _exec("divu", regs={5: 0xFFFFFFFF, 6: 0}).read_reg(7) == 0xFFFFFFFF
+    assert _exec("remu", regs={5: 0x12345678, 6: 0}).read_reg(7) == 0x12345678
+
+
+def test_golden_jalr_clears_lsb():
+    m = _exec("jalr", regs={5: 0x10000003}, imm=1, pc=0x1000)
+    assert m.pc() == 0x10000004 and m.read_reg(7) == 0x1004
+
+
+def test_golden_branch_taken_vs_not():
+    assert _exec("beq", regs={5: 5, 6: 5}, imm=0x10, pc=0x1000).pc() == 0x1010
+    assert _exec("beq", regs={5: 5, 6: 6}, imm=0x10, pc=0x1000).pc() == 0x1004   # 未转移
+    assert _exec("blt", regs={5: 0xFFFFFFFF, 6: 1}, imm=-0x10, pc=0x1000).pc() == 0xFF0
+    assert _exec("bgeu", regs={5: 0xFFFFFFFF, 6: 1}, imm=0x10, pc=0x1000).pc() == 0x1010   # 无符号转移
 
 
 # ============================================================

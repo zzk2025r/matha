@@ -126,6 +126,19 @@ P6 插件化隔离风险·高级能力外置（代数数精确打印 opt-in + �
   `dep_audit` 违规 0、`test_kernel_purity` 全绿。新增 `tests/test_plugin_algebra_dynamics.py`
   锁定无损回退/精确还原/诚实预埋 + 内核不得反向依赖插件契约层的隔离红线。
 
+P6b 动态语义由空壳转实装·RV32IM 逐条落地（取代上方「空壳预埋」的不落地状态；口径见
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第七节）：
+
+- **`src/dynamics/dynamic_semantics_plugin.py` 的 `_HANDLERS` 逐条实现 RV32IM 语义**（R/I/S/B/U/J
+  全格式 + M 扩展）：仅经 `MachineView` 的 read_reg/write_reg/load/store/set_pc/halt 动作面推进，
+  不依赖任何执行器私有成员。`supports` 现为「op ∈ 已落地处理器」，未覆盖指令（CSR/FENCE/ECALL）
+  仍返回 False 回退执行器原生，`execute` 被要求执行未接线语义仍抛 `DynamicSemanticsNotWired`，
+  与 SPIKE「未知指令即抛错」的诚实纪律同构。**内核与执行器仍零改动**；未 `load_plugin` 时行为不变。
+- **对 SPIKE 逐指令 对拍**：`tests/test_plugin_algebra_dynamics.py` 新增 462 项，把同一 32 位指令字
+  分别喂给权威解释器 `baremetal/tools/rv32_spike/rv32sim.py` 与本插件，逐位比对 32 个寄存器与 pc；
+  含移位取模、有/无符号比较、除零与 INT_MIN 溢出、jalr 清最低位、分支转移/未转移等边界。SPIKE
+  未实现的 `lh/lhu/sh/mulh/mulhsu/mulhu` 另以规格黄金锁手算期望值直锁。全量门禁 4695/4695、失败 0。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，
