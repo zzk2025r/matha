@@ -10,15 +10,7 @@ on:
       - 'scripts/baremetal_riscv_demo.py'
       - 'tests/test_hal_v2.py'
       - '.github/workflows/riscv_baremetal.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/hardware/hal_v2.py'
-      - 'src/compiler/native.py'
-      - 'src/inner_loop.py'
-      - 'scripts/baremetal_riscv_demo.py'
-      - 'tests/test_hal_v2.py'
-      - '.github/workflows/riscv_baremetal.yml'
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: '3.11'
@@ -56,7 +48,6 @@ jobs:
 
       - name: Run HAL v2.0 unit tests
         run: |
-          cd d:\trae 2>/dev/null || true
           PYTHONPATH=. python tests/test_hal_v2.py
         shell: bash
 
