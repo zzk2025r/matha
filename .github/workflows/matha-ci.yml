@@ -121,19 +121,19 @@ jobs:
       - name: Run interpreter benchmark
         run: |
           python -c "
-from src.vm import benchmark, CrossVerifier
-import time
+          from src.vm import benchmark, CrossVerifier
+          import time
 
-# 简单算术基准
-result = benchmark('#1：[1 + 2 * 3 + 4 * 5]')
-print(f'Interpreter: {result[\"interpreter_ms\"]:.0f}ms, VM: {result[\"vm_ms\"]:.0f}ms, Speedup: {result[\"speedup\"]:.1f}x')
+          # 简单算术基准
+          result = benchmark('#1：[1 + 2 * 3 + 4 * 5]')
+          print(f'Interpreter: {result[\"interpreter_ms\"]:.0f}ms, VM: {result[\"vm_ms\"]:.0f}ms, Speedup: {result[\"speedup\"]:.1f}x')
 
-# 交叉验证
-verifier = CrossVerifier(verbose=True)
-verifier.verify('#1：[sin(3.14159)]')
-verifier.verify('#1：[fib(10)]')
-print(verifier.get_summary())
-"
+          # 交叉验证
+          verifier = CrossVerifier(verbose=True)
+          verifier.verify('#1：[sin(3.14159)]')
+          verifier.verify('#1：[fib(10)]')
+          print(verifier.get_summary())
+          "
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
