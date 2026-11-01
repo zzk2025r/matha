@@ -1,5 +1,43 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c2 S3a：保底 _dtoa·精确十进制域定点展开（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-01
+
+### 背景
+
+P-c2 S2 落地 SSE2 算术/比较后，运行期 float 仍卡在「输出需 `_dtoa`」。按 Q5「精度可声明的回退路线」拍板：
+本切片**不碰最短往返十进制**（全期最难算法），改取一条数学上天然对齐 `str(v)` 的**保底定点展开**路线，
+先让浮点数能在控制台「张嘴说话」。铁律不变：不碰 `native.py` 主体、覆盖集之外一律 `NativeNotSupported` 显式拒、
+越域运行期不瞎编。
+
+### 变更
+
+1. **`src/mbc/native_elf.py`**：
+   - **精确十进制域 `floatq`**：double 精确值可写成 整数×2^-d（既约分母 ≤2^6）且 |v|<9e9（±0.0 属域）。
+     域谓词 `_floatq_domain(v)` 以位分解 + `ctz` 约分实现。域内 v×1e6 为精确整数（<9e15<2^53 无舍入），
+     故定点展开+去尾零逐字节 = `str(v)`，无需最短往返；非零最小元 2^-6=0.015625≥1e-4，永不触发科学计数法。
+   - **类型传播（静态）**：`PUSH_CONST float` 经域谓词打标 `floatq`/`float`；`+ - neg` 对 floatq 封闭，`* /` 及含
+     越域操作数一律保守降级 float；全局槽两次 floatq 才保域否则降 float；局部/函数边界强制降级。
+   - **运行期 `dtoa` 叶例**（纯 x86-64 机器码，无 libc）：翻 abs 位 → `mulsd` ×1e6 → `cvttsd2si` N → intpart 走
+     `print_int`；'.'；frac=N%1e6 去尾零与降 scale(10^5→) **同步**（保有效前导零，如 0.015625 输出 `015625`）
+     再高位起逐位单字符 `write_span`；负数先出 '-'（-0.0→'-0.0' 对齐 Python）。
+   - **三层 soundness**：静态打标+保守合并/降级；运行期乘法前护栏（`ucomisd` vs 9e9：jae/jp→dt_oob）；
+     `cvttsd2si` 后 N 负（INDEFINITE 哨兵）→ dt_oob。越域运行期一律 `exit1` 如实失败，绝不瞎编。
+   - `OUTPUT` floatq → 运行期调用 `dtoa`（折叠回看仍优先）；越域 float 输出按 Q1 如实拒（待 S3b+ 全量 _dtoa）。
+   - 编码坑（均经 WSL objdump 逐字节反汇编定位）：`and rax,r11` 需 REX.R=0x4C；近跳 JP=0x8A（0x9A 是 SETPE）；
+     `cvttsd2si`=`F2 48 0F 2C /r`（`66 48 0F 2C` 是 cvttpd2pi 只写低 32 位）。
+2. **`baremetal/tools/native_elf/run_native_elf.py`**（扩例，不入门禁）：正例 27 → **28**（新增 c15_float_dtoa：
+   运行期 floatq 全局/求和/neg/循环累加输出）；拒例保持 **18**（r6 由运行期 float 转「越域字面量 0.1」拒、
+   r16 由「x+1.0」转「x*1.0」mul 降级拒）；越界行为例 **5** 不变。
+3. **文档**：`docs/spec/NATIVE_ELF_PC.md` 补 P-c2 S3a 实况块；`docs/ARCHITECTURE.md` `core_py_lines` 32,742 → **32,877**。
+
+### 口径
+
+Gate 全绿：**28 正例 + 18 拒绝例 + 5 越界行为例，失败 0**。域内 floatq 运行期输出经 WSL 实跑逐字节对拍 VM 全等；
+越域运行期（0.1 类/×÷产 float/|v|≥9e9）静态即拒或运行期 exit1 如实失败，绝不伪通过。全量 `_dtoa`/最短往返属 S3b+。
+门禁：doc_facts 18/18、dep_audit 违规 0、kernel_purity 14/14 全绿。
+
 ## native 跨平台 P-c1/P-c2：字符串表示·字面量 repr 折叠·浮点 SSE2（阶段3-3 ④ native 跨平台）
 
 **日期**：2026-11-01

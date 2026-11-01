@@ -255,6 +255,20 @@ let l = [1.5, 2.0]
 #1：[l]
 #1：[len([1.5, 2.0, 3.0])]
 """,
+    # ---- P-c2 S3a：运行期精确十进制域 floatq → dtoa 叶例定点展开输出（全局/求和/neg/循环）----
+    "c15_float_dtoa": """\
+let x = 1.5
+let y = 2.0
+#1：[x]
+#1：[y]
+#1：[x + y]
+#1：[-x]
+let s = 0.0
+while s < 1.5 {
+  s = s + 0.25
+}
+#1：[s]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -264,10 +278,10 @@ REJECT_CASES = {
     "r3_for_list": "let t = 0\nfor x in [1, 2, 3] {\n  t = t + x\n}\n#1：[t]\n",
     "r4_undefined_global": "let a = b\n#1：[a]\n",
     "r5_arity_mismatch": "func ov(a: Int, b: Int) -> Int = (a, b) => a + b\n#1：[ov(1)]\n",
-    "r6_float_runtime": "let x = 1.5\n#1：[x]\n",  # 运行期 float（全局）需 _dtoa → 拒（字面量 float 现经折叠已支持，见 c11）
-    # ---- P-c2 S1 越界集外：`/` 真除/运行期 float 算术·比较（需 SSE+_dtoa）----
+    "r6_float_nondomain": "let x = 0.1\n#1：[x]\n",  # 0.1 非精确十进制→属越域 float→输出需全量 _dtoa（S3b+）→拒
+    # ---- P-c2 S1 越界集外：`/` 真除/越域 float 算术（需全量 _dtoa）----
     "r15_int_truediv": "#1：[7 / 2]\n",
-    "r16_float_arith": "let x = 1.5\n#1：[x + 1.0]\n",
+    "r16_float_mul_demote": "let x = 0.5\n#1：[x * 1.0]\n",  # × 降级 float（非精确域）→拒
     # ---- P-c2 S2 越界集外：浮点取整/真值判定未就绪 ----
     "r17_float_floordiv": "#1：[1.5 // 2]\n",
     "r18_not_float": "let x = 1.5\n#1：[not x]\n",
