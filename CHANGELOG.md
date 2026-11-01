@@ -1,5 +1,38 @@
 # Matha 变更摘要
 
+## native 跨平台 P-a：Linux x86-64 静态 ELF64 发射器（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-01
+
+### 背景
+
+体检重构路线第 3 阶段功能补全第 4 项「native 跨平台」。既有 `src/mbc/native.py` 仅绑定
+Windows（PE 容器 + PEB 自解析 kernel32/msvcrt CRT + Microsoft x64 影子空间 ABI）。
+首期目标锁定 **Linux x86-64（ELF64）单一平台 + 最小垂直切片**，采用与 Windows 后端
+**平行独立**的新发射器（不 import `native.py`，仅共享 `src.mbc.compiler.compile_source`
+与 `src.mbc.opcodes`），沿用 P6 SPIKE 的「字节码→机器码直发→手写容器→逐字节对拍」范式。
+设计见 `docs/spec/NATIVE_CROSS_PLATFORM.md`（总设计）与 `docs/spec/NATIVE_ELF_PA.md`（P-a 落地）。
+
+### 变更
+
+1. **`src/mbc/native_elf.py`**（新）：纯 Python 位级发射**静态非 PIE ELF64**（基址 0x400000，
+   无 libc/libm/动态链接器/重定位表，仅 `write`/`exit_group` 两条 syscall），按里程碑自底向上：
+   - M0/M1：`_build_elf64` 链接器 + `write_span`/`print_int`/`print_bool` 输出退出原语；
+   - M2：字节码 dispatch + 整数算术 BINOP(`+ - * // %`，地板除/取模向零截断修正)/UNARYOP(neg not)/比较/OUTPUT/HALT；
+   - M3：标量全局槽（`.bss` 名→8 字节槽）+ 控制流 JMP/JZ/JNZ（前/后向 rel32）；
+   - M4：CALL/RET 直接/递归/互调（argc≤2，rbp 帧 + 局部槽 + 返回型不动点推断）。
+   覆盖集之外一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
+2. **`baremetal/tools/native_elf/run_native_elf.py`**（新）：端到端 Gate——ELF 原生/WSL 实跑
+   ↔ `exec_api.run_checked(mode="vm")` 逐字节对拍，9 例正 + 6 例拒；退出码 0/1/2（缺执行器 SKIP）。
+3. **`.github/workflows/matha-ci.yml`**：新增 `native-elf-gate` ubuntu job（x86-64 原生执行）。
+4. **文档**：`docs/ARCHITECTURE.md` `core_py_lines` 31,873 → 32,237（`src/mbc/native_elf.py` 入核心体量）。
+
+### 口径
+
+输出行尾统一 LF，与 VM 逐字节对齐（Windows exe 的 CRLF 不参与对拍）。Gate 脚本位于
+baremetal/，不入门禁（不进 repo_facts/dep_audit/kernel_purity）；发射器本体在 `src/mbc/` 计入核心行数。
+门禁：doc_facts 18/18、dep_audit 违规 0、kernel_purity 14/14 全绿。
+
 ## P6 RV32IM SPIKE 后端扩展：UNARYOP 一元运算（阶段3-3 ③ RV32IM 覆盖集）
 
 **日期**：2026-11-01
