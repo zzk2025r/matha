@@ -7,7 +7,7 @@
 `LimitUndetermined` / `SeriesUndetermined` / `OdeUnsupported` /
 `DomainUndetermined`），**不返回乐观默认值**。
 
-机器可判定的回归锁：`tests/test_kernel_symbolic.py`（118 例；字符串断言的值取自
+机器可判定的回归锁：`tests/test_kernel_symbolic.py`（127 例；字符串断言的值取自
 sympy 1.14 实测输出，任意点泰勒则以邻域逼近真函数的数值一致性锁定）。运行：
 
 ```
@@ -93,8 +93,9 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | ∞ 处主部比较 | 一致 | `log(x)/x → 0`；`x*exp(-x) → 0`；`exp(x)/x**2 → oo` |
 | ∞−∞ 共轭有理化 | 一致 | `sqrt(x+1)-sqrt(x) → 0` |
 | 反三角/Hyperbolic 定值 | 一致 | `atan(x) → π/2`（精确值，不再给 12 位近似） |
+| `0·∞` 慢发散对数 × 幂零因子 | 一致 | `x*log(x)→0`、`sin(x)*log(x)→0`、`x**2*log(x)→0`、`x*log(x)*log(x)→0`（x→0⁺）：有限瑕点处由「log 增长慢于任意正次幕」引理精确定 0（左侧越定义域 x→0⁻ 如实失败） |
 | 振荡型 | 子集 | `sin(x)`（x→∞）**显式失败**；sympy 返回 `Interval(-1, 1)` |
-| `∞−∞` 非根式、`0^0`/`∞^0` 一般式 | 子集 | 落不完判据链时 `LimitUndetermined` |
+| `∞−∞` 非根式、增长层级细比（如 `log(log x)/log x`） | 子集 | 落不完判据链时 `LimitUndetermined`（x→∞ 的 log-log/log 需更细增长层级，超出本引理） |
 
 ## 5. 级数 `taylor` / `maclaurin` / `sum_series`（`kernel/symbolic/series.py`）
 

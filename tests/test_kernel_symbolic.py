@@ -160,6 +160,14 @@ LIMIT_CASES = [
     ("tan(x)", "x", math.pi / 2, "-", math.inf),     # 左极限 +oo；曾错报 1.63e16
     ("tan(x)", "x", math.pi / 2, "+", -math.inf),    # 右极限 -oo
     ("log(x)", "x", 0.0, "+", -math.inf),           # 曾 LimitUndetermined
+    # 0·∞ 慢发散对数 × 多项式型零因子 → 0（log 增长慢于任意正次幕；本轮扩面）
+    ("x*log(x)", "x", 0.0, "+", 0.0),
+    ("sin(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("x**2*log(x)", "x", 0.0, "+", 0.0),
+    ("x*log(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("tan(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("sqrt(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("(x-1)*log(x)", "x", 1.0, "+", 0.0),
 ]
 
 
@@ -181,6 +189,18 @@ def test_oscillating_limit_fails_loudly():
 def test_growth_order_exp_beats_power():
     """eˣ/x² 的指数快于多项式已被判据表覆盖（与 sympy 一致）。"""
     assert limit(symbol_expr("exp(x)/x**2"), "x", math.inf) == math.inf
+
+
+def test_log_power_slow_ratio_stays_honest():
+    """log(log x)/log x（x→∞）需增长层级细判（非本引理）→ 内核如实失败。"""
+    with pytest.raises(LimitUndetermined):
+        limit(symbol_expr("log(log(x))/log(x)"), "x", math.inf, "+")
+
+
+def test_log_zero_product_left_side_defers():
+    """x·ln x 在 x→0⁻ 越出实数定义域（ln 参→0⁺ 仅右极限存在）→ 如实失败，不猜 0。"""
+    with pytest.raises(LimitUndetermined):
+        limit(symbol_expr("x*log(x)"), "x", 0.0, "-")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

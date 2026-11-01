@@ -5,7 +5,8 @@
 1. **直接代入**：内核对连续闭包（+−×÷、幂、已知初等函数）直接求值。
 2. **∞ 主部比较**：``x→±∞`` 时用广义多项式主部 (系数, 次数) 判定 0 / 常数 / ±∞。
 3. **0/0 型洛必达**：分子分母同求导，最多 ``MAX_LOPITAL`` 轮。
-4. **0·∞ / ∞−∞ 归约**：把乘积改写为商、差改写为通分后再回到 2/3。
+4. **0·∞ / ∞−∞ 归约**：把乘积改写为商、差改写为通分后再回到 2/3；有限瑕点处的
+   ``0·∞`` 中“多项式型零因子 × 慢发散对数”直接由引理定 0（log 增长慢于任意正次幕）。
 5. **两侧单值**：``direction`` 为 ``'+'``/``'-'`` 时按瑕点邻域符号判定 ±∞。
 
 不能判定时抛 ``LimitUndetermined``（由门面如实报告），**不返回猜测值**。
@@ -64,6 +65,10 @@ def limit(expr: Expr, var: str = "x", point: float = 0,
     fs = _func_singularity(e, var, point, d)
     if fs is not None:
         return fs
+    # 1d) 0·∞ 中慢发散对数 × 多项式型零因子 → 0（log 增长慢于任意正次幕）
+    lz = _log_zero_product(e, var, point, d)
+    if lz is not None:
+        return lz
     # 2) 瑕点：分子/分母分离
     num, den = _split_fraction(e)
     if den is not None:
@@ -208,6 +213,77 @@ def _chain_mul(parts: list[Expr]) -> Expr | None:
     for q in parts[1:]:
         out = Mul(out, q)
     return out
+
+
+def _log_zero_product(e: Expr, var: str, point: float, side: float) -> float | None:
+    """有限瑕点处的 ``0·∞`` 乘积：多项式型零因子 × 慢发散对数 → **0**。
+
+    依据标准引理：对任意 d>0，``eps^d · |ln eps| → 0``（log 增长慢于任意正次幕）。
+    仅当：② 至少一个因子为发散对数（log/ln，其参→0⁺或→±∞）；③ 至少一个因子按
+    正次幕趋于 0（邻域估值阶数 d>0）；④ 其余因子均趋于非零有限值；⑤ **无任何
+    非对数因子趋于 ±∞**（否则越出本引理）。任一条件不满足 → None，交回上层如实处理。
+    """
+    if not isinstance(e, Mul):
+        return None
+    log_div = 0
+    zeros: list[float] = []
+    for f in _flat_mul(e):
+        lg = _log_diverges(f, var, point)
+        if lg is not None:                          # 该因子是发散对数
+            if lg == "arg0" and side < 0:           # 参→0⁺ 但从左侧逼近 → 定义域外
+                return None
+            log_div += 1
+            continue
+        v = _try_eval(f, var, point)
+        if v is not None and math.isfinite(v):
+            if v == 0:
+                d = _vanish_degree(f, var, point, side)
+                if d is None or d <= 0.05:
+                    return None                      # 非多项式型趋于 0 → 越出引理
+                zeros.append(d)
+                continue
+            continue                                 # 非零有限因子（不影响 0 结论）
+        return None                                  # 非对数因子发散/未定 → 交回上层
+    if log_div == 0 or not zeros:
+        return None
+    return 0.0
+
+
+def _log_diverges(e: Expr, var: str, point: float) -> str | None:
+    """若 ``e`` 是（正次幕的）log/ln 且在 ``point`` 发散 → 返回 'arg0'（参→0）或 'arginf'（参→±∞）；否则 None。
+
+    包含 ``log^k``（k>0）：幂对数仍慢于任意正次幕，属同一引理。"""
+    base = e
+    if isinstance(e, Pow) and isinstance(e.exponent, Num) and e.exponent.value > 0:
+        base = e.base
+    if not (isinstance(base, FuncCall) and base.name in ("log", "ln") and len(base.args) == 1):
+        return None
+    av = _try_eval(base.args[0], var, point)
+    if av is None:
+        return None
+    if av == 0:
+        return "arg0"
+    if math.isinf(av) or abs(av) > 1e12:
+        return "arginf"
+    return None
+
+
+def _vanish_degree(e: Expr, var: str, point: float, side: float) -> float | None:
+    """邻域估计 ``e`` 在 ``point`` 的趋于 0 阶数 d（|e|~eps^d）；非单调或 d≤0 → None。"""
+    eps = [1e-2, 1e-3, 1e-4]
+    s = side if side else 1.0
+    vals: list[float] = []
+    for q in eps:
+        v = _try_eval(e, var, point, s * q)
+        if v is None or not math.isfinite(v) or v == 0:
+            return None
+        vals.append(abs(v))
+    if not (vals[0] > vals[1] > vals[2]):            # 必须严格趋 0
+        return None
+    ds = [math.log(vals[i + 1] / vals[i]) / math.log(eps[i + 1] / eps[i])
+          for i in range(len(vals) - 1)]
+    d = min(ds)
+    return d if d > 0.0 else None
 
 
 def _sqrt_of(e: Expr) -> Expr | None:
