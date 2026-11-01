@@ -14,11 +14,13 @@ docs/symbolic_parity.md 打印层偏差)。
     render 返回 ``None``,由门面回退原 double 路径 —— 绝不臆造近似值冒充精确。
 
 框架范围与后续扩展点：
-  当前能力 = 度数 ≤2 的代数数(有理数 / √d 的有理线性组合)。
+  当前能力 = ① 二次/有理塌缩(小高度极小多项式识别);② 多根式直和 ℚ(√d1,…,√dk)
+  (SurdVector 结构还原,如 √2+√3);③ 高次纯根 base^(1/n);④ 复代数数 a+b√d 且
+  d<0(按虚部 i 拆分,实部纯有理 + 虚部单一实二次根式)。
   TODO(框架预留):
-    - 高次代数数:接 ``numpy.roots`` 风格或有理根 / 极小多项式求解(仍宜留在插件层)。
-    - 多根式直和:保留项结构(SurdVector)而非塌缩成单一浮点,再逐基向量识别。
-    - 复代数数:a+b√d 且 d<0 时按 i 拆分(现返回 None)。
+    - 一般高次代数数:接 ``numpy.roots`` 风格或有理根 / 极小多项式求解(仍宜留在
+      插件层);当前仅纯高次根 base^(1/n) 与复二次数可精确,混合高次诚实回 None。
+    - 复数域上有理化的分式(如 1/(1+i))、双虚基(√-1+√-2)、复数开方 —— 越界回 None。
 """
 from __future__ import annotations
 
@@ -215,6 +217,8 @@ def _sqrt_of_rational(r: Fraction) -> "dict[int, Fraction] | None":
     r = Fraction(r)
     if r < 0:
         return None
+    if r == 0:
+        return {}
     m, D = _squarefree_part(r.numerator * r.denominator)
     coef = Fraction(m, r.denominator)
     if coef == 0:
@@ -360,6 +364,129 @@ def _mc_nthroot(term: Term, x: float, tol: float) -> str | None:
     return ("-" if sign < 0 else "") + term_str
 
 
+# ============================================================
+# 复代数数 a+b√d（d<0）：按虚部 i 拆分（阶段 3 第 1 项）
+#   元素表示为 (re, im) 两个实 SurdVector，语义 值 = Σre + (Σim)·i。
+#   re/im 均以实二次根式基 dict[D]=Fraction 存储，i 为独立虚单位（i²=-1）。
+#   仅声明「实部纯有理、虚部落在单一实二次根式 b√e」的复二次代数数；
+#   越界（双虚基、复数开方、需分母有理化到复域）一律回 None，绝不臆造。
+# ============================================================
+
+
+def _c_neg(e: "dict[int, Fraction]") -> "dict[int, Fraction]":
+    return {D: -c for D, c in e.items() if c != 0}
+
+
+def _c_add(x, y, sign: int = 1):
+    """复元素 (re,im) 加减。"""
+    if x is None or y is None:
+        return None
+    return (_mc_add(x[0], y[0], sign), _mc_add(x[1], y[1], sign))
+
+
+def _c_mul(x, y):
+    """复元素相乘：(a+bi)(c+di)=(ac-bd)+(ad+bc)i；实部虚部各自为实二次根式。"""
+    if x is None or y is None:
+        return None
+    re = _mc_add(_mc_mul(x[0], y[0]), _mc_mul(x[1], y[1]), -1)
+    im = _mc_add(_mc_mul(x[0], y[1]), _mc_mul(x[1], y[0]))
+    return (re, im)
+
+
+def _ceval(term: Term):
+    """把项树解析为复 SurdVector (re, im)；落在复二次域外回 None。"""
+    if isinstance(term, Const):
+        return ({1: Fraction(term.value)}, {})
+    if isinstance(term, Symbol):
+        return None
+    if isinstance(term, UnaryOp):
+        if term.op == "+":
+            return _ceval(term.operand)
+        if term.op == "-":
+            e = _ceval(term.operand)
+            if e is None:
+                return None
+            return (_c_neg(e[0]), _c_neg(e[1]))
+        if term.op == "sqrt":
+            inner = _ceval(term.operand)
+            if inner is None:
+                return None
+            re, im = inner
+            if im:                              # 复数开方 → 越界（不做极坐标/嵌套）
+                return None
+            if set(re) - {1}:                   # 非纯有理实数开方 → 嵌套根，越界
+                return None
+            r = re.get(1, Fraction(0))
+            if r >= 0:
+                return (_sqrt_of_rational(r), {})
+            return ({}, _sqrt_of_rational(-r))  # √(-r) = √r · i
+        return None
+    if isinstance(term, BinOp):
+        a = _ceval(term.left)
+        b = _ceval(term.right)
+        if a is None or b is None:
+            return None
+        if term.op == "+":
+            return _c_add(a, b)
+        if term.op == "-":
+            return _c_add(a, b, -1)
+        if term.op == "*":
+            return _c_mul(a, b)
+        if term.op == "/":
+            bre, bim = b                        # 仅允许除以纯有理实数（复分母有理化越界）
+            if bim or (set(bre) - {1}):
+                return None
+            c = bre.get(1, Fraction(0))
+            if c == 0:
+                return None
+            return ({D: v / c for D, v in a[0].items() if v / c != 0},
+                    {D: v / c for D, v in a[1].items() if v / c != 0})
+        if term.op == "^":
+            if isinstance(term.right, Const):
+                ex = Fraction(term.right.value)
+                if ex.denominator == 1 and 0 <= ex <= 8:   # 整数次幂封闭于复二次域
+                    res = ({1: Fraction(1)}, {})
+                    for _ in range(int(ex)):
+                        res = _c_mul(res, a)
+                        if res is None:
+                            return None
+                    return res
+            return None
+        return None
+    return None
+
+
+def _render_complex_quadratic(term: Term) -> str | None:
+    """复代数数 a+b√d（d<0）精确渲染，虚部以 `*i` 表示；越界回 None。
+
+    可证边界：实部必须为纯有理（仅 D==1 基）、虚部必须是单一实二次根式 b√e
+    （e 无平方因子；e==1 时为纯虚有理 b·i）。二者缺一即返回 None，交回门面默认
+    double 路径，绝不把双虚基 / 复数开方等伪造成单根式。
+    """
+    e = _ceval(term)
+    if e is None:
+        return None
+    re, im = e
+    if not im:                    # 纯实数：交由既有实路径处理，本函数不接管
+        return None
+    if set(re) - {1}:             # 实部须为纯有理
+        return None
+    if len(im) != 1:              # 虚部须为单一实二次根式 b√e
+        return None
+    D, c = next(iter(im.items()))
+    a = re.get(1, Fraction(0))
+    if D == 1:
+        core = "i" if abs(c) == 1 else f"{_frac_str(abs(c))}*i"
+    else:
+        rad = f"sqrt({D})"
+        mag = rad if abs(c) == 1 else f"{_frac_str(abs(c))}*{rad}"
+        core = f"{mag}*i"
+    if a == 0:
+        return ("-" if c < 0 else "") + core
+    a_str = _frac_str(a)
+    return f"{a_str} - {core}" if c < 0 else f"{a_str} + {core}"
+
+
 class ExactAlgebraicPrinter(AlgebraicNumberPrinter):
     """把常数代数项渲染为精确二次根式的能力实现(满足 AlgebraicNumberPrinter 协议)。"""
 
@@ -412,20 +539,24 @@ class ExactAlgebraicPrinter(AlgebraicNumberPrinter):
 
     def render(self, term: Term, *, tol: float = _DEFAULT_TOL) -> str | None:
         x = self._eval_float(term)
-        if x is None or isinstance(x, complex) or not math.isfinite(x):
+        if x is not None and not isinstance(x, complex) and math.isfinite(x):
+            # 1) 二次/有理塌缩（既有能力，扁平浮点与单根式的主路径，行为不变）
+            surd = QuadraticSurd.from_float(x, tol=tol)
+            if surd is not None:
+                return surd.to_str()
+            # 2) 多根式域 ℚ(√d1,…,√dk)：保留结构还原（如 √2+√3 这类 4 次代数数）
+            elem = _mc_eval(term)
+            if elem is not None and any(D != 1 for D in elem):
+                val = sum(float(c) * math.sqrt(D) for D, c in elem.items())
+                if abs(val - x) <= tol * max(1.0, abs(x)):
+                    return _mc_to_str(elem)
+            # 3) 高次纯根 base^(1/n)（n>=3）
+            nth = _mc_nthroot(term, x, tol)
+            if nth is not None:
+                return nth
             return None
-        # 1) 二次/有理塌缩（既有能力，扁平浮点与单根式的主路径，行为不变）
-        surd = QuadraticSurd.from_float(x, tol=tol)
-        if surd is not None:
-            return surd.to_str()
-        # 2) 多根式域 ℚ(√d1,…,√dk)：保留结构还原（如 √2+√3 这类 4 次代数数）
-        elem = _mc_eval(term)
-        if elem is not None and any(D != 1 for D in elem):
-            val = sum(float(c) * math.sqrt(D) for D, c in elem.items())
-            if abs(val - x) <= tol * max(1.0, abs(x)):
-                return _mc_to_str(elem)
-        # 3) 高次纯根 base^(1/n)（n>=3）
-        return _mc_nthroot(term, x, tol)
+        # 4) 复代数数 a+b√d（d<0）：实塌缩不可达（含 √负数）时按虚部 i 拆分
+        return _render_complex_quadratic(term)
 
     # ---- 框架自检(可选,惰性 sympy 交叉验证;不参与渲染主路径)----
     def self_test(self) -> dict[str, str]:

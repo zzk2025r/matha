@@ -66,6 +66,16 @@ def _canon_to_sympy(s: str):
     return sp.sympify(s2)
 
 
+def _canon_to_sympy_complex(s: str):
+    """同上，但先把独立的虚单位 `i` 映为 sympy 的 `I`（否则会被当作符号）。"""
+    import re
+
+    import sympy as sp
+    s2 = re.sub(r"root\((\d+),(\d+)\)", r"root(\2,\1)", s)
+    s2 = re.sub(r"(?<![A-Za-z0-9_])i(?![A-Za-z0-9_])", "I", s2)
+    return sp.sympify(s2)
+
+
 def _tree_to_sympy(t):
     """独立地用 sympy 精确求值中性项树（与插件完全无关的第二实现，作对拍基准）。"""
     import sympy as sp
@@ -146,8 +156,10 @@ def test_algebra_honesty_defers_unknown():
     assert ALG_PLUGIN.render(_add(_sq(2), _root(2, 3))) is None
     # 含符号：不可作为常数精确还原 → None
     assert ALG_PLUGIN.render(_add(_sq(2), alg.Symbol("x"))) is None
-    # 非实：√(-1) → None（不伪造）
-    assert ALG_PLUGIN.render(_sq(-1)) is None
+    # 复代数数越界：双虚基 √(-1)+√(-2) 非单根式 a+b√d → None（单 √(-1) 已可精确为 i）
+    assert ALG_PLUGIN.render(_add(_sq(-1), _sq(-2))) is None
+    # 复数开方 √(i)：本框架不做复极坐标/嵌套 → None
+    assert ALG_PLUGIN.render(alg.UnaryOp("sqrt", _sq(-1))) is None
 
 
 @pytest.mark.parametrize("tree,expect", [
@@ -212,6 +224,46 @@ def test_algebra_flat_float_regression_still_quadratic_only():
     """回归锁：扁平浮点（无树形）仍仅走二次/有理识别，不得因扩面而误命中高次。"""
     assert ALG_PLUGIN.render(alg.Const(Fraction(2 ** 0.5))) == "sqrt(2)"   # 二次仍精确
     assert ALG_PLUGIN.render(alg.Const(Fraction(2 ** (1 / 3)))) is None     # 扁平 ∛2 无结构→诚实 None
+
+
+# ============================================================
+# 1b. 复代数数 a+b√d（d<0）：按虚部 i 拆分精确渲染
+# ============================================================
+
+
+@pytest.mark.parametrize("tree,expect", [
+    (_sq(-1), "i"),
+    (_sq(-2), "sqrt(2)*i"),
+    (_sq(-4), "2*i"),                       # √(-4)=2i（完全平方虚根→纯虚有理）
+    (_sub(_c(0), _sq(-3)), "-sqrt(3)*i"),
+    (_mul(_c(3), _sq(-2)), "3*sqrt(2)*i"),
+    (_add(_c(1), _sq(-3)), "1 + sqrt(3)*i"),
+    (_add(_c(5), _mul(_c(2), _sq(-7))), "5 + 2*sqrt(7)*i"),
+    (_div(_add(_c(1), _sq(-3)), _c(2)), "1/2 + 1/2*sqrt(3)*i"),
+])
+def test_algebra_complex_quadratic_exact(tree, expect):
+    """复二次数精确渲染：实部纯有理 + 虚部单一实二次根式，虚单位以 `*i` 表出。"""
+    assert ALG_PLUGIN.render(tree) == expect
+
+
+@pytest.mark.parametrize("tree", [
+    _sq(-1), _sq(-2), _sq(-4), _mul(_c(3), _sq(-2)),
+    _add(_c(1), _sq(-3)), _add(_c(5), _mul(_c(2), _sq(-7))),
+    _div(_add(_c(1), _sq(-3)), _c(2)),
+])
+def test_algebra_complex_quadratic_differential_vs_sympy(tree):
+    """对拍 sympy：复代数数插件串解析回 sympy 应与树的独立 sympy 复数求值相等。"""
+    import sympy as sp
+    got = ALG_PLUGIN.render(tree)
+    assert got is not None
+    assert sp.simplify(_canon_to_sympy_complex(got) - _tree_to_sympy(tree)) == 0
+
+
+def test_algebra_complex_real_regression_untouched():
+    """回归锁：接入复数分支后，既有实数路径（二次/多根式）输出逐字不变。"""
+    assert ALG_PLUGIN.render(_sq(2)) == "sqrt(2)"
+    assert ALG_PLUGIN.render(_add(_sq(2), _sq(3))) == "sqrt(2) + sqrt(3)"
+    assert ALG_PLUGIN.render(_div(_c(1), _sq(2))) == "1/2*sqrt(2)"
 
 
 # ============================================================
