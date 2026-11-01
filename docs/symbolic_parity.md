@@ -7,7 +7,7 @@
 `LimitUndetermined` / `SeriesUndetermined` / `OdeUnsupported` /
 `DomainUndetermined`），**不返回乐观默认值**。
 
-机器可判定的回归锁：`tests/test_kernel_symbolic.py`（103 例；字符串断言的值取自
+机器可判定的回归锁：`tests/test_kernel_symbolic.py`（118 例；字符串断言的值取自
 sympy 1.14 实测输出，任意点泰勒则以邻域逼近真函数的数值一致性锁定）。运行：
 
 ```
@@ -116,7 +116,8 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | 一阶可分离 | 一致 | `y' = y*sin(x) → C1*exp(-cos(x))`；`y' = x**2*y → C1*exp(x**3/3)` |
 | 一阶线性积分因子 | 一致 | `y' + 2*y = exp(-x) → C1*exp(-2*x) + exp(-x)`；`y' + 3*y = exp(2*x) → C1*exp(-3*x) + exp(2*x)/5` |
 | 二阶常系数齐次（相异/重根/共轭） | 一致 | `y'' + 2*y' + y = 0 → C2*x*exp(-x) + C1*exp(-x)` |
-| 待定系数特解（非齐次高阶） | 子集 | 仅覆盖多项式/指数/正弦型右端的部分组合，失败即显式报错 |
+| 二阶常系数**非齐次** `a·y''+b·y'+c·y=r(x)` 待定系数特解 | 一致（右端受限） | 右端 `r ∈ {多项式, e^{kx}, sin(ωx)/cos(ωx), 及多项式×这些}`，含共振（率与特征根重合时乘 `x^s`）；`y''-y=exp(x)→C1*exp(x)+C2*exp(-x)+x*exp(x)/2`；`y''+y=sin(x)→C1*cos(x)+C2*sin(x)-x*cos(x)/2`；`y''-y=x**2+3→-x**2-5+…`（11 例与 sympy `dsolve` **残差对拍**锁入 `test_kernel_symbolic.py`）。越界右端（`1/x`、`ln`、`tan`、分式幂、三角积）显式 `OdeUnsupported` |
+| 待定系数特解（高阶/变系数/其它右端型） | 子集 | 仅上表二阶常系数右端；余者失败即显式报错 |
 | 非线性一阶（`y' = x**2 + y**2`、`y' = (x+y)/x`、`y' = 1/(x+y)`） | 子集（插件回退已覆盖） | 内核 `OdeUnsupported`；`解微分方程` 插件懒加载 sympy 给线性化/Riccati 解（需 Airy 的 `y'=x²+y²` 仍显式失败，见第 10 节） |
 | 幂级数解、Laplace 变换 | 子集 | 内核未实现 |
 

@@ -1,5 +1,36 @@
 # Matha 变更摘要
 
+## 内核符号引擎扩面：二阶常系数非齐次 ODE 待定系数特解
+
+**日期**：2026-11-01
+
+### 背景
+
+体检重构路线第 3 阶段「标准库符号能力扩面」的第一子项（三项：极限超越式 / ODE 二阶
+常系数非齐次 / 傅里叶级数，按单点突破逐项交付）。此前 `src/kernel/symbolic/ode.py` 的
+`_solve_second_order` 仅覆盖**齐次**（特征方程），`_linear_coeffs` 一见非齐次项即回 `None`，
+故 `a·y''+b·y'+c·y=r(x)` 一律抛 `OdeUnsupported`。本轮把非齐次右端纳入内核纯标准库能力。
+
+### 变更
+
+1. **`src/kernel/symbolic/ode.py`**：`_solve_second_order` 重构为「齐次通解 `_hom_solution` +
+   非齐次特解 `_particular_second_order`」。新增 `_linear_coeffs_nonhom`（以
+   `r=-f|_(y=y'=y''=>0)` 保留超越结构地分离右端，拒绝变系数/非线性）与待定系数系列
+   （`_classify_forcing`/`_classify_term`/`_resonance`/`_trial_basis`/`_apply_l`/`_solve_normal`）：
+   右端按 (率 α, 率 β, 三角, 多项式次数) 分组 → 共振重数 `s`（`p(λ*)`、`p'(λ*)` 复数判零）乘 `x^s`
+   生成试探基 → `L[φ]` 由内核解析求导 → 数值配点最小平方法程解系数 → **回代自证** `L[y_p]≈r`。
+   覆盖 `r ∈` {多项式, `e^{kx}`, `sin(ωx)/cos(ωx)`, 及多项式×这些}（含实根/纯虚根/零根共振）；
+   越界右端（`1/x`/`ln`/`tan`/分式幂/三角积）一律回 `None`→`OdeUnsupported`，绝不臆造特解。仅标准库。
+2. **`tests/test_kernel_symbolic.py`**：新增 11 例非齐次**与 sympy `dsolve` 残差对拍**
+   （`sp.simplify(a·y''+b·y'+c·y-r)==0`）+ 5 例越界右端 `OdeUnsupported` 断言；齐次路径 102→118 例全绿不变。
+3. **文档**：`docs/symbolic_parity.md` §6 待定系数行由「子集」升级为「一致（右端受限）」；
+   `docs/KNOWN_ISSUES.md` ODE 行补入非齐次能力与越界口径。
+
+### 口径
+
+与既有内核符号能力一致：能力落在**纯标准库内核引擎**（`src/kernel/symbolic/`），门面 `solve_ode` 直连内核；
+`facade` 默认 `auto` 对无法覆盖者显式报错而非静默降级；红线“不返回乐观默认值”由回代自证与越界拒答共同保住。
+
 ## 代数打印插件扩面：高次代数数（单一纯根式域 ℚ(ⁿ√m)）精确渲染
 
 **日期**：2026-11-01

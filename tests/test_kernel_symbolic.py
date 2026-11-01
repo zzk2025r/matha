@@ -277,6 +277,42 @@ def test_solve_ode_gaps_fail_loudly(eq):
         solve_ode(eq, "y")
 
 
+# 二阶常系数非齐次（右端多项式/指数/正余弦，含共振）：齐次通解 + 待定系数特解。
+# 与 sympy 的**残差对拍**（比字串更硬）：把解回代 a·y''+b·y'+c·y，化简后应恰好等于右端。
+NONHOM_CASES = [
+    ("y'' - y = exp(x)", 1, 0, -1, "exp(x)"),
+    ("y'' + y = sin(x)", 1, 0, 1, "sin(x)"),
+    ("y'' + y = cos(x)", 1, 0, 1, "cos(x)"),
+    ("y'' - 3*y' + 2*y = exp(3*x)", 1, -3, 2, "exp(3*x)"),
+    ("y'' - 3*y' + 2*y = exp(2*x)", 1, -3, 2, "exp(2*x)"),
+    ("y'' - y = x**2 + 3", 1, 0, -1, "x**2 + 3"),
+    ("y'' - y = x**2", 1, 0, -1, "x**2"),
+    ("y'' + 4*y = cos(2*x)", 1, 0, 4, "cos(2*x)"),
+    ("y'' + 2*y' + y = 5", 1, 2, 1, "5"),
+    ("y'' + y = x", 1, 0, 1, "x"),
+    ("y'' + y = 2*x + 1", 1, 0, 1, "2*x + 1"),
+]
+
+
+@pytest.mark.parametrize("eq,a,b,c,rhs", NONHOM_CASES)
+def test_solve_ode_nonhom_matches_sympy(eq, a, b, c, rhs):
+    import sympy as sp
+    x = sp.symbols("x")
+    sol = sp.sympify(solve_ode(eq, "y", "x"))
+    r = sp.sympify(rhs)
+    assert sp.simplify(a * sol.diff(x, 2) + b * sol.diff(x) + c * sol - r) == 0, eq
+
+
+@pytest.mark.parametrize("eq", [
+    "y'' + y = 1/x", "y'' + y = ln(x)", "y'' + y = tan(x)",
+    "y'' + y = x**0.5", "y'' + y = sin(x)*cos(x)",
+])
+def test_solve_ode_nonhom_gaps_fail_loudly(eq):
+    """越界右端（分式/对数/正切/分式幂/三角积）→ 显式失败，绝不臆造特解。"""
+    with pytest.raises(OdeUnsupported):
+        solve_ode(eq, "y")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  连续域 / 累值界（sympy 1.14 已移除这两个名字，此处锁定内核自证语义）
 # ═══════════════════════════════════════════════════════════════════════════════

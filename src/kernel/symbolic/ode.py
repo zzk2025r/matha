@@ -8,6 +8,10 @@ docs/symbolic_parity.md；不覆盖者抛 ``OdeUnsupported``，绝不返回「�
 2. ``y' = g(x)·h(y)`` 可分离：h ∈ {1, y, y², 1/y}（其余形式如实报缺口）。
 3. ``y' + p(x)·y = q(x)`` 一阶线性：积分因子 ``μ = e^{∫p}``。
 4. ``a·y'' + b·y' + c·y = 0`` 二阶常系数齐次：特征方程（相异实根/重根/共轭复根）。
+5. ``a·y'' + b·y' + c·y = r(x)`` 二阶常系数**非齐次**：齐次通解 + 待定系数特解，
+   ``r(x)`` 限多项式 / 指数 ``e^{kx}`` / 正余弦 ``sin(ωx),cos(ωx)`` 及其多项式乘积
+   （含共振：特征根与右端率重合时乘 ``x^s``）；越界右端（如 ``1/x``、``ln``、``tan``、
+   分式幂）一律抛 ``OdeUnsupported``，绝不臆造特解。
 
 输入记号兼容：``y'(x)``、``y'``、``dy/dx``、``y''``、``y(x)``，等号两侧自动移项。
 
@@ -22,6 +26,7 @@ import re
 from src.kernel.symbolic.expr import (
     Add, Div, Expr, FuncCall, Log, Mul, Neg, Num, Pow, Sub, Var,
 )
+from src.kernel.symbolic.diff import differentiate
 from src.kernel.symbolic.integrate import integrate
 from src.kernel.symbolic.latex import to_str
 from src.kernel.symbolic.simplify import canonical, poly
@@ -281,32 +286,21 @@ def _add_flat(e: Expr) -> list[Expr]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _solve_second_order(f: Expr, y: str, yp: str, ypp: str, var: str) -> str:
-    coeffs = _linear_coeffs(f, (ypp, yp, y))
+    """``a·y'' + b·y' + c·y = r(x)``：齐次通解 + 非齐次待定系数特解。"""
+    coeffs = _linear_coeffs_nonhom(f, (ypp, yp, y))
     if coeffs is None:
-        raise OdeUnsupported(f"仅支持常系数线性齐次方程: {f}")
-    a, b, c = coeffs
+        raise OdeUnsupported(f"仅支持常系数线性方程（右端限多项式/指数/正余弦型）: {f}")
+    a, b, c, r = coeffs
     if a == 0:
         raise OdeUnsupported(f"y'' 系数为零，退化为一阶: {f}")
-    disc = b * b - 4 * a * c
-    tol = 1e-12
-    if abs(disc) < tol:
-        r = -b / (2 * a)
-        e1 = _exp_term(r, var)
-        return to_str(Add(Mul(Var("C1"), e1),
-                          Mul(Var("C2"), Mul(Var(var), e1))))
-    if disc > 0:
-        s = math.sqrt(disc)
-        r1 = (-b + s) / (2 * a)
-        r2 = (-b - s) / (2 * a)
-        return to_str(Add(Mul(Var("C1"), _exp_term(r1, var)),
-                          Mul(Var("C2"), _exp_term(r2, var))))
-    alpha = -b / (2 * a)
-    beta = abs(math.sqrt(-disc) / (2 * a))
-    ea = _exp_term(alpha, var) if alpha != 0 else Num(1)
-    arg = Var(var) if beta == 1 else Mul(_num(beta), Var(var))
-    sol = Add(Mul(Var("C1"), Mul(ea, FuncCall("cos", [arg]))),
-              Mul(Var("C2"), Mul(ea, FuncCall("sin", [arg]))))
-    return to_str(sol)
+    hom = _hom_solution(a, b, c, var)
+    rp = canonical(r)
+    if _is_zero(rp):
+        return to_str(hom)
+    part = _particular_second_order(a, b, c, rp, var)
+    if part is None:
+        raise OdeUnsupported(f"非齐次右端超出内核待定系数覆盖（多项式/指数/正余弦及其乘积）: {rp}")
+    return to_str(canonical(Add(hom, part)))
 
 
 def _exp_term(r: float, var: str) -> Expr:
@@ -316,21 +310,276 @@ def _exp_term(r: float, var: str) -> Expr:
     return FuncCall("exp", [u])
 
 
-def _linear_coeffs(f: Expr, names: tuple[str, ...]) -> tuple[float, ...] | None:
-    """f = a·y'' + b·y' + c·y，返回 (a, b, c)；含任何非常数因子则 None。"""
+def _is_zero(e: Expr) -> bool:
+    """r 是否恒为零（多项式系数全 ~0）。"""
+    p = poly(e)
+    return p is not None and (not p or all(abs(v) < 1e-14 for v in p.values()))
+
+
+def _hom_solution(a: float, b: float, c: float, var: str) -> Expr:
+    """齐次通解 Expr（特征方程：相异实根 / 重根 / 共轭复根）。"""
+    disc = b * b - 4 * a * c
+    if abs(disc) < 1e-12:
+        rr = -b / (2 * a)
+        e1 = _exp_term(rr, var)
+        return Add(Mul(Var("C1"), e1), Mul(Var("C2"), Mul(Var(var), e1)))
+    if disc > 0:
+        s = math.sqrt(disc)
+        return Add(Mul(Var("C1"), _exp_term((-b + s) / (2 * a), var)),
+                   Mul(Var("C2"), _exp_term((-b - s) / (2 * a), var)))
+    alpha = -b / (2 * a)
+    beta = abs(math.sqrt(-disc) / (2 * a))
+    ea = _exp_term(alpha, var) if alpha != 0 else Num(1)
+    arg = Var(var) if beta == 1 else Mul(_num(beta), Var(var))
+    return Add(Mul(Var("C1"), Mul(ea, FuncCall("cos", [arg]))),
+               Mul(Var("C2"), Mul(ea, FuncCall("sin", [arg]))))
+
+
+def _linear_coeffs_nonhom(f: Expr, names: tuple[str, ...]):
+    """f = a·y'' + b·y' + c·y − r（_parse_eq 已移项到左端），返回 (a,b,c, r_expr)。
+
+    y''/y'/y 只允许**常数系数**（单项式仅含该导数原子且幂 1）；变系数（如 ``x*y``）
+    或非线性（如 ``y**2``）→ None。其余原子（x 幕、exp/sin 原子）归入右端 r；
+    r 由 ``r = -f|_(y=y'=y''=0)`` 保留超越结构地重建（不依赖 from_poly 回拼）。"""
     p = poly(f)
     if p is None:
         return None
     got = {n: 0.0 for n in names}
     for key, coef in p.items():
-        if not key:
-            return None                      # 非齐次项 → 不覆盖
-        if len(key) != 1 or key[0][1] != 1.0:
+        fam = [(a, e) for (a, e) in key if a in names]
+        if fam:
+            if len(key) != 1 or fam[0][1] != 1.0:
+                return None                # 变系数 / 非线性
+            got[fam[0][0]] += coef
+    zero = Num(0)
+    fz = f.substitute(names[0], zero).substitute(names[1], zero).substitute(names[2], zero)
+    r = canonical(Neg(fz))
+    return tuple(got[n] for n in names) + (r,)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  非齐次待定系数特解
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _particular_second_order(a: float, b: float, c: float, r: Expr, var: str) -> Expr | None:
+    """对右端 r(x) 用待定系数法求特解 y_p（L[y_p]=r）；越界返回 None。
+
+    流程：按 (率 α, 率 β, 三角, 多项式次数) 对 r 分组 → 每组用共振重数 s 乘 x^s
+    生成试探基 φ_j → L[φ_j] 由内核解析求导 → 数值配点最小二乘（法方程）解出
+    系数 u_j → y_p=Σ u_j φ_j → 回代自证 L[y_p]≈r，否则拒（None）。"""
+    groups = _classify_forcing(r, var)
+    if groups is None:
+        return None
+    basis: list[Expr] = []
+    for (alpha, beta, trig, deg) in groups:
+        s = _resonance(a, b, c, alpha, beta)
+        basis += _trial_basis(alpha, beta, trig, deg, s, var)
+    if not basis or len(basis) > 8:
+        return None
+    lphi = [_apply_l(a, b, c, phi, var) for phi in basis]
+    pts = _sample_points(var, lphi, r, len(basis))
+    if len(pts) < len(basis):
+        return None
+    W = [[_ev(e, var, t) for e in lphi] for t in pts]
+    rhs = [_ev(r, var, t) for t in pts]
+    if any(not _fin(row) for row in W) or not _fin(rhs):
+        return None
+    u = _solve_normal(W, rhs)
+    if u is None:
+        return None
+    parts = [Mul(Num(float(uj)), phi) for uj, phi in zip(u, basis) if abs(uj) > 1e-9]
+    yp = canonical(_chain(parts)) if parts else Num(0)
+    if not _verify_l(a, b, c, yp, r, var, pts):
+        return None
+    return yp
+
+
+def _fin(vals: list[float]) -> bool:
+    return all(math.isfinite(v) for v in vals)
+
+
+def _ev(e: Expr, var: str, t: float) -> float:
+    try:
+        return float(e.evaluate({var: t}))
+    except Exception:
+        return float("nan")
+
+
+def _apply_l(a: float, b: float, c: float, phi: Expr, var: str) -> Expr:
+    """L[φ] = a·φ'' + b·φ' + c·φ（解析求导）。"""
+    d1 = differentiate(phi, var)
+    d2 = differentiate(d1, var)
+    return canonical(_chain([Mul(Num(a), d2), Mul(Num(b), d1), Mul(Num(c), phi)]))
+
+
+def _resonance(a: float, b: float, c: float, alpha: float, beta: float) -> int:
+    """率 λ*=α+iβ 作为特征根 aλ²+bλ+c 的重数（0/1/2；β>0 时至多 1）。"""
+    lam = complex(alpha, beta)
+    p = a * lam * lam + b * lam + c
+    if abs(p) > 1e-8:
+        return 0
+    dp = 2 * a * lam + b
+    if beta != 0:
+        return 1
+    return 1 if abs(dp) > 1e-8 else 2
+
+
+def _linear_x(k: float, var: str) -> Expr:
+    if k == 1:
+        return Var(var)
+    return canonical(Mul(Num(float(k)), Var(var)))
+
+
+def _x_pow(n: int, var: str) -> Expr:
+    if n == 0:
+        return Num(1)
+    if n == 1:
+        return Var(var)
+    return Pow(Var(var), Num(float(n)))
+
+
+def _trial_basis(alpha: float, beta: float, trig: bool, deg: int, s: int, var: str) -> list[Expr]:
+    """生成试探基：x^s·{x^m e^{αx} [·cos(βx), sin(βx)]}，m=0..deg。"""
+    ef: Expr = Num(1) if alpha == 0 else FuncCall("exp", [_linear_x(alpha, var)])
+    out: list[Expr] = []
+    for m in range(deg + 1):
+        core = canonical(Mul(_x_pow(s + m, var), ef))
+        if not trig:
+            out.append(core)
+        else:
+            arg = _linear_x(beta, var)
+            out.append(canonical(Mul(core, FuncCall("cos", [arg]))))
+            out.append(canonical(Mul(core, FuncCall("sin", [arg]))))
+    return out
+
+
+def _classify_forcing(r: Expr, var: str):
+    """将 r 按 (α,β,trig) 分组，每组取最大多项式次数；越界项 → None。"""
+    groups: dict[tuple, int] = {}
+    for term in _add_flat(canonical(r)):
+        info = _classify_term(term, var)
+        if info is None:
             return None
-        if key[0][0] not in got:
+        alpha, beta, trig, deg = info
+        if deg < 0 or deg > 3:
             return None
-        got[key[0][0]] += coef
-    return tuple(got[n] for n in names)
+        key = (round(alpha, 9), round(beta, 9), trig)
+        groups[key] = max(groups.get(key, -1), deg)
+    return [(al, be, tr, dg) for (al, be, tr), dg in groups.items()]
+
+
+def _classify_term(term: Expr, var: str):
+    """单项式 → (α,β,trig,deg)：x^deg · e^{αx} · {cos/sin}(βx)；越界 → None。"""
+    alpha = beta = 0.0
+    trig = False
+    deg = 0
+    for f in _factor_list(canonical(term)):
+        if isinstance(f, Num):
+            continue
+        if isinstance(f, Var):
+            if f.name != var:
+                return None
+            deg += 1
+            continue
+        if isinstance(f, Pow):
+            base, expo = f.base, f.exponent
+            if (isinstance(base, Var) and base.name == var and isinstance(expo, Num)
+                    and float(expo.value).is_integer() and expo.value >= 0):
+                deg += int(expo.value)
+                continue
+            return None
+        if isinstance(f, FuncCall) and f.name in ("exp", "sin", "cos"):
+            arg = f.args[0]
+            if var not in arg.free_vars():          # e^{3}、sin(1) 等常数因子 → 吸收
+                continue
+            rate = _lin_rate(arg, var)
+            if rate is None:
+                return None
+            if f.name == "exp":
+                if alpha != 0.0:
+                    return None
+                alpha = rate
+            else:
+                if trig:
+                    return None
+                beta, trig = abs(rate), True
+            continue
+        return None
+    return (alpha, beta, trig, deg)
+
+
+def _lin_rate(arg: Expr, var: str) -> float | None:
+    """arg 为纯 k·x（无常数项/高次）→ k；否则 None。"""
+    arg = canonical(arg)
+    if isinstance(arg, Var) and arg.name == var:
+        return 1.0
+    if isinstance(arg, Mul):
+        fac = _factor_list(arg)
+        vs = [x for x in fac if isinstance(x, Var)]
+        nums = [x for x in fac if isinstance(x, Num)]
+        others = [x for x in fac if not isinstance(x, (Var, Num))]
+        if len(vs) != 1 or vs[0].name != var or others:
+            return None
+        k = 1.0
+        for x in nums:
+            k *= x.value
+        return float(k)
+    return None
+
+
+def _sample_points(var: str, lphi: list[Expr], r: Expr, n: int) -> list[float]:
+    """生成使 W/r 均有限的配点（多于 n 个以走最小二乘）。"""
+    pts: list[float] = []
+    base = [0.13, 0.41, 0.77, 1.19, 1.63, 2.07, 2.53, 2.91, 3.37, -0.29, -0.71, -1.31]
+    need = max(n + 3, 2 * n)
+    for t in base:
+        ok = _fin([_ev(e, var, t) for e in lphi]) and _fin([_ev(r, var, t)])
+        if ok:
+            pts.append(t)
+        if len(pts) >= need:
+            break
+    return pts
+
+
+def _solve_normal(W: list[list[float]], rhs: list[float]) -> list[float] | None:
+    """法方程 A=W^T W, b=W^T rhs 的最小二乘解（高斯消元）。"""
+    n = len(W[0])
+    A = [[sum(W[k][i] * W[k][j] for k in range(len(W))) for j in range(n)] for i in range(n)]
+    b = [sum(W[k][i] * rhs[k] for k in range(len(W))) for i in range(n)]
+    return _gauss(A, b)
+
+
+def _gauss(A: list[list[float]], b: list[float]) -> list[float] | None:
+    """带部分主元高斯消元；奇异 → None。"""
+    m = len(b)
+    M = [row[:] + [b[i]] for i, row in enumerate(A)]
+    for col in range(m):
+        piv = max(range(col, m), key=lambda rr: abs(M[rr][col]))
+        if abs(M[piv][col]) < 1e-9:
+            return None
+        M[col], M[piv] = M[piv], M[col]
+        pv = M[col][col]
+        for rr in range(col + 1, m):
+            fct = M[rr][col] / pv
+            for cc in range(col, m + 1):
+                M[rr][cc] -= fct * M[col][cc]
+    x = [0.0] * m
+    for rr in range(m - 1, -1, -1):
+        s = M[rr][m] - sum(M[rr][cc] * x[cc] for cc in range(rr + 1, m))
+        x[rr] = s / M[rr][rr]
+    return x
+
+
+def _verify_l(a: float, b: float, c: float, yp: Expr, r: Expr, var: str, pts: list[float]) -> bool:
+    """回代自证：L[y_p] − r 在配点上须相对接近 0。"""
+    lhs = _apply_l(a, b, c, yp, var)
+    for t in pts:
+        lv, rv = _ev(lhs, var, t), _ev(r, var, t)
+        if not (math.isfinite(lv) and math.isfinite(rv)):
+            return False
+        if abs(lv - rv) > 1e-5 * (1.0 + abs(rv)):
+            return False
+    return True
 
 
 def _num(v: float) -> Num:
