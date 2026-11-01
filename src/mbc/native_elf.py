@@ -15,8 +15,8 @@
   M0  ELF64 链接器 `_build_elf64` + `_start` 硬编码 hello 壳。
   M1  write_span/exit + print_int/print_bool 输出退出原语
   M2  字节码 dispatch + 整数算术 BINOP(+ - * // %)/UNARYOP(neg not)/比较/OUTPUT/HALT
-  M3  标量局部/全局槽 + 控制流 JMP/JZ/JNZ  ← 本文件当前
-  M4  CALL/RET（直接/递归，argc≤2，标量）
+  M3  标量局部/全局槽 + 控制流 JMP/JZ/JNZ
+  M4  CALL/RET（直接/递归，argc≤2，标量）  ← 本文件当前
 集合之外的构造一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
 from __future__ import annotations
@@ -252,6 +252,27 @@ def _store_rax_abs(buf: _Buf, addr: int) -> None:
     buf.raw(0x48, 0x89, 0x04, 0x25); buf.imm32(addr)
 
 
+def _local_disp(slot: int) -> int:
+    """局部槽 slot → rbp 相对偏移（参数/局部均为 8 字节槽，自 [rbp-8] 往下）。"""
+    return -8 * (slot + 1)
+
+
+def _mov_rax_rbp(buf: _Buf, disp: int) -> None:
+    """mov rax,[rbp+disp]（mod=01/rm=101 disp8，超范围用 mod=10 disp32）。"""
+    if -128 <= disp <= 127:
+        buf.raw(0x48, 0x8B, 0x45, disp & 0xFF)
+    else:
+        buf.raw(0x48, 0x8B, 0x85); buf.imm32(disp)
+
+
+def _mov_rbp_rax(buf: _Buf, disp: int) -> None:
+    """mov [rbp+disp],rax。"""
+    if -128 <= disp <= 127:
+        buf.raw(0x48, 0x89, 0x45, disp & 0xFF)
+    else:
+        buf.raw(0x48, 0x89, 0x85); buf.imm32(disp)
+
+
 def _emit_runtime(buf: _Buf) -> None:
     """发射 write_span / print_int / print_bool 三个子程序（不触碰 rbx 栈指针）。"""
     # write_span：rsi=ptr, rdx=len（部分写续写；返回 <=0 结束）
@@ -381,16 +402,21 @@ def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
         raise NativeNotSupported(f"M2 不支持 UNARYOP {sym!r}（仅 neg/not）")
 
 
-def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict) -> None:
-    """遍历 M3V 指令流发射机器码；typ 为编译期影子值型栈（int/bool/null）。
+def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str,
+               fninfo: dict, fntyp: dict, *, in_fn: bool = False,
+               ltype: dict | None = None, ret_collector: list | None = None) -> None:
+    """遍历 M3V 指令流发射机器码；typ 为编译期影子值型栈（int/bool/null/"fn"）。
 
-    gmap：全局名 → 槽索引（emit_elf 预扫建立）；gtype：槽索引 → 值型（冲突拒绝）。
-    跳转目标 = 指令下标，对应每指令入口 label f"L{i}"。分支合并沿用 SPIKE
-    线性影子栈模型（同型分支 typ[-1] 对齐运行期栈顶；异型分支越出 P-a 子集）。
+    gmap：全局名→槽索引；gtype：槽→值型（冲突拒绝）。tag：本作用域 label 前缀
+    （跳转目标 = 指令下标 → f"{tag}:{i}"）。fninfo：函数名→{arity,nlocals}；fntyp：
+    函数返回型。in_fn=True 时支持 LOAD_LOCAL/STORE_LOCAL/RET（帧由 emit_elf 前置码建立）；
+    ret_collector 收集每个 RET 的返回值型（供返回型不动点推断）。
+    分支合并沿用 SPIKE 线性影子栈模型（同型分支 typ[-1] 对齐运行期栈顶）。
     """
-    typ: list[str] = []
+    typ: list = []
+    lt: dict[int, str] = ltype if ltype is not None else {}
     for i, ins in enumerate(code):
-        buf.here(f"L{i}")
+        buf.here(f"{tag}:{i}")
         op = ins[0]
         if op == OP.PUSH_CONST:
             v = C[ins[1]]
@@ -438,6 +464,9 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict) -> None:
             name = C[ins[1]]
             if not isinstance(name, str):
                 raise NativeNotSupported(f"全局名非常量字符串：{name!r}")
+            if op == OP.LOAD_GLOBAL and name in fninfo:     # 函数值：直调占位（dummy 操作数 + "fn" 标记）
+                _load_imm_rax(buf, 0); _push_rax(buf); typ.append(("fn", name))
+                continue
             if name not in gmap:
                 raise NativeNotSupported(
                     f"M3：全局 {name!r} 未登记（未赋值即读取/写入，绝不静默读 0）")
@@ -460,7 +489,7 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict) -> None:
                 _store_rax_abs(buf, addr)
                 buf.raw(0x48, 0x83, 0xEB, 0x08); typ.pop()          # sub rbx,8
         elif op in (OP.JMP, OP.JZ, OP.JNZ):
-            target = f"L{ins[1]}"
+            target = f"{tag}:{ins[1]}"
             if op == OP.JMP:
                 buf.jmp(target)
             else:
@@ -470,6 +499,62 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict) -> None:
                 buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]
                 buf.raw(0x48, 0x85, 0xC0)                            # test rax,rax
                 buf.jcc(JZ if op == OP.JZ else JNZ, target)          # JZ=假跳，JNZ=真跳
+        elif op in (OP.LOAD_LOCAL, OP.STORE_LOCAL):
+            if not in_fn:
+                raise NativeNotSupported("局部槽仅存在于函数帧内（P-a）")
+            slot = ins[1]
+            disp = _local_disp(slot)
+            if op == OP.LOAD_LOCAL:
+                _mov_rax_rbp(buf, disp); _push_rax(buf)
+                typ.append(lt.get(slot, "int"))
+            else:
+                if not typ:
+                    raise NativeNotSupported("STORE_LOCAL 空栈")
+                t = typ[-1]
+                if isinstance(t, tuple):
+                    raise NativeNotSupported("STORE_LOCAL 函数值不在 P-a 子集")
+                old = lt.get(slot)
+                if old is not None and old != t:
+                    raise NativeNotSupported(f"局部槽 {slot} 混型：{old} vs {t}（P-a 拒绝）")
+                lt[slot] = t
+                buf.raw(0x48, 0x8B, 0x43, 0xF8)                      # mov rax,[rbx-8]
+                _mov_rbp_rax(buf, disp)
+                buf.raw(0x48, 0x83, 0xEB, 0x08); typ.pop()          # sub rbx,8
+        elif op == OP.CALL:
+            argc = ins[1]
+            if argc > 2:
+                raise NativeNotSupported(f"CALL argc={argc} 超出 P-a（仅 argc≤2 标量直调）")
+            if len(typ) < argc + 1:
+                raise NativeNotSupported("CALL 操作数不足")
+            marker = typ[-(argc + 1)]
+            if not (isinstance(marker, tuple) and marker[0] == "fn"):
+                raise NativeNotSupported("CALL 非直接函数调用（间接/高阶不在 P-a）")
+            fname = marker[1]
+            info = fninfo.get(fname)
+            if info is None:
+                raise NativeNotSupported(f"调用内建/未知函数 {fname!r}（P-a 仅直接调用已定义函数）")
+            if info["arity"] != argc:
+                raise NativeNotSupported(f"调用 {fname!r}：arity={info['arity']} 与 argc={argc} 不符")
+            buf.call(f"fn_{fname}")
+            # 弹回传值→rax，弹掉 dummy 函数槽，重新压回结果（保持操作数栈与 typ 同步）
+            buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]
+            buf.raw(0x48, 0x83, 0xEB, 0x08)                             # sub rbx,8（弹 dummy）
+            _push_rax(buf)
+            del typ[-(argc + 1):]
+            typ.append(fntyp.get(fname, "int"))
+        elif op == OP.RET:
+            if not in_fn:
+                raise NativeNotSupported("RET 出现在主程序（P-a）")
+            if not typ:
+                raise NativeNotSupported("RET 空栈（返回值缺失）")
+            t = typ[-1]
+            if isinstance(t, tuple) or t == "null":
+                raise NativeNotSupported(f"RET 返回 {t!r}（P-a 仅 int/bool 标量）")
+            if ret_collector is not None:
+                ret_collector.append(t)
+            buf.raw(0x48, 0x89, 0xEC)                                # mov rsp,rbp
+            buf.raw(0x5D)                                           # pop rbp
+            buf.raw(0xC3)                                           # ret（返回值留在操作数栈顶）
         elif op == OP.HALT:
             break
         else:
@@ -484,29 +569,87 @@ def _build_data() -> bytearray:
     return seg
 
 
-def _scan_globals(code: list, C: list) -> dict:
-    """预扫指令流，按首次 STORE_GLOBAL 出现顺序为每个全局名分配槽索引。"""
+def _scan_globals(codes: list, C: list) -> dict:
+    """预扫所有作用域（main + 各函数），按首次 STORE_GLOBAL 顺序为全局名分配槽索引。"""
     gmap: dict[str, int] = {}
-    for ins in code:
-        if ins[0] == OP.STORE_GLOBAL:
-            name = C[ins[1]]
-            if isinstance(name, str) and name not in gmap:
-                gmap[name] = len(gmap)
+    for code in codes:
+        for ins in code:
+            if ins[0] == OP.STORE_GLOBAL:
+                name = C[ins[1]]
+                if isinstance(name, str) and name not in gmap:
+                    gmap[name] = len(gmap)
     return gmap
 
 
+def _infer_fntyp(mod, C: list, gmap: dict, fninfo: dict) -> dict:
+    """函数返回型不动点推断：对每个函数体跑一次 scratch 发射（仅收集 RET 值型）。
+
+    递归自调用上一轮 fntyp（缺失时临时当作 int），迭代至稳定；多 RET 异型/无 RET
+    一律 NativeNotSupported 拒绝。
+    """
+    fntyp: dict[str, str] = {}
+    fnlist = list(mod.functions.items())
+    for _ in range(len(fnlist) + 2):
+        changed = False
+        for name, f in fnlist:
+            rc: list = []
+            _emit_code(_Buf(), f.code, C, gmap, {}, f"inf:{name}", fninfo, fntyp,
+                       in_fn=True, ltype={}, ret_collector=rc)
+            if not rc:
+                raise NativeNotSupported(f"函数 {name!r} 无可达 RET（P-a）")
+            uniq = set(rc)
+            if len(uniq) > 1:
+                raise NativeNotSupported(f"函数 {name!r} 多 RET 混型 {sorted(uniq)}（P-a 拒绝）")
+            nt = rc[0]
+            if fntyp.get(name) != nt:
+                fntyp[name] = nt
+                changed = True
+        if not changed:
+            break
+    return fntyp
+
+
+def _emit_function(buf: _Buf, name: str, f, C: list, gmap: dict, gtype: dict,
+                   fninfo: dict, fntyp: dict) -> None:
+    """发射一个函数例程：帧前言（push rbp/mov rbp,rsp/sub rsp）+ 实参绑定 + 体。
+
+    约定：调用方已把 argc 个实参压在共享操作数栈（rbx）顶部（argN 在顶）；前言
+    依次弹出存入局部槽 arity-1..0（P-a 参数一律作 int 处理）；RET 把返回值留在
+    操作数栈顶供调用方取用。机器栈（rsp/rbp）仅存帧，syscall 不破坏 rbp。
+    """
+    buf.here(f"fn_{name}")
+    buf.raw(0x55)                                       # push rbp
+    buf.raw(0x48, 0x89, 0xE5)                           # mov rbp,rsp
+    frame = (8 * f.nlocals + 15) & ~15
+    if frame:
+        buf.raw(0x48, 0x81, 0xEC); buf.imm32(frame)     # sub rsp, frame
+    lt: dict[int, str] = {}
+    for k in range(f.arity - 1, -1, -1):               # argN→slot N-1 … arg1→slot0
+        buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]
+        _mov_rbp_rax(buf, _local_disp(k))
+        lt[k] = "int"
+    _emit_code(buf, f.code, C, gmap, gtype, f"fn_{name}", fninfo, fntyp,
+               in_fn=True, ltype=lt)
+
+
 def emit_elf(mod) -> bytes:
-    """MModule → Linux x86-64 静态 ELF64 字节串（P-a 整数/布尔标量子集）。"""
+    """MModule → Linux x86-64 静态 ELF64 字节串（P-a 整数/布尔标量 + 直调/递归子集）。"""
     C = mod.constants
-    gmap = _scan_globals(mod.main_code, C)
+    fninfo = {name: {"arity": f.arity, "nlocals": f.nlocals}
+              for name, f in mod.functions.items()}
+    all_codes = [mod.main_code] + [f.code for f in mod.functions.values()]
+    gmap = _scan_globals(all_codes, C)
     gtype: dict[int, str] = {}
+    fntyp = _infer_fntyp(mod, C, gmap, fninfo)
     buf = _Buf()
     buf.here("_start")
     mov_imm64(buf, _REG["rbx"], VSP_ADDR)         # rbx = 操作数栈指针
-    _emit_code(buf, mod.main_code, C, gmap, gtype)
+    _emit_code(buf, mod.main_code, C, gmap, gtype, "main", fninfo, fntyp)
     mov_imm32(buf, _REG["rax"], 231)              # exit_group
     mov_imm32(buf, _REG["rdi"], 0)
     syscall(buf)
+    for name, f in mod.functions.items():
+        _emit_function(buf, name, f, C, gmap, gtype, fninfo, fntyp)
     _emit_runtime(buf)
     text = buf.finish()
     data = bytes(_build_data())
