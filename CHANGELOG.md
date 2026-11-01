@@ -1,5 +1,34 @@
 # Matha 变更摘要
 
+## 内核符号引擎扩面：傅里叶截断级数 `fourier_series`（阶段3-3 标准库符号扩面③）
+
+**日期**：2026-11-01
+
+### 背景
+
+体检重构路线第 3 阶段「标准库符号能力扩面」第三子项（前两项：ODE 二阶常系数非齐次
+ b7e1b53、极限超越式 0·∞ d31c194）。内核 `src/kernel/symbolic/series.py` 原有 `taylor`/
+`maclaurin`/`sum_series`，但无傅里叶级数能力。
+
+### 变更
+
+1. **`src/kernel/symbolic/series.py`**：新增 `fourier_series(expr, var, left, right, order)`
+   （+ `_interval_integral`/`_f_cos`/`_f_sin`）。采用与 sympy `fourier_series` **同约定**：
+   周期 `T=right−left`，基 `cos/sin(2πn(x−left)/T)`，常数项 `a₀/2`。系数 `aₙ/bₙ`
+   由内核 `integrate` 求原函数后 Newton–Leibniz **精确回代**（非数值积分）。严格口径：
+   任一被积式 `f·cos`/`f·sin` 无闭合原函数（`abs(x)`、跨 0 的 `1/x`、双频三角积、
+   `exp(x²)`、`log(x)`×三角）→ `SeriesUndetermined`，**绝不数值伪造系数**。仅标准库。
+2. **`src/kernel/symbolic/__init__.py`**：惰性导出 `fourier_series`。
+3. **`tests/test_kernel_symbolic.py`**：新增 `FOURIER_CASES`（10 例，多项式/`exp`/三角，
+   与 sympy 系数积分在采样点一致 tol 1e-6；不用 `truncate` 避开其项数约定歧义）+ 5 例
+   诚实失败断言；127→142 例全绿。
+4. **文档**：`docs/symbolic_parity.md` §5 标题加 `fourier_series`、新增一致/子集两行，头部
+   例数 127→142；ARCHITECTURE 核心体量 31,480→31,545。
+
+### 口径
+
+仅内核引擎层（与前两子项一致，不改 `.matha` DSL 标准库）；无性能数字口径。
+
 ## 内核符号引擎扩面：极限超越式 0·∞ 慢发散对数引理（阶段3-3 标准库符号扩面②）
 
 **日期**：2026-11-01

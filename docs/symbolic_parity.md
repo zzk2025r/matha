@@ -7,7 +7,7 @@
 `LimitUndetermined` / `SeriesUndetermined` / `OdeUnsupported` /
 `DomainUndetermined`），**不返回乐观默认值**。
 
-机器可判定的回归锁：`tests/test_kernel_symbolic.py`（127 例；字符串断言的值取自
+机器可判定的回归锁：`tests/test_kernel_symbolic.py`（142 例；字符串断言的值取自
 sympy 1.14 实测输出，任意点泰勒则以邻域逼近真函数的数值一致性锁定）。运行：
 
 ```
@@ -97,7 +97,7 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | 振荡型 | 子集 | `sin(x)`（x→∞）**显式失败**；sympy 返回 `Interval(-1, 1)` |
 | `∞−∞` 非根式、增长层级细比（如 `log(log x)/log x`） | 子集 | 落不完判据链时 `LimitUndetermined`（x→∞ 的 log-log/log 需更细增长层级，超出本引理） |
 
-## 5. 级数 `taylor` / `maclaurin` / `sum_series`（`kernel/symbolic/series.py`）
+## 5. 级数 `taylor` / `maclaurin` / `sum_series` / `fourier_series`（`kernel/symbolic/series.py`）
 
 | 能力 | 判定 | 实测样本 |
 |---|---|---|
@@ -108,6 +108,8 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | `Σ x**n/n! → exp(x)`、`Σ1/n**2 → π²/6` | 一致 | 闭式识别 |
 | 负整数幂求和（`Σ1/n`，调和/`polygamma`） | 子集（插件回退已覆盖） | 内核 `SeriesUndetermined`；`级数求和` 插件懒加载 sympy 给 `137/60`/`digamma(5)+EulerGamma`（见第 10 节） |
 | 求和变量与项内函数不匹配（`Σk`，k 非求和元） | 子集 | 显式失败 |
+| 傅里叶截断级数 `fourier_series(f, x, left, right, order)` | 一致（被积式可闭合时） | 采用 sympy `fourier_series` 同约定（周期 `T=right−left`，基 `cos/sin(2πn(x−left)/T)`，常数项 `a₀/2`）；系数 `aₙ/bₙ` 由内核 `integrate` 求原函数后 Newton–Leibniz 精确回代。多项式/`exp(一次)`/三角（含多项式×三角分部）与 sympy 系数积分采样点一致（tol 1e-6） |
+| 被积式无闭合原函数的傅里叶系数（`abs(x)`、跨 0 的 `1/x`、双频三角积 `cos(x)·x`、`exp(x²)`、`log(x)`×三角） | 子集 | 内核 `SeriesUndetermined`（拒绝数值积分伪造系数） |
 
 ## 6. 常微分方程 `solve_ode`（`kernel/symbolic/ode.py`）
 

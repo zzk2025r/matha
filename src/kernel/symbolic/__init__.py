@@ -39,7 +39,7 @@ __all__ = [
     "expand", "collect", "cancel", "canonical",
     "differentiate", "nth_derivative", "partial_derivative",
     "integrate", "definite", "numerical_definite",
-    "limit", "taylor", "maclaurin", "sum_series",
+    "limit", "taylor", "maclaurin", "sum_series", "fourier_series",
     "solve_ode", "continuous_domain", "accumulated_bounds",
     # 输出 / 解析
     "parse", "parse_equation", "to_str", "to_latex", "to_pretty",
@@ -71,6 +71,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "limit": ("limit", "limit"),
     "taylor": ("series", "taylor"), "maclaurin": ("series", "maclaurin"),
     "sum_series": ("series", "sum_series"),
+    "fourier_series": ("series", "fourier_series"),
     "solve_ode": ("ode", "solve_ode"),
     "continuous_domain": ("domain", "continuous_domain"),
     "accumulated_bounds": ("domain", "accumulated_bounds"),

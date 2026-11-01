@@ -11,9 +11,9 @@ import math
 import pytest
 
 from src.kernel.symbolic import (
-    accumulated_bounds, continuous_domain, definite, differentiate, integrate,
-    limit, maclaurin, solve_ode, sum_series, symbol_expr, taylor, to_latex,
-    to_pretty, to_str,
+    accumulated_bounds, continuous_domain, definite, differentiate, fourier_series,
+    integrate, limit, maclaurin, solve_ode, sum_series, symbol_expr, taylor,
+    to_latex, to_pretty, to_str,
 )
 from src.kernel.symbolic.diff import UnsupportedExpression
 from src.kernel.symbolic.domain import DomainUndetermined
@@ -263,6 +263,72 @@ def test_sum_series():
 def test_sum_harmonic_fails_loudly():
     with pytest.raises(SeriesUndetermined):
         sum_series(symbol_expr("1/n"), "n", 1, 5)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  傅里叶级数（截断；周期 T=right−left，基 cos/sin(2πn(x−left)/T)，与 sympy 同约定）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FOURIER_CASES = [
+    # (表达式, left, right)——区间端点用 float（与内核一致）
+    ("x", -math.pi, math.pi),
+    ("x**2", -math.pi, math.pi),
+    ("x**3", -1.0, 1.0),
+    ("x", -1.0, 1.0),
+    ("x", 0.0, 2.0),
+    ("sin(2*x)", -math.pi, math.pi),
+    ("3", -math.pi, math.pi),
+    ("x + x**2", 0.0, 2 * math.pi),
+    ("exp(x)", -math.pi, math.pi),
+    ("cos(x)", -math.pi, math.pi),
+]
+
+_ORDER = 5
+_FPTS = [-1.7, -0.9, -0.3, 0.0, 0.4, 1.1, 1.9]
+
+
+def _sympy_fourier_partial(src, lo_exact, hi_exact, order):
+    """用 sympy 积分器直构截断部分和（不依赖 truncate 的项数约定，避开歧义）。"""
+    import sympy as sp
+    x = sp.symbols("x")
+    f = sp.sympify(src)
+    T = hi_exact - lo_exact
+    w = 2 * sp.pi / T
+    acc = (2 / T) * sp.integrate(f, (x, lo_exact, hi_exact)) / 2
+    for n in range(1, order + 1):
+        ang = n * w * (x - lo_exact)
+        an = (2 / T) * sp.integrate(f * sp.cos(ang), (x, lo_exact, hi_exact))
+        bn = (2 / T) * sp.integrate(f * sp.sin(ang), (x, lo_exact, hi_exact))
+        acc = acc + an * sp.cos(ang) + bn * sp.sin(ang)
+    return sp.lambdify(x, acc, "math")
+
+
+@pytest.mark.parametrize("src,left,right", FOURIER_CASES)
+def test_fourier_series_matches_sympy(src, left, right):
+    """内核截断傅里叶级数与 sympy 系数积分在各采样点一致（tol 1e-6）。"""
+    from src.kernel.symbolic.expr import Num
+    got = fourier_series(symbol_expr(src), "x", left, right, _ORDER)
+    # 传给 sympy 的端点：π 的整数倍用精确 sp.pi，其余用整数/浮点精确值
+    import sympy as sp
+    lo_e = sp.nsimplify(left / sp.pi) * sp.pi if abs(left / (math.pi / 2) - round(left / (math.pi / 2))) < 1e-12 else left
+    hi_e = sp.nsimplify(right / sp.pi) * sp.pi if abs(right / (math.pi / 2) - round(right / (math.pi / 2))) < 1e-12 else right
+    ref = _sympy_fourier_partial(src, lo_e, hi_e, _ORDER)
+    for xv in _FPTS:
+        kv = float(got.substitute("x", Num(xv)).evaluate({}))
+        assert abs(kv - ref(xv)) < 1e-6, f"{src} @ {xv}: got {kv}, sympy {ref(xv)}"
+
+
+@pytest.mark.parametrize("src,left,right", [
+    ("abs(x)", -math.pi, math.pi),
+    ("1/x", -math.pi, math.pi),
+    ("cos(x)*x", -math.pi, math.pi),
+    ("exp(x**2)", -1.0, 1.0),
+    ("log(x)", 1.0, math.pi),
+])
+def test_fourier_series_gaps_fail_loudly(src, left, right):
+    """被积式无闭合原函数（绝对值/跨 0 分式/双频三角积/高斯/对数×三角）→ 显式失败，不数值伪造系数。"""
+    with pytest.raises(SeriesUndetermined):
+        fourier_series(symbol_expr(src), "x", left, right, 4)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
