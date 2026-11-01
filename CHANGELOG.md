@@ -1,6 +1,46 @@
 # Matha 变更摘要
 
-## native 跨平台 P-c2 S4a：not float 真值判定（位域判零，低风险切片首刀）（阶段3-3 ④ native 跨平台）
+## native 跨平台 P-c2 S4b：floatq 精确域取整除 `//` 与求余 `%`（低风险切片第二刀）+ S3c 风险拆解登记（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-02
+
+### 背景
+
+S4a（commit 590489a）已交 `not float` 真值判定。本轮仍遵用户方向（暂缓风险最高的 S3c，先推低风险浮点
+功能），第二刀取**在 floatq 精确域内的 `//` 与 `%`**：它们只多一次 `divsd` 与整↔双回转，不触 `_dtoa` 内部、
+不触十进制转换，属 SSE 框架的自然延面；风险面仅“域判定”与“有符号零”，可逐字节对拍穷举坐实。
+铁律不变：不碰 `native.py` 主体、覆盖集外一律 `NativeNotSupported` 显式拒、越域运行期不瞎编。
+
+### 变更
+
+1. **`src/mbc/native_elf.py`**：新增 `_emit_findiv`（`//`/`%` 的 SSE2 机器码）与 `_f_abs_guard`（`|v| < DTOA_ABS_LIMIT`
+   运行域护栏，借 xmm6/xmm7 暂存）；`_emit_fbinop` 加指令下标 `i` 形参并分派 `//`/`%`；`_emit_binop` 结果型 `//`/`%`
+   归 `floatq` typ；条件码表补 `JB=0x82`。算法：除零护栏 → `|a|,|b|` 域护栏 → `q=divsd` → `cvttsd2si`（向零截断）
+   + INDEFINITE 哨兵 → `cvtsi2sd` 比回 `comisd`，`q<t` 则 `dec t`（向 -inf 修正得 floor）；`//` 零商符号随 q
+   （`floor(-0.0)=-0.0`），`%` 走无舍入精确余数 `r=a-t·b` 且零余数符号随**除数**（与 VM/CPython 一致）。
+   **域收缩（本轮关键发现）**：`//` 与 `%` 均仅接受 `int/bool/floatq`——实测 CPython 的 float `//` 取的是
+   **精确有理商**的 floor而非 `floor(fl(a/b))`（`0.001/0.0001 == 10.0` 而 `0.001//0.0001 == 9.0`、`1.0//0.1 == 9.0`、
+   `0.3//0.1 == 2.0`），故 `divsd` 路径对越域 float 的 `//` **不成立**，恢复如实拒并指向 S4c+。
+   `dtoa_precision_declaration()` 顺手修口径文本（去硬编码 `9e9`，改读 `DTOA_ABS_LIMIT`）并登记 S3c 拆解去向。
+2. **`baremetal/tools/native_elf/run_native_elf.py`（Gate，不入门禁）**：新增正例 `c17_float_findiv`（域内 `//`/`%`
+   含 floor 负向与 ±0.0 符号）；`r17_float_floordiv`/`r18_float_mod` 由「未就绪」改为**越域 float 的 `//`/`%`**必拒。
+3. **文档**：`docs/spec/NATIVE_ELF_PC.md` 追 P-c2 S4b 实况块，并新增 **§N2-拆解：S3c 风险递降子切片表**
+   （S3c-1..S3c-6，纯文档不动机器码）；`docs/ARCHITECTURE.md` `core_py_lines` 32,921→**33,030**。
+
+### 口径
+
+- **S3c 拆解登记**（用户明要「逐步把风险最高的 S3c 拆成低风险/零风险」）：**S3c-1** 纯 Python 十进制规格化
+  参考器 + 黄金样本集（零风险，不碰发射器）→ **S3c-2** 定点展开扩域 `DTOA_MAX_DENOM_EXP` 6→10（低风险，
+  只换常量，代价是 `DTOA_ABS_LIMIT` 需按 `|v|·10^k < 2^53` 收紧至≈9.007e5，且要重算 `//`/`%` 的精确性证明）
+  → **S3c-3** 科学计数法阈值→ **S3c-4** inf/nan 口径（两者低-中）→ **S3c-5** 最短往返核心循环移植（中-高，
+  隔离到最后一刀）→ **S3c-6** 拒转接受收口。要点：大部分收益落在零/低风险的 S3c-1/S3c-2，真难点被隔离。
+- 探针 `.trae/pc2_s4b_verify.py`（gitignore，不入库）：12 定点例 + 5 静态拒例 + 4 运行期护栏例（rc=1 空输出）
+  + **floatq 全域差分扇描 139 对 `(a,b)` 的 `//` 与 `%` 逐字节对 VM 全等** + 越域形态 90 例逐对断言必拒，**失败 0**。
+- 探针回归同步：`pc2_s2_verify.py`（修 S3a 后遗留的过时拒例）、`pc2_s3_verify.py`、`pc2_s4a_verify.py` 均回失败 0。
+- Gate：**30 正 + 18 拒 + 5 越界行为例，失败 0**。
+- 能力轨迹：… S3a(267f051) → S3b(d912820) → S4a(590489a) → **S4b(本次)**；越域 float 的 `//`/`%` 属 S4c+，
+  全量 `_dtoa`/最短往返按 S3c-1..S3c-6 逐刀推。divsd 除零产 ±inf 与 VM ZeroDivisionError 的已登记分歧不变
+  （`//`/`%` 除零两侧皆失败，无口径差）。
 
 **日期**：2026-11-02
 

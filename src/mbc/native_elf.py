@@ -37,8 +37,12 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
      除法、循环不变量外提；dtoa_precision_declaration() 显式登记域/soundness/边界（与 _floatq_domain 单一事实源）
   S4a not float/floatq 真值判定（零 _dtoa/零 SSE）：弹出 double 位型 → and 清符掩码 → test 判零 ⇔ ±0.0 为假、
      非零（含越域 0.1 类、NaN、inf）为真，逐字节对 VM 一致；产出 bool 可直接输出/驱动分支。值能否“被打印”与本
-     判定无关（越域 float 可判不可印，边界不变）  ← 本文件当前
-（越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3c+）按 Q1 如实拒；`//`/`%` 浮点取整属 S4b；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
+     判定无关（越域 float 可判不可印，边界不变）
+  S4b 浮点取整除 `//` 与求余 `%`（限 int/bool/floatq 精确域）：divsd → cvttsd2si 向零截断 → comisd 比回
+     降一档得 floor（向 -inf）；零商符号随 q、零余数符号随除数（逐字节对 VM 一致）；除零与 |a|/|b|≥9e9 运行期
+     护栏 exit1 如实失败（VM 侧同为失败口径）；越域 float 操作数静态如实拒——CPython float `//` 取的是精确
+     有理商的 floor（0.1//0.01 类），非 floor(fl(a/b))，faithful 实现属 S4c+  ← 本文件当前
+（越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3c+）按 Q1 如实拒；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及未就绪的运行期 float 算术·比较·输出）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
@@ -234,8 +238,8 @@ def hello_elf() -> bytes:
 # ---------------------------------------------------------------- 运行时子程序 + 字节码 dispatch（M1/M2）
 
 # 条件跳转操作码（0F xx 的低位）
-JE, JNE, JZ, JNZ, JS, JNS, JL, JGE, JLE, JG = (
-    0x84, 0x85, 0x84, 0x85, 0x88, 0x89, 0x8C, 0x8D, 0x8E, 0x8F)
+JE, JNE, JZ, JNZ, JS, JNS, JL, JGE, JLE, JG, JB = (
+    0x84, 0x85, 0x84, 0x85, 0x88, 0x89, 0x8C, 0x8D, 0x8E, 0x8F, 0x82)
 
 # 数据段（RW）内固定偏移：numbuf / '\n' / "True" / "False" 后接 .bss 操作数栈
 NL_OFF = NUMBUF_SIZE                 # 64：单字节 '\n'（每条 OUTPUT 行尾）
@@ -278,13 +282,15 @@ _JAE, _JP = 0x83, 0x8A                                # 近跳条件码（buf.jc
 def dtoa_precision_declaration() -> dict:
     """P-c2 S3b：_dtoa 运行期输出精度的编译期声明（单一事实源，与域谓词/护栏/机器码共读）。
 
-    声明当前保底 _dtoa 保证覆盖的值集与 soundness 边界；不涵盖最短往返（属 S3c+）。
+    声明当前保底 _dtoa 保证覆盖的值集与 soundness 边界；不涵盖最短往返（属 S3c+，
+    其零/低风险递降拆解 S3c-1..S3c-6 登记于 docs/spec/NATIVE_ELF_PC.md §N2-拆解）。
     与 _floatq_domain 严格一致：域内 → 逐字节=str(v)；域外 → 静态拒或运行期护栏 exit_group(1)。"""
     return {
         "domain": (f"double 精确值 = 整数×2^-d（既约分母 d≤{DTOA_MAX_DENOM_EXP}）且 |v|<{DTOA_ABS_LIMIT:g}；±0.0 属域"),
         "scale": DTOA_SCALE,                              # 定点展开因子（v×scale 为精确整数）
         "guarantee": "域内运行期输出逐字节 == str(v)（定点展开+去尾零，非最短往返）",
-        "soundness": "三层：静态打标（字面量谓词 + - + neg 封闭，*/降级）/乘法前 9e9 护栏/转换后 N<0 哨兵",
+        "soundness": ("三层：静态打标（字面量谓词 + `+ - neg` 封闭，`* /` 降级）/乘法前 "
+                      f"{DTOA_ABS_LIMIT:g} 护栏/转换后 N<0 哨兵"),
         "out_of_domain": "静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编",
         "shortest_roundtrip": "未实现（全量 _dtoa/Ryū-Grisu 属 S3c+；0.1 类/×÷产 float/科学计数法仍拒）",
     }
@@ -756,16 +762,20 @@ def _load_frac(buf: _Buf, xmm: int, typ: str, disp: int) -> None:
         buf.raw(0xF2, 0x48, 0x0F, 0x2A, 0x40 | (xmm << 3) | 3, disp & 0xFF)   # cvtsi2sd xmm,[rbx+disp8]
 
 
-def _emit_fbinop(buf: _Buf, sym: str, ta: str, tb: str, is_cmp: bool) -> None:
+def _emit_fbinop(buf: _Buf, sym: str, ta: str, tb: str, is_cmp: bool, i: int) -> None:
     """P-c2 S2：SSE2 标量浮点算术（addsd/subsd/mulsd/divsd）与比较（ucomisd+setcc）。
 
     算术产运行期 float（输出需 _dtoa，未就绪按 Q1 如实拒）；比较产 bool（可直接输出），
     故 S2 的算术/比较以「比较消费 float」形态外部可验。NaN 护栏：ucomisd 无序时 ZF=CF=PF=1，
     故 <,<=,>,>=,== 需「无序→强制 0」、!= 需「无序→强制 1」（对齐 Python：除 != 外 NaN 比较均 False）。
     除零：divsd 产 ±inf，与 VM（ZeroDivisionError 参考失败）存在已登记分歧，不伪对齐。
+    P-c2 S4b：`//` / `%` 取整除与求余转 `_emit_findiv`（商/余均可打印且逐字节对 VM 一致）。
     """
+    if sym in ("//", "%"):
+        _emit_findiv(buf, sym, ta, tb, i)
+        return
     if sym not in _FCMP_SETCC and sym not in ("+", "-", "*", "/"):
-        raise NativeNotSupported(f"BINOP {sym!r} 越 float/SSE 域（// % 取整语义属 P-c2 后续）：{ta},{tb}")
+        raise NativeNotSupported(f"BINOP {sym!r} 越 float/SSE 域（取整/求余由 S4b 接管）：{ta},{tb}")
     if ta not in ("int", "bool", "float", "floatq") or tb not in ("int", "bool", "float", "floatq"):
         raise NativeNotSupported(f"BINOP {sym!r} 操作数需 int/bool/float：{ta},{tb}")
     _load_frac(buf, 0, ta, -16)                                # xmm0 ← a（栈顶下槽）
@@ -784,16 +794,115 @@ def _emit_fbinop(buf: _Buf, sym: str, ta: str, tb: str, is_cmp: bool) -> None:
         buf.raw(0x48, 0x83, 0xC3, 0x08)                        # add rbx,8
 
 
+def _f_abs_guard(buf: _Buf, xmm: int, oob: str) -> None:
+    """S4b：运行域护栏 |xmm| < DTOA_ABS_LIMIT（与 _dtoa 乘法前护栏同口径）：越界/无序 → oob。
+
+    暂存 xmm6（abs 值）/xmm7（阈），只借 rax/rcx，不碰 rbx/rbp/r12。"""
+    mov_imm64(buf, _REG["rcx"], 0x7FFFFFFFFFFFFFFF)             # movabs rcx,清符掩码
+    buf.raw(0x66, 0x48, 0x0F, 0x7E, 0xC0 | (xmm << 3))          # movq rax,xmm{xmm}（reg=xmm, rm=rax）
+    buf.raw(0x48, 0x21, 0xC8)                                   # and rax,rcx（abs 位型）
+    buf.raw(0x66, 0x48, 0x0F, 0x6E, 0xC0 | (6 << 3))            # movq xmm6,rax
+    mov_imm64(buf, _REG["rax"], _LIMIT_BITS)                    # movabs rax,9e9 位型
+    buf.raw(0x66, 0x48, 0x0F, 0x6E, 0xC0 | (7 << 3))            # movq xmm7,rax
+    buf.raw(0x66, 0x0F, 0x2E, 0xF7)                             # ucomisd xmm6,xmm7
+    buf.jcc(_JAE, oob)                                          # ≥9e9 → 越域如实失败
+    buf.jcc(_JP, oob)                                           # 无序兜底
+
+
+def _emit_findiv(buf: _Buf, sym: str, ta: str, tb: str, i: int) -> None:
+    """P-c2 S4b：浮点取整除 `//` 与求余 `%` 的运行期 SSE2 机器码（逐字节对齐 VM/CPython）。
+
+    口径（CPython：float_floor_div = floor(iv/fv)；float_mod = 精确余数且零余数符号随除数）：
+      1) 除零护栏：xorpd 造 +0.0 → ucomisd b,0 → jp/je → oob。VM 对 x//0、x%0 抛 MathaRuntimeError，
+         本侧 exit_group(1) 同为「如实失败」（不同于 S2 `/` 的 ±inf 分歧，此处两边皆失败）。
+      2) 域护栏 `_f_abs_guard`：|a|、|b| 均须 <DTOA_ABS_LIMIT（与 _dtoa 同口径），因为 4) 的精确性证明依赖此界。
+      3) q = divsd a,b（与 CPython 同一次正确舍入的 IEEE 除法）→ t = cvttsd2si q（向零截断）
+         → INDEFINITE 哨兵（t==0x8000000000000000，覆盖 NaN 与超 int64）→ oob
+         → 比回：comisd q,(double)t；若 q < t（负非整）→ dec t（向 -inf 修正，即 floor）。
+      4) `//` 结果 = (double)t；若 t==0 → 或上 q 的符号位（floor(-0.0) = -0.0 对齐 Python）。
+         `%` 结果 r = a - t·b：域内（a=m/2^d、b=n/2^e，d,e≤6，|a|<9e9）有 t·n ≤ |a|·2^e < 2^39
+         → t·b 与 a - t·b 均无舍入精确，故与 CPython 的精确余数逐位相同；若 r 为 ±0.0（用 add rax,rax
+         判零，丢符位后为 0 仅 ±0.0，连次正规也不误判）→ 强制取 b 的符号（Python 零余数随除数号）。
+    域约束：`//` 与 `%` 均仅接受 int/bool/floatq 操作数。越域 float 的 `//` 必须静态如实拒——
+    CPython 的 float_floor_div 取的是**精确有理商**的 floor，而非 floor(fl(a/b))：实测
+    0.001/0.0001 == 10.0 而 0.001//0.0001 == 9.0、1.0//0.1 == 9.0、0.3//0.1 == 2.0，
+    本侧 divsd 路径给 10.0/10.0/3.0 与之分歧（要 faithful 需有理数/多精度路线，属 S4c+）；
+    越域 float 的 `%` 同理无法证明余数逐字节精确。域内 int 操作数经 cvtsi2sd 精确，语义与
+    整数域一致，结果仍归 floatq。
+    寄存器：rax/rcx/rdx + xmm0(q/结果)/xmm1(b)/xmm2/xmm3(仅 %: 存 a)/xmm6-xmm7(护栏)；不碰 rbx/rbp/r12。
+    """
+    oob = f"fd_oob{i}"
+    if ta not in ("int", "bool", "float", "floatq") or tb not in ("int", "bool", "float", "floatq"):
+        raise NativeNotSupported(f"BINOP {sym!r} 操作数需 int/bool/float：{ta},{tb}")
+    if sym in ("//", "%") and (ta not in ("int", "bool", "floatq") or tb not in ("int", "bool", "floatq")):
+        raise NativeNotSupported(
+            f"{sym} 仅支持 int/bool/floatq 精确域操作数（越域 float 需精确有理商 floor 语义，"
+            f"逐字节 faithful 属 S4c+）：{ta},{tb}")
+    _load_frac(buf, 0, ta, -16)                                 # xmm0 ← a
+    _load_frac(buf, 1, tb, -8)                                  # xmm1 ← b
+    buf.raw(0x48, 0x83, 0xEB, 0x10)                             # sub rbx,16（弹二）
+    if sym == "%":
+        buf.raw(0x66, 0x0F, 0x28, 0xD8)                         # movapd xmm3,xmm0（存 a 备 r=a-t·b）
+    buf.raw(0x66, 0x0F, 0x57, 0xD2)                             # xorpd xmm2,xmm2（+0.0）
+    buf.raw(0x66, 0x0F, 0x2E, 0xCA)                             # ucomisd xmm1,xmm2（b vs 0）
+    buf.jcc(_JP, oob)
+    buf.jcc(JE, oob)
+    _f_abs_guard(buf, 0, oob)                                   # |a| 域护栏（// 与 % 同需：结果须经 _dtoa 可印）
+    _f_abs_guard(buf, 1, oob)                                   # |b| 域护栏
+    buf.raw(0xF2, 0x0F, 0x5E, 0xC1)                             # divsd xmm0,xmm1 → q
+    buf.raw(0x66, 0x48, 0x0F, 0x7E, 0xC1)                       # movq rcx,xmm0（q 位型：备零商符号）
+    buf.raw(0xF2, 0x48, 0x0F, 0x2C, 0xC0)                       # cvttsd2si rax,xmm0（t=trunc(q)）
+    mov_imm64(buf, _REG["rdx"], -0x8000000000000000)             # movabs rdx,0x8000000000000000（哨兵）
+    buf.raw(0x48, 0x39, 0xD0)                                   # cmp rax,rdx（rm=rax, reg=rdx）
+    buf.jcc(JE, oob)                                            # NaN/超 int64 → 如实失败
+    buf.raw(0xF2, 0x48, 0x0F, 0x2A, 0xD0)                       # cvtsi2sd xmm2,rax（(double)t）
+    buf.raw(0x66, 0x0F, 0x2E, 0xC2)                             # comisd xmm0,xmm2（q vs t）
+    buf.jcc(_JAE, f"fd_ok{i}")                                  # CF=0（q ≥ t，有序）→ 免修正；CF=1（q<t）落下 dec
+    buf.raw(0x48, 0xFF, 0xC8)                                   # dec rax（负非整 → 向 -inf 降一档）
+    buf.here(f"fd_ok{i}")
+    if sym == "//":
+        buf.raw(0xF2, 0x48, 0x0F, 0x2A, 0xC0)                   # cvtsi2sd xmm0,rax（整值商回双）
+        buf.raw(0x48, 0x85, 0xC0)                               # test rax,rax
+        buf.jcc(JNZ, f"fd_st{i}")
+        buf.raw(0x48, 0xC1, 0xE9, 63)                           # shr rcx,63（q 符号位）
+        buf.raw(0x48, 0xC1, 0xE1, 63)                           # shl rcx,63（→ 0 或 0x8000…）
+        buf.raw(0x66, 0x48, 0x0F, 0x6E, 0xD1)                   # movq xmm2,rcx
+        buf.raw(0x66, 0x0F, 0x56, 0xC2)                         # orpd xmm0,xmm2（零商随 q 号）
+    else:
+        buf.raw(0xF2, 0x48, 0x0F, 0x2A, 0xD0)                   # cvtsi2sd xmm2,rax（(double)n）
+        buf.raw(0xF2, 0x0F, 0x59, 0xD1)                         # mulsd xmm2,xmm1（n·b：域内精确）
+        buf.raw(0x66, 0x0F, 0x28, 0xC3)                         # movapd xmm0,xmm3（a）
+        buf.raw(0xF2, 0x0F, 0x5C, 0xC2)                         # subsd xmm0,xmm2（r=a-n·b：精确）
+        buf.raw(0x66, 0x48, 0x0F, 0x7E, 0xC0)                   # movq rax,xmm0（r 位型）
+        buf.raw(0x48, 0x01, 0xC0)                               # add rax,rax（仅 ±0.0 归零）
+        buf.jcc(JNZ, f"fd_st{i}")
+        buf.raw(0x66, 0x48, 0x0F, 0x7E, 0xC9)                   # movq rcx,xmm1（b 位型）
+        buf.raw(0x48, 0xC1, 0xE9, 63)                           # shr rcx,63
+        buf.raw(0x48, 0xC1, 0xE1, 63)                           # shl rcx,63
+        buf.raw(0x66, 0x48, 0x0F, 0x6E, 0xC1)                   # movq xmm0,rcx（零余数随除数号）
+    buf.here(f"fd_st{i}")
+    buf.raw(0x66, 0x0F, 0x11, 0x03)                             # movsd [rbx],xmm0（结果回栈）
+    buf.raw(0x48, 0x83, 0xC3, 0x08)                             # add rbx,8
+    buf.jmp(f"fd_end{i}")                                      # 跳过越域跳板（否则落下即 exit1）
+    buf.here(oob)
+    buf.jmp("exit1")                                            # 除零/越域：exit_group(1) 如实失败
+    buf.here(f"fd_end{i}")
+
+
 def _emit_binop(buf: _Buf, sym: str, typ: list, i: int) -> None:
     if len(typ) < 2:
         raise NativeNotSupported(f"BINOP {sym!r}：操作数栈不足")
     tb, ta = typ[-1], typ[-2]
     is_cmp = sym in _CMP_SETCC
     if sym == "/" or "float" in (ta, tb) or "floatq" in (ta, tb):   # P-c2 S2/S3a：'/' 真除与 float/floatq 域操作数走 SSE2
-        _emit_fbinop(buf, sym, ta, tb, is_cmp)
+        _emit_fbinop(buf, sym, ta, tb, is_cmp, i)
         typ.pop(); typ.pop()
         if is_cmp:
             typ.append("bool")
+        elif sym in ("//", "%"):
+            # S4b：// 商为整值 double（既约分母 d=0）、% 余数 = a - n·b（分母 ≤2^6 且 |r|<|b|）→ 均属 floatq；
+            #       |v|≥9e9 的越界由 _dtoa 乘法前护栏 exit1 如实失败（不瞎编）
+            typ.append("floatq")
         elif (sym in ("+", "-") and all(x in ("int", "bool", "floatq") for x in (ta, tb))
                 and any(x == "floatq" for x in (ta, tb))):
             typ.append("floatq")                       # S3a：精确十进制域对 + - 封闭（int 操作数分母 1）
