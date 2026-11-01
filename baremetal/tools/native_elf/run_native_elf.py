@@ -171,6 +171,23 @@ let s = "hello"
 #1：[len(s[2])]
 #1：[s[0] + s[4]]
 """,
+    # ---- P-c1 N2：同质 int/bool 列表整表 repr 输出 ----
+    "c6_int_list_repr": """\
+let l = [1, 2, 3]
+#1：[l]
+let m = [10, -3, 0, 7]
+#1：[m]
+let e = []
+#1：[e]
+""",
+    "c7_bool_list_repr": """\
+let b = [1 < 2, 2 < 1, 3 < 4]
+#1：[b]
+let l = [5, 10, 15]
+#1：[l]
+#1：[len(l)]
+#1：[l[1]]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -184,7 +201,7 @@ REJECT_CASES = {
     # ---- P-b 越界集外：嵌套/混合/整表输出/切片/字典/int 下标 ----
     "r7_nested_list": "#1：[len([[1, 2], [3]])]\n",
     "r8_mixed_list": "#1：[len([1, 2 < 1])]\n",
-    "r9_list_repr_output": "let l = [1, 2]\n#1：[l]\n",
+    "r9_str_list_repr": 'let l = ["a"]\n#1：[l]\n',
     "r10_slice": "let l = [1, 2, 3]\n#1：[l[0:2]]\n",
     "r11_dict": "#1：[len({\"a\": 1})]\n",
     "r12_int_subscript": "#1：[5[0]]\n",

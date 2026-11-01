@@ -24,8 +24,9 @@ P-b（列表 + bump 堆，见 docs/spec/NATIVE_ELF_PB.md）：
   N3  列表 × 算术 × 控制流组合；N4 Gate 扩例（13 正 + 12 拒 + 3 越界行为）
 P-c1（字符串垂直切片，见 docs/spec/NATIVE_ELF_PC.md）：
   N0  PUSH_CONST str（堆串对象 [len:8B][bytes]）+ OUTPUT print_str（裸串无引号）+ len(str)
-  N1  str+str 连接（str_concat/rep movsb）+ str ==/!= 比较（str_eq/repe cmpsb）+ s[i] 取子串（正/负/越界 exit1）  ← 本文件当前
-列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）；str×数值连接（需 itoa）/整表 repr/异构列表 属 P-c1 后续。
+  N1  str+str 连接（str_concat/rep movsb）+ str ==/!= 比较（str_eq/repe cmpsb）+ s[i] 取子串（正/负/越界 exit1）
+  N2  同质 int/bool 整表 repr 输出（plr_int/plr_bool 运行期循环 `[e0, e1, …]`，无换行由 OUTPUT 追加）  ← 本文件当前
+列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）；str×数值连接（需 itoa）/str 列表 repr（需 Python 引号选择+转义）/异构列表 属 P-c1 后续。
 集合之外的构造（非 ASCII 串 / 浮点 / 字典 / 闭包 / 异常）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
 from __future__ import annotations
@@ -227,6 +228,11 @@ JE, JNE, JZ, JNZ, JS, JNS, JL, JGE, JLE, JG = (
 NL_OFF = NUMBUF_SIZE                 # 64：单字节 '\n'（每条 OUTPUT 行尾）
 TRUE_OFF = NL_OFF + 1                # 65："True"（4）
 FALSE_OFF = TRUE_OFF + 4             # 69："False"（5）
+# P-c1 N2：列表 repr 字面量（紧随 "False" 后，均处于 VSP_OFF=0x100 前的空洞）
+LB_OFF = FALSE_OFF + 5               # 74：'['
+RB_OFF = LB_OFF + 1                  # 75：']'
+Q_OFF = RB_OFF + 1                   # 76："'"（str 元素引号）
+CMA_OFF = Q_OFF + 1                  # 77：", "（逗号+空格，连续 2 字节供 write_span）
 VSP_OFF = 0x100                       # 操作数栈起点（对齐，前面留空洞）
 GVARS_OFF = 0x20000                   # 全局槽区起点（避开 64KB 操作数栈）；.bss 零页
 HEAP_OFF = 0x30000                    # 堆起点（避开操作数栈/全局槽区）；.bss 零页，P-b 起用
@@ -234,6 +240,10 @@ HEAP_SIZE = 0x80000                   # 512KB bump 堆（P-b 只增不回收，G
 NL_ADDR = DATA_VADDR + NL_OFF
 TRUE_ADDR = DATA_VADDR + TRUE_OFF
 FALSE_ADDR = DATA_VADDR + FALSE_OFF
+LB_ADDR = DATA_VADDR + LB_OFF
+RB_ADDR = DATA_VADDR + RB_OFF
+Q_ADDR = DATA_VADDR + Q_OFF
+CMA_ADDR = DATA_VADDR + CMA_OFF
 VSP_ADDR = DATA_VADDR + VSP_OFF
 GVARS_ADDR = DATA_VADDR + GVARS_OFF   # 每个全局名一个 8 字节槽（slot 索引 → +8*slot）
 HEAP_ADDR = DATA_VADDR + HEAP_OFF     # bump 堆首地址（r12 初始值）
@@ -398,6 +408,23 @@ def _pop2_rcx_rax(buf: _Buf) -> None:             # 弹栈顶二槽：b→rcx、
     buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)    # sub rbx,8; mov rax,[rbx]
 
 
+def _test_reg_reg(buf: _Buf, a: int, b: int) -> None:    # test a,b（85 /r：reg=b rm=a）
+    rex = 0x48 | (0x04 if b >= 8 else 0) | (0x01 if a >= 8 else 0)
+    buf.raw(rex, 0x85, 0xC0 | ((b & 7) << 3) | (a & 7))
+
+
+def _zero_reg(buf: _Buf, r: int) -> None:                # xor r,r（31 /r mod=11）
+    rex = 0x48 | (0x04 if r >= 8 else 0) | (0x01 if r >= 8 else 0)
+    buf.raw(rex, 0x31, 0xC0 | ((r & 7) << 3) | (r & 7))
+
+
+def _load_elem_rax(buf: _Buf, base: int, index: int) -> None:   # mov rax,[base+index*8+8]（表元素载入）
+    # 与列表 INDEX_GET 同族 SIB：scale=8（bits 11<<6=0xC0）；base/index 高位需 REX.B/REX.X
+    # ModRM=0x44（mod=01 disp8、reg=000=rax、rm=100=SIB），非 0x4C（那会把目的寄存器写成 rcx）
+    rex = 0x48 | (0x02 if index >= 8 else 0) | (0x01 if base >= 8 else 0)
+    buf.raw(rex, 0x8B, 0x44, 0xC0 | ((index & 7) << 3) | (base & 7), 0x08)
+
+
 def _emit_runtime(buf: _Buf) -> None:
     """发射 write_span / print_int / print_bool 三个子程序（不触碰 rbx 栈指针）。"""
     # exit1：运行期越界（如 INDEX_GET 越界）退出码 1，镜像 VM 未捕获 IndexError
@@ -521,6 +548,50 @@ def _emit_runtime(buf: _Buf) -> None:
     buf.here("se_eq")
     mov_imm32(buf, _REG["rax"], 1)                   # mov rax,1
     buf.here("se_ret")
+    buf.raw(0xC3)
+
+    # plr_int：rax=listptr（int 元素）→ 输出 Python list repr `[e0, e1, …]`（无换行，OUTPUT 统一追加）
+    #   循环态 r13=sptr/r14=n/r15=i 全程不被 print_int/write_span 触碰
+    buf.here("plr_int")
+    _mov_reg_reg(buf, 13, 0)                          # mov r13,rax
+    _mov_reg_mem(buf, 14, 0, 0)                       # mov r14,[rax]（n）
+    _zero_reg(buf, 15)                                # xor r15,r15（i=0）
+    mov_imm64(buf, _REG["rsi"], LB_ADDR); mov_imm32(buf, _REG["rdx"], 1); buf.call("write_span")   # '['
+    buf.here("pli_loop")
+    _cmp_reg_reg(buf, 15, 14)                         # cmp r15,r14
+    buf.jcc(JGE, "pli_end")
+    _test_reg_reg(buf, 15, 15)                        # test r15,r15
+    buf.jcc(JZ, "pli_nosep")
+    mov_imm64(buf, _REG["rsi"], CMA_ADDR); mov_imm32(buf, _REG["rdx"], 2); buf.call("write_span")  # ", "
+    buf.here("pli_nosep")
+    _load_elem_rax(buf, 13, 15)                       # mov rax,[r13+r15*8+8]
+    buf.call("print_int")
+    _add_reg_imm32(buf, 15, 1)                        # add r15,1
+    buf.jmp("pli_loop")
+    buf.here("pli_end")
+    mov_imm64(buf, _REG["rsi"], RB_ADDR); mov_imm32(buf, _REG["rdx"], 1); buf.call("write_span")   # ']'
+    buf.raw(0xC3)
+
+    # plr_bool：同上，元素 0/1 → print_bool（'True'/'False'）
+    buf.here("plr_bool")
+    _mov_reg_reg(buf, 13, 0)
+    _mov_reg_mem(buf, 14, 0, 0)
+    _zero_reg(buf, 15)
+    mov_imm64(buf, _REG["rsi"], LB_ADDR); mov_imm32(buf, _REG["rdx"], 1); buf.call("write_span")
+    buf.here("plb_loop")
+    _cmp_reg_reg(buf, 15, 14)
+    buf.jcc(JGE, "plb_end")
+    _test_reg_reg(buf, 15, 15)
+    buf.jcc(JZ, "plb_nosep")
+    mov_imm64(buf, _REG["rsi"], CMA_ADDR); mov_imm32(buf, _REG["rdx"], 2); buf.call("write_span")
+    buf.here("plb_nosep")
+    _load_elem_rax(buf, 13, 15)
+    _mov_reg_reg(buf, 7, 0)                           # mov rdi,rax
+    buf.call("print_bool")
+    _add_reg_imm32(buf, 15, 1)
+    buf.jmp("plb_loop")
+    buf.here("plb_end")
+    mov_imm64(buf, _REG["rsi"], RB_ADDR); mov_imm32(buf, _REG["rdx"], 1); buf.call("write_span")
     buf.raw(0xC3)
 
 
@@ -734,8 +805,11 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                 buf.raw(0x48, 0x8B, 0x7B, 0xF8); buf.call("print_bool")    # mov rdi,[rbx-8]
             elif t == "str":
                 buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("print_str")     # mov rax,[rbx-8]（sptr）
+            elif isinstance(t, tuple) and t[0] == "list" and t[1] in ("int", "bool"):
+                buf.raw(0x48, 0x8B, 0x43, 0xF8)                         # mov rax,[rbx-8]（listptr）
+                buf.call("plr_int" if t[1] == "int" else "plr_bool")   # P-c1 N2：同质 int/bool 整表 repr
             else:
-                raise NativeNotSupported(f"OUTPUT 不支持值型 {t!r}（null/列表整表 repr 属后续，P-c1）")
+                raise NativeNotSupported(f"OUTPUT 不支持值型 {t!r}（null/str 列表 repr/嵌套表属后续，P-c1）")
             buf.raw(0x48, 0x83, 0xEB, 0x08)                          # sub rbx,8（弹）
             mov_imm64(buf, _REG["rsi"], NL_ADDR); mov_imm32(buf, _REG["rdx"], 1)
             buf.call("write_span")                                   # 行尾 LF
@@ -866,6 +940,10 @@ def _build_data() -> bytearray:
     seg[NL_OFF] = 0x0A
     seg[TRUE_OFF:TRUE_OFF + 4] = b"True"
     seg[FALSE_OFF:FALSE_OFF + 5] = b"False"
+    seg[LB_OFF] = 0x5B                         # '['
+    seg[RB_OFF] = 0x5D                         # ']'
+    seg[Q_OFF] = 0x27                          # "'"
+    seg[CMA_OFF:CMA_OFF + 2] = b", "           # ', '
     return seg
 
 
