@@ -269,6 +269,25 @@ while s < 1.5 {
 }
 #1：[s]
 """,
+    # ---- P-c2 S4a：float/floatq 真值判定（位域判零；越域 float 值亦可判，输出仍拒）----
+    "c16_float_truthiness": """\
+let x = 1.5
+let z = 0.0
+let nz = -z
+#1：[not x]
+#1：[not z]
+#1：[not nz]
+let s = 0.0
+let t = 0
+while not (s >= 1.5) {
+  s = s + 0.5
+  t = t + 1
+}
+#1：[t]
+#1：[s]
+let w = 0.1
+#1：[not w]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -282,9 +301,9 @@ REJECT_CASES = {
     # ---- P-c2 S1 越界集外：`/` 真除/越域 float 算术（需全量 _dtoa）----
     "r15_int_truediv": "#1：[7 / 2]\n",
     "r16_float_mul_demote": "let x = 0.5\n#1：[x * 1.0]\n",  # × 降级 float（非精确域）→拒
-    # ---- P-c2 S2 越界集外：浮点取整/真值判定未就绪 ----
+    # ---- P-c2 S2 越界集外：浮点取整/求余未就绪（S4b）----
     "r17_float_floordiv": "#1：[1.5 // 2]\n",
-    "r18_not_float": "let x = 1.5\n#1：[not x]\n",
+    "r18_float_mod": "let a = 1.5\nlet b = 2.0\n#1：[a % b]\n",
     # ---- P-b 越界集外：嵌套/混合/整表输出/切片/字典/int 下标 ----
     "r7_nested_list": "#1：[len([[1, 2], [3]])]\n",
     "r8_mixed_list": "#1：[len([1, 2 < 1])]\n",

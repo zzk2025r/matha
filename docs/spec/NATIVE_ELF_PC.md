@@ -164,6 +164,8 @@ P-c 新增：`"str"`（堆串指针）、`"float"`（IEEE-754 值，P-c2）；`(
 > ②**dtoa 机器码行为不变优化**：小数串 `.<digits>` 逐位缓冲进 numbuf 低端后【单次 `write_span`】统一输出（每位不再一次 `write` syscall + `movabs` 重置 rsi，每浮点小数段 syscall 从 ≤7 降至 1）；定标环改为数据段 **POW10 表**（10^5..10^0，末置 0 哨兵）逐档 `+8` 取除数，**每位 64 位除法由 2→ 1**（去 `scale/=10`）；`mov ecx,10` 由每轮发射外提为一次。寄存器纪律不变（仅 rax/rcx/rdx/rsi/rdi/r10/r11/r13/r14/r15）。
 > **验证**：探针 `.trae/pc2_s3_verify.py` 除原 15 运行期正例外，新增**全域差分扇描**（单程序 50 个 floatq 全局，覆盖各定标档 2^-1..2^-6/前导零/大整部/负值/上界近邻）vm==elf==`\n.join(str(v))` **逐字节全等**，坐实精度声明；失败 0。Gate 不变 **28 正 + 18 拒 + 5 越界**（失败 0）。`core_py_lines` 32,877→32,907。
 
+> **P-c2 S4a 实况（本次，`not float/floatq` 真值判定——低风险切片首刀）**：遵用户选定方向（暂缓风险最高的 S3c，先推低风险浮点功能），本轮只动一个叶子且**零风险面**：真值判定在**位域**上完成，不涉 `_dtoa`、不涉 SSE 算术、不涉新常量。`UNARYOP not` 对 `float/floatq`：弹出 8 字节 double 位型 → `movabs rcx,0x7FFF_FFFF_FFFF_FFFF; and rax,rcx`（清符）→ `test rax,rax; sete al; movzx` → 产 bool。数学口径：**|bits|=0 ⇔ ±0.0 ⇔ Python `bool(v)==False`**；NaN/inf 位域非零→真 ✓（与 Python 一致），故**越域 float（0.1 类）也能判定**——“可判不可印”边界不变。域外行为：`not 串/列表` 仍 `NativeNotSupported` 如实拒。**新增能力**：`not 0.0`→True、`not -0.0`→True、`not 1.5`→False、`not 0.1`→False，以及 `while not (s >= 1.5) {…}` 浮点驱动循环。**验证**：探针 `.trae/pc2_s4a_verify.py` 11 正例（含越域值/循环条件/折叠路径回归）+ 4 拒例，WSL 实跑逐字节对拍失败 0；Gate **29 正（+c16_float_truthiness）+ 18 拒（r18 由 not_float 改 float_mod）+ 5 越界**，失败 0。`core_py_lines` 32,907→32,921。（`//`/`%` 浮点取整属 S4b；全量 `_dtoa`/最短往返属 S3c，风险拆解另见后续登记）。
+
 ### N3：GC / 动态堆（P-c3 · 独立立项，Q3 拍板）
 - 仅当连接循环 / 字典扩容产生真实堆耗尽需求时启动。选型见 §2.3(b)/(c)。
 - 需要**对象头统一**（类型标签 + 块大小）以支持 mark-sweep 的标记/清扫——这与 P-b/P-c1「无运行期类型标签」是**架构分歧点**，

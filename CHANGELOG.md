@@ -1,5 +1,35 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c2 S4a：not float 真值判定（位域判零，低风险切片首刀）（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-02
+
+### 背景
+
+S3a/S3b 已交付域内浮点输出与其精度声明。用户选定下一步方向：**暂缓风险最高的 S3c（最短往返十进制）**，
+先推低风险的其它 P-c 浮点功能。S4a 选其中风险最小的一刀：`not float/floatq` 真值判定——不涉 `_dtoa`、
+不涉 SSE 算术、不涉新常量，只在**位域**上判零。铁律不变：不碰 `native.py` 主体、覆盖集外一律 `NativeNotSupported`
+显式拒、越域运行期不瞎编。
+
+### 变更
+
+1. **`src/mbc/native_elf.py`**：`_emit_unop` 的 `not` 分支新增 `float/floatq` 路径：弹出 8 字节 double 位型 →
+   `movabs rcx,0x7FFF_FFFF_FFFF_FFFF; and rax,rcx`（清符）→ `test rax,rax; sete al; movzx eax,al` → 产 `bool`。
+   口径：**位域绝对值为 0 ⇔ 值为 ±0.0 ⇔ Python `bool(v)==False`**；NaN/inf 位域非零→真（与 Python 一致）。
+   因此**越域 float（0.1 类）也可判定**——判定与输出解耦，“可判不可印”边界不变；`not 串/列表` 仍如实拒。
+   模块 docstring 能力轨迹追 S4a 行并移除“not float 真值判定同拒”旧口径。
+2. **`baremetal/tools/native_elf/run_native_elf.py`（Gate，不入门禁）**：新增正例 `c16_float_truthiness`
+   （`not 1.5`/`not 0.0`/`not -0.0` + `while not (s >= 1.5)` 浮点驱动循环 + `not 0.1`）；负向 `r18` 由
+   `not_float`（已转正）改为 `float_mod`（`%` 属 S4b，仍拒）。
+3. **文档**：`docs/spec/NATIVE_ELF_PC.md` 追 P-c2 S4a 实况块；`docs/ARCHITECTURE.md` `core_py_lines` 32,907→32,921。
+
+### 口径
+
+- 探针 `.trae/pc2_s4a_verify.py`（gitignore，不入库）：11 运行期/回归正例 + 4 必拒例，WSL Ubuntu 实跑逐字节对拍
+  VM，**失败 0**（含 `not -0.0`→True、`not 0.1`→False、`while not (s >= 1.5)` 循环→`3`/`1.5`）。
+- Gate：**29 正 + 18 拒 + 5 越界行为例，失败 0**；三门禁全绿（doc_facts 18 + purity 14、dep_audit 违规 0）。
+- 能力轨迹：… S3a(267f051) → S3b(d912820) → **S4a(本次)**；`//`/`%` 浮点取整属 S4b，全量 `_dtoa`/最短往返仍属 S3c。
+
 ## native 跨平台 P-c2 S3b：保底 _dtoa 优化 + 精度声明登记（阶段3-3 ④ native 跨平台）
 
 **日期**：2026-11-02

@@ -34,8 +34,11 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
      经静态打标（字面量谓词 + 对 + - neg 封闭，* / 及越域降级 float），运行期 dtoa 叶例定点展开（×1e6 精确成整
      → int/frac 拆分 → 去尾零）逐字节=str(v)；越域运行期哨兵 → exit1 如实失败
   S3b 保底 _dtoa 优化 + 精度声明登记（域与输出字节零变更）：小数串缓冲单次 write_span、POW10 定标表去 scale/=10
-     除法、循环不变量外提；dtoa_precision_declaration() 显式登记域/soundness/边界（与 _floatq_domain 单一事实源）  ← 本文件当前
-（越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3c+）按 Q1 如实拒；`//`/`%` 浮点取整、not float 真值判定同拒；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
+     除法、循环不变量外提；dtoa_precision_declaration() 显式登记域/soundness/边界（与 _floatq_domain 单一事实源）
+  S4a not float/floatq 真值判定（零 _dtoa/零 SSE）：弹出 double 位型 → and 清符掩码 → test 判零 ⇔ ±0.0 为假、
+     非零（含越域 0.1 类、NaN、inf）为真，逐字节对 VM 一致；产出 bool 可直接输出/驱动分支。值能否“被打印”与本
+     判定无关（越域 float 可判不可印，边界不变）  ← 本文件当前
+（越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3c+）按 Q1 如实拒；`//`/`%` 浮点取整属 S4b；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及未就绪的运行期 float 算术·比较·输出）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
@@ -855,8 +858,19 @@ def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
         _push_rax(buf)
         typ.pop(); typ.append("int")
     elif sym == "not":
-        if t not in ("int", "bool"):                            # float/-0.0/串等真值语义需额外机器（属后续），如实拒
-            raise NativeNotSupported(f"not 操作数需 int/bool：{t!r}（float 真值判定属 P-c2 后续）")
+        if t in ("float", "floatq"):                             # P-c2 S4a：真值判定在位域上做，不涉 _dtoa/算术
+            # |尾数+指数位| == 0 ⇔ ±0.0 ⇔ Python bool(v)==False；NaN/inf 位域非零 → 真 ✓（越域 float 也可判定）
+            buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]（double 位型）
+            mov_imm64(buf, _REG["rcx"], 0x7FFFFFFFFFFFFFFF)             # movabs rcx,清符掩码
+            buf.raw(0x48, 0x21, 0xC8)                                   # and rax,rcx（abs 位型：mod=11 reg=rcx rm=rax）
+            buf.raw(0x48, 0x85, 0xC0)                                   # test rax,rax
+            buf.raw(0x0F, 0x94, 0xC0)                                   # sete al（±0.0 → 1）
+            buf.raw(0x0F, 0xB6, 0xC0)                                   # movzx eax,al
+            _push_rax(buf)
+            typ.pop(); typ.append("bool")
+            return
+        if t not in ("int", "bool"):                            # 串等其它值型真值语义需额外机器，如实拒
+            raise NativeNotSupported(f"not 操作数需 int/bool/float：{t!r}（串真值判定属后续）")
         buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # pop→rax
         buf.raw(0x48, 0x85, 0xC0)                                    # test rax,rax
         buf.raw(0x0F, 0x94, 0xC0)                                    # sete al（==0→1）
