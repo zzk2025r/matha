@@ -15,12 +15,14 @@ docs/symbolic_parity.md 打印层偏差)。
 
 框架范围与后续扩展点：
   当前能力 = ① 二次/有理塌缩(小高度极小多项式识别);② 多根式直和 ℚ(√d1,…,√dk)
-  (SurdVector 结构还原,如 √2+√3);③ 高次纯根 base^(1/n);④ 复代数数 a+b√d 且
-  d<0(按虚部 i 拆分,实部纯有理 + 虚部单一实二次根式)。
+  (SurdVector 结构还原,如 √2+√3);③ 高次纯根 base^(1/n);④ 高次代数数——单一
+  纯根式域 ℚ(ⁿ√m)(n≥3)内的线性组合(如 ∛2 + ∛4);⑤ 复代数数 a+b√d 且 d<0
+  (按虚部 i 拆分,实部纯有理 + 虚部单一实二次根式)。
   TODO(框架预留):
-    - 一般高次代数数:接 ``numpy.roots`` 风格或有理根 / 极小多项式求解(仍宜留在
-      插件层);当前仅纯高次根 base^(1/n) 与复二次数可精确,混合高次诚实回 None。
-    - 复数域上有理化的分式(如 1/(1+i))、双虚基(√-1+√-2)、复数开方 —— 越界回 None。
+    - 多生成元高阶域(如 ∛2+∛3、∛2+√3)、一般高次极小多项式的根式解(Cardano 以外)
+      —— 仍宜留在插件层;当前只认单一纯根式域内的结构,混合一律诚实回 None。
+    - 域内一般除法(需 ℚ[x]/(xⁿ-m) 扩展欧几里得求逆)、复数域上有理化的分式(如
+      1/(1+i))、双虚基(√-1+√-2)、复数开方 —— 越界回 None。
 """
 from __future__ import annotations
 
@@ -487,6 +489,230 @@ def _render_complex_quadratic(term: Term) -> str | None:
     return f"{a_str} - {core}" if c < 0 else f"{a_str} + {core}"
 
 
+# ============================================================
+# 高次代数数：单生成元纯根式域 ℚ(ⁿ√m)（n≥3）的结构精确还原（阶段 3）
+#   元素表示为 dict[j]=Fraction，语义 Σ c_j · g^j，其中 g = ⁿ√m（m 无 n 次幂因子）。
+#   这是 _mc_nthroot（单一纯根）向同域内线性组合的推广（如 ∛2 + ∛4 = ⁿ√2 的二次基展开）。
+#   以中性项树的**结构**为线索：只接受整棵树只落在单一 ℚ(ⁿ√m) 内（同 n、各根式基
+#   归约为同一 m 的整数幂）；混合异根（√2+∛2）、多生成元（∛2+∛3）、嵌套、符号一律回 None。
+# ============================================================
+
+
+def _nr_split(a: int, n: int) -> tuple[int, int]:
+    """非负整数 a 分解为 a = k^n · u，u 无 n 次幂因子（返回 (k, u)）。a==0 → (1, 1)。"""
+    if a <= 0:
+        return (1, 1)
+    fac: dict[int, int] = {}
+    x = a
+    d = 2
+    while d * d <= x:
+        while x % d == 0:
+            fac[d] = fac.get(d, 0) + 1
+            x //= d
+        d += 1
+    if x > 1:
+        fac[x] = fac.get(x, 0) + 1
+    k = 1
+    u = 1
+    for p, e in fac.items():
+        k *= p ** (e // n)
+        u *= p ** (e % n)
+    return (k, u)
+
+
+def _nr_find_generator(term: Term):
+    """扫描项树中所有 `base^(1/n)` 根式叶；要求同一 n 且归约基均为单一 m 的幂。
+
+    返回 (n, m)，m 为各根式无 n 次幂因子基的最小者（n≥3）；任一不满足回 None。
+    """
+    ns: set[int] = set()
+    us: set[int] = set()
+
+    def walk(t: Term) -> bool:
+        if isinstance(t, BinOp):
+            if t.op == "^" and isinstance(t.right, Const):
+                e = Fraction(t.right.value)
+                if e.numerator == 1 and isinstance(t.left, Const):
+                    nn = e.denominator
+                    if nn >= 3:
+                        if Fraction(t.left.value).denominator != 1:
+                            return False
+                        b = Fraction(t.left.value).numerator
+                        if b < 0 and nn % 2 == 0:
+                            return False
+                        ns.add(nn)
+                        _, uu = _nr_split(abs(b), nn)
+                        us.add(uu)
+                        return True
+            return all(walk(c) for c in (t.left, t.right))
+        if isinstance(t, UnaryOp):
+            if t.op == "sqrt":        # √ 属二次域，不混入高阶单根域
+                return False
+            return walk(t.operand)
+        return True
+
+    if not walk(term) or len(ns) != 1:
+        return None
+    n = next(iter(ns))
+    non_trivial = [u for u in us if u != 1]
+    if not non_trivial:
+        return None                    # 全为有理（已由二次/有理路径处理）
+    m = min(non_trivial)
+    for u in us:                       # 每个根式基必须是 m 的整数幂
+        if u == 1:
+            continue
+        mm, j = m, 1
+        while mm < u:
+            mm *= m
+            j += 1
+        if mm != u:
+            return None
+    return (n, m)
+
+
+def _nr_atom(r: Fraction, n: int, m: int):
+    """ⁿ√r（r 整数）→域向量 dict[j]=coef；r 归约为 k^n·m^j，否则越界 None。"""
+    r = Fraction(r)
+    if r.denominator != 1:
+        return None
+    b = r.numerator
+    if b == 0:
+        return {}
+    sign = 1
+    if b < 0:
+        if n % 2 == 0:
+            return None                # 负数偶次根非实
+        sign, b = -1, -b
+    k, u = _nr_split(b, n)
+    j = 0
+    mm = 1
+    while mm < u:
+        mm *= m
+        j += 1
+    if mm != u:                        # u 非 m 的幂 → 不在本域
+        return None
+    coef = Fraction(sign * k)
+    return {} if coef == 0 else {j: coef}
+
+
+def _nr_add(x, y, sign: int = 1):
+    if x is None or y is None:
+        return None
+    out = dict(x)
+    for j, c in y.items():
+        out[j] = out.get(j, Fraction(0)) + sign * c
+    return {j: c for j, c in out.items() if c != 0}
+
+
+def _nr_mul(x, y, n: int, m: int):
+    """g^i · g^k = g^{i+k} = m^{⌊(i+k)/n⌋} · g^{(i+k) mod n}（归约回基）。"""
+    if x is None or y is None:
+        return None
+    out: dict[int, Fraction] = {}
+    for i, a in x.items():
+        for k, b in y.items():
+            q, rem = divmod(i + k, n)
+            out[rem] = out.get(rem, Fraction(0)) + a * b * (m ** q)
+    return {j: c for j, c in out.items() if c != 0}
+
+
+def _nr_pow(base, p: int, n: int, m: int):
+    if base is None or p < 0 or p > 8:
+        return None
+    res: dict[int, Fraction] = {0: Fraction(1)}
+    for _ in range(p):
+        res = _nr_mul(res, base, n, m)
+        if res is None:
+            return None
+    return res
+
+
+def _nr_eval(term: Term, n: int, m: int):
+    """把项树解析为 ℚ(ⁿ√m) 域向量；越界（sqrt/多生成元/非整指数/复分母）回 None。"""
+    if isinstance(term, Const):
+        return {0: Fraction(term.value)}
+    if isinstance(term, Symbol):
+        return None
+    if isinstance(term, UnaryOp):
+        if term.op == "+":
+            return _nr_eval(term.operand, n, m)
+        if term.op == "-":
+            e = _nr_eval(term.operand, n, m)
+            return None if e is None else {j: -c for j, c in e.items() if c != 0}
+        return None                      # sqrt 不混入高阶域
+    if isinstance(term, BinOp):
+        if term.op == "^":
+            if isinstance(term.right, Const):
+                e = Fraction(term.right.value)
+                if e.numerator == 1 and e.denominator == n and isinstance(term.left, Const):
+                    return _nr_atom(Fraction(term.left.value), n, m)
+                if e.denominator == 1 and 0 <= e <= 8:
+                    return _nr_pow(_nr_eval(term.left, n, m), int(e), n, m)
+            return None
+        a = _nr_eval(term.left, n, m)
+        b = _nr_eval(term.right, n, m)
+        if a is None or b is None:
+            return None
+        if term.op == "+":
+            return _nr_add(a, b)
+        if term.op == "-":
+            return _nr_add(a, b, -1)
+        if term.op == "*":
+            return _nr_mul(a, b, n, m)
+        if term.op == "/":
+            if set(b) - {0}:             # 仅除以有理数（域内一般求逆不做）
+                return None
+            c = b.get(0, Fraction(0))
+            if c == 0:
+                return None
+            return {j: v / c for j, v in a.items() if v / c != 0}
+        return None
+    return None
+
+
+def _nr_to_str(vec, n: int, m: int) -> str | None:
+    """ℚ(ⁿ√m) 域向量 → 规范根式和串（有理首项，余按指数升序）。纯有理回 None。"""
+    if not vec or not any(j != 0 for j in vec):
+        return None
+
+    def mag(j: int) -> str:
+        c = abs(vec[j])
+        if j == 0:
+            return _frac_str(c)
+        k, u = _nr_split(m ** j, n)
+        coef = c * k
+        if u == 1:                       # 奇化为有理
+            return _frac_str(coef)
+        rad = f"root({n},{u})"
+        return rad if coef == 1 else f"{_frac_str(coef)}*{rad}"
+
+    order = sorted(vec, key=lambda j: (j != 0, j))
+    parts: list[str] = []
+    for idx, j in enumerate(order):
+        txt = mag(j)
+        neg = vec[j] < 0
+        if idx == 0:
+            parts.append(("-" if neg else "") + txt)
+        else:
+            parts.append((" - " if neg else " + ") + txt)
+    return "".join(parts)
+
+
+def _render_pure_radical(term: Term, x: float, tol: float) -> str | None:
+    """高次代数数：将单一纯根式域 ℚ(ⁿ√m) 内的元素（如 ∛2+∛4）精确渲染。"""
+    gen = _nr_find_generator(term)
+    if gen is None:
+        return None
+    n, m = gen
+    vec = _nr_eval(term, n, m)
+    if vec is None or not any(j != 0 for j in vec):
+        return None
+    val = sum(float(c) * (m ** (j / n)) for j, c in vec.items())
+    if abs(val - x) > tol * max(1.0, abs(x)):   # 回代数值验证，验不过则拒
+        return None
+    return _nr_to_str(vec, n, m)
+
+
 class ExactAlgebraicPrinter(AlgebraicNumberPrinter):
     """把常数代数项渲染为精确二次根式的能力实现(满足 AlgebraicNumberPrinter 协议)。"""
 
@@ -554,8 +780,12 @@ class ExactAlgebraicPrinter(AlgebraicNumberPrinter):
             nth = _mc_nthroot(term, x, tol)
             if nth is not None:
                 return nth
+            # 4) 高次代数数：单一纯根式域 ℚ(ⁿ√m)（n≥3）内的线性组合（如 ∛2+∛4）
+            pr = _render_pure_radical(term, x, tol)
+            if pr is not None:
+                return pr
             return None
-        # 4) 复代数数 a+b√d（d<0）：实塌缩不可达（含 √负数）时按虚部 i 拆分
+        # 5) 复代数数 a+b√d（d<0）：实塌缩不可达（含 √负数）时按虚部 i 拆分
         return _render_complex_quadratic(term)
 
     # ---- 框架自检(可选,惰性 sympy 交叉验证;不参与渲染主路径)----

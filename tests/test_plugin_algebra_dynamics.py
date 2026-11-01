@@ -267,6 +267,56 @@ def test_algebra_complex_real_regression_untouched():
 
 
 # ============================================================
+# 1c. 高次代数数：单一纯根式域 ℚ(ⁿ√m) 内线性组合精确渲染
+# ============================================================
+
+
+@pytest.mark.parametrize("tree,expect", [
+    (_add(_root(2, 3), _root(4, 3)), "root(3,2) + root(3,4)"),
+    (_sub(_mul(_c(3), _root(2, 3)), _root(4, 3)), "3*root(3,2) - root(3,4)"),
+    (_mul(_root(2, 3), _root(2, 3)), "root(3,4)"),
+    (_add(_c(5), _root(2, 3)), "5 + root(3,2)"),
+    (_div(_root(2, 3), _c(2)), "1/2*root(3,2)"),
+    (_mul(_c(2), _root(2, 3)), "2*root(3,2)"),
+    (_add(_root(2, 3), _root(16, 3)), "3*root(3,2)"),   # ∛16 = 2∛2 → 合并同类基
+    (_root(2, 5), "root(5,2)"),                          # 五次纯根（单一，仍精确）
+])
+def test_algebra_higher_degree_exact(tree, expect):
+    """高次代数数：同域 ℚ(ⁿ√m) 的加/乘/整幂/有理除，逐基向量精确化简。"""
+    assert ALG_PLUGIN.render(tree) == expect
+
+
+@pytest.mark.parametrize("tree", [
+    _add(_root(2, 3), _root(4, 3)),
+    _sub(_mul(_c(3), _root(2, 3)), _root(4, 3)),
+    _mul(_root(2, 3), _root(2, 3)),
+    _add(_c(5), _root(2, 3)),
+    _div(_root(2, 3), _c(2)),
+    _add(_root(2, 3), _root(16, 3)),
+])
+def test_algebra_higher_degree_differential_vs_sympy(tree):
+    """对拍 sympy：高阶根式域插件串解析回 sympy 应与树的独立 sympy 求值相等。"""
+    import sympy as sp
+    got = ALG_PLUGIN.render(tree)
+    assert got is not None
+    assert sp.simplify(_canon_to_sympy(got) - _tree_to_sympy(tree)) == 0
+
+
+def test_algebra_higher_degree_out_of_scope_defers():
+    """越界诚实：多生成元(∛2+∛3)/混合根(√2+∛2)/域内一般除法(1/(1+∛2)) → None。"""
+    assert ALG_PLUGIN.render(_add(_root(2, 3), _root(3, 3))) is None
+    assert ALG_PLUGIN.render(_add(_sq(2), _root(2, 3))) is None
+    assert ALG_PLUGIN.render(_div(_c(1), _add(_c(1), _root(2, 3)))) is None
+
+
+def test_algebra_higher_degree_single_root_regression():
+    """回归锁：单一纯根仍走 _mc_nthroot；扁平 ∛2(无树) 仍诚实 None；多根式不受影响。"""
+    assert ALG_PLUGIN.render(_root(2, 3)) == "root(3,2)"
+    assert ALG_PLUGIN.render(alg.Const(Fraction(2 ** (1 / 3)))) is None
+    assert ALG_PLUGIN.render(_add(_sq(2), _sq(3))) == "sqrt(2) + sqrt(3)"
+
+
+# ============================================================
 # 2. 动态语义：加载契约 + 未接线诚实 + 对 SPIKE 逐指令 对拍
 # ============================================================
 
