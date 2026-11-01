@@ -12,9 +12,9 @@
     （native.py 的 Windows exe 用 CRLF，不参与对拍）。
 
 里程碑进度（按 docs/spec/NATIVE_ELF_PA.md §三 自底向上）：
-  M0  ELF64 链接器 `_build_elf64` + `_start` 硬编码 hello 壳。  ← 本文件当前
+  M0  ELF64 链接器 `_build_elf64` + `_start` 硬编码 hello 壳。
   M1  write_span/exit + print_int/print_bool 输出退出原语
-  M2  字节码 dispatch + 整数算术 BINOP(+ - * // %)/UNARYOP(neg not)/比较/OUTPUT/HALT
+  M2  字节码 dispatch + 整数算术 BINOP(+ - * // %)/UNARYOP(neg not)/比较/OUTPUT/HALT  ← 本文件当前
   M3  标量局部/全局槽 + 控制流 JMP/JZ/JNZ
   M4  CALL/RET（直接/递归，argc≤2，标量）
 集合之外的构造一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
@@ -22,6 +22,8 @@
 from __future__ import annotations
 
 import struct
+
+from src.mbc import opcodes as OP
 
 # ---------------------------------------------------------------- 固定地址布局
 
@@ -206,37 +208,41 @@ def hello_elf() -> bytes:
     return _build_elf64(text, data)
 
 
-# ---------------------------------------------------------------- M1：输出/退出原语
+# ---------------------------------------------------------------- 运行时子程序 + 字节码 dispatch（M1/M2）
 
 # 条件跳转操作码（0F xx 的低位）
-JZ, JNZ, JS, JNS, JLE = 0x84, 0x85, 0x88, 0x89, 0x8E
+JE, JNE, JZ, JNZ, JS, JNS, JL, JGE, JLE, JG = (
+    0x84, 0x85, 0x84, 0x85, 0x88, 0x89, 0x8C, 0x8D, 0x8E, 0x8F)
+
+# 数据段（RW）内固定偏移：numbuf / '\n' / "True" / "False" 后接 .bss 操作数栈
+NL_OFF = NUMBUF_SIZE                 # 64：单字节 '\n'（每条 OUTPUT 行尾）
+TRUE_OFF = NL_OFF + 1                # 65："True"（4）
+FALSE_OFF = TRUE_OFF + 4             # 69："False"（5）
+VSP_OFF = 0x100                       # 操作数栈起点（对齐，前面留空洞）
+NL_ADDR = DATA_VADDR + NL_OFF
+TRUE_ADDR = DATA_VADDR + TRUE_OFF
+FALSE_ADDR = DATA_VADDR + FALSE_OFF
+VSP_ADDR = DATA_VADDR + VSP_OFF
+
+_CMP_SETCC = {"==": 0x94, "!=": 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E}
+_ARITH = {"+", "-", "*", "//", "%"}
 
 
-def _runtime_text(demo_value: int) -> tuple[bytes, bytes]:
-    """发射 _start + write_span + print_int + print_bool（M1）。返回 (text, data)。
+def _push_rax(buf: _Buf) -> None:
+    buf.raw(0x48, 0x89, 0x03)          # mov [rbx],rax（rbx=操作数栈指针，指向首个空闲槽）
+    buf.raw(0x48, 0x83, 0xC3, 0x08)    # add rbx,8
 
-    data = numbuf(NUMBUF_SIZE 零) + '\\n' + 'True\\n' + 'False\\n' 静态串。
-    _start 以 demo_value 演示 print_int→write_span→exit 的链接正确性。
-    """
-    NB = DATA_VADDR
-    END = NB + NUMBUF_SIZE
-    NL = END
-    TRUE = NL + 1
-    FALSE = TRUE + 5
-    buf = _Buf()
 
-    # ---- _start ----
-    buf.here("_start")
-    mov_imm32(buf, _REG["rax"], demo_value)
-    buf.call("print_int")
-    mov_imm64(buf, _REG["rsi"], NL)                # 追加换行
-    mov_imm32(buf, _REG["rdx"], 1)
-    buf.call("write_span")
-    mov_imm32(buf, _REG["rax"], 231)               # exit_group
-    mov_imm32(buf, _REG["rdi"], 0)
-    syscall(buf)
+def _load_imm_rax(buf: _Buf, v: int) -> None:
+    if -0x80000000 <= v < 0x80000000:
+        mov_imm32(buf, _REG["rax"], v)
+    else:
+        mov_imm64(buf, _REG["rax"], v)
 
-    # ---- write_span：rsi=ptr, rdx=len（部分写续写；返回 <=0 结束）----
+
+def _emit_runtime(buf: _Buf) -> None:
+    """发射 write_span / print_int / print_bool 三个子程序（不触碰 rbx 栈指针）。"""
+    # write_span：rsi=ptr, rdx=len（部分写续写；返回 <=0 结束）
     buf.here("write_span")
     buf.here("ws_loop")
     buf.raw(0x48, 0x85, 0xD2)                        # test rdx,rdx
@@ -252,16 +258,16 @@ def _runtime_text(demo_value: int) -> tuple[bytes, bytes]:
     buf.here("ws_done")
     buf.raw(0xC3)                                    # ret
 
-    # ---- print_int：rax=整数 → 十进制写入 numbuf 再输出（不含换行）----
+    # print_int：rax=整数 → 十进制写入 numbuf 再输出（不含换行；用 r10d 存符号，不碰 rbx）
     buf.here("print_int")
-    mov_imm32(buf, _REG["rbx"], 0)                   # 符号标志
+    mov_imm32(buf, _REG["r10"], 0)
     buf.raw(0x48, 0x85, 0xC0)                        # test rax,rax
-    buf.jcc(JNS, "pi_nonneg")
-    mov_imm32(buf, _REG["rbx"], 1)
+    buf.jcc(JNS, "pi_nn")
+    mov_imm32(buf, _REG["r10"], 1)
     buf.raw(0x48, 0xF7, 0xD8)                        # neg rax
-    buf.here("pi_nonneg")
-    mov_imm64(buf, _REG["rsi"], NB)
-    mov_imm64(buf, _REG["rdi"], END)
+    buf.here("pi_nn")
+    mov_imm64(buf, _REG["rsi"], DATA_VADDR)          # numbuf 基
+    mov_imm64(buf, _REG["rdi"], DATA_VADDR + NUMBUF_SIZE)   # 数字区上界（独占）
     buf.here("pi_loop")
     buf.raw(0x31, 0xD2)                              # xor edx,edx
     buf.raw(0xB9, 0x0A, 0x00, 0x00, 0x00)            # mov ecx,10
@@ -271,39 +277,180 @@ def _runtime_text(demo_value: int) -> tuple[bytes, bytes]:
     buf.raw(0x88, 0x17)                              # mov [rdi],dl
     buf.raw(0x48, 0x85, 0xC0)                        # test rax,rax
     buf.jcc(JNZ, "pi_loop")
-    buf.raw(0x48, 0x85, 0xDB)                        # test rbx,rbx
-    buf.jcc(JZ, "pi_nosign")
+    buf.raw(0x45, 0x85, 0xD2)                        # test r10d,r10d
+    buf.jcc(JZ, "pi_ns")
     buf.raw(0x48, 0xFF, 0xCF)                        # dec rdi
     buf.raw(0xC6, 0x07, 0x2D)                        # mov byte[rdi],'-'
-    buf.here("pi_nosign")
+    buf.here("pi_ns")
     buf.raw(0x48, 0x89, 0xFE)                        # mov rsi,rdi（起点）
-    mov_imm64(buf, _REG["rcx"], END)
+    mov_imm64(buf, _REG["rcx"], DATA_VADDR + NUMBUF_SIZE)
     buf.raw(0x48, 0x29, 0xF9)                        # sub rcx,rdi（长度）
     buf.raw(0x48, 0x89, 0xCA)                        # mov rdx,rcx
     buf.call("write_span")
-    buf.raw(0xC3)                                    # ret
+    buf.raw(0xC3)
 
-    # ---- print_bool：rdi=0/1 → 'True\\n'/'False\\n' ----
+    # print_bool：rdi=0/1 → 'True'(4)/'False'(5)（换行由 OUTPUT 统一追加）
     buf.here("print_bool")
     buf.raw(0x48, 0x85, 0xFF)                        # test rdi,rdi
-    buf.jcc(JZ, "pb_false")
-    mov_imm64(buf, _REG["rsi"], TRUE)
+    buf.jcc(JZ, "pb_f")
+    mov_imm64(buf, _REG["rsi"], TRUE_ADDR)
+    mov_imm32(buf, _REG["rdx"], 4)
+    buf.jmp("pb_o")
+    buf.here("pb_f")
+    mov_imm64(buf, _REG["rsi"], FALSE_ADDR)
     mov_imm32(buf, _REG["rdx"], 5)
-    buf.jmp("pb_out")
-    buf.here("pb_false")
-    mov_imm64(buf, _REG["rsi"], FALSE)
-    mov_imm32(buf, _REG["rdx"], 6)
-    buf.here("pb_out")
+    buf.here("pb_o")
     buf.call("write_span")
     buf.raw(0xC3)
 
-    data = b"\x00" * NUMBUF_SIZE + b"\n" + b"True\n" + b"False\n"
-    return buf.finish(), data
+
+def _emit_binop(buf: _Buf, sym: str, typ: list, i: int) -> None:
+    if len(typ) < 2:
+        raise NativeNotSupported(f"BINOP {sym!r}：操作数栈不足")
+    tb, ta = typ[-1], typ[-2]
+    is_cmp = sym in _CMP_SETCC
+    if sym not in _CMP_SETCC and sym not in _ARITH:
+        raise NativeNotSupported(f"M2 不支持 BINOP {sym!r}")
+    if ta != "int" or tb != "int":
+        raise NativeNotSupported(f"BINOP {sym!r} 操作数需 int：{ta},{tb}")
+    # 弹 b→rcx（栈顶），再弹 a→rax
+    buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x0B)   # sub rbx,8; mov rcx,[rbx]
+    buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]
+    if sym == "+":
+        buf.raw(0x48, 0x01, 0xC8)                                # add rax,rcx
+    elif sym == "-":
+        buf.raw(0x48, 0x29, 0xC8)                                # sub rax,rcx
+    elif sym == "*":
+        buf.raw(0x48, 0x0F, 0xAF, 0xC1)                          # imul rax,rcx
+    elif sym in ("//", "%"):
+        buf.raw(0x48, 0x99)                                      # cqo（符号扩展 rax→rdx:rax）
+        buf.raw(0x48, 0xF7, 0xF9)                                # idiv rcx（向零截断）
+        buf.raw(0x48, 0x85, 0xD2)                                # test rdx,rdx（余数）
+        buf.jcc(JZ, f"nd{i}")
+        buf.raw(0x49, 0x89, 0xD0); buf.raw(0x49, 0x31, 0xC8)     # mov r8,rdx; xor r8,rcx
+        buf.jcc(JS, f"fx{i}")                                    # 余数与除数异号→需修正
+        buf.jmp(f"nd{i}")
+        buf.here(f"fx{i}")
+        if sym == "//":
+            buf.raw(0x48, 0xFF, 0xC8)                            # dec rax（商向 -inf）
+        else:
+            buf.raw(0x48, 0x01, 0xCA)                            # add rdx,rcx（余数取除数号）
+        buf.here(f"nd{i}")
+        if sym == "%":
+            buf.raw(0x48, 0x89, 0xD0)                            # mov rax,rdx（结果=余数）
+    else:                                                        # 比较
+        buf.raw(0x48, 0x39, 0xC8)                                # cmp rax,rcx（a-b）
+        buf.raw(0x0F, _CMP_SETCC[sym], 0xC0)                     # setcc al
+        buf.raw(0x0F, 0xB6, 0xC0)                                # movzx eax,al
+    _push_rax(buf)
+    typ.pop(); typ.pop()
+    typ.append("bool" if is_cmp else "int")
 
 
-def m1_elf(demo_value: int = 42) -> bytes:
-    text, data = _runtime_text(demo_value)
-    return _build_elf64(text, data)
+def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
+    if not typ:
+        raise NativeNotSupported(f"UNARYOP {sym!r}：空操作数栈")
+    t = typ[-1]
+    if sym == "neg":
+        if t != "int":
+            raise NativeNotSupported(f"neg 操作数需 int：{t}")
+        buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # pop→rax
+        buf.raw(0x48, 0xF7, 0xD8)                                    # neg rax
+        _push_rax(buf)
+        typ.pop(); typ.append("int")
+    elif sym == "not":
+        buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # pop→rax
+        buf.raw(0x48, 0x85, 0xC0)                                    # test rax,rax
+        buf.raw(0x0F, 0x94, 0xC0)                                    # sete al（==0→1）
+        buf.raw(0x0F, 0xB6, 0xC0)                                    # movzx eax,al
+        _push_rax(buf)
+        typ.pop(); typ.append("bool")
+    else:
+        raise NativeNotSupported(f"M2 不支持 UNARYOP {sym!r}（仅 neg/not）")
+
+
+def _emit_code(buf: _Buf, code: list, C: list) -> None:
+    """遍历 M3V 指令流发射机器码；typ 为编译期影子值型栈（int/bool/null）。"""
+    typ: list[str] = []
+    for i, ins in enumerate(code):
+        op = ins[0]
+        if op == OP.PUSH_CONST:
+            v = C[ins[1]]
+            if isinstance(v, bool):                     # 编译期常量折叠出的布尔（如 not 0 → True）
+                _load_imm_rax(buf, 1 if v else 0); _push_rax(buf); typ.append("bool")
+                continue
+            if not isinstance(v, int):
+                raise NativeNotSupported(f"PUSH_CONST 非常量整数：{v!r}")
+            if not (-0x8000000000000000 <= v < 0x8000000000000000):
+                raise NativeNotSupported(f"常量超 int64：{v}")
+            _load_imm_rax(buf, v); _push_rax(buf); typ.append("int")
+        elif op == OP.PUSH_TRUE:
+            _load_imm_rax(buf, 1); _push_rax(buf); typ.append("bool")
+        elif op == OP.PUSH_FALSE:
+            _load_imm_rax(buf, 0); _push_rax(buf); typ.append("bool")
+        elif op == OP.PUSH_NULL:
+            _load_imm_rax(buf, 0); _push_rax(buf); typ.append("null")
+        elif op == OP.DUP:
+            if not typ:
+                raise NativeNotSupported("DUP 空栈")
+            buf.raw(0x48, 0x8B, 0x43, 0xF8)                          # mov rax,[rbx-8]
+            _push_rax(buf); typ.append(typ[-1])
+        elif op == OP.POP:
+            if not typ:
+                raise NativeNotSupported("POP 空栈")
+            buf.raw(0x48, 0x83, 0xEB, 0x08); typ.pop()               # sub rbx,8
+        elif op == OP.BINOP:
+            _emit_binop(buf, C[ins[1]], typ, i)
+        elif op == OP.UNARYOP:
+            _emit_unop(buf, C[ins[1]], typ)
+        elif op == OP.OUTPUT:
+            if not typ:
+                raise NativeNotSupported("OUTPUT 空栈")
+            t = typ.pop()
+            if t == "int":
+                buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("print_int")    # mov rax,[rbx-8]
+            elif t == "bool":
+                buf.raw(0x48, 0x8B, 0x7B, 0xF8); buf.call("print_bool")    # mov rdi,[rbx-8]
+            else:
+                raise NativeNotSupported("OUTPUT null 暂不支持（P-a）")
+            buf.raw(0x48, 0x83, 0xEB, 0x08)                          # sub rbx,8（弹）
+            mov_imm64(buf, _REG["rsi"], NL_ADDR); mov_imm32(buf, _REG["rdx"], 1)
+            buf.call("write_span")                                   # 行尾 LF
+        elif op == OP.HALT:
+            break
+        else:
+            raise NativeNotSupported(f"M2 暂不支持 opcode {OP.name(op)}")
+
+
+def _build_data() -> bytearray:
+    seg = bytearray(VSP_OFF)
+    seg[NL_OFF] = 0x0A
+    seg[TRUE_OFF:TRUE_OFF + 4] = b"True"
+    seg[FALSE_OFF:FALSE_OFF + 5] = b"False"
+    return seg
+
+
+def emit_elf(mod) -> bytes:
+    """MModule → Linux x86-64 静态 ELF64 字节串（P-a 整数子集）。"""
+    buf = _Buf()
+    buf.here("_start")
+    mov_imm64(buf, _REG["rbx"], VSP_ADDR)         # rbx = 操作数栈指针
+    _emit_code(buf, mod.main_code, mod.constants)
+    mov_imm32(buf, _REG["rax"], 231)              # exit_group
+    mov_imm32(buf, _REG["rdi"], 0)
+    syscall(buf)
+    _emit_runtime(buf)
+    text = buf.finish()
+    data = bytes(_build_data())
+    return _build_elf64(text, data, data_memsz=VSP_OFF + VSTACK_SIZE)
+
+
+def compile_to_elf(source: str) -> bytes:
+    from src.mbc.compiler import compile_source
+    return emit_elf(compile_source(source))
+
+
+DEFAULT_SAMPLE = "#1：[2 + 3 * 4]\n#1：[10 - 4]\n#1：[-7 // 2]\n#1：[-7 % 3]\n#1：[1 < 2]\n#1：[not 0]\n"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -311,16 +458,20 @@ def main(argv: list[str] | None = None) -> int:
     from pathlib import Path
     parser = argparse.ArgumentParser(prog="native_elf",
                                      description="M3V → Linux x86-64 静态 ELF64 发射器（P-a）")
-    parser.add_argument("output", nargs="?", default=".trae/m1.elf",
-                        help="输出 ELF 路径（M1 默认写打印 42 的演示程序）")
+    parser.add_argument("output", nargs="?", default=".trae/m2.elf", help="输出 ELF 路径")
     parser.add_argument("--hello", action="store_true", help="仅发射 M0 hello 壳")
+    parser.add_argument("--src", help="从 .matha 源文件编译（缺省用内建整数样例）")
     args = parser.parse_args(argv)
-    elf = hello_elf() if args.hello else m1_elf(42)
+    if args.hello:
+        elf = hello_elf()
+    elif args.src:
+        elf = compile_to_elf(Path(args.src).read_text(encoding="utf-8"))
+    else:
+        elf = compile_to_elf(DEFAULT_SAMPLE)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(elf)
-    tag = "M0 hello" if args.hello else "M1 print_int(42)"
-    print(f"{tag} ELF 已发射 → {out}（{len(elf)} 字节，entry=0x{TEXT_VADDR:x}）")
+    print(f"native_elf 已发射 → {out}（{len(elf)} 字节，entry=0x{TEXT_VADDR:x}）")
     return 0
 
 
