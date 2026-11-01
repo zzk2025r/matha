@@ -1,5 +1,54 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c1/P-c2：字符串表示·字面量 repr 折叠·浮点 SSE2（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-01
+
+### 背景
+
+P-b 列表垂直切片后，按设计稿 `docs/spec/NATIVE_ELF_PC.md`（Q1-Q5 拍板：输出即 `str()` 逐字节全等；
+Q3 堆仅 bump 不 GC；Q4 列表元素运行期类型标签；Q5 硬浮点 SSE2 非软浮点）推进两个垂直域：
+**P-c1 字符串**（N0-N3）与 **P-c2 浮点**（S1-S2，本次到 S2）。全程无 libc：串对象内联存字节、
+浮点以 IEEE-754 位型上栈。铁律不变：不碰 `native.py` 主体、覆盖集之外一律 `NativeNotSupported` 显式拒。
+
+### 变更
+
+1. **`src/mbc/native_elf.py`**（六子切片，各自独立提交）：
+   - **N0**（`95b04a9`）str 内部表示：堆对象 `[len:8B][bytes…]` + `print_str` 运行期输出；
+     首期 ASCII，非 ASCII/多字节/str×数值连接一律拒；
+   - **N1**（`b88108e`）str 垂直域：`+` 连接（编译期常量折叠 / 运行期 `str_concat` bump 新串）、
+     `==`/`!=`（`str_eq` 叶例逐字节比较，`!=` 以 `xor rax,1` 翻转）、`INDEX_GET` 字符索引
+     （负索引归一，越界 `exit1`）；str 有序比较（`< >` 等）仍拒；
+   - **N2**（`1060380`）同质 int/bool 整表 repr：运行期 `plr_int`/`plr_bool` 循环发
+     `[e0, e1, …]`（元素间逗号、表尾换行由 OUTPUT 追加）；
+   - **N3**（`f6f3d20`）**编译期 str() 折叠机制**：字面量 str/异构整表 repr 由发射器（Python）在编译期
+     用 `str(list)` 算出精确字节（转义/引号选择天然 100% 对齐 VM，零手写汇编）；`BUILD_LIST` 元素型放宽
+     至 int/bool/str，typ 扩为 `("list",eltyp,folded)` 三元组；soundness：仅 `BUILD_LIST` 紧前 n 条全为
+     字面量压栈才折叠，值不跨全局/控制流；落地口径修正 Q4（字面量经折叠支持，运行期计算值仍需标签）；
+   - **S1**（`635402d`）浮点表示：IEEE-754 double 位型上栈；字面量及编译器已预折（`+ - *`）的 float
+     经 `str(float)` 折叠输出（`2.0`/`1e+20`/`1e-07`/`0.30000000000000004` 逐字节全等，零 SSE 零 `_dtoa`）；
+     OUTPUT 回看口径保 soundness（仅 `PUSH_CONST float` 紧前处折叠）；
+   - **S2**（`dae05ee`）**SSE2 标量算术/比较框架**：`movsd/cvtsi2sd` 装载（int/bool 混型转双）、
+     `addsd/subsd/mulsd/divsd` 算术、`ucomisd+setcc` 比较（附 PF 无序护栏 `jnp+5; mov eax,0/1` 对齐
+     Python NaN 语义）、`neg` 以 `xorpd` 掩码翻符号位；`'/'` 真除（含 int/int→float）；比较产 bool 可直接
+     输出，运行期算术/比较以「比较消费 float」形态外部可验（含循环浮点累加）；顺带修 `not` 无类型守卫
+     隐患（str/float 静默读指针位→如实拒）；列表折叠机制扩 float 字面量元素。
+2. **`baremetal/tools/native_elf/run_native_elf.py`**（扩例，不入门禁）：正例 13 → **27**
+   （c1-c5 串输出/len/连接/比较/索引、c6-c9 列表 repr（int/bool/str/异构）、c10-c11 运行期表/浮点折叠、
+   c12-c14 浮点比较/算术/列表），拒例 12 → **18**（r1 非 ASCII、r9 运行期 str 表、r13-r14 str×数值、
+   r15-r18 运行期 float 输出/取整/真值），越界行为例 3 → **5**（b4-b5 串索引）；
+   每子切片 WSL 实跑逐字节对拍 VM 全绿后才进下一片。
+3. **文档**：新建 `docs/spec/NATIVE_ELF_PC.md`（Q1-Q5 决策 + N0-N4/S 子切片规划 + 实况块）；
+   `docs/spec/NATIVE_CROSS_PLATFORM.md` §6.3 扩面表「字符串/浮点」行据实转态；
+   `docs/ARCHITECTURE.md` `core_py_lines` 32,349 → **32,742**（六片累计）。
+
+### 口径
+
+Gate 全绿：**27 正例 + 18 拒绝例 + 5 越界行为例，失败 0**。未就绪域一律如实拒不伪通过：运行期 float
+直接输出待 `_dtoa`（S3）、运行期计算 str/异构列表 repr 待标签（后续）、`//`/`%` 浮点取整与 `not float`
+拒；`divsd` 除零产 ±inf 与 VM `ZeroDivisionError` 登记为已知分歧。门禁：doc_facts 18/18、
+dep_audit 违规 0、kernel_purity 14/14 全绿。GC（P-c3）/字典（P-c4）另立项。
+
 ## native 跨平台 P-b：Linux x86-64 列表 + bump 堆（阶段3-3 ④ native 跨平台）
 
 **日期**：2026-11-01
