@@ -28,8 +28,9 @@ P-c1（字符串垂直切片，见 docs/spec/NATIVE_ELF_PC.md）：
   N2  同质 int/bool 整表 repr 输出（plr_int/plr_bool 运行期循环 `[e0, e1, …]`，无换行由 OUTPUT 追加）
   N3  字面量 str/异构整表 repr：发射器编译期用 Python str() 折叠精确字节（零转义/标签汇编）
 P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
-  S1  IEEE-754 double 代栈位型 + 字面量/编译器已折叠(+ - *) float 的 str() 折叠输出（零 SSE/零 _dtoa）  ← 本文件当前
-（运行期 float：全局/循环变量、`/` 真除、SSE 算术/比较、`_dtoa` 输出——属 P-c2 后续，未就绪按 Q1 如实 SKIP/拒）。
+  S1  IEEE-754 double 代栈位型 + 字面量/编译器已折叠(+ - *) float 的 str() 折叠输出（零 SSE/零 _dtoa）
+  S2  SSE2 标量算术/比较框架：movsd/cvtsi2sd + addsd/subsd/mulsd/divsd + ucomisd（PF 无序 NaN 护栏）+ neg 翻符号位；比较消费 float 产 bool 可输出；'/' 真除（含 int/int→float）；float 字面量元素可入折叠 repr  ← 本文件当前
+（运行期 float 的 `_dtoa` 输出、`//`/`%` 浮点取整、not float 真值判定属 P-c2 后续，未就绪按 Q1 如实拒；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及未就绪的运行期 float 算术·比较·输出）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
@@ -254,6 +255,9 @@ HEAP_ADDR = DATA_VADDR + HEAP_OFF     # bump 堆首地址（r12 初始值）
 
 _CMP_SETCC = {"==": 0x94, "!=" : 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E, ">=": 0x9D}
 _ARITH = {"+", "-", "*", "//", "%"}
+# P-c2 S2：ucomisd 后 setcc（无序由 PF 护栏另行处置，见 _emit_fbinop）与 SSE2 标量算术 opcode
+_FCMP_SETCC = {"==": 0x94, "!=": 0x95, "<": 0x92, "<=": 0x96, ">": 0x97, ">=": 0x93}
+_FARITH = {"+": 0x58, "-": 0x5C, "*": 0x59, "/": 0x5E}   # addsd/subsd/mulsd/divsd
 
 
 def _push_rax(buf: _Buf) -> None:
@@ -599,11 +603,53 @@ def _emit_runtime(buf: _Buf) -> None:
     buf.raw(0xC3)
 
 
+def _load_frac(buf: _Buf, xmm: int, typ: str, disp: int) -> None:
+    """xmm ← 操作数栈槽 [rbx+disp] 的数值（P-c2 S2）：float 直载 64 位位型（movsd）；
+    int/bool 符号扩展转双精度（cvtsi2sd REX.W）。movsd/cvtsi2sd m64 无 16B 对齐要求。"""
+    if typ == "float":
+        buf.raw(0xF2, 0x0F, 0x10, 0x40 | (xmm << 3) | 3, disp & 0xFF)         # movsd xmm,[rbx+disp8]
+    else:
+        buf.raw(0xF2, 0x48, 0x0F, 0x2A, 0x40 | (xmm << 3) | 3, disp & 0xFF)   # cvtsi2sd xmm,[rbx+disp8]
+
+
+def _emit_fbinop(buf: _Buf, sym: str, ta: str, tb: str, is_cmp: bool) -> None:
+    """P-c2 S2：SSE2 标量浮点算术（addsd/subsd/mulsd/divsd）与比较（ucomisd+setcc）。
+
+    算术产运行期 float（输出需 _dtoa，未就绪按 Q1 如实拒）；比较产 bool（可直接输出），
+    故 S2 的算术/比较以「比较消费 float」形态外部可验。NaN 护栏：ucomisd 无序时 ZF=CF=PF=1，
+    故 <,<=,>,>=,== 需「无序→强制 0」、!= 需「无序→强制 1」（对齐 Python：除 != 外 NaN 比较均 False）。
+    除零：divsd 产 ±inf，与 VM（ZeroDivisionError 参考失败）存在已登记分歧，不伪对齐。
+    """
+    if sym not in _FCMP_SETCC and sym not in ("+", "-", "*", "/"):
+        raise NativeNotSupported(f"BINOP {sym!r} 越 float/SSE 域（// % 取整语义属 P-c2 后续）：{ta},{tb}")
+    if ta not in ("int", "bool", "float") or tb not in ("int", "bool", "float"):
+        raise NativeNotSupported(f"BINOP {sym!r} 操作数需 int/bool/float：{ta},{tb}")
+    _load_frac(buf, 0, ta, -16)                                # xmm0 ← a（栈顶下槽）
+    _load_frac(buf, 1, tb, -8)                                 # xmm1 ← b（栈顶）
+    buf.raw(0x48, 0x83, 0xEB, 0x10)                            # sub rbx,16（弹二）
+    if is_cmp:
+        buf.raw(0x66, 0x0F, 0x2E, 0xC1)                        # ucomisd xmm0,xmm1
+        buf.raw(0x0F, _FCMP_SETCC[sym], 0xC0)                  # setcc al
+        buf.raw(0x0F, 0xB6, 0xC0)                              # movzx eax,al
+        # jnp +5：有序（PF=0）跳过强制赋值；无序执行 mov eax,imm（!= → 1，余 → 0）
+        buf.raw(0x7B, 0x05, 0xB8, 0x01 if sym == "!=" else 0x00, 0x00, 0x00, 0x00)
+        _push_rax(buf)
+    else:
+        buf.raw(0xF2, 0x0F, _FARITH[sym], 0xC1)                # addsd/subsd/mulsd/divsd xmm0,xmm1
+        buf.raw(0x66, 0x0F, 0x11, 0x03)                        # movsd [rbx],xmm0（结果回栈）
+        buf.raw(0x48, 0x83, 0xC3, 0x08)                        # add rbx,8
+
+
 def _emit_binop(buf: _Buf, sym: str, typ: list, i: int) -> None:
     if len(typ) < 2:
         raise NativeNotSupported(f"BINOP {sym!r}：操作数栈不足")
     tb, ta = typ[-1], typ[-2]
     is_cmp = sym in _CMP_SETCC
+    if sym == "/" or "float" in (ta, tb):                      # P-c2 S2：'/' 真除与任何 float 域操作数走 SSE2
+        _emit_fbinop(buf, sym, ta, tb, is_cmp)
+        typ.pop(); typ.pop()
+        typ.append("bool" if is_cmp else "float")
+        return
     if sym not in _CMP_SETCC and sym not in _ARITH:
         raise NativeNotSupported(f"M2 不支持 BINOP {sym!r}")
     if ta != "int" or tb != "int":
@@ -647,6 +693,14 @@ def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
         raise NativeNotSupported(f"UNARYOP {sym!r}：空操作数栈")
     t = typ[-1]
     if sym == "neg":
+        if t == "float":                                        # P-c2 S2：IEEE 翻符号位（xorpd 掩码），保 NaN/-0 语义
+            mov_imm64(buf, _REG["rax"], -0x8000000000000000)     # movabs rax,0x8000000000000000（符号位掩码）
+            buf.raw(0x66, 0x48, 0x0F, 0x6E, 0xC8)               # movq xmm1,rax
+            buf.raw(0xF2, 0x0F, 0x10, 0x43, 0xF8)               # movsd xmm0,[rbx-8]
+            buf.raw(0x66, 0x0F, 0x57, 0xC1)                     # xorpd xmm0,xmm1
+            buf.raw(0x66, 0x0F, 0x11, 0x43, 0xF8)               # movsd [rbx-8],xmm0（原地回栈）
+            typ.pop(); typ.append("float")
+            return
         if t != "int":
             raise NativeNotSupported(f"neg 操作数需 int：{t}")
         buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # pop→rax
@@ -654,6 +708,8 @@ def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
         _push_rax(buf)
         typ.pop(); typ.append("int")
     elif sym == "not":
+        if t not in ("int", "bool"):                            # float/-0.0/串等真值语义需额外机器（属后续），如实拒
+            raise NativeNotSupported(f"not 操作数需 int/bool：{t!r}（float 真值判定属 P-c2 后续）")
         buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # pop→rax
         buf.raw(0x48, 0x85, 0xC0)                                    # test rax,rax
         buf.raw(0x0F, 0x94, 0xC0)                                    # sete al（==0→1）
@@ -691,10 +747,10 @@ def _fold_list_repr(C: list, code: list, i: int, n: int):
             v = C[ins[1]]
             if isinstance(v, bool) or isinstance(v, int):        # bool 是 int 子类，一并处理
                 vals.append(v)
-            elif isinstance(v, str):
+            elif isinstance(v, (str, float)):
                 vals.append(v)
             else:
-                return None                                       # 浮点/null 等不折叠
+                return None                                       # null 等不折叠
             continue
         if op == OP.PUSH_TRUE:
             vals.append(True); continue
@@ -775,15 +831,15 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             else:
                 elems = typ[-n:]
                 for t in elems:
-                    if t not in ("int", "bool", "str"):
+                    if t not in ("int", "bool", "str", "float"):
                         raise NativeNotSupported(
-                            f"BUILD_LIST 元素类型越界（仅 int/bool/str，无嵌套/浮点）：{t!r}")
+                            f"BUILD_LIST 元素类型越界（仅 int/bool/str/float，无嵌套）：{t!r}")
                 eltyp = elems[0] if len(set(elems)) == 1 else "mixed"
             # P-c1 N3：编译期折叠（字面量元素→发射器 Python str() 精确 repr）
             folded = _fold_list_repr(C, code, i, n)
             if folded is None and eltyp not in ("int", "bool"):
                 raise NativeNotSupported(
-                    f"BUILD_LIST {eltyp} 列表不可折叠（含非字面量元素）；运行期 str/异构列表 repr 属后续（P-c1）")
+                    f"BUILD_LIST {eltyp} 列表不可折叠（含非字面量元素）；运行期 str/异构/float 列表 repr 属后续（P-c1）")
             # 逐元素：heap[i] = 栈底起的第 i 个（写书序）；元素 i 位于 [rbx-8*(n-i)]
             for idx in range(n):
                 _mov_rax_rbx(buf, -8 * (n - idx))                   # mov rax,[rbx-8*(n-idx)]
