@@ -32,8 +32,10 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
   S2  SSE2 标量算术/比较框架：movsd/cvtsi2sd + addsd/subsd/mulsd/divsd + ucomisd（PF 无序 NaN 护栏）+ neg 翻符号位；比较消费 float 产 bool 可输出；'/' 真除（含 int/int→float）；float 字面量元素可入折叠 repr
   S3a 保底 _dtoa（精度可声明的回退路线，非最短往返）：精确十进制域 floatq（double=整数×2^-d，d≤6，|v|<9e9）
      经静态打标（字面量谓词 + 对 + - neg 封闭，* / 及越域降级 float），运行期 dtoa 叶例定点展开（×1e6 精确成整
-     → int/frac 拆分 → 去尾零）逐字节=str(v)；越域运行期哨兵 → exit1 如实失败  ← 本文件当前
-（越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3b+）按 Q1 如实拒；`//`/`%` 浮点取整、not float 真值判定同拒；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
+     → int/frac 拆分 → 去尾零）逐字节=str(v)；越域运行期哨兵 → exit1 如实失败
+  S3b 保底 _dtoa 优化 + 精度声明登记（域与输出字节零变更）：小数串缓冲单次 write_span、POW10 定标表去 scale/=10
+     除法、循环不变量外提；dtoa_precision_declaration() 显式登记域/soundness/边界（与 _floatq_domain 单一事实源）  ← 本文件当前
+（越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3c+）按 Q1 如实拒；`//`/`%` 浮点取整、not float 真值判定同拒；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及未就绪的运行期 float 算术·比较·输出）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
@@ -241,6 +243,7 @@ LB_OFF = FALSE_OFF + 5               # 74：'['
 RB_OFF = LB_OFF + 1                  # 75：']'
 Q_OFF = RB_OFF + 1                   # 76："'"（str 元素引号）
 CMA_OFF = Q_OFF + 1                  # 77：", "（逗号+空格，连续 2 字节供 write_span）
+POW10_OFF = 80                        # P-c2 S3b：dtoa 定标表（8 字节对齐；[79,VSP_OFF) 空洞内）
 VSP_OFF = 0x100                       # 操作数栈起点（对齐，前面留空洞）
 GVARS_OFF = 0x20000                   # 全局槽区起点（避开 64KB 操作数栈）；.bss 零页
 HEAP_OFF = 0x30000                    # 堆起点（避开操作数栈/全局槽区）；.bss 零页，P-b 起用
@@ -252,24 +255,44 @@ LB_ADDR = DATA_VADDR + LB_OFF
 RB_ADDR = DATA_VADDR + RB_OFF
 Q_ADDR = DATA_VADDR + Q_OFF
 CMA_ADDR = DATA_VADDR + CMA_OFF
+POW10_ADDR = DATA_VADDR + POW10_OFF   # P-c2 S3b：10^5..10^0 定标档（末置 0 哨兵），逐档 +8 取，免 scale/=10 除法
 VSP_ADDR = DATA_VADDR + VSP_OFF
 GVARS_ADDR = DATA_VADDR + GVARS_OFF   # 每个全局名一个 8 字节槽（slot 索引 → +8*slot）
 HEAP_ADDR = DATA_VADDR + HEAP_OFF     # bump 堆首地址（r12 初始值）
 
 _CMP_SETCC = {"==": 0x94, "!=" : 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E, ">=": 0x9D}
 _ARITH = {"+", "-", "*", "//", "%"}
-_ONE_M = 1_000_000                                   # S3a _dtoa 定点放大因子 10^6
-_ONE_M_BITS = struct.unpack("<q", struct.pack("<d", 1_000_000.0))[0]   # 1e6 的 double 位型
-_LIMIT_BITS = struct.unpack("<q", struct.pack("<d", 9e9))[0]           # 9e9 域宽阈位型（N=v×1e6<9e15<2^53 精确）
+# ---- P-c2 S3b：_dtoa 精度声明的单一事实源（域谓词、护栏阈、机器码定标环共读此三常量）----
+DTOA_MAX_DENOM_EXP = 6                              # floatq 域：既约分母 ≤ 2^6（= 定点 6 位小数足够）
+DTOA_SCALE = 10 ** DTOA_MAX_DENOM_EXP               # 1_000_000：定点放大因子 10^6（v×此值为精确整数）
+DTOA_ABS_LIMIT = 9e9                                # |v| < 此阈 → N=v×1e6 < 9e15 < 2^53 无舍入
+_ONE_M = DTOA_SCALE                                 # S3a _dtoa 定点放大因子 10^6
+_ONE_M_BITS = struct.unpack("<q", struct.pack("<d", float(DTOA_SCALE)))[0]      # 1e6 的 double 位型
+_LIMIT_BITS = struct.unpack("<q", struct.pack("<d", DTOA_ABS_LIMIT))[0]        # 9e9 域宽阈位型（N=v×1e6<9e15<2^53 精确）
 _JAE, _JP = 0x83, 0x8A                                # 近跳条件码（buf.jcc 发 0F xx rel32）：JAE / JP（0x9A 是 SETPE 非 Jcc！）
 
 
+def dtoa_precision_declaration() -> dict:
+    """P-c2 S3b：_dtoa 运行期输出精度的编译期声明（单一事实源，与域谓词/护栏/机器码共读）。
+
+    声明当前保底 _dtoa 保证覆盖的值集与 soundness 边界；不涵盖最短往返（属 S3c+）。
+    与 _floatq_domain 严格一致：域内 → 逐字节=str(v)；域外 → 静态拒或运行期护栏 exit_group(1)。"""
+    return {
+        "domain": (f"double 精确值 = 整数×2^-d（既约分母 d≤{DTOA_MAX_DENOM_EXP}）且 |v|<{DTOA_ABS_LIMIT:g}；±0.0 属域"),
+        "scale": DTOA_SCALE,                              # 定点展开因子（v×scale 为精确整数）
+        "guarantee": "域内运行期输出逐字节 == str(v)（定点展开+去尾零，非最短往返）",
+        "soundness": "三层：静态打标（字面量谓词 + - + neg 封闭，*/降级）/乘法前 9e9 护栏/转换后 N<0 哨兵",
+        "out_of_domain": "静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编",
+        "shortest_roundtrip": "未实现（全量 _dtoa/Ryū-Grisu 属 S3c+；0.1 类/×÷产 float/科学计数法仍拒）",
+    }
+
+
 def _floatq_domain(v: float) -> bool:
-    """S3a _dtoa 保底域：double 精确值 = 整数×2^-d（d≤6，即可写成 分母≤64 的既约二进有理）且 |v|<9e9。
+    """S3a _dtoa 保底域：double 精确值 = 整数×2^-d（d≤DTOA_MAX_DENOM_EXP，即可写成 分母≤64 的既约二进有理）且 |v|<DTOA_ABS_LIMIT。
 
     域内 v×1e6 为精确整数（<2^53 无舍入），定点展开+去尾零逐字节等于 Python str(v)；
     非零最小元 2^-6=0.015625 ≥ Python 定点阈值 1e-4 → 永不触发科学计数法。
-    ±0.0 属域（'-0.0'/'0.0' 对齐 Python）；非精确十进制值（0.1 等）拒。"""
+    ±0.0 属域（'-0.0'/'0.0' 对齐 Python）；非精确十进制值（0.1 等）拒。阈参 dtoa_precision_declaration()。"""
     if v == 0.0:
         return True                                  # +0.0 与 -0.0
     if v != v or v in (float("inf"), float("-inf")):
@@ -280,9 +303,9 @@ def _floatq_domain(v: float) -> bool:
         return False
     m = (bits & ((1 << 52) - 1)) | (1 << 52)         # 含隐藏位的 53 位整数尾数
     k = 1075 - e                                     # 未既约分母 2^k（k≤0 → 整数值）
-    if k > 6:                                        # 既约：尾数拖尾零可约掉分母的 2 因子
+    if k > DTOA_MAX_DENOM_EXP:                       # 既约：尾数拖尾零可约掉分母的 2 因子
         k -= (m & -m).bit_length() - 1               #拖尾零计数 ctz(m)
-    return k <= 6 and abs(v) < 9e9
+    return k <= DTOA_MAX_DENOM_EXP and abs(v) < DTOA_ABS_LIMIT
 # P-c2 S2：ucomisd 后 setcc（无序由 PF 护栏另行处置，见 _emit_fbinop）与 SSE2 标量算术 opcode
 _FCMP_SETCC = {"==": 0x94, "!=": 0x95, "<": 0x92, "<=": 0x96, ">": 0x97, ">=": 0x93}
 _FARITH = {"+": 0x58, "-": 0x5C, "*": 0x59, "/": 0x5E}   # addsd/subsd/mulsd/divsd
@@ -632,10 +655,13 @@ def _emit_runtime(buf: _Buf) -> None:
 
     # dtoa：rax=float 位型（S3a 保底域：整数×2^-d，d≤6，|v|<9e9）→ 定点十进制输出（不含换行，OUTPUT 追加）。
     #   算法：翻 abs 位 → mulsd ×1e6（域内精确成整，<2^53 无舍入）→ cvttsd2si N → intpart=N//1e6 走
-    #   print_int；'.'；frac=N%1e6：去尾零与降 scale(10^5→) 同步进行（保有效前导零，如 0.015625），再高位起
-    #   逐位单字符 write_span。负数先出 '-'（-0.0 → '-0.0' 对齐 Python str）。越域哨兵（cvttsd2si INDEFINITE
-    #   致 N 负 或 |v|≥9e9）→ dt_oob → exit1（如实失败，不瞎编输出）。
-    #   寄存器：只用 rax/rcx/rdx/rsi/rdi/r10/r11/r13/r14/r15 + xmm0/xmm1；不碰 rbx/rbp/r12；
+    #   print_int；frac=N%1e6：去尾零（frac/=10）与定标档下移同步（保有效前导零，如 0.015625）。
+    #   S3b 优化：小数串 '.<digits>' 逐位缓冲进 numbuf 低端后【单次 write_span】统一输出（每位不再
+    #   一次 syscall + movabs 重置 rsi）；定标环以 POW10 表逐档 +8 取除数（每位除法由 2→ 1，去 scale/=10）；
+    #   循环不变量 mov ecx,10 外提为一次。输出字节与 S3a 逐字节一致（全域扇描已验）。
+    #   负数先出 '-'（-0.0 → '-0.0' 对齐 Python str）。越域哨兵（cvttsd2si INDEFINITE 致 N 负 或 |v|≥9e9）
+    #   → dt_oob → exit1（如实失败，不瞎编输出）。
+    #   寄存器：只用 rax/rcx/rdx/rsi/rdi/r10/r11/r13/r14/r15 + xmm0/xmm1/xmm2；不碰 rbx/rbp/r12；
     #   print_int/write_span 不触碰 r13/r14/r15（循环态安全）。
     buf.here("dtoa")
     _mov_reg_reg(buf, 10, 0)                          # mov r10,rax（存符号）
@@ -669,50 +695,49 @@ def _emit_runtime(buf: _Buf) -> None:
     buf.raw(0x48, 0xF7, 0xF1)                         # div rcx → rax=整部, rdx=frac
     _mov_reg_reg(buf, 13, 2)                          # mov r13,rdx（frac；print_int 不碰 r13）
     buf.call("print_int")                             # 整部（为 0 时也出 '0'）
-    mov_imm64(buf, _REG["rsi"], DATA_VADDR)
-    buf.raw(0xC6, 0x06, 0x2E)                         # mov byte[rsi],'.'
-    mov_imm32(buf, _REG["rdx"], 1); buf.call("write_span")
-    _test_reg_reg(buf, 13, 13)                        # frac==0 → 出单 '0'（整数值 → '3.0'）
+    # ---- S3b 优化：小数部分 '.<digits>' 一次性缓冲到 numbuf 低端后单次 write_span（免逐位 syscall/movabs）----
+    mov_imm64(buf, _REG["rdi"], DATA_VADDR)           # 小数串缓冲游标（numbuf 低端；print_int 自顶向下写不冲突）
+    buf.raw(0xC6, 0x07, 0x2E)                         # mov byte[rdi],'.'
+    buf.raw(0x48, 0xFF, 0xC7)                         # inc rdi
+    _test_reg_reg(buf, 13, 13)                        # frac==0 → 补单 '0'（整数值 → '3.0'）
     buf.jcc(JNZ, "dt_strip")
-    mov_imm64(buf, _REG["rsi"], DATA_VADDR)
-    buf.raw(0xC6, 0x06, 0x30)                         # mov byte[rsi],'0'
-    mov_imm32(buf, _REG["rdx"], 1); buf.call("write_span")
-    buf.jmp("dt_ret")
-    buf.here("dt_strip")                              # 去尾零与降 scale 同步（保留有效前导零，如 0.015625）：while frac%10==0: frac/=10, scale/=10
-    mov_imm32(buf, 14, 100000)                        # scale=10^5（定点 6 位小数，最高位档）
+    buf.raw(0xC6, 0x07, 0x30)                         # mov byte[rdi],'0'
+    buf.raw(0x48, 0xFF, 0xC7)                         # inc rdi
+    buf.jmp("dt_frac_out")
+    buf.here("dt_strip")                              # 去尾零（保留有效前导零，如 0.015625）：while frac%10==0: frac/=10, 定标档下移（r14 作表字节偏移）
+    mov_imm32(buf, 14, 0)                             # r14=定标表字节偏移（0=10^5 档）
+    mov_imm32(buf, _REG["rcx"], 10)                   # 循环不变量 mov ecx,10（外提，勿每轮重置）
     buf.here("dt_sloop")
     _mov_reg_reg(buf, 0, 13)                          # mov rax,r13（frac）
     buf.raw(0x31, 0xD2)                               # xor edx,edx
-    buf.raw(0xB9, 0x0A, 0x00, 0x00, 0x00)             # mov ecx,10
     buf.raw(0x48, 0xF7, 0xF1)                         # div rcx → rax=frac/10, rdx=frac%10
     buf.raw(0x48, 0x85, 0xD2)                         # test rdx,rdx
-    buf.jcc(JNZ, "dt_out")                            # 余≠0 → 尾零剥尽（scale 停在正确档位），转输出
+    buf.jcc(JNZ, "dt_scale_init")                     # 余≠0 → 尾零剥尽（档位停在正确档），转定标输出
     _mov_reg_reg(buf, 13, 0)                          # mov r13,rax（frac/=10）
-    _mov_reg_reg(buf, 0, 14)                          # mov rax,r14（scale）
-    buf.raw(0x31, 0xD2)
-    buf.raw(0xB9, 0x0A, 0x00, 0x00, 0x00)             # mov ecx,10
-    buf.raw(0x48, 0xF7, 0xF1)                         # div rcx
-    _mov_reg_reg(buf, 14, 0)                          # mov r14,rax（scale/=10，与剥零同步）
+    _add_reg_imm32(buf, 14, 8)                        # add r14,8（定标档下移一档）
     buf.jmp("dt_sloop")
-    buf.here("dt_out")                                # 高位起逐位：while scale>0 { digit=frac/scale; frac%=scale; scale/=10 }
+    buf.here("dt_scale_init")                         # 高位起逐位：divisor=POW10[off..]，digit=frac/divisor（免 scale/=10 除法）
+    mov_imm64(buf, _REG["rsi"], POW10_ADDR)           # 定标表游标
+    _add_reg_reg(buf, 6, 14)                          # add rsi,r14（游标 += 剥零后的档位偏移）
     buf.here("dt_o_loop")
-    _test_reg_reg(buf, 14, 14)
-    buf.jcc(JZ, "dt_ret")
-    _mov_reg_reg(buf, 0, 13)                          # mov rax,r13
+    buf.raw(0x48, 0x8B, 0x06)                         # mov rax,[rsi]（divisor；末档 0 作哨兵）
+    _test_reg_reg(buf, 0, 0)                          # test rax,rax
+    buf.jcc(JZ, "dt_frac_out")                        # divisor==0 → 小数位输出完毕
+    _mov_reg_reg(buf, 11, 0)                          # mov r11,rax（divisor）
+    _mov_reg_reg(buf, 0, 13)                          # mov rax,r13（frac）
     buf.raw(0x31, 0xD2)                               # xor edx,edx
-    buf.raw(0x49, 0xF7, 0xF6)                         # div r14（商=digit，余=frac）
-    _mov_reg_reg(buf, 13, 2)                          # mov r13,rdx
+    buf.raw(0x49, 0xF7, 0xF3)                         # div r11（商=digit，余=frac）
+    _mov_reg_reg(buf, 13, 2)                          # mov r13,rdx（frac%=divisor）
     buf.raw(0x83, 0xC0, 0x30)                         # add eax,'0'
-    buf.raw(0x88, 0x04, 0x25)                         # mov [DATA_VADDR],al（无基址 disp32 绝对寻址）
-    buf.b += struct.pack("<I", DATA_VADDR)
-    mov_imm64(buf, _REG["rsi"], DATA_VADDR)           # write_span 改 rsi → 每轮重置
-    mov_imm32(buf, _REG["rdx"], 1); buf.call("write_span")
-    _mov_reg_reg(buf, 0, 14)                          # mov rax,r14（scale/=10）
-    buf.raw(0x31, 0xD2)
-    buf.raw(0xB9, 0x0A, 0x00, 0x00, 0x00)             # mov ecx,10
-    buf.raw(0x48, 0xF7, 0xF1)                         # div rcx
-    _mov_reg_reg(buf, 14, 0)                          # mov r14,rax
+    buf.raw(0x88, 0x07)                               # mov byte[rdi],al（数字入缓冲）
+    buf.raw(0x48, 0xFF, 0xC7)                         # inc rdi
+    buf.raw(0x48, 0x83, 0xC6, 0x08)                   # add rsi,8（下一定标档）
     buf.jmp("dt_o_loop")
+    buf.here("dt_frac_out")                           # 单次 write_span：rsi=缓冲首(DATA_VADDR)，rdx=游标-首
+    mov_imm64(buf, _REG["rsi"], DATA_VADDR)
+    _mov_reg_reg(buf, 2, 7)                           # mov rdx,rdi
+    buf.raw(0x48, 0x29, 0xF2)                         # sub rdx,rsi（长度）
+    buf.call("write_span")
     buf.here("dt_ret")
     buf.raw(0xC3)
     buf.here("dt_oob")                                # 运行期越域哨兵：exit1（已登记行为，不瞎编）
@@ -1051,7 +1076,7 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                     buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("dtoa")     # mov rax,[rbx-8]
                 else:
                     raise NativeNotSupported(
-                        "OUTPUT 越域运行期 float 需全量 _dtoa（最短往返，S3b+；未就绪按 Q1 如实 SKIP，绝不伪通过）："
+                        "OUTPUT 越域运行期 float 需全量 _dtoa（最短往返，S3c+；未就绪按 Q1 如实 SKIP，绝不伪通过）："
                         "非精确十进制值（0.1 类）/×÷产 float/科学计数法范围")
             elif isinstance(t, tuple) and t[0] == "list" and len(t) >= 3 and t[2] is not None:
                 # P-c1 N3：编译期折叠 repr（str/异构/字面量 int-bool 列表均走此，Python str() 逐字节精确）
@@ -1205,6 +1230,11 @@ def _build_data() -> bytearray:
     seg[RB_OFF] = 0x5D                         # ']'
     seg[Q_OFF] = 0x27                          # "'"
     seg[CMA_OFF:CMA_OFF + 2] = b", "           # ', '
+    # P-c2 S3b：dtoa 定标表 10^5..10^0（每项 8 字节小端），末尾多一个 0 作逐位输出哨兵
+    for _k in range(DTOA_MAX_DENOM_EXP):          # 10^5,10^4,...,10^0（共 6 档）
+        _v = 10 ** (DTOA_MAX_DENOM_EXP - 1 - _k)
+        seg[POW10_OFF + 8 * _k:POW10_OFF + 8 * _k + 8] = struct.pack("<Q", _v)
+    seg[POW10_OFF + 8 * DTOA_MAX_DENOM_EXP:POW10_OFF + 8 * DTOA_MAX_DENOM_EXP + 8] = struct.pack("<Q", 0)  # 哨兵
     return seg
 
 

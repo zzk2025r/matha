@@ -1,5 +1,37 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c2 S3b：保底 _dtoa 优化 + 精度声明登记（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-02
+
+### 背景
+
+P-c2 S3a 已以保底定点展开交付域内运行期浮点输出（逐字节 =`str(v)`，失败 0）。本切片遵用户指定
+**路线 A（纯优化 + 声明文档化）**：在不动域、不新增越域输出、不碰最短往返（全期最难，仍属 S3c+）的前提下，
+只补全「精度可声明的回退路线」中的**精度声明**并优化 `_dtoa` 机器码。输出字节与 S3a **逐字节全等**。
+铁律不变：不碰 `native.py` 主体、覆盖集之外一律 `NativeNotSupported` 显式拒、越域运行期不瞎编。
+
+### 变更
+
+1. **`src/mbc/native_elf.py`**：
+   - **精度声明→编译期单一事实源**：新增 `DTOA_MAX_DENOM_EXP=6` / `DTOA_SCALE=1e6` / `DTOA_ABS_LIMIT=9e9`，
+     `_floatq_domain`、护栏位型阈、机器码定标环均改为共读此三常量（消除魔法数）。
+   - **`dtoa_precision_declaration()`**：返回域/guarantee/三层 soundness/out_of_domain/shortest_roundtrip 字典，
+     作为可机检的能力登记（声明当前 _dtoa 保证值集与边界，不涵盖最短往返）。OUTPUT 越域拒消息文本 `S3b+`→`S3c+`。
+   - **dtoa 行为不变优化**：① 小数串 `.<digits>` 逐位缓冲进 numbuf 低端后单次 `write_span` 统一输出
+     （每位不再一次 `write` syscall + `movabs` 重置 rsi；每浮点小数段 syscall 从 ≤7 降至 1）；② 定标环改用数据段
+     **POW10 表**（10^5..10^0，末置 0 哨兵）逐档 `+8` 取除数，每位 64 位除法由 2→1（去 `scale/=10`）；
+     ③ 循环不变量 `mov ecx,10` 外提为一次。寄存器纪律不变。`_build_data` 新增 POW10 表于 `[79,VSP_OFF)` 空洞（不撞 numbuf）。
+2. **`.trae/pc2_s3_verify.py`**（探针，不入门禁）：新增**全域差分扇描**（单程序 50 个 floatq 全局，覆盖各定标档
+   2^-1..2^-6/前导零/大整部/负值/上界近邻）vm==elf==`\n.join(str(v))` 逐字节全等，坐实精度声明。
+3. **文档**：`docs/spec/NATIVE_ELF_PC.md` 补 P-c2 S3b 实况块；`docs/ARCHITECTURE.md` `core_py_lines` 32,877 → **32,907**。
+
+### 口径
+
+Gate 不变全绿：**28 正例 + 18 拒绝例 + 5 越界行为例，失败 0**（域与输出字节零变更，用例不动）。全域 50 值扇描
+经 WSL 实跑逐字节对拍 VM 全等；越域仍静态拒/运行期 exit1 如实失败。全量 `_dtoa`/最短往返顺延登记至 **S3c+**。
+门禁：doc_facts、dep_audit 违规 0、kernel_purity 全绿。
+
 ## native 跨平台 P-c2 S3a：保底 _dtoa·精确十进制域定点展开（阶段3-3 ④ native 跨平台）
 
 **日期**：2026-11-01
