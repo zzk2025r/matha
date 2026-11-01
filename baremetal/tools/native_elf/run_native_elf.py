@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""阶段3-3 ④ P-a 端到端门禁：Matha → Linux x86-64 静态 ELF64 → 实跑 → 与 mbc VM 逐字节对拍。
+"""阶段3-3 ④ P-a/P-b/P-c1 端到端门禁：Matha → Linux x86-64 静态 ELF64 → 实跑 → 与 mbc VM 逐字节对拍。
 
 流程（每条覆盖集内用例）：
   1. compile_source 出 MModule（与 native.py 同一入口）；
@@ -132,11 +132,23 @@ while i < len(l) {
 }
 #1：[s]
 """,
+    # ---- P-c1 N0：字符串（裸串输出 / len / 全局槽承载） ----
+    "c1_str_output": """\
+#1：["hi"]
+let s = "Hello, Matha"
+#1：[s]
+""",
+    "c2_str_len": """\
+#1：[len("hi")]
+#1：[len("")]
+let t = "abcdef"
+#1：[len(t)]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
 REJECT_CASES = {
-    "r1_string_value": '#1：["hi"]\n',
+    "r1_non_ascii": '#1：["\u4f60\u597d"]\n',
     "r2_closure": "f = (x) => x + 1\n#1：[f(2)]\n",
     "r3_for_list": "let t = 0\nfor x in [1, 2, 3] {\n  t = t + x\n}\n#1：[t]\n",
     "r4_undefined_global": "let a = b\n#1：[a]\n",
@@ -303,7 +315,7 @@ def main() -> int:
             fails += 1
 
     tail = "（运行期对拍因缺执行器跳过）" if skipped_runtime else ""
-    print(f"\n=== 阶段3-3 ④ native ELF P-a/P-b：{len(CASES)} 正例 + {len(REJECT_CASES)} 拒绝例 "
+    print(f"\n=== 阶段3-3 ④ native ELF P-a/P-b/P-c1：{len(CASES)} 正例 + {len(REJECT_CASES)} 拒绝例 "
           f"+ {len(OOB_CASES)} 越界行为例，失败 {fails}{tail} ===")
     if fails:
         return 1

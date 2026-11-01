@@ -19,9 +19,13 @@
   M4  CALL/RET（直接/递归，argc≤2，标量）
 P-b（列表 + bump 堆，见 docs/spec/NATIVE_ELF_PB.md）：
   N0  .bss bump 堆（r12 堆指针）+ BUILD_LIST + 内建 len
-  N1  INDEX_GET（正/负索引，越界 exit_group(1)）           ← 本文件当前
+  N1  INDEX_GET（正/负索引，越界 exit_group(1)）
   N2  列表进全局/局部槽（typ 跟踪 (list,eltyp)）+ 混合/嵌套/字符串元素拒
-列表元素限 int/bool（同质）；集合之外的构造一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
+  N3  列表 × 算术 × 控制流组合；N4 Gate 扩例（13 正 + 12 拒 + 3 越界行为）
+P-c1（字符串垂直切片，见 docs/spec/NATIVE_ELF_PC.md）：
+  N0  PUSH_CONST str（堆串对象 [len:8B][bytes]）+ OUTPUT print_str（裸串无引号）+ len(str)  ← 本文件当前
+列表元素 P-b 限 int/bool（同质，异构列表随 N1 repr 输出解禁）；首期字符串限 ASCII（多字节拒）。
+集合之外的构造（非 ASCII 串 / 整表 repr / 浮点 / 字典 / 闭包 / 异常）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
 from __future__ import annotations
 
@@ -293,6 +297,11 @@ def _store_rax_r12(buf: _Buf, disp: int) -> None:
     buf.raw(0x49, 0x89, 0x84, 0x24); buf.imm32(disp)
 
 
+def _store_byte_r12(buf: _Buf, disp: int, val: int) -> None:
+    """mov byte [r12+disp32],imm8（写字符串单字节入堆；REX.B C6 /0 ModRM=84 SIB=24 disp32 imm8）。"""
+    buf.raw(0x49, 0xC6, 0x84, 0x24); buf.imm32(disp); buf.raw(val & 0xFF)
+
+
 def _mov_rax_r12(buf: _Buf) -> None:
     """mov rax,r12（取 bump 指针当前值 = 刚建列表首地址；rm=100(r12) 需 REX.B）。"""
     buf.raw(0x49, 0x8B, 0xC4)
@@ -374,6 +383,13 @@ def _emit_runtime(buf: _Buf) -> None:
     mov_imm64(buf, _REG["rsi"], FALSE_ADDR)
     mov_imm32(buf, _REG["rdx"], 5)
     buf.here("pb_o")
+    buf.call("write_span")
+    buf.raw(0xC3)
+
+    # print_str：rax=串指针 → write_span(sptr+8, [sptr])（裸串无引号；换行由 OUTPUT 统一追加）
+    buf.here("print_str")
+    buf.raw(0x48, 0x8B, 0x10)                        # mov rdx,[rax]（串长度字）
+    buf.raw(0x48, 0x8D, 0x70, 0x08)                  # lea rsi,[rax+8]（字节首地址）
     buf.call("write_span")
     buf.raw(0xC3)
 
@@ -464,6 +480,19 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             if isinstance(v, bool):                     # 编译期常量折叠出的布尔（如 not 0 → True）
                 _load_imm_rax(buf, 1 if v else 0); _push_rax(buf); typ.append("bool")
                 continue
+            if isinstance(v, str):                      # P-c1 N0：ASCII 串 → 堆串对象 [len:8B][bytes]
+                try:
+                    data = v.encode("ascii")
+                except UnicodeEncodeError:
+                    raise NativeNotSupported(f"PUSH_CONST 非 ASCII 字符串（多字节属 P-c1 后续，Q2）：{v!r}")
+                n = len(data)
+                for idx, byte in enumerate(data):
+                    _store_byte_r12(buf, 8 + idx, byte)         # mov byte[r12+8+idx],b
+                _load_imm_rax(buf, n)                           # mov rax,n（长度）
+                _store_rax_r12(buf, 0)                          # mov [r12],rax
+                _mov_rax_r12(buf); _push_rax(buf)               # 串指针 sptr 入操作数栈
+                _add_r12_imm32(buf, (8 + n + 7) & ~7)           # bump：r12 += align8(8+n)
+                typ.append("str"); continue
             if not isinstance(v, int):
                 raise NativeNotSupported(f"PUSH_CONST 非常量整数：{v!r}")
             if not (-0x8000000000000000 <= v < 0x8000000000000000):
@@ -550,8 +579,10 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                 buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("print_int")    # mov rax,[rbx-8]
             elif t == "bool":
                 buf.raw(0x48, 0x8B, 0x7B, 0xF8); buf.call("print_bool")    # mov rdi,[rbx-8]
+            elif t == "str":
+                buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("print_str")     # mov rax,[rbx-8]（sptr）
             else:
-                raise NativeNotSupported("OUTPUT null 暂不支持（P-a）")
+                raise NativeNotSupported(f"OUTPUT 不支持值型 {t!r}（null/列表整表 repr 属后续，P-c1）")
             buf.raw(0x48, 0x83, 0xEB, 0x08)                          # sub rbx,8（弹）
             mov_imm64(buf, _REG["rsi"], NL_ADDR); mov_imm32(buf, _REG["rdx"], 1)
             buf.call("write_span")                                   # 行尾 LF
@@ -629,8 +660,8 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             if isinstance(marker, tuple) and marker[0] == "builtin" and marker[1] == "len":
                 if argc != 1:
                     raise NativeNotSupported(f"len 需 1 参数，argc={argc}")
-                if not (isinstance(typ[-1], tuple) and typ[-1][0] == "list"):
-                    raise NativeNotSupported(f"len 作用于非列表：{typ[-1]!r}（P-b）")
+                if not ((isinstance(typ[-1], tuple) and typ[-1][0] == "list") or typ[-1] == "str"):
+                    raise NativeNotSupported(f"len 作用于不可取长对象：{typ[-1]!r}（P-b 列表/P-c1 串）")
                 buf.raw(0x48, 0x8B, 0x43, 0xF8)                     # mov rax,[rbx-8]（listptr）
                 buf.raw(0x48, 0x8B, 0x00)                           # mov rax,[rax]（表头长度字）
                 buf.raw(0x48, 0x83, 0xEB, 0x10)                     # sub rbx,16（弹 arg+dummy）
@@ -646,6 +677,11 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                 raise NativeNotSupported(f"调用内建/未知函数 {fname!r}（P-a 仅直接调用已定义函数）")
             if info["arity"] != argc:
                 raise NativeNotSupported(f"调用 {fname!r}：arity={info['arity']} 与 argc={argc} 不符")
+            argtys = typ[-argc:] if argc else []
+            for at in argtys:
+                if at not in ("int", "bool"):
+                    raise NativeNotSupported(
+                        f"调用 {fname!r} 实参类型 {at!r} 非 int/bool（串/列表跨函数边界属后续，P-c1）")
             buf.call(f"fn_{fname}")
             # 弹回传值→rax，弹掉 dummy 函数槽，重新压回结果（保持操作数栈与 typ 同步）
             buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]
@@ -659,8 +695,8 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             if not typ:
                 raise NativeNotSupported("RET 空栈（返回值缺失）")
             t = typ[-1]
-            if isinstance(t, tuple) or t == "null":
-                raise NativeNotSupported(f"RET 返回 {t!r}（P-a 仅 int/bool 标量）")
+            if isinstance(t, tuple) or t in ("null", "str"):
+                raise NativeNotSupported(f"RET 返回 {t!r}（仅 int/bool 标量；串/列表跨函数边界属后续，P-c1）")
             if ret_collector is not None:
                 ret_collector.append(t)
             buf.raw(0x48, 0x89, 0xEC)                                # mov rsp,rbp
