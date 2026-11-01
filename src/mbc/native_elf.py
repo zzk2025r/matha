@@ -23,9 +23,10 @@ P-b（列表 + bump 堆，见 docs/spec/NATIVE_ELF_PB.md）：
   N2  列表进全局/局部槽（typ 跟踪 (list,eltyp)）+ 混合/嵌套/字符串元素拒
   N3  列表 × 算术 × 控制流组合；N4 Gate 扩例（13 正 + 12 拒 + 3 越界行为）
 P-c1（字符串垂直切片，见 docs/spec/NATIVE_ELF_PC.md）：
-  N0  PUSH_CONST str（堆串对象 [len:8B][bytes]）+ OUTPUT print_str（裸串无引号）+ len(str)  ← 本文件当前
-列表元素 P-b 限 int/bool（同质，异构列表随 N1 repr 输出解禁）；首期字符串限 ASCII（多字节拒）。
-集合之外的构造（非 ASCII 串 / 整表 repr / 浮点 / 字典 / 闭包 / 异常）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
+  N0  PUSH_CONST str（堆串对象 [len:8B][bytes]）+ OUTPUT print_str（裸串无引号）+ len(str)
+  N1  str+str 连接（str_concat/rep movsb）+ str ==/!= 比较（str_eq/repe cmpsb）+ s[i] 取子串（正/负/越界 exit1）  ← 本文件当前
+列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）；str×数值连接（需 itoa）/整表 repr/异构列表 属 P-c1 后续。
+集合之外的构造（非 ASCII 串 / 浮点 / 字典 / 闭包 / 异常）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
 from __future__ import annotations
 
@@ -317,6 +318,86 @@ def _sub_rbx_imm32(buf: _Buf, val: int) -> None:
     buf.raw(0x48, 0x81, 0xEB); buf.imm32(val)
 
 
+# ------------------------------------------------ P-c1 N1：通用 ModRM/REX 编码辅助
+
+def _mem_modrm(buf: _Buf, reg: int, base: int, disp: int, op_bytes: tuple) -> None:
+    """emit REX + op_bytes + ModRM(+SIB)(+disp) 寻址 [base+disp]，reg 字段=reg。
+
+    reg/base 为寄存器号（0-15）。rm=100(rsp/r12) 走 SIB（base=100 index=无 scale=1）；
+    rm=101(rbp/r13) 且 disp=0 需 mod=01 disp8=0（否则变绝对寻址）。其余 mod01/10。"""
+    rm = base & 7
+    rf = reg & 7
+    rex = 0x48 | (0x04 if reg >= 8 else 0) | (0x01 if base >= 8 else 0)
+    if rm == 4:                                   # rsp/r12 → SIB
+        if -0x80 <= disp <= 0x7F:
+            buf.raw(rex, *op_bytes, 0x40 | (rf << 3) | 4, 0x24, disp & 0xFF)
+        else:
+            buf.raw(rex, *op_bytes, 0x80 | (rf << 3) | 4, 0x24); buf.imm32(disp)
+    elif rm == 5 and disp == 0:                   # rbp/r13 + 0 → 强制 disp8=0
+        buf.raw(rex, *op_bytes, 0x40 | (rf << 3) | 5, 0x00)
+    elif -0x80 <= disp <= 0x7F:
+        buf.raw(rex, *op_bytes, 0x40 | (rf << 3) | rm, disp & 0xFF)
+    else:
+        buf.raw(rex, *op_bytes, 0x80 | (rf << 3) | rm); buf.imm32(disp)
+
+
+def _mov_reg_reg(buf: _Buf, dst: int, src: int) -> None:    # mov dst,src（89 /r：reg=src rm=dst）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x89, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _add_reg_reg(buf: _Buf, dst: int, src: int) -> None:    # add dst,src（01 /r）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x01, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _cmp_reg_reg(buf: _Buf, dst: int, src: int) -> None:    # cmp dst,src（39 /r）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x39, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _mov_reg_mem(buf: _Buf, dst: int, base: int, disp: int) -> None:   # mov dst,[base+disp]
+    _mem_modrm(buf, dst, base, disp, (0x8B,))
+
+
+def _mov_mem_reg(buf: _Buf, base: int, disp: int, src: int) -> None:   # mov [base+disp],src
+    _mem_modrm(buf, src, base, disp, (0x89,))
+
+
+def _lea_reg_mem(buf: _Buf, dst: int, base: int, disp: int) -> None:   # lea dst,[base+disp]
+    _mem_modrm(buf, dst, base, disp, (0x8D,))
+
+
+def _add_reg_imm32(buf: _Buf, reg: int, val: int) -> None:  # add reg,imm32（81 /0）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0x81, 0xC0 | (reg & 7)); buf.imm32(val)
+
+
+def _and_rax_imm32(buf: _Buf, val: int) -> None:  # and rax,imm32（81 /4）
+    buf.raw(0x48, 0x81, 0xE0); buf.imm32(val)
+
+
+def _xor_rax_rax(buf: _Buf) -> None:              # xor rax,rax
+    buf.raw(0x48, 0x31, 0xC0)
+
+
+def _cld(buf: _Buf) -> None:                      # cld（清方向标志，串指令前置）
+    buf.raw(0xFC)
+
+
+def _rep_movsb(buf: _Buf) -> None:                # rep movsb（[rsi]→[rdi]，rcx 计数）
+    buf.raw(0xF3, 0xA4)
+
+
+def _repe_cmpsb(buf: _Buf) -> None:               # repe cmpsb（[rsi]↔[rdi] 逐字节比较至不等或 rcx=0）
+    buf.raw(0xF3, 0xA6)
+
+
+def _pop2_rcx_rax(buf: _Buf) -> None:             # 弹栈顶二槽：b→rcx、a→rax（与 BINOP 弹序一致）
+    buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x0B)    # sub rbx,8; mov rcx,[rbx]
+    buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)    # sub rbx,8; mov rax,[rbx]
+
+
 def _emit_runtime(buf: _Buf) -> None:
     """发射 write_span / print_int / print_bool 三个子程序（不触碰 rbx 栈指针）。"""
     # exit1：运行期越界（如 INDEX_GET 越界）退出码 1，镜像 VM 未捕获 IndexError
@@ -391,6 +472,55 @@ def _emit_runtime(buf: _Buf) -> None:
     buf.raw(0x48, 0x8B, 0x10)                        # mov rdx,[rax]（串长度字）
     buf.raw(0x48, 0x8D, 0x70, 0x08)                  # lea rsi,[rax+8]（字节首地址）
     buf.call("write_span")
+    buf.raw(0xC3)
+
+    # str_concat：rax=sptrA, rcx=sptrB → rax=新串指针（[r12]=lenA+lenB，双段 rep movsb）
+    #   只用 rax/rcx/rdx?/rsi/rdi/r8/r9/r13/r14/r15 + r12 bump；不碰 rbx（不碰操作数栈）
+    buf.here("str_concat")
+    _cld(buf)
+    _mov_reg_reg(buf, 13, 12)                        # mov r13,r12（新串基址）
+    _mov_reg_mem(buf, 14, 0, 0)                      # mov r14,[rax]（lenA）
+    _mov_reg_mem(buf, 15, 1, 0)                      # mov r15,[rcx]（lenB）
+    _mov_reg_reg(buf, 8, 0)                          # mov r8,rax（save sptrA）
+    _mov_reg_reg(buf, 9, 1)                          # mov r9,rcx（save sptrB）
+    _mov_reg_reg(buf, 0, 14)                         # mov rax,r14
+    _add_reg_reg(buf, 0, 15)                         # add rax,r15（total）
+    _mov_mem_reg(buf, 13, 0, 0)                      # mov [r13],rax（新串长度字）
+    _lea_reg_mem(buf, 6, 8, 8)                       # lea rsi,[r8+8]（srcA）
+    _lea_reg_mem(buf, 7, 13, 8)                      # lea rdi,[r13+8]（dstA）
+    _mov_reg_reg(buf, 1, 14)                         # mov rcx,r14（lenA）
+    _rep_movsb(buf)                                  # 拷贝 A
+    _lea_reg_mem(buf, 6, 9, 8)                       # lea rsi,[r9+8]（srcB；rdi 已前移）
+    _mov_reg_reg(buf, 1, 15)                         # mov rcx,r15（lenB）
+    _rep_movsb(buf)                                  # 拷贝 B
+    _mov_reg_reg(buf, 0, 14)                         # mov rax,r14
+    _add_reg_reg(buf, 0, 15)                         # add rax,r15（total）
+    _add_reg_imm32(buf, 0, 15)                       # add rax,15（= 8+total+7）
+    _and_rax_imm32(buf, -8)                          # and rax,-8（block=align8(8+total)）
+    _add_reg_reg(buf, 12, 0)                         # add r12,rax（bump）
+    _mov_reg_reg(buf, 0, 13)                         # mov rax,r13（结果=新串指针）
+    buf.raw(0xC3)
+
+    # str_eq：rax=sptrA, rcx=sptrB → rax=0/1（长度不等短路；否则 repe cmpsb 逐字节）
+    buf.here("str_eq")
+    _mov_reg_mem(buf, 14, 0, 0)                      # mov r14,[rax]（lenA）
+    _mov_reg_mem(buf, 15, 1, 0)                      # mov r15,[rcx]（lenB）
+    _cmp_reg_reg(buf, 14, 15)                        # cmp r14,r15
+    buf.jcc(JNE, "se_neq")                           # 长度不等 → 0
+    _lea_reg_mem(buf, 6, 0, 8)                       # lea rsi,[rax+8]
+    _lea_reg_mem(buf, 7, 1, 8)                       # lea rdi,[rcx+8]
+    _mov_reg_reg(buf, 1, 14)                         # mov rcx,r14（lenA）
+    buf.raw(0x48, 0x85, 0xC9)                        # test rcx,rcx
+    buf.jcc(JZ, "se_eq")                             # 空串 → 相等
+    _cld(buf)
+    _repe_cmpsb(buf)                                 # 逐字节比较：全等末次比较置 ZF=1（含 rcx 耗尽），失配置 ZF=0
+    buf.jcc(JZ, "se_eq")                             # ZF=1 → 全等（不能用 test rcx：失配于末字节时 rcx 也归 0）
+    buf.here("se_neq")
+    _xor_rax_rax(buf)                                # mov rax,0
+    buf.jmp("se_ret")
+    buf.here("se_eq")
+    mov_imm32(buf, _REG["rax"], 1)                   # mov rax,1
+    buf.here("se_ret")
     buf.raw(0xC3)
 
 
@@ -550,25 +680,48 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             tidx, tc = typ[-1], typ[-2]
             if tidx != "int":
                 raise NativeNotSupported(f"INDEX_GET 下标需 int：{tidx!r}")
-            if not (isinstance(tc, tuple) and tc[0] == "list"):
-                raise NativeNotSupported(f"INDEX_GET 不可下标对象：{tc!r}（P-b 仅列表）")
-            eltyp = tc[1]
-            buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x0B)   # sub rbx,8; mov rcx,[rbx]（idx）
-            buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]（listptr）
-            buf.raw(0x48, 0x8B, 0x10)                                    # mov rdx,[rax]（长度）
-            buf.raw(0x48, 0x85, 0xC9)                                    # test rcx,rcx
+            is_list = isinstance(tc, tuple) and tc[0] == "list"
+            if not (is_list or tc == "str"):
+                raise NativeNotSupported(f"INDEX_GET 不可下标对象：{tc!r}（P-b 列表/P-c1 串）")
+            _pop2_rcx_rax(buf)                                       # rcx=idx、rax=容器（与 BINOP 弹序一致）
+            buf.raw(0x48, 0x8B, 0x10)                                # mov rdx,[rax]（长度字）
+            buf.raw(0x48, 0x85, 0xC9)                                # test rcx,rcx
             buf.jcc(JNS, f"{tag}:{i}:sk")
-            buf.raw(0x48, 0x01, 0xD1)                                    # add rcx,rdx（负索引 += len）
+            buf.raw(0x48, 0x01, 0xD1)                                # add rcx,rdx（负索引 += len）
             buf.here(f"{tag}:{i}:sk")
-            buf.raw(0x48, 0x85, 0xC9)                                    # test rcx,rcx
-            buf.jcc(JS, "exit1")                                        # 仍负→越界
-            buf.raw(0x48, 0x39, 0xD1)                                    # cmp rcx,rdx
-            buf.jcc(JGE, "exit1")                                       # idx>=len→越界
-            buf.raw(0x48, 0x8B, 0x44, 0xC8, 0x08)                         # mov rax,[rax+rcx*8+8]（SIB=0xC8: scale11*index001*base000）
-            _push_rax(buf)
-            typ.pop(); typ.pop(); typ.append(eltyp)
+            buf.raw(0x48, 0x85, 0xC9)                                # test rcx,rcx
+            buf.jcc(JS, "exit1")                                     # 仍负→越界
+            buf.raw(0x48, 0x39, 0xD1)                                # cmp rcx,rdx
+            buf.jcc(JGE, "exit1")                                    # idx>=len→越界
+            if is_list:
+                buf.raw(0x48, 0x8B, 0x44, 0xC8, 0x08)                # mov rax,[rax+rcx*8+8]（SIB=0xC8: scale11*index001*base000）
+                _push_rax(buf)
+                typ.pop(); typ.pop(); typ.append(tc[1])
+            else:                                                    # str → 1 字节子串（新堆对象 [len=1][byte]）
+                buf.raw(0x48, 0x8B, 0x44, 0x08, 0x08)                # mov rax,[rax+rcx*1+8]（SIB=0x08 scale=1；8B 非对齐载入取低字节）
+                _store_rax_r12(buf, 8)                               # mov [r12+8],rax（字节入新串负载）
+                _load_imm_rax(buf, 1); _store_rax_r12(buf, 0)        # mov [r12],1（新串长度）
+                _mov_rax_r12(buf); _push_rax(buf)                    # 结果=新串指针入栈
+                _add_r12_imm32(buf, 16)                              # bump：r12 += align8(8+1)=16
+                typ.pop(); typ.pop(); typ.append("str")
         elif op == OP.BINOP:
-            _emit_binop(buf, C[ins[1]], typ, i)
+            sym = C[ins[1]]
+            tb = typ[-1] if typ else None
+            ta = typ[-2] if len(typ) >= 2 else None
+            if sym == "+" and ta == "str" and tb == "str":            # P-c1 N1：str+str 连接
+                _pop2_rcx_rax(buf); buf.call("str_concat"); _push_rax(buf)
+                typ.pop(); typ.pop(); typ.append("str")
+            elif sym in ("==", "!=") and ta == "str" and tb == "str":  # P-c1 N1：str 逐字节比较
+                _pop2_rcx_rax(buf); buf.call("str_eq")
+                if sym == "!=":
+                    buf.raw(0x48, 0x83, 0xF0, 0x01)                  # xor rax,1（0/1 翻转）
+                _push_rax(buf)
+                typ.pop(); typ.pop(); typ.append("bool")
+            elif sym in ("+", "-", "*", "//", "%") and "str" in (ta, tb):
+                raise NativeNotSupported(
+                    f"BINOP {sym!r} 涉 str 于非 str+str 域（str×数值连接/算术属 P-c1 后续，需 itoa）：{ta},{tb}")
+            else:
+                _emit_binop(buf, sym, typ, i)
         elif op == OP.UNARYOP:
             _emit_unop(buf, C[ins[1]], typ)
         elif op == OP.OUTPUT:

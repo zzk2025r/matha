@@ -144,6 +144,33 @@ let s = "Hello, Matha"
 let t = "abcdef"
 #1：[len(t)]
 """,
+    # ---- P-c1 N1：字符串组合（连接 / 比较 / 取子串） ----
+    "c3_str_concat": """\
+#1：["foo" + "bar"]
+#1：["a" + "b" + "c"]
+let g = "He" + "llo"
+#1：[g]
+#1：[len(g)]
+#1：["" + "x"]
+#1：["x" + ""]
+""",
+    "c4_str_compare": """\
+#1：["a" == "a"]
+#1：["a" != "b"]
+#1：["abc" == "abd"]
+#1：["" == ""]
+#1：["a" == ""]
+#1：["abc" != "abcd"]
+""",
+    "c5_str_index": """\
+let s = "hello"
+#1：[s[0]]
+#1：[s[4]]
+#1：[s[-1]]
+#1：[s[-5]]
+#1：[len(s[2])]
+#1：[s[0] + s[4]]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -161,6 +188,9 @@ REJECT_CASES = {
     "r10_slice": "let l = [1, 2, 3]\n#1：[l[0:2]]\n",
     "r11_dict": "#1：[len({\"a\": 1})]\n",
     "r12_int_subscript": "#1：[5[0]]\n",
+    # ---- P-c1 N1 越界集外：str×数值连接（需 itoa）/ str 参与算术 ----
+    "r13_str_mul": "#1：[\"a\" * 3]\n",
+    "r14_str_plus_int": "#1：[\"n\" + 42]\n",
 }
 
 # ---- P-b 行为断言：运行期越界索引 → ELF exit_group(1)（镜像 VM 未捕获 IndexError） ----
@@ -168,6 +198,9 @@ OOB_CASES = {
     "b1_index_oob_high": "let l = [1, 2, 3]\n#1：[l[3]]\n",
     "b2_index_oob_neg": "let l = [1, 2, 3]\n#1：[l[-4]]\n",
     "b3_empty_index": "#1：[[][0]]\n",
+    # ---- P-c1 N1：串取子串越界（与列表同口径 exit_group(1)） ----
+    "b4_str_index_oob": "let s = \"abc\"\n#1：[s[5]]\n",
+    "b5_str_index_oob_neg": "let s = \"abc\"\n#1：[s[-4]]\n",
 }
 
 

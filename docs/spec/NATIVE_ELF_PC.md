@@ -123,6 +123,12 @@ P-c 新增：`"str"`（堆串指针）、`"float"`（IEEE-754 值，P-c2）；`(
   元素 typ 存 `("list", None)`，整表输出走运行期 repr（按元素实际类型渲染），不再依赖静态同质分派。
 - **验收**：连接/比较/索引/repr 逐字节对拍；Gate 追加 P-c1 正/负例（§五）。
 
+> **N1 交付实况（2026-11-01，commit 待填）**：本里程碑已落地 **str+str 连接**（`str_concat`/双段 `rep movsb`）、
+> **str `==`/`!=` 比较**（`str_eq`/长度短路 + `repe cmpsb` 取 ZF）、**`s[i]` 取子串**（正/负索引归一、越界 `exit_group(1)`、
+> 1 字节新串对象），Gate 逐字节全等。**如实收缩三项**：`str×数值` 连接（需运行期 itoa）、整表/串列表 **repr 输出**、
+> **异构列表解禁**（Q4）均→ **P-c1 N2**。缘由：异构列表 repr 需逐元素**运行期类型标签**，与当前「无运行期标签、纯影子 typ」模型
+> 分歧（Q4 原假设「运行期按实际类型渲染」在此模型下不可行）；同质 int/bool/str 列表的 repr 可静态定型，归 N2 先落地；真正异构需 tagging（或入 P-c3）。
+
 ### N2：浮点垂直切片（P-c2 · 骨架，建议独立立项）
 - `PUSH_CONST` float → IEEE-754 8B；`BINOP + - * /` 在 `"float"` 域走 **SSE2 标量**；`int/float` 混型（`/` 真除产 float，
   对齐 `_op_div`）；比较走 `ucomisd`+setcc；`OUTPUT` typ `"float"` → **手写 `_dtoa`**。
