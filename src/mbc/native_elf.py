@@ -26,9 +26,12 @@ P-c1（字符串垂直切片，见 docs/spec/NATIVE_ELF_PC.md）：
   N0  PUSH_CONST str（堆串对象 [len:8B][bytes]）+ OUTPUT print_str（裸串无引号）+ len(str)
   N1  str+str 连接（str_concat/rep movsb）+ str ==/!= 比较（str_eq/repe cmpsb）+ s[i] 取子串（正/负/越界 exit1）
   N2  同质 int/bool 整表 repr 输出（plr_int/plr_bool 运行期循环 `[e0, e1, …]`，无换行由 OUTPUT 追加）
-  N3  字面量 str/异构整表 repr：发射器编译期用 Python str() 折叠精确字节（零转义/标签汇编）  ← 本文件当前
+  N3  字面量 str/异构整表 repr：发射器编译期用 Python str() 折叠精确字节（零转义/标签汇编）
+P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
+  S1  IEEE-754 double 代栈位型 + 字面量/编译器已折叠(+ - *) float 的 str() 折叠输出（零 SSE/零 _dtoa）  ← 本文件当前
+（运行期 float：全局/循环变量、`/` 真除、SSE 算术/比较、`_dtoa` 输出——属 P-c2 后续，未就绪按 Q1 如实 SKIP/拒）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
-集合之外的构造（非 ASCII 串 / 浮点 / 字典 / 闭包 / 异常）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
+集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及未就绪的运行期 float 算术·比较·输出）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
 from __future__ import annotations
 
@@ -661,6 +664,17 @@ def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
         raise NativeNotSupported(f"M2 不支持 UNARYOP {sym!r}（仅 neg/not）")
 
 
+def _emit_fold_print(buf: _Buf, data: bytes) -> None:
+    """编译期折叠字节 → 堆串对象 [len:8B][bytes] → print_str 发射（行尾 LF 由 OUTPUT 统一追加）。
+
+    P-c2 S1 浮点折叠输出与 P-c1 N3 列表折叠输出共用此机制（发射器 Python str() = VM 输出基准）。"""
+    for idx, byte in enumerate(data):
+        _store_byte_r12(buf, 8 + idx, byte)             # mov byte[r12+8+idx],b
+    _load_imm_rax(buf, len(data)); _store_rax_r12(buf, 0)   # 头=[len]
+    _mov_rax_r12(buf); buf.call("print_str")           # 当作普通串发射
+    _add_r12_imm32(buf, (8 + len(data) + 7) & ~7)      # bump
+
+
 def _fold_list_repr(C: list, code: list, i: int, n: int):
     """P-c1 N3：若 BUILD_LIST 前 n 条指令全为字面量压栈，用【发射器(Python)】的
     str() 直接算出与 VM 输出基准逐字节一致的 ASCII repr 字节（零转义/标签汇编）。
@@ -727,6 +741,9 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                 _mov_rax_r12(buf); _push_rax(buf)               # 串指针 sptr 入操作数栈
                 _add_r12_imm32(buf, (8 + n + 7) & ~7)           # bump：r12 += align8(8+n)
                 typ.append("str"); continue
+            if isinstance(v, float):                    # P-c2 S1：IEEE-754 double → 栈存 8B 原始位型
+                bits = struct.unpack("<q", struct.pack("<d", v))[0]
+                _load_imm_rax(buf, bits); _push_rax(buf); typ.append("float"); continue
             if not isinstance(v, int):
                 raise NativeNotSupported(f"PUSH_CONST 非常量整数：{v!r}")
             if not (-0x8000000000000000 <= v < 0x8000000000000000):
@@ -841,14 +858,20 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                 buf.raw(0x48, 0x8B, 0x7B, 0xF8); buf.call("print_bool")    # mov rdi,[rbx-8]
             elif t == "str":
                 buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("print_str")     # mov rax,[rbx-8]（sptr）
+            elif t == "float":
+                # P-c2 S1：编译期折叠——仅当 OUTPUT 紧前一条为 PUSH_CONST float（字面量/编译器已折叠的 +-*）
+                # 时，用发射器 Python str(float) 精确输出（=VM 基准，零 _dtoa/零 SSE）。回看保证 soundness：
+                # 不携带静态值过全局/控制流，故运行期计算的全局/循环/SSE float 一律不折叠。
+                prev = code[i - 1] if i >= 1 else None
+                if (prev is not None and prev[0] == OP.PUSH_CONST
+                        and isinstance(C[prev[1]], float)):
+                    _emit_fold_print(buf, str(C[prev[1]]).encode("ascii"))
+                else:
+                    raise NativeNotSupported(
+                        "OUTPUT 运行期 float 需 _dtoa（未就绪按 Q1 如实 SKIP，绝不伪通过）：全局/循环/SSE 计算 float")
             elif isinstance(t, tuple) and t[0] == "list" and len(t) >= 3 and t[2] is not None:
                 # P-c1 N3：编译期折叠 repr（str/异构/字面量 int-bool 列表均走此，Python str() 逐字节精确）
-                data = t[2]
-                for idx, byte in enumerate(data):
-                    _store_byte_r12(buf, 8 + idx, byte)             # mov byte[r12+8+idx],b
-                _load_imm_rax(buf, len(data)); _store_rax_r12(buf, 0)   # 头=[len]
-                _mov_rax_r12(buf); buf.call("print_str")           # 当作普通串发射
-                _add_r12_imm32(buf, (8 + len(data) + 7) & ~7)      # bump
+                _emit_fold_print(buf, t[2])
             elif isinstance(t, tuple) and t[0] == "list" and t[1] in ("int", "bool"):
                 buf.raw(0x48, 0x8B, 0x43, 0xF8)                         # mov rax,[rbx-8]（listptr）
                 buf.call("plr_int" if t[1] == "int" else "plr_bool")   # P-c1 N2：运行期同质 int/bool 整表 repr

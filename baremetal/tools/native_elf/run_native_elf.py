@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""阶段3-3 ④ P-a/P-b/P-c1 端到端门禁：Matha → Linux x86-64 静态 ELF64 → 实跑 → 与 mbc VM 逐字节对拍。
+"""阶段3-3 ④ P-a/P-b/P-c1/P-c2 端到端门禁：Matha → Linux x86-64 静态 ELF64 → 实跑 → 与 mbc VM 逐字节对拍。
 
 流程（每条覆盖集内用例）：
   1. compile_source 出 MModule（与 native.py 同一入口）；
@@ -209,6 +209,18 @@ let x = 5
 let l = [x, x + 1, x + 2]
 #1：[l]
 """,
+    # ---- P-c2 S1：字面量/编译器折叠 float 输出（发射器 str() 折叠，逐字节精确）----
+    "c11_float_folded": """\
+#1：[1.5]
+#1：[2.0]
+#1：[-1.5]
+#1：[1.5 + 2.5]
+#1：[0.1 + 0.2]
+#1：[1 + 1.5]
+#1：[1e20]
+#1：[1e-7]
+#1：[3.25 * 2.0]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -218,7 +230,10 @@ REJECT_CASES = {
     "r3_for_list": "let t = 0\nfor x in [1, 2, 3] {\n  t = t + x\n}\n#1：[t]\n",
     "r4_undefined_global": "let a = b\n#1：[a]\n",
     "r5_arity_mismatch": "func ov(a: Int, b: Int) -> Int = (a, b) => a + b\n#1：[ov(1)]\n",
-    "r6_float": "#1：[1.5]\n",
+    "r6_float_runtime": "let x = 1.5\n#1：[x]\n",  # 运行期 float（全局）需 _dtoa → 拒（字面量 float 现经折叠已支持，见 c11）
+    # ---- P-c2 S1 越界集外：`/` 真除/运行期 float 算术·比较（需 SSE+_dtoa）----
+    "r15_int_truediv": "#1：[7 / 2]\n",
+    "r16_float_arith": "let x = 1.5\n#1：[x + 1.0]\n",
     # ---- P-b 越界集外：嵌套/混合/整表输出/切片/字典/int 下标 ----
     "r7_nested_list": "#1：[len([[1, 2], [3]])]\n",
     "r8_mixed_list": "#1：[len([1, 2 < 1])]\n",
@@ -386,7 +401,7 @@ def main() -> int:
             fails += 1
 
     tail = "（运行期对拍因缺执行器跳过）" if skipped_runtime else ""
-    print(f"\n=== 阶段3-3 ④ native ELF P-a/P-b/P-c1：{len(CASES)} 正例 + {len(REJECT_CASES)} 拒绝例 "
+    print(f"\n=== 阶段3-3 ④ native ELF P-a/P-b/P-c1/P-c2：{len(CASES)} 正例 + {len(REJECT_CASES)} 拒绝例 "
           f"+ {len(OOB_CASES)} 越界行为例，失败 {fails}{tail} ===")
     if fails:
         return 1
