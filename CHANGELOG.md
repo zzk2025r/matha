@@ -1,5 +1,31 @@
 # Matha 变更摘要
 
+## P6 RV32IM SPIKE 后端扩展：UNARYOP 一元运算（阶段3-3 ③ RV32IM 覆盖集）
+
+**日期**：2026-11-01
+
+### 背景
+
+体检重构路线第 3 阶段功能补全第 3 项「RV32IM 覆盖集扩展」。勘察发现 BINOP 已覆盖
+`+ - * // %` 与比较 `== != < > <=`（乘法/比较已在先前轮落地），实际缺口是 `UNARYOP`
+——此前发射器对一元运算一律显式拒绝。
+
+### 变更
+
+1. **`baremetal/tools/rv32_spike/rv32em.py`**：新增 `_emit_unop`，正式覆盖 UNARYOP 的
+   int32 标量子集 `neg`/`not`/`~`（与 VM `_UNARYOPS` 逐字节一致）：`neg`=`0-a`（`a==INT_MIN`
+   溢出干净失败，VM 为任意精度）；`~`=`a^-1`（int32 封闭）；`not`=真值性取反（带 bool 标记）。
+   开方/立方根/聚合/角度/自增自减与对列表/null/函数值取一元仍 `NotSupportedRV32`。
+   正式子集从 7 条升为 8 条（UNARYOP 入 `SUBSET_OPS`）。MBR1 字节码契约无需改（UNARYOP 已在 OPS 表）。
+2. **`run_rv32_spike.py`**：+3 例 sim↔VM 逐字节对拍正例（s14 neg/s15 not/s16 bitnot，含函数内一元）
+   +2 例负向断言（r6 开方 `√x`、r7 列表取负 `-xs`）；共 15 例正 + 7 例拒 + 契约 roundtrip。
+3. **文档**：`SPIKE_DESIGN.md` §3 与 `baremetal/README.md` 覆盖集 7→8 条、对拍例 12→15。
+
+### 口径
+
+baremetal 不入门禁（不进 repo_facts/dep_audit/kernel_purity）；单独 Gate 脚本
+`run_rv32_spike.py` 验证：宿主 sim↔mbc VM 逐字节对拍全绿，`--qemu` stock QEMU virt 实跑复核全含。无性能数字口径。
+
 ## 内核符号引擎扩面：傅里叶截断级数 `fourier_series`（阶段3-3 标准库符号扩面③）
 
 **日期**：2026-11-01
