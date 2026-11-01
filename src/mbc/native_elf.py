@@ -41,7 +41,11 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
   S4b 浮点取整除 `//` 与求余 `%`（限 int/bool/floatq 精确域）：divsd → cvttsd2si 向零截断 → comisd 比回
      降一档得 floor（向 -inf）；零商符号随 q、零余数符号随除数（逐字节对 VM 一致）；除零与 |a|/|b|≥9e9 运行期
      护栏 exit1 如实失败（VM 侧同为失败口径）；越域 float 操作数静态如实拒——CPython float `//` 取的是精确
-     有理商的 floor（0.1//0.01 类），非 floor(fl(a/b))，faithful 实现属 S4c+  ← 本文件当前
+     有理商的 floor（0.1//0.01 类），非 floor(fl(a/b))，faithful 实现属 S4c+
+  S3c-1（零风险首刀，**不改本文件能力面**）最短往返的**语义规格已在纯 Python 侧坐实**：.trae/pc_s3c1_ref.py 以
+     精确有理值 + 整数十进制展开 + half-even 正确舍入 + 真往返验证复现 CPython repr(float)，50156 例逐字节全等（差 0）；
+     为 S3c-5（机器码移植）备好可信基准与差分扫描骨架。前置勘察 .trae/pc_s3c2_scoping.py 已定死 S3c-2 扩域判据
+     （双档并存而非替换、逐档上界 2^53/10^k、新档域全走定点不依赖科学计数法）  ← 本文件当前能力停在 S4b
 （越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3c+）按 Q1 如实拒；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及未就绪的运行期 float 算术·比较·输出）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
@@ -292,7 +296,8 @@ def dtoa_precision_declaration() -> dict:
         "soundness": ("三层：静态打标（字面量谓词 + `+ - neg` 封闭，`* /` 降级）/乘法前 "
                       f"{DTOA_ABS_LIMIT:g} 护栏/转换后 N<0 哨兵"),
         "out_of_domain": "静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编",
-        "shortest_roundtrip": "未实现（全量 _dtoa/Ryū-Grisu 属 S3c+；0.1 类/×÷产 float/科学计数法仍拒）",
+        "shortest_roundtrip": ("未实现（全量 _dtoa/Ryu-Grisu 属 S3c+；0.1 类/×÷产 float/科学计数法仍拒）；"
+                               "其语义规格已由 `.trae/pc_s3c1_ref.py` 参考器逐字节坐实（S3c-1，50156 例差 0）"),
     }
 
 
