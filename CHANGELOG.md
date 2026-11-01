@@ -1,5 +1,40 @@
 # Matha 变更摘要
 
+## native 跨平台 P-b：Linux x86-64 列表 + bump 堆（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-01
+
+### 背景
+
+P-a 交付整数标量垂直切片后，P-b 在同一发射器 `src/mbc/native_elf.py` 上扩至**列表域**：
+`BUILD_LIST`(0x50)/`INDEX_GET`(0x52，含 Python 负索引)/内建 `len` + `.bss` bump 堆。
+设计见 `docs/spec/NATIVE_ELF_PB.md`。范围严守最小垂直切片：元素限 int/bool（强制同质），
+越界索引 → `exit_group(1)`（镜像 VM 未捕获 IndexError）；嵌套/混合/字符串/浮点元素、
+整表 repr 输出、切片、字典、对 int 下标一律 `NativeNotSupported` 显式拒绝。
+
+### 变更
+
+1. **`src/mbc/native_elf.py`**（扩展）：按里程碑 N0-N4 自底向上：
+   - 堆布局：`HEAP_OFF=0x30000`/`HEAP_SIZE=0x80000`(512KB)/`HEAP_ADDR`；r12 作 bump 指针
+     （SysV callee-saved），`_start` 处 `mov r12,HEAP_ADDR`，`add r12,imm32` 分配，只增不回收（GC 属 P-c）；
+   - N0：`BUILD_LIST` 同质检查 + 堆写入（对象布局 `[len:8B][e0:8B]…`，无运行期类型标签，
+     值型全由编译期影子 typ 栈静态决定）+ 内建 `len`（LOAD_GLOBAL 标记 `("builtin","len")` → CALL 分派取表头长度字）；
+   - N1：`INDEX_GET`（弹 idx/listptr、负索引归一 `add rcx,rdx`、越界 `js/jge exit1`、`mov rax,[rax+rcx*8+8]`）；
+   - N2：bool 列表索引、全局槽、混合/嵌套/字符串元素显式拒；
+   - N3：列表 × 控制流 × 算术综合（while 遍历求和、加权、if 择一索引、嵌套 while）。
+   影子 typ 栈新增 `("list",eltyp)`；`_emit_runtime` 新增 `exit1` 叶子。
+2. **`baremetal/tools/native_elf/run_native_elf.py`**（扩例）：正例 9 → **13**（新增 s10-s13 列表/索引/bool/while 求和），
+   拒例 6 → **12**（新增 r7-r12 嵌套/混合/整表输出/切片/字典/int 下标），新增越界行为断言 **3** 例（b1-b3，rc=1 空输出）；
+   执行器 `_exec_linux`/`_exec_wsl` 返 `(stdout, rc)` 元组以支持退出码断言。
+3. **文档**：`docs/ARCHITECTURE.md` `core_py_lines` 32,237 → **32,349**（列表/堆发射逻辑入核心体量）；
+   `docs/spec/NATIVE_CROSS_PLATFORM.md` §6.3 扩面表「列表」行转 P-b 已支持。
+
+### 口径
+
+Gate 全绿：**13 正例 + 12 拒绝例 + 3 越界行为例，失败 0**（逐字节对拍 VM）。发射器在 `src/mbc/`
+计入核心行数，Gate 脚本位于 baremetal/ 不入门禁。门禁：doc_facts 18/18、dep_audit 违规 0、
+kernel_purity 14/14 全绿。字符串/浮点/GC/异常展开属 P-c。
+
 ## native 跨平台 P-a：Linux x86-64 静态 ELF64 发射器（阶段3-3 ④ native 跨平台）
 
 **日期**：2026-11-01

@@ -103,6 +103,35 @@ func g(x: Int) -> Int = (x) => {
 }
 #1：[g(5)]
 """,
+    # ---- P-b：列表 + bump 堆 ----
+    "s10_build_list_len": """\
+let l = [10, 20, 30]
+#1：[len(l)]
+#1：[len([])]
+""",
+    "s11_index_pos_neg": """\
+let l = [10, 20, 30]
+#1：[l[1]]
+#1：[l[-1]]
+#1：[l[0]]
+#1：[l[-3]]
+""",
+    "s12_bool_list_index": """\
+let b = [1 < 2, 2 < 1, 3 < 4]
+#1：[b[0]]
+#1：[b[1]]
+#1：[b[-1]]
+""",
+    "s13_while_index_sum": """\
+let l = [5, 10, 15]
+let i = 0
+let s = 0
+while i < len(l) {
+  s = s + l[i]
+  i = i + 1
+}
+#1：[s]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -113,6 +142,20 @@ REJECT_CASES = {
     "r4_undefined_global": "let a = b\n#1：[a]\n",
     "r5_arity_mismatch": "func ov(a: Int, b: Int) -> Int = (a, b) => a + b\n#1：[ov(1)]\n",
     "r6_float": "#1：[1.5]\n",
+    # ---- P-b 越界集外：嵌套/混合/整表输出/切片/字典/int 下标 ----
+    "r7_nested_list": "#1：[len([[1, 2], [3]])]\n",
+    "r8_mixed_list": "#1：[len([1, 2 < 1])]\n",
+    "r9_list_repr_output": "let l = [1, 2]\n#1：[l]\n",
+    "r10_slice": "let l = [1, 2, 3]\n#1：[l[0:2]]\n",
+    "r11_dict": "#1：[len({\"a\": 1})]\n",
+    "r12_int_subscript": "#1：[5[0]]\n",
+}
+
+# ---- P-b 行为断言：运行期越界索引 → ELF exit_group(1)（镜像 VM 未捕获 IndexError） ----
+OOB_CASES = {
+    "b1_index_oob_high": "let l = [1, 2, 3]\n#1：[l[3]]\n",
+    "b2_index_oob_neg": "let l = [1, 2, 3]\n#1：[l[-4]]\n",
+    "b3_empty_index": "#1：[[][0]]\n",
 }
 
 
@@ -131,19 +174,19 @@ def _to_wsl_path(p: str) -> str:
     return f"/mnt/{drive}{rest}"
 
 
-def _exec_linux(elf: bytes, timeout: float) -> str:
+def _exec_linux(elf: bytes, timeout: float) -> tuple[str, int]:
     with tempfile.NamedTemporaryFile(suffix=".elf", delete=False) as f:
         f.write(elf)
         ep = f.name
     try:
         os.chmod(ep, 0o755)
         proc = subprocess.run([ep], capture_output=True, timeout=timeout)
-        return proc.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
+        return proc.stdout.decode("utf-8", "replace").replace("\r\n", "\n"), proc.returncode
     finally:
         os.unlink(ep)
 
 
-def _exec_wsl(elf: bytes, timeout: float) -> str:
+def _exec_wsl(elf: bytes, timeout: float) -> tuple[str, int]:
     tmp = HERE / "_gate_tmp.elf"
     tmp.write_bytes(elf)
     wslp = _to_wsl_path(str(tmp))
@@ -151,7 +194,7 @@ def _exec_wsl(elf: bytes, timeout: float) -> str:
     proc = subprocess.run(["wsl.exe", "-d", "Ubuntu", "-e", "bash", "-lc", script],
                           capture_output=True, timeout=timeout)
     tmp.unlink(missing_ok=True)
-    return proc.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
+    return proc.stdout.decode("utf-8", "replace").replace("\r\n", "\n"), proc.returncode
 
 
 class _Executor:
@@ -172,6 +215,9 @@ class _Executor:
         return "none", False
 
     def run(self, elf: bytes, timeout: float = 30.0) -> str:
+        return self.run_rc(elf, timeout)[0]
+
+    def run_rc(self, elf: bytes, timeout: float = 30.0) -> tuple[str, int]:
         if self.kind == "linux":
             return _exec_linux(elf, timeout)
         return _exec_wsl(elf, timeout)
@@ -227,8 +273,38 @@ def main() -> int:
         if not ok:
             fails += 1
 
+    # 越界行为断言：VM 侧必为未捕获 IndexError，且 ELF 侧 exit_group(1)
+    for name, src in OOB_CASES.items():
+        try:
+            vm_plain(src)
+            print(f"[FAIL] {name}: 期望 VM IndexError，却正常返回")
+            fails += 1
+            continue
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            elf = native_elf.compile_to_elf(src)
+        except NativeNotSupported as e:
+            print(f"[FAIL] {name}: 后端发射拒绝（越界应运行期处理）：{e}")
+            fails += 1
+            continue
+        except Exception as e:  # noqa: BLE001
+            print(f"[FAIL] {name}: 发射异常 {type(e).__name__}: {e}")
+            fails += 1
+            continue
+        if not ex.available:
+            print(f"[SKIP] {name}: 无执行器，仅校验发射成功")
+            skipped_runtime = True
+            continue
+        got, rc = ex.run_rc(elf)
+        ok = (rc == 1 and got == "")
+        print(f"[{'ok  ' if ok else 'FAIL'}] {name}: rc={rc} run={got!r}（期望 rc=1 空输出）")
+        if not ok:
+            fails += 1
+
     tail = "（运行期对拍因缺执行器跳过）" if skipped_runtime else ""
-    print(f"\n=== 阶段3-3 ④ native ELF P-a：{len(CASES)} 例 + {len(REJECT_CASES)} 拒绝例，失败 {fails}{tail} ===")
+    print(f"\n=== 阶段3-3 ④ native ELF P-a/P-b：{len(CASES)} 正例 + {len(REJECT_CASES)} 拒绝例 "
+          f"+ {len(OOB_CASES)} 越界行为例，失败 {fails}{tail} ===")
     if fails:
         return 1
     return 2 if skipped_runtime else 0

@@ -16,8 +16,12 @@
   M1  write_span/exit + print_int/print_bool 输出退出原语
   M2  字节码 dispatch + 整数算术 BINOP(+ - * // %)/UNARYOP(neg not)/比较/OUTPUT/HALT
   M3  标量局部/全局槽 + 控制流 JMP/JZ/JNZ
-  M4  CALL/RET（直接/递归，argc≤2，标量）  ← 本文件当前
-集合之外的构造一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
+  M4  CALL/RET（直接/递归，argc≤2，标量）
+P-b（列表 + bump 堆，见 docs/spec/NATIVE_ELF_PB.md）：
+  N0  .bss bump 堆（r12 堆指针）+ BUILD_LIST + 内建 len
+  N1  INDEX_GET（正/负索引，越界 exit_group(1)）           ← 本文件当前
+  N2  列表进全局/局部槽（typ 跟踪 (list,eltyp)）+ 混合/嵌套/字符串元素拒
+列表元素限 int/bool（同质）；集合之外的构造一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
 from __future__ import annotations
 
@@ -220,11 +224,14 @@ TRUE_OFF = NL_OFF + 1                # 65："True"（4）
 FALSE_OFF = TRUE_OFF + 4             # 69："False"（5）
 VSP_OFF = 0x100                       # 操作数栈起点（对齐，前面留空洞）
 GVARS_OFF = 0x20000                   # 全局槽区起点（避开 64KB 操作数栈）；.bss 零页
+HEAP_OFF = 0x30000                    # 堆起点（避开操作数栈/全局槽区）；.bss 零页，P-b 起用
+HEAP_SIZE = 0x80000                   # 512KB bump 堆（P-b 只增不回收，GC 属 P-c）
 NL_ADDR = DATA_VADDR + NL_OFF
 TRUE_ADDR = DATA_VADDR + TRUE_OFF
 FALSE_ADDR = DATA_VADDR + FALSE_OFF
 VSP_ADDR = DATA_VADDR + VSP_OFF
 GVARS_ADDR = DATA_VADDR + GVARS_OFF   # 每个全局名一个 8 字节槽（slot 索引 → +8*slot）
+HEAP_ADDR = DATA_VADDR + HEAP_OFF     # bump 堆首地址（r12 初始值）
 
 _CMP_SETCC = {"==": 0x94, "!=" : 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E, ">=": 0x9D}
 _ARITH = {"+", "-", "*", "//", "%"}
@@ -273,8 +280,42 @@ def _mov_rbp_rax(buf: _Buf, disp: int) -> None:
         buf.raw(0x48, 0x89, 0x85); buf.imm32(disp)
 
 
+def _mov_rax_rbx(buf: _Buf, disp: int) -> None:
+    """mov rax,[rbx+disp]（操作数栈相对寻址；rbx 指向首个空闲槽，栈顶值在 [rbx-8]）。"""
+    if -128 <= disp <= 127:
+        buf.raw(0x48, 0x8B, 0x43, disp & 0xFF)
+    else:
+        buf.raw(0x48, 0x8B, 0x83); buf.imm32(disp)
+
+
+def _store_rax_r12(buf: _Buf, disp: int) -> None:
+    """mov [r12+disp32],rax（r12=堆 bump 指针，SIB base=100 需 REX.B 方为 r12：REX.W+B 89 84 24 disp32）。"""
+    buf.raw(0x49, 0x89, 0x84, 0x24); buf.imm32(disp)
+
+
+def _mov_rax_r12(buf: _Buf) -> None:
+    """mov rax,r12（取 bump 指针当前值 = 刚建列表首地址；rm=100(r12) 需 REX.B）。"""
+    buf.raw(0x49, 0x8B, 0xC4)
+
+
+def _add_r12_imm32(buf: _Buf, val: int) -> None:
+    """add r12,imm32（bump 分配：堆指针前移；REX.B.W 81 /0 rm=100 → 49 81 C4 imm32）。"""
+    buf.raw(0x49, 0x81, 0xC4); buf.imm32(val)
+
+
+def _sub_rbx_imm32(buf: _Buf, val: int) -> None:
+    """sub rbx,imm32（一次弹出多个操作数栈槽；REX.W 81 /5 rm=011 → 48 81 EB imm32）。"""
+    buf.raw(0x48, 0x81, 0xEB); buf.imm32(val)
+
+
 def _emit_runtime(buf: _Buf) -> None:
     """发射 write_span / print_int / print_bool 三个子程序（不触碰 rbx 栈指针）。"""
+    # exit1：运行期越界（如 INDEX_GET 越界）退出码 1，镜像 VM 未捕获 IndexError
+    buf.here("exit1")
+    mov_imm32(buf, _REG["rax"], 231)                        # exit_group
+    mov_imm32(buf, _REG["rdi"], 1)
+    syscall(buf)
+
     # write_span：rsi=ptr, rdx=len（部分写续写；返回 <=0 结束）
     buf.here("write_span")
     buf.here("ws_loop")
@@ -443,6 +484,60 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             if not typ:
                 raise NativeNotSupported("POP 空栈")
             buf.raw(0x48, 0x83, 0xEB, 0x08); typ.pop()               # sub rbx,8
+        elif op == OP.BUILD_LIST:
+            n = ins[1]
+            if n < 0:
+                raise NativeNotSupported(f"BUILD_LIST n={n} 非法")
+            if len(typ) < n:
+                raise NativeNotSupported("BUILD_LIST 操作数不足")
+            if n == 0:
+                eltyp = "int"                                        # 空表元素型无所谓（索引必越界）
+            else:
+                elems = typ[-n:]
+                for t in elems:
+                    if t not in ("int", "bool"):
+                        raise NativeNotSupported(
+                            f"BUILD_LIST 元素类型越界（P-b 仅 int/bool，无嵌套/字符串/浮点）：{t!r}")
+                if len(set(elems)) != 1:
+                    raise NativeNotSupported(f"BUILD_LIST 混合元素类型 {sorted(set(elems))}（P-b 拒绝）")
+                eltyp = elems[0]
+            # 逐元素：heap[i] = 栈底起的第 i 个（写书序）；元素 i 位于 [rbx-8*(n-i)]
+            for idx in range(n):
+                _mov_rax_rbx(buf, -8 * (n - idx))                   # mov rax,[rbx-8*(n-idx)]
+                _store_rax_r12(buf, 8 + 8 * idx)                    # mov [r12+8+8*idx],rax
+            _load_imm_rax(buf, n)                                   # mov rax,n（长度）
+            _store_rax_r12(buf, 0)                                  # mov [r12],rax
+            if n:
+                _sub_rbx_imm32(buf, 8 * n)                          # 弹出 n 个元素槽
+            _mov_rax_r12(buf)                                       # mov rax,r12（listptr）
+            _push_rax(buf)                                          # 压回表指针
+            _add_r12_imm32(buf, 8 + 8 * n)                          # bump：r12 += 8+8n
+            if n:
+                del typ[-n:]
+            typ.append(("list", eltyp))
+        elif op == OP.INDEX_GET:
+            if len(typ) < 2:
+                raise NativeNotSupported("INDEX_GET 操作数不足")
+            tidx, tc = typ[-1], typ[-2]
+            if tidx != "int":
+                raise NativeNotSupported(f"INDEX_GET 下标需 int：{tidx!r}")
+            if not (isinstance(tc, tuple) and tc[0] == "list"):
+                raise NativeNotSupported(f"INDEX_GET 不可下标对象：{tc!r}（P-b 仅列表）")
+            eltyp = tc[1]
+            buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x0B)   # sub rbx,8; mov rcx,[rbx]（idx）
+            buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]（listptr）
+            buf.raw(0x48, 0x8B, 0x10)                                    # mov rdx,[rax]（长度）
+            buf.raw(0x48, 0x85, 0xC9)                                    # test rcx,rcx
+            buf.jcc(JNS, f"{tag}:{i}:sk")
+            buf.raw(0x48, 0x01, 0xD1)                                    # add rcx,rdx（负索引 += len）
+            buf.here(f"{tag}:{i}:sk")
+            buf.raw(0x48, 0x85, 0xC9)                                    # test rcx,rcx
+            buf.jcc(JS, "exit1")                                        # 仍负→越界
+            buf.raw(0x48, 0x39, 0xD1)                                    # cmp rcx,rdx
+            buf.jcc(JGE, "exit1")                                       # idx>=len→越界
+            buf.raw(0x48, 0x8B, 0x44, 0xC8, 0x08)                         # mov rax,[rax+rcx*8+8]（SIB=0xC8: scale11*index001*base000）
+            _push_rax(buf)
+            typ.pop(); typ.pop(); typ.append(eltyp)
         elif op == OP.BINOP:
             _emit_binop(buf, C[ins[1]], typ, i)
         elif op == OP.UNARYOP:
@@ -466,6 +561,10 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                 raise NativeNotSupported(f"全局名非常量字符串：{name!r}")
             if op == OP.LOAD_GLOBAL and name in fninfo:     # 函数值：直调占位（dummy 操作数 + "fn" 标记）
                 _load_imm_rax(buf, 0); _push_rax(buf); typ.append(("fn", name))
+                continue
+            if (op == OP.LOAD_GLOBAL and name == "len"
+                    and name not in fninfo and name not in gmap):   # 内建 len（不入 gmap，取表头长）
+                _load_imm_rax(buf, 0); _push_rax(buf); typ.append(("builtin", "len"))
                 continue
             if name not in gmap:
                 raise NativeNotSupported(
@@ -527,6 +626,18 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             if len(typ) < argc + 1:
                 raise NativeNotSupported("CALL 操作数不足")
             marker = typ[-(argc + 1)]
+            if isinstance(marker, tuple) and marker[0] == "builtin" and marker[1] == "len":
+                if argc != 1:
+                    raise NativeNotSupported(f"len 需 1 参数，argc={argc}")
+                if not (isinstance(typ[-1], tuple) and typ[-1][0] == "list"):
+                    raise NativeNotSupported(f"len 作用于非列表：{typ[-1]!r}（P-b）")
+                buf.raw(0x48, 0x8B, 0x43, 0xF8)                     # mov rax,[rbx-8]（listptr）
+                buf.raw(0x48, 0x8B, 0x00)                           # mov rax,[rax]（表头长度字）
+                buf.raw(0x48, 0x83, 0xEB, 0x10)                     # sub rbx,16（弹 arg+dummy）
+                _push_rax(buf)                                      # 压回长度 int
+                del typ[-(argc + 1):]
+                typ.append("int")
+                continue
             if not (isinstance(marker, tuple) and marker[0] == "fn"):
                 raise NativeNotSupported("CALL 非直接函数调用（间接/高阶不在 P-a）")
             fname = marker[1]
@@ -644,6 +755,7 @@ def emit_elf(mod) -> bytes:
     buf = _Buf()
     buf.here("_start")
     mov_imm64(buf, _REG["rbx"], VSP_ADDR)         # rbx = 操作数栈指针
+    mov_imm64(buf, _REG["r12"], HEAP_ADDR)        # r12 = 堆 bump 指针（P-b 列表）
     _emit_code(buf, mod.main_code, C, gmap, gtype, "main", fninfo, fntyp)
     mov_imm32(buf, _REG["rax"], 231)              # exit_group
     mov_imm32(buf, _REG["rdi"], 0)
@@ -653,7 +765,7 @@ def emit_elf(mod) -> bytes:
     _emit_runtime(buf)
     text = buf.finish()
     data = bytes(_build_data())
-    memsz = max(VSP_OFF + VSTACK_SIZE, GVARS_OFF + 8 * len(gmap))
+    memsz = max(VSP_OFF + VSTACK_SIZE, GVARS_OFF + 8 * len(gmap), HEAP_OFF + HEAP_SIZE)
     return _build_elf64(text, data, data_memsz=memsz)
 
 

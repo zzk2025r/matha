@@ -153,9 +153,9 @@ PE ↔ ELF 字段映射（供实现对照）：
 | `UNARYOP` | 仅 `neg`（`-a`，int64 溢出干净失败）与 `not`（真值性取反，带 bool 标记）；`sqrt/cbrt/sum/prod` 等拒绝 |
 | `CALL/RET` | 直接调用已定义用户函数（编译期静态解析到标号），argc ≤ 2，实参与返回限标量 |
 | `JMP/JZ/JNZ` | if/elif/else 链 + while 后向回跳，分支全路径 |
-| `BUILD_LIST` | 堆 bump 分配 `[len, e0..]`，元素限 int/bool（嵌套列表拒绝） |
-| `INDEX_GET` | 仅列表 × 整数下标，Python 负索引同口径；越界 → exit_code=1（对应 VM IndexError） |
-| 内建 `len` | 列表长度（编译期静态分派） |
+| `BUILD_LIST` | 堆 bump 分配 `[len, e0..]`，元素限 int/bool（嵌套列表拒绝）— **P-b 已交付** |
+| `INDEX_GET` | 仅列表 × 整数下标，Python 负索引同口径；越界 → exit_code=1（对应 VM IndexError）— **P-b 已交付** |
+| 内建 `len` | 列表长度（编译期静态分派）— **P-b 已交付** |
 | `OUTPUT` | 按编译期值型分派：int64 十进制 / `True`/`False` + 换行（对齐 VM `print`） |
 | `HALT` | 正常退出 `exit_group(0)` |
 
