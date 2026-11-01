@@ -188,6 +188,27 @@ let l = [5, 10, 15]
 #1：[len(l)]
 #1：[l[1]]
 """,
+    # ---- P-c1 N3：编译期折叠 str/异构整表 repr（发射器 Python str() 逐字节精确）----
+    "c8_str_list_repr": """\
+let l = ["a", "b"]
+#1：[l]
+#1：["x", "y"]
+let m = ["only"]
+#1：[m]
+#1：[len(["a", "b", "c"])]
+#1：[["a"][0]]
+""",
+    "c9_hetero_list_repr": """\
+let l = [1, "a"]
+#1：[l]
+let m = [10, "x", "y"]
+#1：[m]
+""",
+    "c10_int_list_runtime": """\
+let x = 5
+let l = [x, x + 1, x + 2]
+#1：[l]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -201,7 +222,7 @@ REJECT_CASES = {
     # ---- P-b 越界集外：嵌套/混合/整表输出/切片/字典/int 下标 ----
     "r7_nested_list": "#1：[len([[1, 2], [3]])]\n",
     "r8_mixed_list": "#1：[len([1, 2 < 1])]\n",
-    "r9_str_list_repr": 'let l = ["a"]\n#1：[l]\n',
+    "r9_str_list_runtime": 'let s = "a"\nlet l = [s]\n#1：[l]\n',  # 元素来自全局（非字面量）→ 不可折叠→拒
     "r10_slice": "let l = [1, 2, 3]\n#1：[l[0:2]]\n",
     "r11_dict": "#1：[len({\"a\": 1})]\n",
     "r12_int_subscript": "#1：[5[0]]\n",

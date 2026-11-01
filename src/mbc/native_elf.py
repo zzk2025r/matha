@@ -25,8 +25,9 @@ P-b（列表 + bump 堆，见 docs/spec/NATIVE_ELF_PB.md）：
 P-c1（字符串垂直切片，见 docs/spec/NATIVE_ELF_PC.md）：
   N0  PUSH_CONST str（堆串对象 [len:8B][bytes]）+ OUTPUT print_str（裸串无引号）+ len(str)
   N1  str+str 连接（str_concat/rep movsb）+ str ==/!= 比较（str_eq/repe cmpsb）+ s[i] 取子串（正/负/越界 exit1）
-  N2  同质 int/bool 整表 repr 输出（plr_int/plr_bool 运行期循环 `[e0, e1, …]`，无换行由 OUTPUT 追加）  ← 本文件当前
-列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）；str×数值连接（需 itoa）/str 列表 repr（需 Python 引号选择+转义）/异构列表 属 P-c1 后续。
+  N2  同质 int/bool 整表 repr 输出（plr_int/plr_bool 运行期循环 `[e0, e1, …]`，无换行由 OUTPUT 追加）
+  N3  字面量 str/异构整表 repr：发射器编译期用 Python str() 折叠精确字节（零转义/标签汇编）  ← 本文件当前
+列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 浮点 / 字典 / 闭包 / 异常）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
 from __future__ import annotations
@@ -660,6 +661,38 @@ def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
         raise NativeNotSupported(f"M2 不支持 UNARYOP {sym!r}（仅 neg/not）")
 
 
+def _fold_list_repr(C: list, code: list, i: int, n: int):
+    """P-c1 N3：若 BUILD_LIST 前 n 条指令全为字面量压栈，用【发射器(Python)】的
+    str() 直接算出与 VM 输出基准逐字节一致的 ASCII repr 字节（零转义/标签汇编）。
+
+    VM 对拍口径本就是 `str(value)`；发射器即真正的「格式核心层」。元素非全字面量
+    （运行期计算）→ 返回 None，交回 N2 运行期路径（同质 int/bool）或拒绝（str/异构）。"""
+    if i < n:
+        return None
+    vals: list = []
+    for j in range(i - n, i):
+        ins = code[j]
+        op = ins[0]
+        if op == OP.PUSH_CONST:
+            v = C[ins[1]]
+            if isinstance(v, bool) or isinstance(v, int):        # bool 是 int 子类，一并处理
+                vals.append(v)
+            elif isinstance(v, str):
+                vals.append(v)
+            else:
+                return None                                       # 浮点/null 等不折叠
+            continue
+        if op == OP.PUSH_TRUE:
+            vals.append(True); continue
+        if op == OP.PUSH_FALSE:
+            vals.append(False); continue
+        return None                                               # 非字面量压栈 → 不折叠
+    try:
+        return str(vals).encode("ascii")                          # 空表 [] → "[]"
+    except UnicodeEncodeError:
+        return None                                               # 非 ASCII 元素 → 不折叠
+
+
 def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str,
                fninfo: dict, fntyp: dict, *, in_fn: bool = False,
                ltype: dict | None = None, ret_collector: list | None = None) -> None:
@@ -725,12 +758,15 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             else:
                 elems = typ[-n:]
                 for t in elems:
-                    if t not in ("int", "bool"):
+                    if t not in ("int", "bool", "str"):
                         raise NativeNotSupported(
-                            f"BUILD_LIST 元素类型越界（P-b 仅 int/bool，无嵌套/字符串/浮点）：{t!r}")
-                if len(set(elems)) != 1:
-                    raise NativeNotSupported(f"BUILD_LIST 混合元素类型 {sorted(set(elems))}（P-b 拒绝）")
-                eltyp = elems[0]
+                            f"BUILD_LIST 元素类型越界（仅 int/bool/str，无嵌套/浮点）：{t!r}")
+                eltyp = elems[0] if len(set(elems)) == 1 else "mixed"
+            # P-c1 N3：编译期折叠（字面量元素→发射器 Python str() 精确 repr）
+            folded = _fold_list_repr(C, code, i, n)
+            if folded is None and eltyp not in ("int", "bool"):
+                raise NativeNotSupported(
+                    f"BUILD_LIST {eltyp} 列表不可折叠（含非字面量元素）；运行期 str/异构列表 repr 属后续（P-c1）")
             # 逐元素：heap[i] = 栈底起的第 i 个（写书序）；元素 i 位于 [rbx-8*(n-i)]
             for idx in range(n):
                 _mov_rax_rbx(buf, -8 * (n - idx))                   # mov rax,[rbx-8*(n-idx)]
@@ -744,7 +780,7 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
             _add_r12_imm32(buf, 8 + 8 * n)                          # bump：r12 += 8+8n
             if n:
                 del typ[-n:]
-            typ.append(("list", eltyp))
+            typ.append(("list", eltyp, folded))
         elif op == OP.INDEX_GET:
             if len(typ) < 2:
                 raise NativeNotSupported("INDEX_GET 操作数不足")
@@ -805,11 +841,19 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                 buf.raw(0x48, 0x8B, 0x7B, 0xF8); buf.call("print_bool")    # mov rdi,[rbx-8]
             elif t == "str":
                 buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("print_str")     # mov rax,[rbx-8]（sptr）
+            elif isinstance(t, tuple) and t[0] == "list" and len(t) >= 3 and t[2] is not None:
+                # P-c1 N3：编译期折叠 repr（str/异构/字面量 int-bool 列表均走此，Python str() 逐字节精确）
+                data = t[2]
+                for idx, byte in enumerate(data):
+                    _store_byte_r12(buf, 8 + idx, byte)             # mov byte[r12+8+idx],b
+                _load_imm_rax(buf, len(data)); _store_rax_r12(buf, 0)   # 头=[len]
+                _mov_rax_r12(buf); buf.call("print_str")           # 当作普通串发射
+                _add_r12_imm32(buf, (8 + len(data) + 7) & ~7)      # bump
             elif isinstance(t, tuple) and t[0] == "list" and t[1] in ("int", "bool"):
                 buf.raw(0x48, 0x8B, 0x43, 0xF8)                         # mov rax,[rbx-8]（listptr）
-                buf.call("plr_int" if t[1] == "int" else "plr_bool")   # P-c1 N2：同质 int/bool 整表 repr
+                buf.call("plr_int" if t[1] == "int" else "plr_bool")   # P-c1 N2：运行期同质 int/bool 整表 repr
             else:
-                raise NativeNotSupported(f"OUTPUT 不支持值型 {t!r}（null/str 列表 repr/嵌套表属后续，P-c1）")
+                raise NativeNotSupported(f"OUTPUT 不支持值型 {t!r}（null/运行期 str 列表/嵌套表属后续，P-c1）")
             buf.raw(0x48, 0x83, 0xEB, 0x08)                          # sub rbx,8（弹）
             mov_imm64(buf, _REG["rsi"], NL_ADDR); mov_imm32(buf, _REG["rdx"], 1)
             buf.call("write_span")                                   # 行尾 LF
@@ -839,7 +883,10 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                     raise NativeNotSupported("STORE_GLOBAL null 暂不支持（P-a）")
                 slot = gmap[name]
                 old = gtype.get(slot)
-                if old is not None and old != t:
+                same_list = (isinstance(old, tuple) and isinstance(t, tuple)
+                             and len(old) >= 2 and len(t) >= 2
+                             and old[0] == t[0] == "list" and old[1] == t[1])
+                if old is not None and old != t and not same_list:
                     raise NativeNotSupported(f"全局 {name!r} 混型：{old} vs {t}（P-a 拒绝）")
                 gtype[slot] = t
                 buf.raw(0x48, 0x8B, 0x43, 0xF8)                      # mov rax,[rbx-8]
