@@ -14,8 +14,8 @@
 里程碑进度（按 docs/spec/NATIVE_ELF_PA.md §三 自底向上）：
   M0  ELF64 链接器 `_build_elf64` + `_start` 硬编码 hello 壳。
   M1  write_span/exit + print_int/print_bool 输出退出原语
-  M2  字节码 dispatch + 整数算术 BINOP(+ - * // %)/UNARYOP(neg not)/比较/OUTPUT/HALT  ← 本文件当前
-  M3  标量局部/全局槽 + 控制流 JMP/JZ/JNZ
+  M2  字节码 dispatch + 整数算术 BINOP(+ - * // %)/UNARYOP(neg not)/比较/OUTPUT/HALT
+  M3  标量局部/全局槽 + 控制流 JMP/JZ/JNZ  ← 本文件当前
   M4  CALL/RET（直接/递归，argc≤2，标量）
 集合之外的构造一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
 """
@@ -219,12 +219,14 @@ NL_OFF = NUMBUF_SIZE                 # 64：单字节 '\n'（每条 OUTPUT 行�
 TRUE_OFF = NL_OFF + 1                # 65："True"（4）
 FALSE_OFF = TRUE_OFF + 4             # 69："False"（5）
 VSP_OFF = 0x100                       # 操作数栈起点（对齐，前面留空洞）
+GVARS_OFF = 0x20000                   # 全局槽区起点（避开 64KB 操作数栈）；.bss 零页
 NL_ADDR = DATA_VADDR + NL_OFF
 TRUE_ADDR = DATA_VADDR + TRUE_OFF
 FALSE_ADDR = DATA_VADDR + FALSE_OFF
 VSP_ADDR = DATA_VADDR + VSP_OFF
+GVARS_ADDR = DATA_VADDR + GVARS_OFF   # 每个全局名一个 8 字节槽（slot 索引 → +8*slot）
 
-_CMP_SETCC = {"==": 0x94, "!=": 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E}
+_CMP_SETCC = {"==": 0x94, "!=" : 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E, ">=": 0x9D}
 _ARITH = {"+", "-", "*", "//", "%"}
 
 
@@ -238,6 +240,16 @@ def _load_imm_rax(buf: _Buf, v: int) -> None:
         mov_imm32(buf, _REG["rax"], v)
     else:
         mov_imm64(buf, _REG["rax"], v)
+
+
+def _load_abs_rax(buf: _Buf, addr: int) -> None:
+    """mov rax, [abs]（静态绝对寻址：REX.W 8B 04 25 disp32，SIB base=101/index=100 无基址）。"""
+    buf.raw(0x48, 0x8B, 0x04, 0x25); buf.imm32(addr)
+
+
+def _store_rax_abs(buf: _Buf, addr: int) -> None:
+    """mov [abs], rax（REX.W 89 04 25 disp32）。addr<2^31（固定基址 0x4xxxxx）作正数 disp。"""
+    buf.raw(0x48, 0x89, 0x04, 0x25); buf.imm32(addr)
 
 
 def _emit_runtime(buf: _Buf) -> None:
@@ -369,10 +381,16 @@ def _emit_unop(buf: _Buf, sym: str, typ: list) -> None:
         raise NativeNotSupported(f"M2 不支持 UNARYOP {sym!r}（仅 neg/not）")
 
 
-def _emit_code(buf: _Buf, code: list, C: list) -> None:
-    """遍历 M3V 指令流发射机器码；typ 为编译期影子值型栈（int/bool/null）。"""
+def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict) -> None:
+    """遍历 M3V 指令流发射机器码；typ 为编译期影子值型栈（int/bool/null）。
+
+    gmap：全局名 → 槽索引（emit_elf 预扫建立）；gtype：槽索引 → 值型（冲突拒绝）。
+    跳转目标 = 指令下标，对应每指令入口 label f"L{i}"。分支合并沿用 SPIKE
+    线性影子栈模型（同型分支 typ[-1] 对齐运行期栈顶；异型分支越出 P-a 子集）。
+    """
     typ: list[str] = []
     for i, ins in enumerate(code):
+        buf.here(f"L{i}")
         op = ins[0]
         if op == OP.PUSH_CONST:
             v = C[ins[1]]
@@ -416,6 +434,42 @@ def _emit_code(buf: _Buf, code: list, C: list) -> None:
             buf.raw(0x48, 0x83, 0xEB, 0x08)                          # sub rbx,8（弹）
             mov_imm64(buf, _REG["rsi"], NL_ADDR); mov_imm32(buf, _REG["rdx"], 1)
             buf.call("write_span")                                   # 行尾 LF
+        elif op in (OP.LOAD_GLOBAL, OP.STORE_GLOBAL):
+            name = C[ins[1]]
+            if not isinstance(name, str):
+                raise NativeNotSupported(f"全局名非常量字符串：{name!r}")
+            if name not in gmap:
+                raise NativeNotSupported(
+                    f"M3：全局 {name!r} 未登记（未赋值即读取/写入，绝不静默读 0）")
+            addr = GVARS_ADDR + 8 * gmap[name]
+            if op == OP.LOAD_GLOBAL:
+                _load_abs_rax(buf, addr); _push_rax(buf)
+                typ.append(gtype.get(gmap[name], "int"))
+            else:
+                if not typ:
+                    raise NativeNotSupported("STORE_GLOBAL 空栈")
+                t = typ[-1]
+                if t == "null":
+                    raise NativeNotSupported("STORE_GLOBAL null 暂不支持（P-a）")
+                slot = gmap[name]
+                old = gtype.get(slot)
+                if old is not None and old != t:
+                    raise NativeNotSupported(f"全局 {name!r} 混型：{old} vs {t}（P-a 拒绝）")
+                gtype[slot] = t
+                buf.raw(0x48, 0x8B, 0x43, 0xF8)                      # mov rax,[rbx-8]
+                _store_rax_abs(buf, addr)
+                buf.raw(0x48, 0x83, 0xEB, 0x08); typ.pop()          # sub rbx,8
+        elif op in (OP.JMP, OP.JZ, OP.JNZ):
+            target = f"L{ins[1]}"
+            if op == OP.JMP:
+                buf.jmp(target)
+            else:
+                if not typ:
+                    raise NativeNotSupported("JZ/JNZ 空栈")
+                typ.pop()
+                buf.raw(0x48, 0x83, 0xEB, 0x08); buf.raw(0x48, 0x8B, 0x03)   # sub rbx,8; mov rax,[rbx]
+                buf.raw(0x48, 0x85, 0xC0)                            # test rax,rax
+                buf.jcc(JZ if op == OP.JZ else JNZ, target)          # JZ=假跳，JNZ=真跳
         elif op == OP.HALT:
             break
         else:
@@ -430,19 +484,34 @@ def _build_data() -> bytearray:
     return seg
 
 
+def _scan_globals(code: list, C: list) -> dict:
+    """预扫指令流，按首次 STORE_GLOBAL 出现顺序为每个全局名分配槽索引。"""
+    gmap: dict[str, int] = {}
+    for ins in code:
+        if ins[0] == OP.STORE_GLOBAL:
+            name = C[ins[1]]
+            if isinstance(name, str) and name not in gmap:
+                gmap[name] = len(gmap)
+    return gmap
+
+
 def emit_elf(mod) -> bytes:
-    """MModule → Linux x86-64 静态 ELF64 字节串（P-a 整数子集）。"""
+    """MModule → Linux x86-64 静态 ELF64 字节串（P-a 整数/布尔标量子集）。"""
+    C = mod.constants
+    gmap = _scan_globals(mod.main_code, C)
+    gtype: dict[int, str] = {}
     buf = _Buf()
     buf.here("_start")
     mov_imm64(buf, _REG["rbx"], VSP_ADDR)         # rbx = 操作数栈指针
-    _emit_code(buf, mod.main_code, mod.constants)
+    _emit_code(buf, mod.main_code, C, gmap, gtype)
     mov_imm32(buf, _REG["rax"], 231)              # exit_group
     mov_imm32(buf, _REG["rdi"], 0)
     syscall(buf)
     _emit_runtime(buf)
     text = buf.finish()
     data = bytes(_build_data())
-    return _build_elf64(text, data, data_memsz=VSP_OFF + VSTACK_SIZE)
+    memsz = max(VSP_OFF + VSTACK_SIZE, GVARS_OFF + 8 * len(gmap))
+    return _build_elf64(text, data, data_memsz=memsz)
 
 
 def compile_to_elf(source: str) -> bytes:
@@ -450,7 +519,8 @@ def compile_to_elf(source: str) -> bytes:
     return emit_elf(compile_source(source))
 
 
-DEFAULT_SAMPLE = "#1：[2 + 3 * 4]\n#1：[10 - 4]\n#1：[-7 // 2]\n#1：[-7 % 3]\n#1：[1 < 2]\n#1：[not 0]\n"
+DEFAULT_SAMPLE = ("#1：[2 + 3 * 4]\nlet x = 5\nlet y = if x > 3 then 10 else 20\n#1：[y]\n"
+                  "#1：[-7 // 2]\n#1：[-7 % 3]\n#1：[1 < 2]\n#1：[not 0]\n")
 
 
 def main(argv: list[str] | None = None) -> int:
