@@ -62,6 +62,9 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
   S3c-6b-1 最短往返 表跨 |u|=19 解禁（P10I 整数表扩一项 10^19）：因 10^19<2^64 仍单字可容，把判据两处
      pow10_out 守卫 |u|>18 改为 >19（不动判据字宽、不动数字生成），2^-19 类精确二进制小数入域；|u|≥20（需 128
      位乘子/三字，与 6c 数字生成升多字共享地基）仍如实拒
+  S3c-6b-2-A 最短往返 u≥0 深表跨解禁（多字地基第一刀·P10I 表升双字）：P10I 整数表步长 8→16（每项 lo,hi 双字，
+     n=0..38），u≥0 支 pow10_out 守卫 |u|>19 改为 >38，10^u 取双字乘子、EB≤64 单字×10^u 双字→两条 mul 拼 P 双字
+     （积逾 128 位 Phi≠0 ⇒ 如实拒），10^20 类大值入域；D/T 下游与数字生成一字未动，u<0 深小数（EB>128 需三字）仍如实拒
 （以上为运行期 float 输出面；`/` 真除越域产 ±inf 与 VM ZeroDivisionError 已登记分歧；越域运行期 float 的 `//`/`%` 仍静态拒——见 S4b）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及越域运行期 float 的 `//`/`%` 算术）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）；运行期 float 输出改由 dtoa_shortest 全接管——放行子集逐字节精确、越子集运行期 exit_group(1) 如实失败（不再编译期拒）。
@@ -293,10 +296,10 @@ HEAP_ADDR = DATA_VADDR + HEAP_OFF     # bump 堆首地址（r12 初始值）
 #      GVARS=0x20000 之下的空洞；文件映射区，非 .bss，运行时只读）。与旧 floatq 定标表 POW10_OFF 独立。
 P10D_LO = -324                        # double(10^m) 表下标下界（10^-324 最近 double = DBL_MIN，覆盖次正规下界）
 P10D_N = 633                          # double 表项数 m=-324..308（decpt 二分定位 + 逐位 scale 共用；正确舍入=参考 pow10_table）
-P10I_N = 20                           # 精确整数 10^n 表 n=0..19（10^19<2^64 仍单字可容；10^20>2^64 越界 ⇒ 判据 pow10_out 拒）
+P10I_N = 39                           # 精确整数 10^n 表 n=0..38（S3c-6b-2-A：每项升双字 .quad×2=lo,hi；10^38<2^128。u≥0 侧 10^u 乘子可逾 64 位⇒取 lo,hi；u<0 侧本刀仍只用 n≤19 低字）
 P10D_OFF = 0x11000                    # double 表基（段内偏移；.double，索引 (m - P10D_LO)，每项 +8）
-P10I_OFF = P10D_OFF + P10D_N * 8 + 8  # +8 留 double 表末 0 哨兵；整数 10^n 表基（段内偏移；.quad，索引 n）
-STR_OFF = (P10I_OFF + P10I_N * 8 + 7) & ~7     # 特殊值串起点（段内偏移，8 字节对齐）
+P10I_OFF = P10D_OFF + P10D_N * 8 + 8  # +8 留 double 表末 0 哨兵；整数 10^n 表基（段内偏移；每项 16 字节 lo,hi 双字，索引 n）
+STR_OFF = (P10I_OFF + P10I_N * 16 + 7) & ~7     # 特殊值串起点（段内偏移，8 字节对齐）
 STR_INF_OFF = STR_OFF                 # "inf"（3B）
 STR_NINF_OFF = STR_OFF + 3            # "-inf"（4B）
 STR_NAN_OFF = STR_OFF + 7             # "nan"（3B，VM 口径小写、无符号）
@@ -381,9 +384,9 @@ def dtoa_precision_declaration() -> dict:
                       "N==v·scale，不等即 dt_oob——兼封住“封闭后档降不回”的空洞档）"),
         "out_of_domain": ("静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编；"
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
-        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
-                               "对放行子集（sig≤15 且判据/表跨≤19/E<<κ≤128 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数）；"
-                               "越子集（16-17 位、|u|≥20 深表跨、E<<κ 逾 128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 解禁）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
+                               "对放行子集（sig≤15 且判据/表跨（u≥0≤38双字、u<0≤19）/E<<κ≤128 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数/10^20 类大值）；"
+                               "越子集（16-17 位、u<0 深表跨 |u|≥20 需三字、E<<κ 逾 128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
                                "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict) 坐实（全域 WSL 实跑差 0）"),
     }
 
@@ -1035,16 +1038,25 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _test_reg_reg(buf, 14, 14)
     buf.jcc(JS, "ds_crit_neg")
     # ---- u>=0：P=EB·10^u, Q=A, rhs10=1 ----
-    _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_rej")      # pow10_out（S3c-6b-1：|u|≤19 单字表）
+    _cmp_reg_imm32(buf, 14, 38); buf.jcc(JG, "ds_rej")      # pow10_out（S3c-6b-2-A：u≤38，10^u 取双字表 lo,hi）
     shift_E_by_kappa("u")                   # rax:rdx=EB=E<<κ（>128 位则 jmp ds_rej）
     _test_reg_reg(buf, 2, 2)
     buf.jcc(JNZ, "ds_eb_big")
     _test_reg_reg(buf, 14, 14); buf.jcc(JZ, "ds_p_done")    # u==0 → P=EB
-    _mov_reg_reg(buf, 9, 0)                 # EB lo
-    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 3); _add_reg_imm32(buf, 0, P10I_ADDR)
-    _mov_reg_mem(buf, 10, 0, 0)             # r10=10^u
-    _mov_reg_reg(buf, 0, 9)
-    _mul_rax_reg(buf, 10)                   # P=EB*10^u
+    # S3c-6b-2-A：EB≤64 单字 × 10^u 双字（lo,hi）→ P 双字（积逾 128 位 Phi!=0 ⇒ ds_rej 如实拒）
+    _mov_reg_reg(buf, 12, 0)                # r12=EB（单字；rax 稍后作 mul 摆渡）
+    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 4); _add_reg_imm32(buf, 0, P10I_ADDR)   # addr=u*16+P10I
+    _mov_reg_mem(buf, 10, 0, 0)             # r10=10^u lo
+    _mov_reg_mem(buf, 11, 0, 8)             # r11=10^u hi
+    _mov_reg_reg(buf, 0, 12); _mul_rax_reg(buf, 10)         # rdx:rax=EB*lo → Plo,Pm1
+    _mov_reg_reg(buf, 8, 0)                 # r8=Plo
+    _mov_reg_reg(buf, 9, 2)                 # r9=Pm1
+    _mov_reg_reg(buf, 0, 12); _mul_rax_reg(buf, 11)         # rdx:rax=EB*hi → Pm2,Ph
+    _add_reg_reg(buf, 9, 0)                 # Pmid=Pm1+Pm2（CF=进位）
+    buf.raw(0x48, 0x83, 0xD2, 0x00)         # adc rdx,0 → Phi=Ph+carry（/2=ADC，modrm 11_010_010=0xD2）
+    _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")        # Phi!=0 ⇒ P>128 位 → prod_gt128 如实拒
+    _mov_reg_reg(buf, 0, 8)                 # rax=Plo
+    _mov_reg_reg(buf, 2, 9)                 # rdx=Pmid（P hi）
     buf.jmp("ds_p_done")
     buf.here("ds_eb_big")
     _test_reg_reg(buf, 14, 14); buf.jcc(JNZ, "ds_rej")      # EB>64 且 u!=0 → mid_gt64 拒
@@ -1061,7 +1073,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     shift_E_by_kappa("d")                   # rax:rdx=P=E<<κ（>128 位则 jmp ds_rej）
     SR(_SPLO, 0); SR(_SPHI, 2)
     L(8, _SALO); L(9, _SAHI)                # A lo/hi
-    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 3); _add_reg_imm32(buf, 0, P10I_ADDR)
+    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 4); _add_reg_imm32(buf, 0, P10I_ADDR)   # addr=t*16+P10I（S3c-6b-2-A 步长 8→16，取 10^t lo；t≤19 高字 0 不用）
     _mov_reg_mem(buf, 10, 0, 0)             # r10=10^t
     _mov_reg_reg(buf, 0, 8); _mul_rax_reg(buf, 10)          # r8*10^t
     _mov_reg_reg(buf, 11, 2)                # r11=hi(r8*10^t)
@@ -2199,9 +2211,9 @@ def _build_data() -> bytearray:
         seg[_o:_o + 8] = struct.pack("<d", _d)
     _o = P10D_OFF + 8 * P10D_N                          # double 表末 0 哨兵（定位越上界兜底，与参考 notable 同效）
     seg[_o:_o + 8] = struct.pack("<Q", 0)
-    for _n in range(P10I_N):                            # 10^0..10^18 精确整数（判据 lhs/rhs 的 10 的幂乘子）
-        _o = P10I_OFF + 8 * _n
-        seg[_o:_o + 8] = struct.pack("<Q", 10 ** _n)
+    for _n in range(P10I_N):                            # 10^0..10^38 精确整数双字（判据 lhs/rhs 的 10 的幂乘子；lo,hi 各 8 字节）
+        _o = P10I_OFF + 16 * _n
+        seg[_o:_o + 16] = struct.pack("<QQ", 10 ** _n & 0xFFFFFFFFFFFFFFFF, 10 ** _n >> 64)
     seg[STR_INF_OFF:STR_INF_OFF + 3] = b"inf"          # 特殊值直出串（OUTPUT 统一追加 '\n'）
     seg[STR_NINF_OFF:STR_NINF_OFF + 4] = b"-inf"
     seg[STR_NAN_OFF:STR_NAN_OFF + 3] = b"nan"
