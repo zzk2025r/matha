@@ -328,6 +328,27 @@ while s < 0.01 {
 }
 #1：[s]
 """,
+    # ---- P-c2 S3c-5d：最短往返 _dtoa 机器码——全局/真除/降级 float 逐字节==str()；
+    #      含科学计数法（dec>16）与多位尾数、负号前置三条本轮修复回归锁定 ----
+    "c19_float_shortest_repr": """\
+let x = 0.1
+#1：[x]
+#1：[7 / 2]
+let y = 0.5
+#1：[y * 1.0]
+let z = 1.1
+#1：[z]
+let n = 123.456
+#1：[n]
+let neg = -0.15
+#1：[neg]
+let w = 1e16
+#1：[w]
+let sci = 1.5e16
+#1：[sci]
+let od = 0.00048828125
+#1：[od]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -337,15 +358,13 @@ REJECT_CASES = {
     "r3_for_list": "let t = 0\nfor x in [1, 2, 3] {\n  t = t + x\n}\n#1：[t]\n",
     "r4_undefined_global": "let a = b\n#1：[a]\n",
     "r5_arity_mismatch": "func ov(a: Int, b: Int) -> Int = (a, b) => a + b\n#1：[ov(1)]\n",
-    "r6_float_nondomain": "let x = 0.1\n#1：[x]\n",  # 0.1 非精确十进制→属越域 float→输出需全量 _dtoa（S3b+）→拒
-    # ---- P-c2 S1 越界集外：`/` 真除/越域 float 算术（需全量 _dtoa）----
-    "r15_int_truediv": "#1：[7 / 2]\n",
-    "r16_float_mul_demote": "let x = 0.5\n#1：[x * 1.0]\n",  # × 降级 float（非精确域）→拒
+    # ---- P-c2 S3c-5d：r6/r15/r16 原「越域运行期 float 输出」编译期拒例，现由最短往返
+    #      _dtoa 机器码解禁 → 逐字节输出正确，已迁至 CASES 正例 c19_float_shortest_repr。----
     # ---- P-c2 S4b 越界集外：越域 float 的 //与%（需 CPython 精确有理商语义，S4c+）----
     "r17_float_floordiv": "let x = 0.1\nlet y = 2.0\n#1：[x // y]\n",
     "r18_float_mod": "let x = 0.1\nlet y = 2.0\n#1：[x % y]\n",
-    # ---- P-c2 S3c-2 越界集外：既约分母 2^11 超深档阈（浅档/深档皆不入）→静态拒----
-    "r19_float_over_deep": "let x = 0.00048828125\n#1：[x]\n",
+    # ---- P-c2 S3c-2 旧「既约分母 2^11 超深档阈」静态拒例 r19（0.00048828125=2^-11 输出）：
+    #      最短往返 _dtoa 接管 OUTPUT 后，该精确可表 double 属放行子集→已迁至正例 c19。----
     # ---- P-b 越界集外：嵌套/混合/整表输出/切片/字典/int 下标 ----
     "r7_nested_list": "#1：[len([[1, 2], [3]])]\n",
     "r8_mixed_list": "#1：[len([1, 2 < 1])]\n",

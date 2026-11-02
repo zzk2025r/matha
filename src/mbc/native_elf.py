@@ -49,10 +49,16 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
   S3c-2 floatq 定点展开**双档并存**扩域：浅档 d≤6/|v|<9e9 一字不动，另开深档 d≤10/|v|<2^53/10^10（=900719.9254740992）；
      dtoa 叶例仅加一个选档比较（只看 |v|，前置勘察⑦已证与“先试浅档再回退”逐字节等价）+ POW10 表扩至 10^9..10^0（浅档
      从 10^5 档入表）；新增**整数性回检**（cvtsi2sd 比回 N==v·scale）封住 `+ -` 封闭产生的“档空洞”（d∈7..10 且
-     |v|≥深档阈 ⇒ N 非整会被截断）：此类值不静默印错，运行期 exit1 如实失败（Gate HOLE_CASES 锁行为）  ← 本文件当前能力停在 S3c-2
-（越域运行期 float 输出（0.1 类/×÷产/科学计数法）需全量 _dtoa（最短往返，S3c+）按 Q1 如实拒；divsd 除零产 ±inf，与 VM ZeroDivisionError 已登记分歧）。
+     |v|≥深档阈 ⇒ N 非整会被截断）：此类值不静默印错，运行期 exit1 如实失败（Gate HOLE_CASES 锁行为）
+  S3c-4 运行期特殊位型直出：OUTPUT float 支接位型三分支（abs vs 0x7FF0…：< 有限 / == ±inf 看符位 / > nan），
+     inf/-inf/nan/±0 静态串直出（±0 复用带符 "0.0"）；有限非零正规值走 S3c-5d，次正规（κ>63）如实 exit1
+  S3c-5d 最短往返 dtoa_shortest（机器码，运行期 float 输出主力）：POW10 double 表 ucomisd 二分定档 nd →
+     k=1..15 逐位 mulsd 生 E + cvtsd2si 就近半偶 → 128 位整数严格判据 |P−Q| < rhs10<<sh（恰等 tie→veven）→
+     定点/科学排版（阈值 dec≤−4 或 dec>16）+ 负号前置；放行子集（sig≤15 且判据/表跨/κ≤63 全过）逐字节==repr(v)，
+     越子集运行期 exit1 如实拒（绝不伪通过）。.trae 模型 pipeline(v,crit_strict) 为放行权威，652 例全域 WSL 实跑差 0
+（以上为运行期 float 输出面；`/` 真除越域产 ±inf 与 VM ZeroDivisionError 已登记分歧；越域运行期 float 的 `//`/`%` 仍静态拒——见 S4b）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
-集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及未就绪的运行期 float 算术·比较·输出）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）。
+集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及越域运行期 float 的 `//`/`%` 算术）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）；运行期 float 输出改由 dtoa_shortest 全接管——放行子集逐字节精确、越子集运行期 exit_group(1) 如实失败（不再编译期拒）。
 """
 from __future__ import annotations
 
@@ -248,6 +254,8 @@ def hello_elf() -> bytes:
 # 条件跳转操作码（0F xx 的低位）
 JE, JNE, JZ, JNZ, JS, JNS, JL, JGE, JLE, JG, JB = (
     0x84, 0x85, 0x84, 0x85, 0x88, 0x89, 0x8C, 0x8D, 0x8E, 0x8F, 0x82)
+# P-c2 S3c-5d dtoa_shortest 追加：无符号比较/JC（JB 与 JC 同码 0x82）
+JBE, JA, JC, JAE = 0x86, 0x87, 0x82, 0x83
 
 # 数据段（RW）内固定偏移：numbuf / '\n' / "True" / "False" 后接 .bss 操作数栈
 NL_OFF = NUMBUF_SIZE                 # 64：单字节 '\n'（每条 OUTPUT 行尾）
@@ -275,6 +283,56 @@ VSP_ADDR = DATA_VADDR + VSP_OFF
 GVARS_ADDR = DATA_VADDR + GVARS_OFF   # 每个全局名一个 8 字节槽（slot 索引 → +8*slot）
 HEAP_ADDR = DATA_VADDR + HEAP_OFF     # bump 堆首地址（r12 初始值）
 
+# ---- P-c2 S3c-5d：最短往返 dtoa_shortest 的静态数据节（落在操作数栈 VSP+VSTACK=0x10100 之上、
+#      GVARS=0x20000 之下的空洞；文件映射区，非 .bss，运行时只读）。与旧 floatq 定标表 POW10_OFF 独立。
+P10D_LO = -324                        # double(10^m) 表下标下界（10^-324 最近 double = DBL_MIN，覆盖次正规下界）
+P10D_N = 633                          # double 表项数 m=-324..308（decpt 二分定位 + 逐位 scale 共用；正确舍入=参考 pow10_table）
+P10I_N = 19                           # 精确整数 10^n 表 n=0..18（10^19>2^64 越界 ⇒ 判据 pow10_out 拒）
+P10D_OFF = 0x11000                    # double 表基（段内偏移；.double，索引 (m - P10D_LO)，每项 +8）
+P10I_OFF = P10D_OFF + P10D_N * 8 + 8  # +8 留 double 表末 0 哨兵；整数 10^n 表基（段内偏移；.quad，索引 n）
+STR_OFF = (P10I_OFF + P10I_N * 8 + 7) & ~7     # 特殊值串起点（段内偏移，8 字节对齐）
+STR_INF_OFF = STR_OFF                 # "inf"（3B）
+STR_NINF_OFF = STR_OFF + 3            # "-inf"（4B）
+STR_NAN_OFF = STR_OFF + 7             # "nan"（3B，VM 口径小写、无符号）
+STR_ZERO_OFF = STR_OFF + 10           # "0.0"（3B；-0.0 先出 '-' 再复用本串）
+SBUF_OFF = (STR_OFF + 16 + 7) & ~7    # dtoa_shortest 十进制输出缓冲（自低向上写字节，单次 write_span 刷出）
+SBUF_SIZE = 64                        # 上限：数字区[0,17) + 输出区[24,54)（17 位 + "." + "e+3xx" + 符号 ≤ 30，留裕）
+STR_DATA_END = SBUF_OFF + SBUF_SIZE   # 数据节文件尾（段内偏移，= _build_data 的 bytearray 长度）
+P10D_ADDR = DATA_VADDR + P10D_OFF
+P10I_ADDR = DATA_VADDR + P10I_OFF
+STR_INF = DATA_VADDR + STR_INF_OFF
+STR_NINF = DATA_VADDR + STR_NINF_OFF
+STR_NAN = DATA_VADDR + STR_NAN_OFF
+STR_ZERO = DATA_VADDR + STR_ZERO_OFF
+SBUF_ADDR = DATA_VADDR + SBUF_OFF     # dtoa_shortest 输出缓冲首地址
+
+# ---- P-c2 S3c-5d：dtoa_shortest 的 128 位判据暂存槽（.bss 零页，位于文件尾之后、GVARS 之前）----
+#   GPR 不够同时持有 A/B/P/Q/D/T 的 hi:lo 与循环不变量 ⇒ 溢出到固定寻址槽（_load_abs_rax/_store_rax_abs）。
+SCR_OFF = (STR_DATA_END + 0xFF) & ~0xFF     # 页对齐到 0x12500（> 文件尾，属 .bss）；< VSP 之上、GVARS(0x20000) 之下
+S_ALO, S_AHI = 0, 8                         # A（reduced 分子，可 ≤128 位）lo/hi
+S_B = 16                                    # B = 2^κ（κ≤63 ⇒ 单 64 位）
+S_SH = 24                                   # sh = he + κ（阈值 2 的幂指数，可负）
+S_VEVEN = 32                                # v 尾数最低位==0（half-even tie 归向 v）
+S_ND = 40                                   # nd（decpt，二分定档结果，有符号）
+S_K = 48                                    # k（当前位数 1..15）
+S_E = 56                                    # E（候选整数基串，≤64 位）
+S_PLO, S_PHI = 64, 72                       # P（判据左积）lo/hi
+S_QLO, S_QHI = 80, 88                       # Q lo/hi
+S_DLO, S_DHI = 96, 104                      # D = |P−Q| lo/hi
+S_TLO, S_THI = 112, 120                     # T（阈值）lo/hi
+S_SIGN = 128                                # 输出符号（0/1）
+S_M = 136                                   # M（53 位含隐藏位尾数，判据前 A 的未约前体）
+SCR_SIZE = 152
+_SC = DATA_VADDR + SCR_OFF                  # dtoa_shortest 判据暂存区绝对基址
+_SALO, _SAHI = _SC + S_ALO, _SC + S_AHI     # A lo/hi（128 位 reduced 分子）
+_SB, _SSH, _SVEVEN = _SC + S_B, _SC + S_SH, _SC + S_VEVEN
+_SND = _SC + S_ND
+_SE, _SPLO, _SPHI = _SC + S_E, _SC + S_PLO, _SC + S_PHI
+_SQLO, _SQHI = _SC + S_QLO, _SC + S_QHI
+_SDLO, _SDHI = _SC + S_DLO, _SC + S_DHI
+_STLO, _STHI = _SC + S_TLO, _SC + S_THI
+_SSIGN, _SM = _SC + S_SIGN, _SC + S_M
+
 _CMP_SETCC = {"==": 0x94, "!=" : 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E, ">=": 0x9D}
 _ARITH = {"+", "-", "*", "//", "%"}
 # ---- P-c2 S3b：_dtoa 精度声明的单一事实源（域谓词、护栏阈、机器码定标环共读此组常量）----
@@ -298,10 +356,11 @@ _JAE, _JP = 0x83, 0x8A                                # 近跳条件码（buf.jc
 
 
 def dtoa_precision_declaration() -> dict:
-    """P-c2 S3b：_dtoa 运行期输出精度的编译期声明（单一事实源，与域谓词/护栏/机器码共读）。
+    """P-c2 S3b/S3c：_dtoa 运行期输出精度的编译期声明（单一事实源，与域谓词/护栏/机器码共读）。
 
-    声明当前保底 _dtoa 保证覆盖的值集与 soundness 边界；不涵盖最短往返（属 S3c+，
-    其零/低风险递降拆解 S3c-1..S3c-6 登记于 docs/spec/NATIVE_ELF_PC.md §N2-拆解）。
+    保底 _dtoa（floatq 双档定点展开）保证域内值逐字节=str(v)；最短往返已由 S3c-5d
+    dtoa_shortest 机器码落地（放行子集逐字节==repr(v)，越子集运行期 exit1 如实拒），
+    其递降拆解 S3c-1..S3c-6 登记于 docs/spec/NATIVE_ELF_PC.md §N2-拆解。
     与 _floatq_domain 严格一致：域内 → 逐字节=str(v)；域外 → 静态拒或运行期护栏 exit_group(1)。"""
     return {
         "domain": (f"double 精确值 = 整数×2^-d 且 |v| 有界（**双档并存**：浅档 d≤{DTOA_MAX_DENOM_EXP} 且 "
@@ -316,8 +375,10 @@ def dtoa_precision_declaration() -> dict:
                       "N==v·scale，不等即 dt_oob——兼封住“封闭后档降不回”的空洞档）"),
         "out_of_domain": ("静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编；"
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
-        "shortest_roundtrip": ("未实现（全量 _dtoa/Ryu-Grisu 属 S3c+；0.1 类/×÷产 float/科学计数法仍拒）；"
-                               "其语义规格已由 `.trae/pc_s3c1_ref.py` 参考器逐字节坐实（S3c-1，50156 例差 0）"),
+        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
+                               "对放行子集（sig≤15 且判据/表跨/κ≤63 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法）；"
+                               "越子集（16-17 位、κ>63、10^22 表跨等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+                               "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict) 坐实（652 例全域 WSL 实跑差 0）"),
     }
 
 
@@ -426,6 +487,206 @@ def _sub_rbx_imm32(buf: _Buf, val: int) -> None:
     buf.raw(0x48, 0x81, 0xEB); buf.imm32(val)
 
 
+# ------------------------------------------------ P-c2 S3c-5d：dtoa_shortest 逐指令编码辅助
+
+def _and_reg_imm32(buf: _Buf, reg: int, val: int) -> None:     # and reg,imm32（81 /4）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0x81, 0xE0 | (reg & 7)); buf.imm32(val)
+
+
+def _or_reg_imm32(buf: _Buf, reg: int, val: int) -> None:      # or reg,imm32（81 /1）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0x81, 0xC8 | (reg & 7)); buf.imm32(val)
+
+
+def _sub_reg_imm32(buf: _Buf, reg: int, val: int) -> None:     # sub reg,imm32（81 /5）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0x81, 0xE8 | (reg & 7)); buf.imm32(val)
+
+
+def _cmp_reg_imm32(buf: _Buf, reg: int, val: int) -> None:     # cmp reg,imm32（81 /7 imm32；非 83 那是 imm8）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0x81, 0xF8 | (reg & 7)); buf.imm32(val)
+
+
+def _movzx_rax_bl(buf: _Buf) -> None:                          # movzx rax,bl（40 0F B6 C7）
+    buf.raw(0x48, 0x0F, 0xB6, 0xC7)
+
+
+def _shl_reg_cl(buf: _Buf, reg: int) -> None:                  # shl reg,cl（D3 /4）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xD3, 0xC0 | (4 << 3) | (reg & 7))
+
+
+def _shr_reg_cl(buf: _Buf, reg: int) -> None:                  # shr reg,cl（D3 /5）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xD3, 0xC0 | (5 << 3) | (reg & 7))
+
+
+def _sar_reg_cl(buf: _Buf, reg: int) -> None:                  # sar reg,cl（D3 /7，算术右移）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xD3, 0xC0 | (7 << 3) | (reg & 7))
+
+
+def _shl_reg_imm(buf: _Buf, reg: int, n: int) -> None:         # shl reg,imm8（C1 /4）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xC1, 0xC0 | (4 << 3) | (reg & 7)); buf.raw(n & 0xFF)
+
+
+def _shr_reg_imm(buf: _Buf, reg: int, n: int) -> None:         # shr reg,imm8（C1 /5）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xC1, 0xC0 | (5 << 3) | (reg & 7)); buf.raw(n & 0xFF)
+
+
+def _bsr_reg_reg(buf: _Buf, dst: int, src: int) -> None:       # bsr dst,src（0F BD /r）：最高置位位索引（src=0 未定义，需先 test）
+    rex = 0x48 | (0x04 if dst >= 8 else 0) | (0x01 if src >= 8 else 0)
+    buf.raw(rex, 0x0F, 0xBD, 0xC0 | ((dst & 7) << 3) | (src & 7))
+
+
+def _mul_rax_reg(buf: _Buf, reg: int) -> None:                 # mul rax,reg（F7 /4）：rdx:rax = rax * reg
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xF7, 0xC0 | (4 << 3) | (reg & 7))
+
+
+def _div_rax_reg(buf: _Buf, reg: int) -> None:                 # div rax,reg（F7 /6）：rax=商 rdx=余（被除数 rdx:rax）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xF7, 0xC0 | (6 << 3) | (reg & 7))
+
+
+def _dec_reg(buf: _Buf, reg: int) -> None:                     # dec reg（FF /1）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xFF, 0xC8 | (reg & 7))
+
+
+def _mov_byte_rdi_al(buf: _Buf) -> None:                       # mov byte[rdi],al（88 07）
+    buf.raw(0x88, 0x07)
+
+
+def _inc_rdi(buf: _Buf) -> None:                               # inc rdi（48 FF C7）
+    buf.raw(0x48, 0xFF, 0xC7)
+
+
+def _sbb_reg_reg(buf: _Buf, dst: int, src: int) -> None:       # sbb dst,src（19 /r：dst -= src - CF）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x19, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _movq_gpr_to_xmm(buf: _Buf, xmm: int, gpr: int) -> None:   # movq xmm,gpr（66 先于 REX.W：66 4[0x] 0F 6E /r）reg=xmm rm=gpr
+    rex = 0x48 | (0x04 if xmm >= 8 else 0) | (0x01 if gpr >= 8 else 0)
+    buf.raw(0x66, rex, 0x0F, 0x6E, 0xC0 | ((xmm & 7) << 3) | (gpr & 7))
+
+
+def _movq_xmm_to_gpr(buf: _Buf, gpr: int, xmm: int) -> None:   # movq gpr,xmm（66 先于 REX.W：66 4[0x] 0F 7E /r）reg=xmm rm=gpr
+    rex = 0x48 | (0x04 if xmm >= 8 else 0) | (0x01 if gpr >= 8 else 0)
+    buf.raw(0x66, rex, 0x0F, 0x7E, 0xC0 | ((xmm & 7) << 3) | (gpr & 7))
+
+
+def _mulsd(buf: _Buf, dst: int, src: int) -> None:             # mulsd dst,src（F2 0F 59 /r）
+    rex = 0x04 if dst >= 8 else 0x00
+    pre = [0xF2] if rex == 0 else [0xF2, 0x40 | rex]
+    buf.raw(*pre, 0x0F, 0x59, 0xC0 | ((dst & 7) << 3) | (src & 7))
+
+
+def _ucomisd(buf: _Buf, dst: int, src: int) -> None:           # ucomisd dst,src（66 0F 2E /r）
+    rex = 0x04 if dst >= 8 else 0x00
+    pre = [0x66] if rex == 0 else [0x66, 0x40 | rex]
+    buf.raw(*pre, 0x0F, 0x2E, 0xC0 | ((dst & 7) << 3) | (src & 7))
+
+
+def _cvtsi2sd(buf: _Buf, xmm: int, gpr: int) -> None:          # cvtsi2sd xmm,gpr（F2 先于 REX.W：F2 4[0x] 0F 2A /r）reg=xmm rm=gpr
+    rex = 0x48 | (0x04 if xmm >= 8 else 0) | (0x01 if gpr >= 8 else 0)
+    buf.raw(0xF2, rex, 0x0F, 0x2A, 0xC0 | ((xmm & 7) << 3) | (gpr & 7))
+
+
+def _cvtsd2si(buf: _Buf, gpr: int, xmm: int) -> None:          # cvtsd2si gpr,xmm（F2 先于 REX.W：F2 4[0x] 0F 2D /r）reg=gpr(目的 r64) rm=xmm；就近半偶（2D 非 2C 截断）
+    rex = 0x48 | (0x04 if gpr >= 8 else 0) | (0x01 if xmm >= 8 else 0)
+    buf.raw(0xF2, rex, 0x0F, 0x2D, 0xC0 | ((gpr & 7) << 3) | (xmm & 7))
+
+
+def _movsd_xmm_abs(buf: _Buf, xmm: int, addr: int) -> None:    # movsd xmm,[abs]（F2 0F 10 /r ModRM=05 disp32）
+    rex = 0x04 if xmm >= 8 else 0x00
+    if rex:
+        buf.raw(0xF2, rex)
+    buf.raw(0x0F, 0x10, 0x05 | ((xmm & 7) << 3)); buf.imm32(addr)
+
+
+def _load_abs_mem_reg(buf: _Buf, reg: int, addr: int) -> None:  # mov reg,[abs]（REX.W 8B /0 ModRM=04 25 disp32）
+    rex = 0x48 | (0x04 if reg >= 8 else 0) | (0x01 if reg >= 8 else 0)
+    buf.raw(rex, 0x8B, 0x04, 0x25); buf.imm32(addr)
+
+
+def _store_abs_reg_mem(buf: _Buf, addr: int, reg: int) -> None:  # mov [abs],reg（REX.W 89 /0 ModRM=04 25 disp32）
+    rex = 0x48 | (0x04 if reg >= 8 else 0) | (0x01 if reg >= 8 else 0)
+    buf.raw(rex, 0x89, 0x04, 0x25); buf.imm32(addr)
+
+
+def _sub_reg_reg(buf: _Buf, dst: int, src: int) -> None:    # sub dst,src（29 /r：reg=src rm=dst）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x29, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _and_reg_reg(buf: _Buf, dst: int, src: int) -> None:    # and dst,src（21 /r：reg=src rm=dst）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x21, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _neg_reg(buf: _Buf, reg: int) -> None:                  # neg reg（F7 /3）
+    rex = 0x48 | (0x01 if reg >= 8 else 0)
+    buf.raw(rex, 0xF7, 0xD8 | (reg & 7))
+
+
+def _shld_reg_reg_cl(buf: _Buf, dst: int, src: int) -> None:  # shld dst,src,cl（0F A5 /r：rm=dst reg=src）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x0F, 0xA5, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _imul_reg_reg_imm(buf: _Buf, dst: int, src: int, imm: int) -> None:  # imul dst,src,imm32（69 /r）
+    rex = 0x48 | (0x04 if dst >= 8 else 0) | (0x01 if src >= 8 else 0)
+    buf.raw(rex, 0x69, 0xC0 | ((dst & 7) << 3) | (src & 7)); buf.imm32(imm)
+
+
+def _movapd(buf: _Buf, dst: int, src: int) -> None:         # movapd dst,src（66[44] 0F 28 /r：reg=dst rm=src）
+    rex = 0x04 if dst >= 8 else 0x00
+    pre = [0x66] if rex == 0 else [0x66, 0x40 | rex]
+    buf.raw(*pre, 0x0F, 0x28, 0xC0 | ((dst & 7) << 3) | (src & 7))
+
+
+def _movsd_xmm_regmem(buf: _Buf, xmm: int, base: int) -> None:  # movsd xmm,[base]（F2[44] 0F 10 mod00 rm=base）
+    rex = 0x04 if xmm >= 8 else 0x00
+    pre = [0xF2] if rex == 0 else [0xF2, 0x40 | rex]
+    rm = base & 7
+    if rm == 4:                                            # rsp/r12 → SIB base=100 index=none
+        buf.raw(*pre, 0x0F, 0x10, 0x00 | ((xmm & 7) << 3) | 4, 0x24)
+    elif rm == 5:                                          # rbp/r13 → mod01 disp8=0
+        buf.raw(*pre, 0x0F, 0x10, 0x40 | ((xmm & 7) << 3) | 5, 0x00)
+    else:
+        buf.raw(*pre, 0x0F, 0x10, ((xmm & 7) << 3) | rm)
+
+
+def _adc_reg_reg(buf: _Buf, dst: int, src: int) -> None:    # adc dst,src（11 /r：reg=src rm=dst，dst+=src+CF）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x11, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _or_reg_reg(buf: _Buf, dst: int, src: int) -> None:     # or dst,src（09 /r：reg=src rm=dst）
+    rex = 0x48 | (0x04 if src >= 8 else 0) | (0x01 if dst >= 8 else 0)
+    buf.raw(rex, 0x09, 0xC0 | ((src & 7) << 3) | (dst & 7))
+
+
+def _movzx_byte_to(buf: _Buf, dst: int, base: int) -> None:  # movzx dst64, byte[base]（0F B6 /r mod00）
+    rex = 0x48 | (0x04 if dst >= 8 else 0) | (0x01 if base >= 8 else 0)
+    buf.raw(rex, 0x0F, 0xB6, ((dst & 7) << 3) | (base & 7))
+
+
+def _mov_byte_rdi_imm(buf: _Buf, val: int) -> None:        # mov byte[rdi],imm8（C6 07 ib）
+    buf.raw(0xC6, 0x07, val & 0xFF)
+
+
+def _mov_byte_abs_al(buf: _Buf, addr: int) -> None:        # mov byte[abs],al（88 05 disp32）
+    buf.raw(0x88, 0x05); buf.imm32(addr)
+
+
+
 # ------------------------------------------------ P-c1 N1：通用 ModRM/REX 编码辅助
 
 def _mem_modrm(buf: _Buf, reg: int, base: int, disp: int, op_bytes: tuple) -> None:
@@ -521,6 +782,490 @@ def _load_elem_rax(buf: _Buf, base: int, index: int) -> None:   # mov rax,[base+
     # ModRM=0x44（mod=01 disp8、reg=000=rax、rm=100=SIB），非 0x4C（那会把目的寄存器写成 rcx）
     rex = 0x48 | (0x02 if index >= 8 else 0) | (0x01 if base >= 8 else 0)
     buf.raw(rex, 0x8B, 0x44, 0xC0 | ((index & 7) << 3) | (base & 7), 0x08)
+
+
+def _emit_dtoa_shortest(buf: _Buf) -> None:
+    """P-c2 S3c-5d：运行期 float 最短往返输出（dtoa_shortest）。逐指令镜像已定稿严门
+    `.trae/pc_s3c5d1d_gates.py` 管线：特殊值判别 → POW10 double 表 ucomisd 二分定档 nd →
+    k=1..15 mulsd+cvtsd2si 生候选基串 E → crit_strict 128 位整数判据（含真守卫）→ 去尾零/
+    进位 → 定点/科学排版入 SBUF → 单次 write_span 刷出。域外（次正规/kap>63/位宽超 128/
+    表跨/15 位扫尽）一律 jmp exit1（运行期如实失败，绝不伪通过）。
+
+    寄存器纪律：全程无 syscall 直到末次 flush ⇒ rcx/rdx/r8..r15 自由；rbx/rbp/r12/rsp 不碰；
+    xmm0=av 持久，xmm1=表档，xmm2=p。计算态循环不跨 syscall（无 print_int）。"""
+    def L(reg: int, addr: int) -> None:      # reg ← [addr]（经 rax 摆渡；_load_abs 仅支持 rax/r8）
+        _load_abs_mem_reg(buf, 0, addr)
+        if reg != 0:
+            _mov_reg_reg(buf, reg, 0)
+
+    def SR(addr: int, reg: int) -> None:     # [addr] ← reg
+        if reg != 0:
+            _mov_reg_reg(buf, 0, reg)
+        _store_abs_reg_mem(buf, addr, 0)
+
+    def OUTC(ch: int) -> None:               # mov byte[rdi],imm8 ; inc rdi
+        _mov_byte_rdi_imm(buf, ch)
+        _inc_rdi(buf)
+
+    buf.here("dtoa_shortest")
+    # ---------------- Phase A：分类（符号/inf/nan/±0/次正规）----------------
+    # SR/L 经 rax 摆渡会毁 rax，故符号先经 r8 存出（不动 rax），全程以 rax=abs 位型派生 e/frac/mant。
+    _mov_reg_reg(buf, 10, 0)                # r10=bits
+    _shr_reg_imm(buf, 10, 63)               # r10=sign(0/1)
+    _mov_reg_reg(buf, 8, 10)                # r8=sign（经 r8 存出，不 clobber rax）
+    _store_abs_reg_mem(buf, _SSIGN, 8)      # [_SSIGN]=sign
+    mov_imm64(buf, 11, 0x7FFFFFFFFFFFFFFF)
+    _and_reg_reg(buf, 0, 11)                # rax=abs 位型
+    _movq_gpr_to_xmm(buf, 0, 0)             # xmm0=av
+    _mov_reg_reg(buf, 1, 0)
+    _shr_reg_imm(buf, 1, 52)                # rcx=e（指数字段）
+    mov_imm64(buf, 11, (1 << 52) - 1)
+    _mov_reg_reg(buf, 8, 0)
+    _and_reg_reg(buf, 8, 11)                # r8=frac
+    _mov_reg_reg(buf, 15, 8)                # r15=frac（e==0 判零/次正规用）
+    _mov_reg_reg(buf, 9, 0)
+    _and_reg_imm32(buf, 9, 1)               # v 尾数最低位
+    _zero_reg(buf, 10)
+    _test_reg_reg(buf, 9, 9)
+    buf.jcc(JNZ, "ds_veodd")
+    mov_imm32(buf, 10, 1)                   # veven=（lsb==0）
+    buf.here("ds_veodd")
+    SR(_SVEVEN, 10)
+    mov_imm64(buf, 11, 1 << 52)
+    _or_reg_reg(buf, 8, 11)                 # r8=mant_int（正规：(1<<52)|frac）；rax 此后不再需要
+    SR(_SM, 1)                              # 持久 e（次正规/大值后续判据复用；clobber rax 安全）
+    _cmp_reg_imm32(buf, 1, 0x7FF)
+    buf.jcc(JE, "ds_infnan")
+    _test_reg_reg(buf, 1, 1)
+    buf.jcc(JNZ, "ds_normal")
+    _test_reg_reg(buf, 15, 15)              # e==0：frac==0→零，否则次正规
+    buf.jcc(JNZ, "ds_rej")                  # 次正规 kap>63 ⇒ 运行期如实拒
+
+    # 零：±0.0（对齐 Python str：负号先出 '-' 再复用 "0.0"）
+    buf.here("ds_zero")
+    L(0, _SSIGN)
+    _test_reg_reg(buf, 0, 0)
+    buf.jcc(JZ, "ds_zerop")
+    mov_imm32(buf, 6, DATA_VADDR)
+    buf.raw(0xC6, 0x06, 0x2D)               # mov byte[rsi],'-'
+    mov_imm32(buf, 2, 1)
+    buf.call("write_span")
+    buf.here("ds_zerop")
+    mov_imm32(buf, 6, STR_ZERO)
+    mov_imm32(buf, 2, 3)
+    buf.jmp("ds_static_out")
+    # inf / nan：静态串直出
+    buf.here("ds_infnan")
+    _test_reg_reg(buf, 15, 15)
+    buf.jcc(JNZ, "ds_nan")
+    L(0, _SSIGN)
+    _test_reg_reg(buf, 0, 0)
+    buf.jcc(JZ, "ds_infpos")
+    mov_imm32(buf, 6, STR_NINF); mov_imm32(buf, 2, 4); buf.jmp("ds_static_out")
+    buf.here("ds_infpos")
+    mov_imm32(buf, 6, STR_INF); mov_imm32(buf, 2, 3); buf.jmp("ds_static_out")
+    buf.here("ds_nan")
+    mov_imm32(buf, 6, STR_NAN); mov_imm32(buf, 2, 3)
+    buf.here("ds_static_out")
+    buf.call("write_span")
+    buf.raw(0xC3)
+
+    # ---------------- 精确值 A/B/κ/he/sh（_exact 镜像；存槽）----------------
+    buf.here("ds_normal")
+    L(0, _SM)                               # rax=e
+    _mov_reg_reg(buf, 7, 0)                 # rdi=e
+    _sub_reg_imm32(buf, 7, 1075)            # rdi=exp2=e-1075
+    _test_reg_reg(buf, 7, 7)
+    buf.jcc(JS, "ds_expneg")
+    # exp2>=0（B=1，A=mant<<exp2 可达 128 位）：he=e-1076, kap=0, sh=he
+    _cmp_reg_imm32(buf, 7, 75)              # 53+exp2>128 ⇒ A 越 128 位 ⇒ 如实拒
+    buf.jcc(JG, "ds_rej")
+    mov_imm32(buf, 0, 1); SR(_SB, 0)        # B=1（clobbers rax，故 he 改由 rdi=exp2 派生）
+    _mov_reg_reg(buf, 6, 7)                 # rsi=exp2（rdi 未被 874 覆写）
+    _sub_reg_imm32(buf, 6, 1)               # he=exp2-1=e-1076
+    SR(_SSH, 6)                             # sh=he（kap=0）
+    _mov_reg_reg(buf, 0, 8)                 # rax=mant
+    _zero_reg(buf, 2)                       # rdx=0
+    _cmp_reg_imm32(buf, 7, 64)
+    buf.jcc(JGE, "ds_ashift_big")
+    _test_reg_reg(buf, 7, 7)                # exp2==0 → lo=mant,hi=0
+    buf.jcc(JZ, "ds_apos_store")
+    _mov_reg_reg(buf, 1, 7)                 # cl=exp2(0<..<64)
+    _shld_reg_reg_cl(buf, 2, 0)             # rdx=mant>>(64-cl)
+    _shl_reg_cl(buf, 0)                     # rax=mant<<cl
+    buf.jmp("ds_apos_store")
+    buf.here("ds_ashift_big")               # exp2 in [64,75]：hi=mant<<(exp2-64),lo=0
+    _mov_reg_reg(buf, 0, 8)
+    _sub_reg_imm32(buf, 7, 64)
+    _mov_reg_reg(buf, 1, 7)
+    _shl_reg_cl(buf, 0)                     # rax=hi
+    _mov_reg_reg(buf, 2, 0)                 # rdx=hi
+    _zero_reg(buf, 0)                       # lo=0
+    buf.here("ds_apos_store")
+    SR(_SALO, 0); SR(_SAHI, 2)
+    buf.jmp("ds_after_exact")
+    # exp2<0：shift=1075-e；tz=mant 尾零；common=min(tz,shift)；A=mant>>common；kap=shift-common
+    buf.here("ds_expneg")
+    mov_imm32(buf, 6, 1075)
+    _sub_reg_reg(buf, 6, 0)                 # rsi=shift=1075-e
+    _mov_reg_reg(buf, 11, 8); _neg_reg(buf, 11)   # r11=-mant
+    _mov_reg_reg(buf, 0, 8)
+    _and_reg_reg(buf, 11, 0)                # r11=lowbit
+    _bsr_reg_reg(buf, 11, 11)               # tz
+    _cmp_reg_reg(buf, 11, 6)                # tz vs shift（均非负，无符号可）
+    buf.jcc(JBE, "ds_have_common")
+    _mov_reg_reg(buf, 11, 6)                # common=shift
+    buf.here("ds_have_common")
+    _mov_reg_reg(buf, 0, 8); _mov_reg_reg(buf, 1, 11)   # rax=mant, cl=common
+    _shr_reg_cl(buf, 0)                     # A=mant>>common（≤53 位）
+    SR(_SALO, 0); _zero_reg(buf, 2); SR(_SAHI, 2)
+    _mov_reg_reg(buf, 14, 6); _sub_reg_reg(buf, 14, 11)  # r14=kap
+    _cmp_reg_imm32(buf, 14, 63)             # kap>63 ⇒ 除数装不下 ⇒ 如实拒
+    buf.jcc(JG, "ds_rej")
+    mov_imm32(buf, 0, 1); _mov_reg_reg(buf, 1, 14); _shl_reg_cl(buf, 0)   # B=1<<kap
+    SR(_SB, 0)
+    L(0, _SM)                               # 重载 e
+    _mov_reg_reg(buf, 13, 0); _sub_reg_imm32(buf, 13, 1076)   # he=e-1076
+    _cmp_reg_imm32(buf, 0, 1)
+    buf.jcc(JNE, "ds_he_done")
+    mov_imm32(buf, 13, -1075)              # e==1（最小正规）：he=-1075
+    buf.here("ds_he_done")
+    _add_reg_reg(buf, 13, 14)               # sh=he+kap
+    SR(_SSH, 13)
+    buf.here("ds_after_exact")
+
+    # ---------------- Phase B：POW10 double 表 ucomisd 二分定档 nd ----------------
+    L(0, _SM)                               # rax=e
+    _sub_reg_imm32(buf, 0, 1023)            # e-1023
+    _imul_reg_reg_imm(buf, 0, 0, 301)       # (e-1023)*301
+    mov_imm32(buf, 1, 1000)
+    buf.raw(0x48, 0x99)                     # cqo
+    buf.raw(0x48, 0xF7, 0xF9)               # idiv rcx（向零）
+    _test_reg_reg(buf, 2, 2)                # 余<0 ⇒ 需向 -inf 补一位（floor）
+    buf.jcc(JNS, "ds_est")
+    _dec_reg(buf, 0)
+    buf.here("ds_est")
+    _add_reg_imm32(buf, 0, 1)               # n0
+    _mov_reg_reg(buf, 13, 0)                # r13=n（上升游标）
+    buf.here("ds_rise")
+    _cmp_reg_imm32(buf, 13, 308)            # n>308 ⇒ 表外 notable ⇒ 如实拒
+    buf.jcc(JG, "ds_rej")
+    _mov_reg_reg(buf, 0, 13); _add_reg_imm32(buf, 0, 324); _shl_reg_imm(buf, 0, 3)
+    _add_reg_imm32(buf, 0, P10D_ADDR)
+    _movsd_xmm_regmem(buf, 1, 0)            # xmm1=double(10^n)
+    _ucomisd(buf, 0, 1)                     # av vs t
+    buf.jcc(JB, "ds_rise_found")            # av<t → 首个上界
+    _add_reg_imm32(buf, 13, 1)
+    buf.jmp("ds_rise")
+    buf.here("ds_rise_found")
+    mov_imm32(buf, 14, -324)                # lo
+    _mov_reg_reg(buf, 15, 13)               # hi
+    buf.here("ds_bs")
+    _cmp_reg_reg(buf, 14, 15)
+    buf.jcc(JGE, "ds_bs_done")
+    _mov_reg_reg(buf, 1, 14); _add_reg_reg(buf, 1, 15)
+    buf.raw(0x48, 0xD1, 0xF9)               # sar rcx,1（floor((lo+hi)/2)）
+    _mov_reg_reg(buf, 0, 1); _add_reg_imm32(buf, 0, 324); _shl_reg_imm(buf, 0, 3)
+    _add_reg_imm32(buf, 0, P10D_ADDR)
+    _movsd_xmm_regmem(buf, 1, 0)
+    _ucomisd(buf, 0, 1)
+    buf.jcc(JB, "ds_bs_hi")                 # av<t → hi=mid
+    _mov_reg_reg(buf, 14, 1); _add_reg_imm32(buf, 14, 1)   # lo=mid+1
+    buf.jmp("ds_bs")
+    buf.here("ds_bs_hi")
+    _mov_reg_reg(buf, 15, 1); buf.jmp("ds_bs")
+    buf.here("ds_bs_done")                  # nd=r15
+    _cmp_reg_imm32(buf, 15, -323); buf.jcc(JL, "ds_rej")
+    _cmp_reg_imm32(buf, 15, 309); buf.jcc(JG, "ds_rej")
+    SR(_SND, 15)
+
+    # ---------------- Phase C+D：k=1..15 逐位生 E + crit_strict 判据 ----------------
+    mov_imm32(buf, 13, 1)                   # k=1
+    buf.here("ds_kloop")
+    _mov_reg_reg(buf, 14, 13)               # scale_exp=k-nd
+    L(0, _SND)
+    _sub_reg_reg(buf, 14, 0)
+    _cmp_reg_imm32(buf, 14, 308); buf.jcc(JG, "ds_rej")     # scale_out
+    _cmp_reg_imm32(buf, 14, -324); buf.jcc(JL, "ds_rej")
+    _mov_reg_reg(buf, 0, 14); _add_reg_imm32(buf, 0, 324); _shl_reg_imm(buf, 0, 3)
+    _add_reg_imm32(buf, 0, P10D_ADDR)
+    _movsd_xmm_regmem(buf, 1, 0)            # scale
+    _movapd(buf, 2, 0)
+    _mulsd(buf, 2, 1)                       # p=av*scale
+    _cvtsd2si(buf, 0, 2)                    # E=round(p)（半偶）
+    _test_reg_reg(buf, 0, 0)                # E<=0（含 INDEFINITE/溢出/表跨致 p≥2^63）⇒ 拒
+    buf.jcc(JLE, "ds_rej")
+    SR(_SE, 0)
+    # u=nd-k
+    L(0, _SND)
+    _mov_reg_reg(buf, 14, 0)
+    _sub_reg_reg(buf, 14, 13)
+    _test_reg_reg(buf, 14, 14)
+    buf.jcc(JS, "ds_crit_neg")
+    # ---- u>=0：P=EB·10^u, Q=A, rhs10=1 ----
+    _cmp_reg_imm32(buf, 14, 18); buf.jcc(JG, "ds_rej")      # pow10_out
+    L(8, _SE)                               # r8=E
+    L(9, _SB)                               # r9=B
+    _mov_reg_reg(buf, 0, 8)
+    _mul_rax_reg(buf, 9)                    # EB=E*B (rdx:rax)
+    _test_reg_reg(buf, 2, 2)
+    buf.jcc(JNZ, "ds_eb_big")
+    _test_reg_reg(buf, 14, 14); buf.jcc(JZ, "ds_p_done")    # u==0 → P=EB
+    _mov_reg_reg(buf, 9, 0)                 # EB lo
+    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 3); _add_reg_imm32(buf, 0, P10I_ADDR)
+    _mov_reg_mem(buf, 10, 0, 0)             # r10=10^u
+    _mov_reg_reg(buf, 0, 9)
+    _mul_rax_reg(buf, 10)                   # P=EB*10^u
+    buf.jmp("ds_p_done")
+    buf.here("ds_eb_big")
+    _test_reg_reg(buf, 14, 14); buf.jcc(JNZ, "ds_rej")      # EB>64 且 u!=0 → mid_gt64 拒
+    buf.here("ds_p_done")
+    SR(_SPLO, 0); SR(_SPHI, 2)
+    L(0, _SALO); SR(_SQLO, 0)               # Q=A
+    L(0, _SAHI); SR(_SQHI, 0)
+    mov_imm32(buf, 7, 1)                    # rdi=rhs10=1
+    buf.jmp("ds_crit_cmp")
+    # ---- u<0：t=-u, P=E*B, Q=A*10^t（guard ≤128）, rhs10=10^t ----
+    buf.here("ds_crit_neg")
+    _neg_reg(buf,14)                        # t=-u
+    _cmp_reg_imm32(buf, 14, 18); buf.jcc(JG, "ds_rej")
+    L(8, _SB); L(0, _SE); _mul_rax_reg(buf, 8)              # P=E*B
+    SR(_SPLO, 0); SR(_SPHI, 2)
+    L(8, _SALO); L(9, _SAHI)                # A lo/hi
+    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 3); _add_reg_imm32(buf, 0, P10I_ADDR)
+    _mov_reg_mem(buf, 10, 0, 0)             # r10=10^t
+    _mov_reg_reg(buf, 0, 8); _mul_rax_reg(buf, 10)          # r8*10^t
+    _mov_reg_reg(buf, 11, 2)                # r11=hi(r8*10^t)
+    _mov_reg_reg(buf, 1, 0)                 # rcx=lo(r8*10^t)=Qlo
+    _mov_reg_reg(buf, 0, 9); _mul_rax_reg(buf, 10)          # r9*10^t
+    _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")        # r9*10^t≥2^64 → prod_gt128 拒
+    _add_reg_reg(buf, 11, 0); buf.jcc(JC, "ds_rej")         # Qhi 溢出 → 拒
+    _mov_reg_reg(buf, 2, 11)                # rdx=Qhi
+    SR(_SQLO, 1); SR(_SQHI, 2)
+    _mov_reg_reg(buf, 7, 10)                # rdi=rhs10=10^t
+    buf.here("ds_crit_cmp")
+    # ---- D=|P-Q|（128）；T=rhs10<<sh 或 D<<=-sh ----
+    L(0, _SPLO); _mov_reg_reg(buf, 8, 0)    # r8=Plo
+    L(0, _SPHI); _mov_reg_reg(buf, 9, 0)    # r9=Phi
+    L(0, _SQLO); _mov_reg_reg(buf, 10, 0)   # r10=Qlo
+    L(0, _SQHI); _mov_reg_reg(buf, 11, 0)   # r11=Qhi
+    _mov_reg_reg(buf, 0, 8); _sub_reg_reg(buf, 0, 10)       # Dlo
+    _mov_reg_reg(buf, 2, 9); _sbb_reg_reg(buf, 2, 11)       # Dhi
+    _test_reg_reg(buf, 2, 2)
+    buf.jcc(JNS, "ds_dneg_done")
+    buf.raw(0x48, 0xF7, 0xD0)               # not rax（~Dlo）
+    buf.raw(0x48, 0xF7, 0xD2)               # not rdx（~Dhi）
+    buf.raw(0x48, 0x83, 0xC0, 0x01)         # add rax,1（+1 低段）
+    buf.raw(0x48, 0x83, 0xD2, 0x00)         # adc rdx,0（进位入高段）——128 位求负得 |D|
+    buf.here("ds_dneg_done")
+    SR(_SDLO, 0); SR(_SDHI, 2)
+    L(0, _SSH); _mov_reg_reg(buf, 14, 0)    # r14=sh
+    _test_reg_reg(buf, 14, 14)
+    buf.jcc(JS, "ds_dshl")
+    # ---- sh>=0：T=rhs10<<sh ----
+    _cmp_reg_imm32(buf, 14, 68); buf.jcc(JG, "ds_rej")      # thr_gt128
+    _mov_reg_reg(buf, 0, 7)                 # rax=rhs10
+    _zero_reg(buf, 2)
+    _cmp_reg_imm32(buf, 14, 64)
+    buf.jcc(JGE, "ds_tshift_big")
+    _test_reg_reg(buf, 14, 14); buf.jcc(JZ, "ds_t_done")    # sh==0 → T=rhs10
+    _mov_reg_reg(buf, 1, 14)
+    _shld_reg_reg_cl(buf, 2, 0)
+    _shl_reg_cl(buf, 0)
+    buf.jmp("ds_t_done")
+    buf.here("ds_tshift_big")               # sh in [64,68]：lo=0,hi=rhs10<<(sh-64)
+    _sub_reg_imm32(buf, 14, 64); _mov_reg_reg(buf, 1, 14)
+    _shl_reg_cl(buf, 0)                     # rax=hi
+    _mov_reg_reg(buf, 2, 0)                 # rdx=hi
+    _zero_reg(buf, 0)                       # lo=0
+    buf.here("ds_t_done")
+    SR(_STLO, 0); SR(_STHI, 2)
+    buf.jmp("ds_cmpdt")
+    # ---- sh<0：s=-sh，D<<=s（守卫 ≤128）；T=rhs10 ----
+    buf.here("ds_dshl")
+    _neg_reg(buf, 14)                       # s
+    _cmp_reg_imm32(buf, 14, 128); buf.jcc(JGE, "ds_rej")    # shl_gt128
+    _cmp_reg_imm32(buf, 14, 64)
+    buf.jcc(JGE, "ds_dsbig")
+    L(2, _SDHI); L(0, _SDLO)               # 先取 Dhi→rdx（L 经 rax 摆渡），再取 Dlo→rax（否则会覆写 rax）
+    _test_reg_reg(buf, 14, 14); buf.jcc(JZ, "ds_ds_done")
+    _mov_reg_reg(buf, 1, 14)
+    _shld_reg_reg_cl(buf, 2, 0)
+    _shl_reg_cl(buf, 0)
+    buf.jmp("ds_ds_done")
+    buf.here("ds_dsbig")
+    L(2, _SDHI); L(0, _SDLO)               # 同序：Dhi→rdx、Dlo→rax
+    _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")
+    _sub_reg_imm32(buf, 14, 64); _mov_reg_reg(buf, 1, 14)
+    _shl_reg_cl(buf, 0)
+    _mov_reg_reg(buf, 2, 0); _zero_reg(buf, 0)
+    buf.here("ds_ds_done")
+    SR(_SDLO, 0); SR(_SDHI, 2)
+    _mov_reg_reg(buf, 0, 7); _zero_reg(buf, 2)              # T=rhs10
+    SR(_STLO, 0); SR(_STHI, 2)
+    # ---- 比较 D vs T（先 hi 后 lo；恰等 tie→veven）----
+    buf.here("ds_cmpdt")
+    L(0, _STHI); _mov_reg_reg(buf, 8, 0)    # r8=Thi
+    L(0, _SDHI)
+    _cmp_reg_reg(buf, 0, 8)
+    buf.jcc(JB, "ds_hit")
+    buf.jcc(JA, "ds_miss")
+    L(0, _STLO); _mov_reg_reg(buf, 8, 0)    # r8=Tlo
+    L(0, _SDLO)
+    _cmp_reg_reg(buf, 0, 8)
+    buf.jcc(JB, "ds_hit")
+    buf.jcc(JA, "ds_miss")
+    L(0, _SVEVEN); _test_reg_reg(buf, 0, 0); buf.jcc(JNZ, "ds_hit")
+    buf.jmp("ds_miss")
+    buf.here("ds_miss")
+    _add_reg_imm32(buf, 13, 1)              # k++
+    _cmp_reg_imm32(buf, 13, 15); buf.jcc(JLE, "ds_kloop")
+    buf.jmp("ds_rej")                       # 15 位扫尽 ⇒ 如实拒
+
+    # ---------------- Phase E：排版（E→数字→去尾零/进位→定点/科学）----------------
+    buf.here("ds_hit")
+    L(0, _SE)                               # rax=E
+    mov_imm32(buf, 1, 10)                   # rcx=10
+    mov_imm64(buf, 14, SBUF_ADDR)           # 数字区基
+    _zero_reg(buf, 15)                      # ndigits=0
+    buf.here("ds_dig")
+    _zero_reg(buf, 2)
+    _div_rax_reg(buf, 1)                    # quot=rax, rem=rdx
+    _add_reg_imm32(buf, 2, 48)
+    _mov_reg_reg(buf, 8, 14); _add_reg_reg(buf, 8, 15)
+    buf.raw(0x41, 0x88, 0x10)               # mov byte[r8],dl
+    _add_reg_imm32(buf, 15, 1)
+    _test_reg_reg(buf, 0, 0)
+    buf.jcc(JNZ, "ds_dig")
+    _mov_reg_reg(buf, 10, 15)               # r10=orig ndigits（dec bump 用）
+    L(0, _SND); _mov_reg_reg(buf, 9, 0)     # r9=nd
+    _mov_reg_reg(buf, 8, 14)                # r8=SBUF 基（后复用为读游标）
+    _zero_reg(buf, 15)                      # i=0
+    buf.here("ds_copy")
+    _cmp_reg_reg(buf, 15, 10); buf.jcc(JGE, "ds_copy_done")
+    _mov_reg_reg(buf, 6, 8); _add_reg_reg(buf, 6, 10); _sub_reg_imm32(buf, 6, 1)  # rsi=base+orig-1（r10=orig，非立即数 9）
+    _sub_reg_reg(buf, 6, 15)                # -i（r15=游标，非立即数 15）
+    _movzx_byte_to(buf, 0, 6)               # al=cand MSB[i]
+    mov_imm64(buf, 7, SBUF_ADDR + 40)
+    _add_reg_reg(buf, 7, 15)
+    buf.raw(0x88, 0x07)                     # mov byte[rdi],al
+    _add_reg_imm32(buf, 15, 1)
+    buf.jmp("ds_copy")
+    buf.here("ds_copy_done")
+    _mov_reg_reg(buf, 15, 10)               # cand_len=orig（E 无尾零）
+    # bump=（orig>k）
+    _cmp_reg_reg(buf, 10, 13)
+    mov_imm32(buf, 0, 0)
+    buf.jcc(JLE, "ds_bump0")
+    mov_imm32(buf, 0, 1)
+    buf.here("ds_bump0")
+    _add_reg_reg(buf, 9, 0)                 # r9=dec
+    # 输出游标 rdi=SBUF+24
+    mov_imm64(buf, 7, SBUF_ADDR + 24)
+    # 负号：正常有限值排版前置 '-'（[_SSIGN] 于 Phase A 存出；rax 此处空闲）
+    L(0, _SSIGN)
+    _test_reg_reg(buf, 0, 0)
+    buf.jcc(JZ, "ds_sign_done")
+    OUTC(0x2D)
+    buf.here("ds_sign_done")
+    # 阈值：dec<=-4 或 dec>16 → 科学；否则定点
+    _cmp_reg_imm32(buf, 9, -4); buf.jcc(JLE, "ds_sci")
+    _cmp_reg_imm32(buf, 9, 16); buf.jcc(JG, "ds_sci")
+    _cmp_reg_imm32(buf, 9, 0); buf.jcc(JLE, "ds_fixed_nonpos")
+    # dec>0
+    _cmp_reg_reg(buf, 15, 9)                # cand_len vs dec
+    buf.jcc(JG, "ds_fixed_split")           # cand_len>dec → d[0:dec].'d[dec:]
+    # cand_len<=dec → cand + '0'*(dec-cand_len) + '.0'
+    _mov_reg_reg(buf, 6, 15); _sub_reg_reg(buf, 6, 9)       # r6=orig-dec（pad 数）？ 需 dec-cand_len
+    _mov_reg_reg(buf, 6, 9); _sub_reg_reg(buf, 6, 15)       # pad=dec-cand_len
+    _zero_reg(buf, 15)                      # i=0
+    _mov_reg_reg(buf, 8, 14); _add_reg_imm32(buf, 8, 40)   # r8=candbuf
+    buf.here("ds_fp1")
+    _movzx_byte_to(buf, 0, 8); _mov_byte_rdi_al(buf); _inc_rdi(buf); _add_reg_imm32(buf, 8, 1)
+    _add_reg_imm32(buf, 15, 1)
+    _cmp_reg_reg(buf, 15, 10); buf.jcc(JL, "ds_fp1")
+    _zero_reg(buf, 15)
+    buf.here("ds_fp2")
+    _cmp_reg_reg(buf, 15, 6); buf.jcc(JGE, "ds_fp3")
+    OUTC(0x30)
+    _add_reg_imm32(buf, 15, 1); buf.jmp("ds_fp2")
+    buf.here("ds_fp3")
+    OUTC(0x2E); OUTC(0x30)
+    buf.jmp("ds_emit")
+    # dec>0 ∧ cand_len>dec → cand[0:dec]+'.'+cand[dec:]
+    buf.here("ds_fixed_split")
+    _zero_reg(buf, 15)
+    _mov_reg_reg(buf, 8, 14); _add_reg_imm32(buf, 8, 40)   # r8=candbuf
+    buf.here("ds_fs1")
+    _cmp_reg_reg(buf, 15, 9); buf.jcc(JGE, "ds_fs2")
+    _movzx_byte_to(buf, 0, 8); _mov_byte_rdi_al(buf); _inc_rdi(buf); _add_reg_imm32(buf, 8, 1)
+    _add_reg_imm32(buf, 15, 1); buf.jmp("ds_fs1")
+    buf.here("ds_fs2")
+    OUTC(0x2E)
+    buf.here("ds_fs3")
+    _cmp_reg_reg(buf, 15, 10); buf.jcc(JGE, "ds_emit")
+    _movzx_byte_to(buf, 0, 8); _mov_byte_rdi_al(buf); _inc_rdi(buf); _add_reg_imm32(buf, 8, 1)
+    _add_reg_imm32(buf, 15, 1); buf.jmp("ds_fs3")
+    # dec<=0 → '0.' + '0'*(-dec) + cand
+    buf.here("ds_fixed_nonpos")
+    OUTC(0x30); OUTC(0x2E)
+    _mov_reg_reg(buf, 6, 9); _neg_reg(buf, 6)              # r6=-dec（≥0）
+    _zero_reg(buf, 15)
+    buf.here("ds_fn1")
+    _cmp_reg_reg(buf, 15, 6); buf.jcc(JGE, "ds_fn2")
+    OUTC(0x30); _add_reg_imm32(buf, 15, 1); buf.jmp("ds_fn1")
+    buf.here("ds_fn2")
+    _zero_reg(buf, 15)
+    _mov_reg_reg(buf, 8, 14); _add_reg_imm32(buf, 8, 40)   # r8=candbuf
+    buf.here("ds_fn3")
+    _cmp_reg_reg(buf, 15, 10); buf.jcc(JGE, "ds_emit")
+    _movzx_byte_to(buf, 0, 8); _mov_byte_rdi_al(buf); _inc_rdi(buf); _add_reg_imm32(buf, 8, 1)
+    _add_reg_imm32(buf, 15, 1); buf.jmp("ds_fn3")
+    # 科学：cand[0]['.'+cand[1:]]e{dec-1:+03d}（dec-1 可 3 位）
+    buf.here("ds_sci")
+    _mov_reg_reg(buf, 8, 14); _add_reg_imm32(buf, 8, 40)   # r8=candbuf
+    _movzx_byte_to(buf, 0, 8); _mov_byte_rdi_al(buf); _inc_rdi(buf); _add_reg_imm32(buf, 8, 1)
+    _cmp_reg_imm32(buf, 10, 1); buf.jcc(JLE, "ds_sci_exp")
+    OUTC(0x2E)
+    _zero_reg(buf, 15)
+    _mov_reg_reg(buf, 6, 10); _sub_reg_imm32(buf, 6, 1)    # r6=尾数位数 cand_len-1（尾循环上界）
+    buf.here("ds_sc2")
+    _cmp_reg_reg(buf, 15, 6); buf.jcc(JGE, "ds_sci_exp")
+    _movzx_byte_to(buf, 0, 8); _mov_byte_rdi_al(buf); _inc_rdi(buf); _add_reg_imm32(buf, 8, 1)
+    _add_reg_imm32(buf, 15, 1); buf.jmp("ds_sc2")
+    buf.here("ds_sci_exp")
+    OUTC(0x65)
+    _sub_reg_imm32(buf, 9, 1)               # exp=dec-1
+    _test_reg_reg(buf, 9, 9); buf.jcc(JNS, "ds_expp")
+    OUTC(0x2D); _neg_reg(buf, 9); buf.jmp("ds_expn")
+    buf.here("ds_expp")
+    OUTC(0x2B)
+    buf.here("ds_expn")
+    # r9=mag（≥0）；百/十/个，最少 2 位（与 Python `{exp:+03d}` 同形）
+    _mov_reg_reg(buf, 0, 9); _zero_reg(buf, 2)
+    mov_imm32(buf, 1, 100)
+    _div_rax_reg(buf, 1)                    # rax=hundreds, rdx=mag%100
+    _mov_reg_reg(buf, 10, 2)                # r10=mag%100
+    _test_reg_reg(buf, 0, 0); buf.jcc(JZ, "ds_exp_two")
+    _add_reg_imm32(buf, 0, 48); _mov_byte_rdi_al(buf); _inc_rdi(buf)   # 百位
+    buf.jmp("ds_exp_tens")
+    buf.here("ds_exp_two")
+    _mov_reg_reg(buf, 10, 10)               # 保持 r10
+    buf.here("ds_exp_tens")
+    _mov_reg_reg(buf, 0, 10); _zero_reg(buf, 2)
+    mov_imm32(buf, 1, 10)
+    _div_rax_reg(buf, 1)                    # rax=tens, rdx=ones
+    _add_reg_imm32(buf, 0, 48); _mov_byte_rdi_al(buf); _inc_rdi(buf)   # 十位（允许 0）
+    _add_reg_imm32(buf, 2, 48); _mov_reg_reg(buf, 0, 2); _mov_byte_rdi_al(buf); _inc_rdi(buf)   # 个位
+    buf.jmp("ds_emit")
+    buf.here("ds_emit")
+    mov_imm64(buf, 6, SBUF_ADDR + 24)
+    _mov_reg_reg(buf, 2, 7)
+    _sub_reg_reg(buf, 2, 6)                 # rdx=长度
+    buf.call("write_span")
+    buf.raw(0xC3)
+    buf.here("ds_rej")
+    buf.jmp("exit1")
 
 
 def _emit_runtime(buf: _Buf) -> None:
@@ -803,6 +1548,9 @@ def _emit_runtime(buf: _Buf) -> None:
     buf.raw(0xC3)
     buf.here("dt_oob")                                # 运行期越域哨兵：exit1（已登记行为，不瞎编）
     buf.jmp("exit1")
+
+    # P-c2 S3c-5d：最短往返 dtoa_shortest（运行期 float 输出；接 OUTPUT "float" 支）
+    _emit_dtoa_shortest(buf)
 
 
 def _load_frac(buf: _Buf, xmm: int, typ: str, disp: int) -> None:
@@ -1251,9 +1999,10 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
                     #   → dtoa 叶例定点展开（域内天然=str(v)）
                     buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("dtoa")     # mov rax,[rbx-8]
                 else:
-                    raise NativeNotSupported(
-                        "OUTPUT 越域运行期 float 需全量 _dtoa（最短往返，S3c+；未就绪按 Q1 如实 SKIP，绝不伪通过）："
-                        "非精确十进制值（0.1 类）/×÷产 float/科学计数法范围")
+                    # P-c2 S3c-5d：任意运行期 float → dtoa_shortest（最短往返）。
+                    #   域内逐字节==repr(v)；域外（次正规/kap>63/位宽超 128/表跨/15 位扫尽）
+                    #   运行期 exit_group(1) 如实失败（与已登记越域输出代价口径一致，绝不伪通过）。
+                    buf.raw(0x48, 0x8B, 0x43, 0xF8); buf.call("dtoa_shortest")   # mov rax,[rbx-8]
             elif isinstance(t, tuple) and t[0] == "list" and len(t) >= 3 and t[2] is not None:
                 # P-c1 N3：编译期折叠 repr（str/异构/字面量 int-bool 列表均走此，Python str() 逐字节精确）
                 _emit_fold_print(buf, t[2])
@@ -1398,7 +2147,7 @@ def _emit_code(buf: _Buf, code: list, C: list, gmap: dict, gtype: dict, tag: str
 
 
 def _build_data() -> bytearray:
-    seg = bytearray(VSP_OFF)
+    seg = bytearray(STR_DATA_END)
     seg[NL_OFF] = 0x0A
     seg[TRUE_OFF:TRUE_OFF + 4] = b"True"
     seg[FALSE_OFF:FALSE_OFF + 5] = b"False"
@@ -1412,6 +2161,22 @@ def _build_data() -> bytearray:
         _v = 10 ** (DTOA_MAX_DENOM_EXP_DEEP - 1 - _k)
         seg[POW10_OFF + 8 * _k:POW10_OFF + 8 * _k + 8] = struct.pack("<Q", _v)
     seg[POW10_OFF + 8 * DTOA_MAX_DENOM_EXP_DEEP:POW10_OFF + 8 * DTOA_MAX_DENOM_EXP_DEEP + 8] = struct.pack("<Q", 0)  # 哨兵
+    # P-c2 S3c-5d：最短往返 dtoa_shortest 数据节（正确舍入 double(10^m) 表 + 精确整数 10^n 表 + 特殊值串）。
+    #   double 表逐档与参考器 pc_s3c5bc_dataflow.pow10_table 严格同值：10^m 仅 1 位有效数字 ⇒ float(10**m)
+    #   与 1/10**(-m)（CPython int 真除正确舍入）均 = double(10^m)，与参考 Decimal 路径无精度差异 ⇒ 逐位一致。
+    for _m in range(P10D_LO, P10D_LO + P10D_N):        # m=-324..308（覆盖全部有限值 decpt 定位与 scale）
+        _d = float(10 ** _m) if _m >= 0 else 1 / (10 ** (-_m))
+        _o = P10D_OFF + 8 * (_m - P10D_LO)
+        seg[_o:_o + 8] = struct.pack("<d", _d)
+    _o = P10D_OFF + 8 * P10D_N                          # double 表末 0 哨兵（定位越上界兜底，与参考 notable 同效）
+    seg[_o:_o + 8] = struct.pack("<Q", 0)
+    for _n in range(P10I_N):                            # 10^0..10^18 精确整数（判据 lhs/rhs 的 10 的幂乘子）
+        _o = P10I_OFF + 8 * _n
+        seg[_o:_o + 8] = struct.pack("<Q", 10 ** _n)
+    seg[STR_INF_OFF:STR_INF_OFF + 3] = b"inf"          # 特殊值直出串（OUTPUT 统一追加 '\n'）
+    seg[STR_NINF_OFF:STR_NINF_OFF + 4] = b"-inf"
+    seg[STR_NAN_OFF:STR_NAN_OFF + 3] = b"nan"
+    seg[STR_ZERO_OFF:STR_ZERO_OFF + 3] = b"0.0"
     return seg
 
 

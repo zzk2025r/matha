@@ -1,5 +1,47 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c2 S3c-4 + S3c-5d：运行期特殊位型直出 + **最短往返 `dtoa_shortest` 机器码落地**（全 double 域输出主力）（阶段3-3 ④ native 跨平台）
+
+**日期**：2026-11-02
+
+### 背景
+
+承用户「开始动机器码，落实 `native_elf.py` 的落地」+「WSL 已彻底激活…继续推进后续任务」。前置链已把最短往返
+逐环坐实（S3c-1 参考器 50156 例差 0；S3c-5b/5c 数据流模型；S3c-5d-1 三位一体管线贯通 + 128 位判据放行谓词定死）。
+本刀把这些移植成 `src/mbc/native_elf.py` 的纯 Python 位级发射机器码 `_emit_dtoa_shortest`，并接线 OUTPUT 的 `float`
+支（S3c-4 位型三分支）。铁律不变：不碰 `native.py` 主体、放行子集之外一律如实拒（编译期 `NativeNotSupported` 或运行期
+`exit_group(1)`）、绝不伪通过。
+
+### 变更（`src/mbc/native_elf.py` 发射器 + Gate + 文档）
+
+1. **数据节**：POW10 double 表 633 项（`m∈[-324,308]`，索引 `m+324`，与参考器零差异）+ 精确整数 `10^0..10^18` 表
+   + `inf`/`-inf`/`nan`/`0.0` 静态串 + 输出缓冲 SBUF（digits/candbuf/输出带）+ 判据暂存区 SCR。
+2. **`_emit_dtoa_shortest`**：Phase A 位型分类（符号经 r8 存出不毁 rax / inf-nan / ±0 / 次正规 κ>63 拒）→ 精确 `A/B/κ/he/sh`
+   （`_exact` 镜像，exp2≥0 与 exp2<0 两支）→ Phase B POW10 double 表 `ucomisd` 上升 + 二分定档 `nd` → Phase C/D `k=1..15`
+   逐位 `mulsd` 生 `E` + `cvtsd2si`（就近半偶 `F2 0F 2D`）+ 128 位整数严格判据 `|P−Q| < rhs10<<sh`（恰等 tie→veven）→
+   Phase E 排版（定点/科学阈值 `dec≤−4` 或 `dec>16`、负号前置、去尾零 bump）。放行子集逐字节==`repr(v)`，其余 `jmp exit1`。
+3. **OUTPUT wiring（S3c-4）**：`float`/`floatq` 支弹 `mov rax,[rbx-8]` → `call dtoa_shortest`；静态特殊值/零由位型三分支直出。
+4. **Gate** `run_native_elf.py`：r6（`0.1`）/r15（`7/2`）/r16（`0.5`）/r19（`0.00048828125`）四例从 `REJECT_CASES` 编译期拒
+   迁为新正例 **`c19_float_shortest_repr`**（含 `1e+16`/`1.5e+16` 科学计数与 `-0.15` 负号回归）。
+
+### 本轮踩坑（`objdump -b binary -m i386:x86-64 -D` 反汇编 + 逐指令复核定位）
+
+- **1e+16 运行期 `exit1`**：`ds_normal` 的 exp2≥0 支里 `mov_imm32(buf,0,1)`（存 B）先覆写了 rax，紧接 `he=e-1076` 却仍从
+  rax 取 e ⇒ `he=-1075`、`sh=-1075` ⇒ `ds_dshl` 触发 `s≥128` 误拒。修：`he` 改由未被覆写的 `rdi=exp2` 派生（`he=exp2-1`）。
+- **`1.5e+16` 多出 `\x00`**：`ds_sc2` 科学尾数循环以 `cand_len` 为上界，首字节已单独输出 ⇒ 尾循环多读一位落到未初始化槽。
+  修：尾循环上界改 `cand_len-1`。
+- **负值缺 `-`**：`dtoa_shortest` 全程按 `abs(v)` 排版，正常有限值支从未输出符号。修：排版游标 `rdi` 初始化后、按 `[_SSIGN]`
+  前置 `OUTC('-')`（纳入 `write_span` 输出段）。
+
+### 验证
+
+- **模型驱动 oracle** `.trae/pc_dso_oracle.py`（期望以 `.trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict)` 为放行权威：ok→逐字节==
+  `repr(v)`，rej→运行期 `rc=1`，特殊值→静态直出）：全域重扫 **652 例 OK=60 / HONEST_REJ=592 / 失败 0**。
+- Gate（WSL 实跑）：**32 正 + 15 拒 + 5 越界 + 2 档空洞，失败 0**。
+- 三门禁：`tests/test_doc_facts.py` + `tests/test_kernel_purity.py` **32 passed**；`scripts/dep_audit.py` **违规 0**。
+- `docs/ARCHITECTURE.md` `core_py_lines` 33,084→**33,849**；`docs/spec/NATIVE_ELF_PC.md` S3c-4/S3c-5d 转【已交付】；
+  `native_elf.py` 模块 docstring 与 `dtoa_precision_declaration()` 的 `shortest_roundtrip` 由「未实现」改「已实现（放行子集全等、越子集如实拒）」。
+
 ## native 跨平台 P-c2 S3c-2：floatq 定点展开**双档并存**真正入机器码（+深档 d≤10、新增整数性回检封档空洞）（阶段3-3 ④ native 跨平台）
 
 **日期**：2026-11-02
