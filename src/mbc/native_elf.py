@@ -65,6 +65,9 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
   S3c-6b-2-A 最短往返 u≥0 深表跨解禁（多字地基第一刀·P10I 表升双字）：P10I 整数表步长 8→16（每项 lo,hi 双字，
      n=0..38），u≥0 支 pow10_out 守卫 |u|>19 改为 >38，10^u 取双字乘子、EB≤64 单字×10^u 双字→两条 mul 拼 P 双字
      （积逾 128 位 Phi≠0 ⇒ 如实拒），10^20 类大值入域；D/T 下游与数字生成一字未动，u<0 深小数（EB>128 需三字）仍如实拒
+  S3c-6b-2-B1 最短往返 u<0 深表跨低字刀解禁（16 例仅双字 Q/T、无三字）：u<0 支 pow10_out 守卫 |u|>19 改为 >38（10^t 取双字表），
+     Q=A·10^t 双字乘子（m1=Alo·lo10/m2=Alo·hi10 两 mul 拼 Q 双字、adc 链高字，Qtop≠0⇒Q>128 如实拒）、新槽 S_RHSHI 存 10^t 高字使阈值 T=rhs10 取双字；
+     EB 仍由 shift_E_by_kappa 守 ≤128（故 EB>128 的 4 例逾 128 在此诚实拒→留 6b-2-B2 三字），5.1e-15 类深小数入域；D 比较/排版/数字生成一字未动
 （以上为运行期 float 输出面；`/` 真除越域产 ±inf 与 VM ZeroDivisionError 已登记分歧；越域运行期 float 的 `//`/`%` 仍静态拒——见 S4b）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及越域运行期 float 的 `//`/`%` 算术）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）；运行期 float 输出改由 dtoa_shortest 全接管——放行子集逐字节精确、越子集运行期 exit_group(1) 如实失败（不再编译期拒）。
@@ -331,6 +334,7 @@ S_DLO, S_DHI = 96, 104                      # D = |P−Q| lo/hi
 S_TLO, S_THI = 112, 120                     # T（阈值）lo/hi
 S_SIGN = 128                                # 输出符号（0/1）
 S_M = 136                                   # M（53 位含隐藏位尾数，判据前 A 的未约前体）
+S_RHSHI = 144                               # rhs10=10^t 高字（S3c-6b-2-B1：u<0 深表跨 t≥20 时 rhs10 逾 64 位，双字阈值 T=rhs10 取此；u≥0/次正规 rhs10≤64 恒 0）
 SCR_SIZE = 152
 _SC = DATA_VADDR + SCR_OFF                  # dtoa_shortest 判据暂存区绝对基址
 _SALO, _SAHI = _SC + S_ALO, _SC + S_AHI     # A lo/hi（128 位 reduced 分子）
@@ -341,6 +345,7 @@ _SQLO, _SQHI = _SC + S_QLO, _SC + S_QHI
 _SDLO, _SDHI = _SC + S_DLO, _SC + S_DHI
 _STLO, _STHI = _SC + S_TLO, _SC + S_THI
 _SSIGN, _SM = _SC + S_SIGN, _SC + S_M
+_SRHSHI = _SC + S_RHSHI                     # rhs10 高字槽（低字经 rdi 传递，跨 ds_crit_cmp 不被毁）
 
 _CMP_SETCC = {"==": 0x94, "!=" : 0x95, "<": 0x9C, ">": 0x9F, "<=": 0x9E, ">=": 0x9D}
 _ARITH = {"+", "-", "*", "//", "%"}
@@ -384,9 +389,9 @@ def dtoa_precision_declaration() -> dict:
                       "N==v·scale，不等即 dt_oob——兼封住“封闭后档降不回”的空洞档）"),
         "out_of_domain": ("静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编；"
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
-        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 解禁）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
-                               "对放行子集（sig≤15 且判据/表跨（u≥0≤38双字、u<0≤19）/E<<κ≤128 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数/10^20 类大值）；"
-                               "越子集（16-17 位、u<0 深表跨 |u|≥20 需三字、E<<κ 逾 128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 双字乘子解禁 + S3c-6b-2-B1 u<0 深表跨 |u|≤38（EB≤128）双字 Q/T 解禁）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
+                               "对放行子集（sig≤15 且判据/表跨（u≥0≤38双字、u<0≤38且EB≤128）/E<<κ≤128 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数/10^20 类大值/5.1e-15 类深小数）；"
+                               "越子集（16-17 位、u<0 深表跨 EB>128 需三字（6b-2-B2）、E<<κ 逾 128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
                                "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict) 坐实（全域 WSL 实跑差 0）"),
     }
 
@@ -1064,26 +1069,31 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     SR(_SPLO, 0); SR(_SPHI, 2)
     L(0, _SALO); SR(_SQLO, 0)               # Q=A
     L(0, _SAHI); SR(_SQHI, 0)
-    mov_imm32(buf, 7, 1)                    # rdi=rhs10=1
+    mov_imm32(buf, 7, 1)                    # rdi=rhs10=1（低字）
+    _zero_reg(buf, 0); SR(_SRHSHI, 0)       # S3c-6b-2-B1：rhs10 高字=0（u≥0 整数幂 rhs10=1）
     buf.jmp("ds_crit_cmp")
     # ---- u<0：t=-u, P=E*B, Q=A*10^t（guard ≤128）, rhs10=10^t ----
     buf.here("ds_crit_neg")
     _neg_reg(buf,14)                        # t=-u
-    _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_rej")      # pow10_out（S3c-6b-1：t≤19 单字表）
-    shift_E_by_kappa("d")                   # rax:rdx=P=E<<κ（>128 位则 jmp ds_rej）
-    SR(_SPLO, 0); SR(_SPHI, 2)
+    _cmp_reg_imm32(buf, 14, 38); buf.jcc(JG, "ds_rej")      # pow10_out（S3c-6b-2-B1：t≤38，10^t 取双字表）
+    shift_E_by_kappa("d")                   # rax:rdx=P=E<<κ（>128 位则 jmp ds_rej；EB>128 的 4 例在此诚实拒→留 B2 三字）
+    SR(_SPLO, 0); SR(_SPHI, 2)              # P 仍 ≤128 双字（下游 D/T 不动）
     L(8, _SALO); L(9, _SAHI)                # A lo/hi
-    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 4); _add_reg_imm32(buf, 0, P10I_ADDR)   # addr=t*16+P10I（S3c-6b-2-A 步长 8→16，取 10^t lo；t≤19 高字 0 不用）
-    _mov_reg_mem(buf, 10, 0, 0)             # r10=10^t
-    _mov_reg_reg(buf, 0, 8); _mul_rax_reg(buf, 10)          # r8*10^t
-    _mov_reg_reg(buf, 11, 2)                # r11=hi(r8*10^t)
-    _mov_reg_reg(buf, 1, 0)                 # rcx=lo(r8*10^t)=Qlo
-    _mov_reg_reg(buf, 0, 9); _mul_rax_reg(buf, 10)          # r9*10^t
-    _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")        # r9*10^t≥2^64 → prod_gt128 拒
-    _add_reg_reg(buf, 11, 0); buf.jcc(JC, "ds_rej")         # Qhi 溢出 → 拒
-    _mov_reg_reg(buf, 2, 11)                # rdx=Qhi
-    SR(_SQLO, 1); SR(_SQHI, 2)
-    _mov_reg_reg(buf, 7, 10)                # rdi=rhs10=10^t
+    _test_reg_reg(buf, 9, 9); buf.jcc(JNZ, "ds_rej")        # A>64 不可能（约简分子 A≤53）→ 防御性诚实拒
+    _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 4); _add_reg_imm32(buf, 0, P10I_ADDR)   # addr=t*16+P10I（步长 16，10^t 取双字 lo,hi）
+    _mov_reg_mem(buf, 10, 0, 0)             # r10=lo10（10^t 低字）
+    _mov_reg_mem(buf, 11, 0, 8)             # r11=hi10（10^t 高字，t≥20 非零）
+    _mov_reg_reg(buf, 0, 8); _mul_rax_reg(buf, 10)          # m1=Alo*lo10 → rdx:rax
+    _mov_reg_reg(buf, 1, 0)                 # rcx=Qlo=m1lo
+    _mov_reg_reg(buf, 12, 2)                # r12=m1hi（Qhi 部分）
+    _mov_reg_reg(buf, 0, 8); _mul_rax_reg(buf, 11)          # m2=Alo*hi10 → rdx:rax
+    _add_reg_reg(buf, 12, 0)                # Qhi=m1hi+m2lo（CF）
+    buf.raw(0x48, 0x83, 0xD2, 0x00)         # adc rdx,0 → Qtop=m2hi+carry
+    _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")        # Qtop!=0 ⇒ Q>128 → prod_gt128 如实拒
+    _mov_reg_reg(buf, 2, 12)                # rdx=Qhi
+    SR(_SQLO, 1); SR(_SQHI, 2)              # Qlo=rcx, Qhi=rdx（≤128，下游 D 比较不变）
+    _mov_reg_reg(buf, 7, 10)                # rdi=rhs10 低字=lo10
+    SR(_SRHSHI, 11)                         # rhs10 高字=hi10（sh<0 支 T=rhs10 双字取此）
     buf.here("ds_crit_cmp")
     # ---- D=|P-Q|（128）；T=rhs10<<sh 或 D<<=-sh ----
     L(0, _SPLO); _mov_reg_reg(buf, 8, 0)    # r8=Plo
@@ -1104,6 +1114,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _test_reg_reg(buf, 14, 14)
     buf.jcc(JS, "ds_dshl")
     # ---- sh>=0：T=rhs10<<sh ----
+    L(2, _SRHSHI); _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")   # S3c-6b-2-B1：sh≥0 且 rhs10 双字（t≥20）本刀不支持→诚实拒（语料无此类，防御）
     _cmp_reg_imm32(buf, 14, 68); buf.jcc(JG, "ds_rej")      # thr_gt128
     _mov_reg_reg(buf, 0, 7)                 # rax=rhs10
     _zero_reg(buf, 2)
@@ -1142,7 +1153,8 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _mov_reg_reg(buf, 2, 0); _zero_reg(buf, 0)
     buf.here("ds_ds_done")
     SR(_SDLO, 0); SR(_SDHI, 2)
-    _mov_reg_reg(buf, 0, 7); _zero_reg(buf, 2)              # T=rhs10
+    L(2, _SRHSHI)                           # rdx=rhs10 高字（S3c-6b-2-B1：T=rhs10 双字；L 经 rax 摆渡，rdi=lo 不动；t≤19 恒 0→字节不变）
+    _mov_reg_reg(buf, 0, 7)                 # rax=rhs10 低字=rdi
     SR(_STLO, 0); SR(_STHI, 2)
     # ---- 比较 D vs T（先 hi 后 lo；恰等 tie→veven）----
     buf.here("ds_cmpdt")
