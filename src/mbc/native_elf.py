@@ -51,11 +51,14 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
      从 10^5 档入表）；新增**整数性回检**（cvtsi2sd 比回 N==v·scale）封住 `+ -` 封闭产生的“档空洞”（d∈7..10 且
      |v|≥深档阈 ⇒ N 非整会被截断）：此类值不静默印错，运行期 exit1 如实失败（Gate HOLE_CASES 锁行为）
   S3c-4 运行期特殊位型直出：OUTPUT float 支接位型三分支（abs vs 0x7FF0…：< 有限 / == ±inf 看符位 / > nan），
-     inf/-inf/nan/±0 静态串直出（±0 复用带符 "0.0"）；有限非零正规值走 S3c-5d，次正规（κ>63）如实 exit1
+     inf/-inf/nan/±0 静态串直出（±0 复用带符 "0.0"）；有限非零正规值走 S3c-5d/6a，次正规如实 exit1
   S3c-5d 最短往返 dtoa_shortest（机器码，运行期 float 输出主力）：POW10 double 表 ucomisd 二分定档 nd →
      k=1..15 逐位 mulsd 生 E + cvtsd2si 就近半偶 → 128 位整数严格判据 |P−Q| < rhs10<<sh（恰等 tie→veven）→
-     定点/科学排版（阈值 dec≤−4 或 dec>16）+ 负号前置；放行子集（sig≤15 且判据/表跨/κ≤63 全过）逐字节==repr(v)，
-     越子集运行期 exit1 如实拒（绝不伪通过）。.trae 模型 pipeline(v,crit_strict) 为放行权威，652 例全域 WSL 实跑差 0
+     定点/科学排版（阈值 dec≤−4 或 dec>16）+ 负号前置；放行子集（sig≤15 且判据/表跨/E<<κ≤128 全过）逐字节==repr(v)，
+     越子集运行期 exit1 如实拒（绝不伪通过）。.trae 模型 pipeline(v,crit_strict) 为放行权威，668 例全域 WSL 实跑差 0
+  S3c-6a 最短往返 κ>63 解禁（判据算术升位）：将 dtoa_shortest 判据里的 P=E·B（B=2^κ）从「物化 64 位 B + mul」
+     改为「对 E 做 128 位左移 κ」（shift_E_by_kappa），κ≥64 先验 bits(E)+κ≤128、逾位 jmp ds_rej——E<<κ≤128 的
+     κ>63 小数十进制（0.0001 类）入域，与模型 crit_strict 的 P>M128 守卫逐值等价；表跨（|u|>18）/次正规仍如实拒
 （以上为运行期 float 输出面；`/` 真除越域产 ±inf 与 VM ZeroDivisionError 已登记分歧；越域运行期 float 的 `//`/`%` 仍静态拒——见 S4b）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及越域运行期 float 的 `//`/`%` 算术）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）；运行期 float 输出改由 dtoa_shortest 全接管——放行子集逐字节精确、越子集运行期 exit_group(1) 如实失败（不再编译期拒）。
@@ -310,7 +313,7 @@ SBUF_ADDR = DATA_VADDR + SBUF_OFF     # dtoa_shortest 输出缓冲首地址
 #   GPR 不够同时持有 A/B/P/Q/D/T 的 hi:lo 与循环不变量 ⇒ 溢出到固定寻址槽（_load_abs_rax/_store_rax_abs）。
 SCR_OFF = (STR_DATA_END + 0xFF) & ~0xFF     # 页对齐到 0x12500（> 文件尾，属 .bss）；< VSP 之上、GVARS(0x20000) 之下
 S_ALO, S_AHI = 0, 8                         # A（reduced 分子，可 ≤128 位）lo/hi
-S_B = 16                                    # B = 2^κ（κ≤63 ⇒ 单 64 位）
+S_KAP = 16                                  # κ（_exact 约简分母 2^κ 的指数；S3c-6a 起判据走 E<<κ 128 位移位，不再物化 B）
 S_SH = 24                                   # sh = he + κ（阈值 2 的幂指数，可负）
 S_VEVEN = 32                                # v 尾数最低位==0（half-even tie 归向 v）
 S_ND = 40                                   # nd（decpt，二分定档结果，有符号）
@@ -325,7 +328,7 @@ S_M = 136                                   # M（53 位含隐藏位尾数，判
 SCR_SIZE = 152
 _SC = DATA_VADDR + SCR_OFF                  # dtoa_shortest 判据暂存区绝对基址
 _SALO, _SAHI = _SC + S_ALO, _SC + S_AHI     # A lo/hi（128 位 reduced 分子）
-_SB, _SSH, _SVEVEN = _SC + S_B, _SC + S_SH, _SC + S_VEVEN
+_SKAP, _SSH, _SVEVEN = _SC + S_KAP, _SC + S_SH, _SC + S_VEVEN
 _SND = _SC + S_ND
 _SE, _SPLO, _SPHI = _SC + S_E, _SC + S_PLO, _SC + S_PHI
 _SQLO, _SQHI = _SC + S_QLO, _SC + S_QHI
@@ -375,10 +378,10 @@ def dtoa_precision_declaration() -> dict:
                       "N==v·scale，不等即 dt_oob——兼封住“封闭后档降不回”的空洞档）"),
         "out_of_domain": ("静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编；"
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
-        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
-                               "对放行子集（sig≤15 且判据/表跨/κ≤63 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法）；"
-                               "越子集（16-17 位、κ>63、10^22 表跨等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
-                               "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict) 坐实（652 例全域 WSL 实跑差 0）"),
+        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
+                               "对放行子集（sig≤15 且判据/表跨/E<<κ≤128 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数）；"
+                               "越子集（16-17 位、10^22 表跨、E<<κ 逾 128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+                               "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict) 坐实（668 例全域 WSL 实跑差 0）"),
     }
 
 
@@ -788,8 +791,9 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     """P-c2 S3c-5d：运行期 float 最短往返输出（dtoa_shortest）。逐指令镜像已定稿严门
     `.trae/pc_s3c5d1d_gates.py` 管线：特殊值判别 → POW10 double 表 ucomisd 二分定档 nd →
     k=1..15 mulsd+cvtsd2si 生候选基串 E → crit_strict 128 位整数判据（含真守卫）→ 去尾零/
-    进位 → 定点/科学排版入 SBUF → 单次 write_span 刷出。域外（次正规/kap>63/位宽超 128/
-    表跨/15 位扫尽）一律 jmp exit1（运行期如实失败，绝不伪通过）。
+    进位 → 定点/科学排版入 SBUF → 单次 write_span 刷出。S3c-6a 起判据里 P=E·B 改由 E<<κ 的
+    128 位左移达成（不再物化 B=2^κ），故解禁 κ>63 小数十进制（0.0001 类）；E<<κ 逾 128 位、
+    表跨（|u|>18）、16-17 位扫尽、次正规一律 jmp exit1（运行期如实失败，绝不伪通过）。
 
     寄存器纪律：全程无 syscall 直到末次 flush ⇒ rcx/rdx/r8..r15 自由；rbx/rbp/r12/rsp 不碰；
     xmm0=av 持久，xmm1=表档，xmm2=p。计算态循环不跨 syscall（无 print_int）。"""
@@ -806,6 +810,33 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     def OUTC(ch: int) -> None:               # mov byte[rdi],imm8 ; inc rdi
         _mov_byte_rdi_imm(buf, ch)
         _inc_rdi(buf)
+
+    def shift_E_by_kappa(tag: str) -> None:  # S3c-6a：rax:rdx = E<<κ（κ=_SKAP, E=_SE）；>128 位 ⇒ jmp ds_rej
+        #   镜像 crit_strict 的 P=E·B（B=2^κ）：κ≤63 恒 ≤126 位（单支无溢），κ≥64 需先验 bits(E)+κ≤128。
+        L(1, _SKAP)                          # rcx=κ（L 经 rax 摆渡后 mov rcx,rax）
+        L(0, _SE)                            # rax=E（rcx 不动）
+        _cmp_reg_imm32(buf, 1, 64)
+        buf.jcc(JGE, f"_ebk{tag}_big")
+        _zero_reg(buf, 2)                    # rdx=0（移位源高字）
+        _test_reg_reg(buf, 1, 1)
+        buf.jcc(JZ, f"_ebk{tag}_done")       # κ==0 ⇒ P=E（rax=E、rdx=0）
+        _shld_reg_reg_cl(buf, 2, 0)          # 0<κ<64：rdx=hi=E>>(64-κ)，rax=lo=E<<κ（≤126 位恒不溢）
+        _shl_reg_cl(buf, 0)
+        buf.jmp(f"_ebk{tag}_done")
+        buf.here(f"_ebk{tag}_big")           # κ≥64：lo=0、hi=E<<(κ-64)，须验 bits(E)+κ≤128
+        _cmp_reg_imm32(buf, 1, 128)
+        buf.jcc(JGE, "ds_rej")               # κ≥128 ⇒ E<<κ 必>128 位 ⇒ prod_gt128 如实拒
+        _mov_reg_reg(buf, 9, 0)              # r9=E（bsr 副本；E>0 由上游 jle ds_rej 保证）
+        _bsr_reg_reg(buf, 9, 9)              # r9=⌊log2 E⌋
+        _add_reg_imm32(buf, 9, 1)            # r9=bits(E)
+        _add_reg_reg(buf, 9, 1)              # r9=bits(E)+κ
+        _cmp_reg_imm32(buf, 9, 128)
+        buf.jcc(JG, "ds_rej")                # bits(E)+κ>128 ⇒ P>2^128 ⇒ prod_gt128 如实拒
+        _sub_reg_imm32(buf, 1, 64)           # rcx=κ-64（∈[0,63]）
+        _shl_reg_cl(buf, 0)                  # rax=E<<(κ-64)=hi
+        _mov_reg_reg(buf, 2, 0)              # rdx=hi
+        _zero_reg(buf, 0)                    # lo=0
+        buf.here(f"_ebk{tag}_done")
 
     buf.here("dtoa_shortest")
     # ---------------- Phase A：分类（符号/inf/nan/±0/次正规）----------------
@@ -880,7 +911,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     # exp2>=0（B=1，A=mant<<exp2 可达 128 位）：he=e-1076, kap=0, sh=he
     _cmp_reg_imm32(buf, 7, 75)              # 53+exp2>128 ⇒ A 越 128 位 ⇒ 如实拒
     buf.jcc(JG, "ds_rej")
-    mov_imm32(buf, 0, 1); SR(_SB, 0)        # B=1（clobbers rax，故 he 改由 rdi=exp2 派生）
+    mov_imm32(buf, 0, 0); SR(_SKAP, 0)      # κ=0（clobbers rax，故 he 改由 rdi=exp2 派生）
     _mov_reg_reg(buf, 6, 7)                 # rsi=exp2（rdi 未被 874 覆写）
     _sub_reg_imm32(buf, 6, 1)               # he=exp2-1=e-1076
     SR(_SSH, 6)                             # sh=he（kap=0）
@@ -920,10 +951,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _shr_reg_cl(buf, 0)                     # A=mant>>common（≤53 位）
     SR(_SALO, 0); _zero_reg(buf, 2); SR(_SAHI, 2)
     _mov_reg_reg(buf, 14, 6); _sub_reg_reg(buf, 14, 11)  # r14=kap
-    _cmp_reg_imm32(buf, 14, 63)             # kap>63 ⇒ 除数装不下 ⇒ 如实拒
-    buf.jcc(JG, "ds_rej")
-    mov_imm32(buf, 0, 1); _mov_reg_reg(buf, 1, 14); _shl_reg_cl(buf, 0)   # B=1<<kap
-    SR(_SB, 0)
+    SR(_SKAP, 14)                           # 存 κ（S3c-6a 起可>63）；判据走 E<<κ 移位，不再物化 B、不再 kap>63 拒
     L(0, _SM)                               # 重载 e
     _mov_reg_reg(buf, 13, 0); _sub_reg_imm32(buf, 13, 1076)   # he=e-1076
     _cmp_reg_imm32(buf, 0, 1)
@@ -1004,10 +1032,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     buf.jcc(JS, "ds_crit_neg")
     # ---- u>=0：P=EB·10^u, Q=A, rhs10=1 ----
     _cmp_reg_imm32(buf, 14, 18); buf.jcc(JG, "ds_rej")      # pow10_out
-    L(8, _SE)                               # r8=E
-    L(9, _SB)                               # r9=B
-    _mov_reg_reg(buf, 0, 8)
-    _mul_rax_reg(buf, 9)                    # EB=E*B (rdx:rax)
+    shift_E_by_kappa("u")                   # rax:rdx=EB=E<<κ（>128 位则 jmp ds_rej）
     _test_reg_reg(buf, 2, 2)
     buf.jcc(JNZ, "ds_eb_big")
     _test_reg_reg(buf, 14, 14); buf.jcc(JZ, "ds_p_done")    # u==0 → P=EB
@@ -1029,7 +1054,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     buf.here("ds_crit_neg")
     _neg_reg(buf,14)                        # t=-u
     _cmp_reg_imm32(buf, 14, 18); buf.jcc(JG, "ds_rej")
-    L(8, _SB); L(0, _SE); _mul_rax_reg(buf, 8)              # P=E*B
+    shift_E_by_kappa("d")                   # rax:rdx=P=E<<κ（>128 位则 jmp ds_rej）
     SR(_SPLO, 0); SR(_SPHI, 2)
     L(8, _SALO); L(9, _SAHI)                # A lo/hi
     _mov_reg_reg(buf, 0, 14); _shl_reg_imm(buf, 0, 3); _add_reg_imm32(buf, 0, P10I_ADDR)
