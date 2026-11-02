@@ -309,6 +309,25 @@ while s < 3.0 {
 }
 #1：[s % 1.0]
 """,
+    # ---- P-c2 S3c-2：floatq 双档并存——深档 d≤7..10 新入域值逐字节=str(v)（浅档原能力零回归一并锁定）----
+    "c18_float_deep_tier": """\
+let x = 0.0009765625
+let y = 0.0078125
+#1：[x]
+#1：[y]
+#1：[-y]
+let mix = 0.5 + 0.0009765625
+#1：[mix]
+let big = 900719.0
+#1：[big]
+let sh = 1048576.0
+#1：[sh]
+let s = 0.0
+while s < 0.01 {
+  s = s + 0.001953125
+}
+#1：[s]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NativeNotSupported 显式拒绝 ----
@@ -325,6 +344,8 @@ REJECT_CASES = {
     # ---- P-c2 S4b 越界集外：越域 float 的 //与%（需 CPython 精确有理商语义，S4c+）----
     "r17_float_floordiv": "let x = 0.1\nlet y = 2.0\n#1：[x // y]\n",
     "r18_float_mod": "let x = 0.1\nlet y = 2.0\n#1：[x % y]\n",
+    # ---- P-c2 S3c-2 越界集外：既约分母 2^11 超深档阈（浅档/深档皆不入）→静态拒----
+    "r19_float_over_deep": "let x = 0.00048828125\n#1：[x]\n",
     # ---- P-b 越界集外：嵌套/混合/整表输出/切片/字典/int 下标 ----
     "r7_nested_list": "#1：[len([[1, 2], [3]])]\n",
     "r8_mixed_list": "#1：[len([1, 2 < 1])]\n",
@@ -345,6 +366,15 @@ OOB_CASES = {
     # ---- P-c1 N1：串取子串越界（与列表同口径 exit_group(1)） ----
     "b4_str_index_oob": "let s = \"abc\"\n#1：[s[5]]\n",
     "b5_str_index_oob_neg": "let s = \"abc\"\n#1：[s[-4]]\n",
+}
+
+# ---- P-c2 S3c-2 行为断言：`+ -` 封闭后的“档空洞”（d∈7..10 且 |v|≥深档阈）----
+#   VM 侧能正常输出（该值精确可表），但落在双档并集的缝隙：选浅档⇒N=v×1e6 非整⇒会被
+#   cvttsd2si 截断而静默印错。故发射器照常发射、运行期由整数性回检转 exit_group(1)：
+#   不伪通过、也不静默印错（双档并存的必然代价，已登记 docs/spec/NATIVE_ELF_PC.md）。
+HOLE_CASES = {
+    "h1_floatq_tier_hole": "let a = 0.0078125\nlet b = 1048576.0\n#1：[a + b]\n",
+    "h2_floatq_tier_hole_d10": "let a = 0.0009765625\nlet b = 2097152.0\n#1：[a + b]\n",
 }
 
 
@@ -491,9 +521,37 @@ def main() -> int:
         if not ok:
             fails += 1
 
+    # 档空洞行为断言：VM 正常输出，但 native 运行期必 rc=1 且零输出（拒静默印错）
+    for name, src in HOLE_CASES.items():
+        try:
+            ref = vm_plain(src)
+        except Exception as e:  # noqa: BLE001
+            print(f"[FAIL] {name}: 期望 VM 正常输出，却报 {type(e).__name__}: {e}")
+            fails += 1
+            continue
+        try:
+            elf = native_elf.compile_to_elf(src)
+        except NativeNotSupported as e:
+            print(f"[FAIL] {name}: 后端发射拒绝（域内封闭值应运行期处理）：{e}")
+            fails += 1
+            continue
+        except Exception as e:  # noqa: BLE001
+            print(f"[FAIL] {name}: 发射异常 {type(e).__name__}: {e}")
+            fails += 1
+            continue
+        if not ex.available:
+            print(f"[SKIP] {name}: 无执行器，仅校验发射成功")
+            skipped_runtime = True
+            continue
+        got, rc = ex.run_rc(elf)
+        ok = (rc == 1 and got == "")
+        print(f"[{'ok  ' if ok else 'FAIL'}] {name}: vm={ref!r} rc={rc} run={got!r}（期望 rc=1 空输出，不静默印错）")
+        if not ok:
+            fails += 1
+
     tail = "（运行期对拍因缺执行器跳过）" if skipped_runtime else ""
     print(f"\n=== 阶段3-3 ④ native ELF P-a/P-b/P-c1/P-c2：{len(CASES)} 正例 + {len(REJECT_CASES)} 拒绝例 "
-          f"+ {len(OOB_CASES)} 越界行为例，失败 {fails}{tail} ===")
+          f"+ {len(OOB_CASES)} 越界行为例 + {len(HOLE_CASES)} 档空洞如实失败例，失败 {fails}{tail} ===")
     if fails:
         return 1
     return 2 if skipped_runtime else 0
