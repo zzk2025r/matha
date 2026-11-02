@@ -53,7 +53,7 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
   S3c-4 运行期特殊位型直出：OUTPUT float 支接位型三分支（abs vs 0x7FF0…：< 有限 / == ±inf 看符位 / > nan），
      inf/-inf/nan/±0 静态串直出（±0 复用带符 "0.0"）；有限非零正规值走 S3c-5d/6a，次正规如实 exit1
   S3c-5d 最短往返 dtoa_shortest（机器码，运行期 float 输出主力）：POW10 double 表 ucomisd 二分定档 nd →
-     k=1..15 逐位 mulsd 生 E + cvtsd2si 就近半偶（k=16 起改 ds_int16 整数精确支，见 S3c-6c-1）→ 128 位整数严格判据 |P−Q| < rhs10<<sh（恰等 tie→veven）→
+     k=1..15 逐位 mulsd 生 E + cvtsd2si 就近半偶（k≥16 起改 ds_intE 整数精确支，见 S3c-6c-1/2）→ 128 位整数严格判据 |P−Q| < rhs10<<sh（恰等 tie→veven）→
      定点/科学排版（阈值 dec≤−4 或 dec>16）+ 负号前置；放行子集（sig≤15 且判据/表跨/E<<κ≤128 全过）逐字节==repr(v)，
      越子集运行期 exit1 如实拒（绝不伪通过）。.trae 模型 pipeline(v,crit_strict) 为放行权威，668 例全域 WSL 实跑差 0
   S3c-6a 最短往返 κ>63 解禁（判据算术升位）：将 dtoa_shortest 判据里的 P=E·B（B=2^κ）从「物化 64 位 B + mul」
@@ -72,10 +72,13 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
      bits(E)+κ>192 ⇒ 如实拒），Q=A·10^t 升三字（Qtop 进新槽 S_QHI2，进位溢出 ⇒ 如实拒）；ds_crit_cmp 的 D=|P−Q| 改三字 sub/sbb 链（每字对先装 Q→r11
      再装 P→rax，链内零摆渡保 CF；极性按最高字 D2），减后 D2≠0 ⇒ D>128 如实拒、否则回落双字 _SDLO/_SDHI 下游一字不动；u≥0/κ≤63 支三字槽清 0 行为不变；
      三字装载不得连续用 L（L 经 rax 摆渡会毁前一字）——此乃 6c 复用的三字地基
-  S3c-6c-1 最短往返 k=16 整数 E 支解禁（轴 C 第一刀·mulsd 双舍入 16 位不可靠改精确整数生成）：k 环上限 15→16，k==16 跳 ds_int16——
+  S3c-6c-1 最短往返 k=16 整数 E 支解禁（轴 C 第一刀·mulsd 双舍入 16 位不可靠改精确整数生成）：k 环上限 15→16，k==16 跳 ds_intE——
      N=A·10^s（s=16−nd∈[0,19] 档守卫、10^s<2^64 单字 P10I，mul 得 ≤117 位 rdx:rax）、q=N>>κ（新 helper _shrd_reg_reg_cl 双字右移/κ≥64 单字支）、
      rem=N−q<<κ（shld/shl+sub/sbb）、half=1<<(κ−1) 双字比较：rem>half⇒q+1（add/adc）、恰等⇒tie q+=q&1（half-even）；E>64 位/κ≥128/s越档⇒ds_rej 照旧如实拒；
-     k≤15 环前缀逐字节不动（零回归由前缀同构保证），解锁 16 位有效数字 6,740 例（放行面 24,317→31,057，1/3 类）；17 位（k16_miss 2,655）/s∈[20,38]（318）/s<0（3,734）仍如实拒——分归 6c-2/3/4
+     k≤15 环前缀逐字节不动（零回归由前缀同构保证），解锁 16 位有效数字 6,740 例（放行面 24,317→31,057，1/3 类）；s∈[20,38]/s<0 仍如实拒——分归 6c-3/4
+  S3c-6c-2 最短往返 k=17 整数 E 支解禁（轴 C 第二刀·复用 6c-1 整数原语）：k 环上限 16→17，k≥16 均跳 ds_intE（原 ds_int16 重命名——本支与 k 无关，只用 s=k−nd）——
+     k=16 恰 miss（真最短 17 位）者继走同整数 E（s=17−nd∈[0,19] 单字 10^s）；档守卫 s>19（nd≤−3，17 位需 s=20 越单字）⇒band_big 归 6c-3、s<0⇒band_neg 归 6c-4；
+     Phase E 排版 bump=(orig>k) 用 r13=k 天然泛化、dec>16/≤−4 科学阈是 CPython 固定排版规则与 k 无关；k≤16 逐字节不动，解锁 17 位 2,600 例（放行面 31,057→33,657，no_hit_17=0 坐实 17 为 double 上界）
 （以上为运行期 float 输出面；`/` 真除越域产 ±inf 与 VM ZeroDivisionError 已登记分歧；越域运行期 float 的 `//`/`%` 仍静态拒——见 S4b）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及越域运行期 float 的 `//`/`%` 算术）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）；运行期 float 输出改由 dtoa_shortest 全接管——放行子集逐字节精确、越子集运行期 exit_group(1) 如实失败（不再编译期拒）。
@@ -334,7 +337,7 @@ S_KAP = 16                                  # κ（_exact 约简分母 2^κ 的�
 S_SH = 24                                   # sh = he + κ（阈值 2 的幂指数，可负）
 S_VEVEN = 32                                # v 尾数最低位==0（half-even tie 归向 v）
 S_ND = 40                                   # nd（decpt，二分定档结果，有符号）
-S_K = 48                                    # k（当前位数 1..16；k=16 走整数支 ds_int16，S3c-6c-1）
+S_K = 48                                    # k（当前位数 1..17；k≥16 走整数支 ds_intE，S3c-6c-1/2）
 S_E = 56                                    # E（候选整数基串，≤64 位）
 S_PLO, S_PHI = 64, 72                       # P（判据左积）lo/hi
 S_QLO, S_QHI = 80, 88                       # Q lo/hi
@@ -401,10 +404,10 @@ def dtoa_precision_declaration() -> dict:
                       "N==v·scale，不等即 dt_oob——兼封住“封闭后档降不回”的空洞档）"),
         "out_of_domain": ("静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编；"
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
-        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 双字乘子解禁 + S3c-6b-2-B1 u<0 深表跨 |u|≤38（EB≤128）双字 Q/T 解禁 + S3c-6b-2-B2 u<0 深表跨 EB/Q/D 升三字（≤192、D 高字验零回落双字） + S3c-6c-1 k=16 整数 E 支 ds_int16（N=A·10^s 精确带舍入右移，s∈[0,19]））：最短往返管线（定档→逐位生 E→128/192 位严格判据→排版）"
-                               "对放行子集（sig≤15 全过判据/表跨（u≥0≤38双字、u<0≤38）/E<<κ≤192（u<0 三字）与 D≤128；或 sig=16 且整数支档内（s∈[0,19]、κ<128、E≤64 位）同判据全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数/10^20 类大值/5.1e-15 类深小数/7.69e-22 类三字深小数/1/3 类 16 位循环小数）；"
-                               "越子集（17 位、k=16 整数支档拒（s∉[0,19]/κ≥128）、E<<κ 逾 192 位、D>128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
-                               "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict)（含 k=16 整数支 _int_E16，与 ds_int16 逐守卫同口径）坐实（全域 WSL 实跑差 0）"),
+        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 双字乘子解禁 + S3c-6b-2-B1 u<0 深表跨 |u|≤38（EB≤128）双字 Q/T 解禁 + S3c-6b-2-B2 u<0 深表跨 EB/Q/D 升三字（≤192、D 高字验零回落双字） + S3c-6c-1/2 k=16/17 整数 E 支 ds_intE（N=A·10^s 精确带舍入右移，s∈[0,19]））：最短往返管线（定档→逐位生 E→128/192 位严格判据→排版）"
+                               "对放行子集（sig≤15 全过判据/表跨（u≥0≤38双字、u<0≤38）/E<<κ≤192（u<0 三字）与 D≤128；或 sig∈{16,17} 且整数支档内（s=k−nd∈[0,19]、κ<128、E≤64 位）同判据全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数/10^20 类大值/5.1e-15 类深小数/7.69e-22 类三字深小数/1/3 类 16 位循环小数/双舍入 17 位值）；"
+                               "越子集（整数支档拒 s∉[0,19]（s∈[20,38]→nd≤−3 的 17 位→6c-3、s<0→6c-4）/κ≥128、E<<κ 逾 192 位、D>128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+                               "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict)（含 k≥16 整数支 _int_E16，与 ds_intE 逐守卫同口径）坐实（全域 WSL 实跑差 0）"),
     }
 
 
@@ -818,15 +821,15 @@ def _load_elem_rax(buf: _Buf, base: int, index: int) -> None:   # mov rax,[base+
 def _emit_dtoa_shortest(buf: _Buf) -> None:
     """P-c2 S3c-5d：运行期 float 最短往返输出（dtoa_shortest）。逐指令镜像已定稿严门
     `.trae/pc_s3c5d1d_gates.py` 管线：特殊值判别 → POW10 double 表 ucomisd 二分定档 nd →
-    k=1..15 mulsd+cvtsd2si 生候选基串 E（k=16 改整数支 ds_int16：N=A·10^s 精确带舍入右移，S3c-6c-1）
+    k=1..15 mulsd+cvtsd2si 生候选基串 E（k≥16 改整数支 ds_intE：N=A·10^s 精确带舍入右移，S3c-6c-1/2）
     → crit_strict 128 位整数判据（含真守卫）→ 去尾零/
     进位 → 定点/科学排版入 SBUF → 单次 write_span 刷出。S3c-6a 起判据里 P=E·B 改由 E<<κ 的
     128 位左移达成（不再物化 B=2^κ），故解禁 κ>63 小数十进制（0.0001 类）；S3c-6b-1 起 P10I 整数表
     扩至 10^19（单字），故 |u|=19 表跨小数（2^-19 类）入域；S3c-6b-2-B2 起 u<0 支 EB/Q 经
     shift_E_by_kappa3 升三字（≤192）、D=|P−Q| 三字相减后高字验零回落双字，故 EB>128 的三字深小数
-    （7.69e-22 类）入域；S3c-6c-1 起 k=16 走整数支 ds_int16（精确 E=half_even_round(A·10^s/2^κ)，
-    s∈[0,19]），16 位有效数字 6,740 例入域；E<<κ 逾 192 位、D>128 位、表跨（|u|>38）、
-    17 位扫尽（k16_miss）/k=16 整数支档拒（s∉[0,19]）、次正规一律 jmp exit1（运行期如实失败，绝不伪通过）。
+    （7.69e-22 类）入域；S3c-6c-1/2 起 k≥16 走整数支 ds_intE（精确 E=half_even_round(A·10^s/2^κ)，
+    s∈[0,19]，与 k 无关只用 r14=s=k−nd），16 位 6,740 例 + 17 位 2,600 例入域（环上限 15→16→17）；E<<κ 逾 192 位、D>128 位、表跨（|u|>38）、
+    整数支档拒 s∉[0,19]（s∈[20,38] 的 17 位→6c-3、s<0→6c-4）、次正规一律 jmp exit1（运行期如实失败，绝不伪通过）。
 
     寄存器纪律：全程无 syscall 直到末次 flush ⇒ rcx/rdx/r8..r15 自由；rbx/rbp/r12/rsp 不碰；
     xmm0=av 持久，xmm1=表档，xmm2=p。计算态循环不跨 syscall（无 print_int）。"""
@@ -1088,7 +1091,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _mov_reg_reg(buf, 14, 13)               # scale_exp=k-nd
     L(0, _SND)
     _sub_reg_reg(buf, 14, 0)
-    _cmp_reg_imm32(buf, 13, 16); buf.jcc(JE, "ds_int16")    # S3c-6c-1：k==16 改走整数 E 支（mulsd 双舍入在 16 位不可靠，见 ds_int16）
+    _cmp_reg_imm32(buf, 13, 16); buf.jcc(JGE, "ds_intE")    # S3c-6c-1/2：k≥16（16、17）改走整数 E 支 ds_intE（mulsd 双舍入在 ≥16 位不可靠；s=k−nd 由 ds_intE 内档守卫 [0,19] 裁决）
     _cmp_reg_imm32(buf, 14, 308); buf.jcc(JG, "ds_rej")     # scale_out
     _cmp_reg_imm32(buf, 14, -324); buf.jcc(JL, "ds_rej")
     _mov_reg_reg(buf, 0, 14); _add_reg_imm32(buf, 0, 324); _shl_reg_imm(buf, 0, 3)
@@ -1253,15 +1256,15 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     buf.jmp("ds_miss")
     buf.here("ds_miss")
     _add_reg_imm32(buf, 13, 1)              # k++
-    _cmp_reg_imm32(buf, 13, 16); buf.jcc(JLE, "ds_kloop")
-    buf.jmp("ds_rej")                       # 16 位扫尽 ⇒ 如实拒（S3c-6c-1：上限 15→16，k=16 走整数支）
+    _cmp_reg_imm32(buf, 13, 17); buf.jcc(JLE, "ds_kloop")   # S3c-6c-2：环上限 16→17（17 位是 double 最短往返上界；k=18>17 扫尽⇒如实拒）
+    buf.jmp("ds_rej")                       # 17 位扫尽 ⇒ 如实拒（S3c-6c-2：上限 15→16→17，k≥16 走整数支 ds_intE）
 
-    # ---------------- S3c-6c-1：k=16 整数 E 支（精确 N=A·10^s 右移带舍入，mulsd 双舍入 16 位不可靠） ----------------
-    #   k≤15 环前缀逐字节不动（仅 k==16 跳入本支）；s=16−nd∉[0,19] / κ≥128 / E>64 位 ⇒ jmp ds_rej（照旧如实拒）。
+    # ---------------- S3c-6c-1/2：整数 E 支 ds_intE（精确 N=A·10^s 右移带舍入，mulsd 双舍入 ≥16 位不可靠） ----------------
+    #   k≤15 环前缀逐字节不动（仅 k∈{16,17} 跳入本支：6c-1 新入 16、6c-2 新入 17）；本支与 k 无关，只用 s=k−nd（r14）；s∉[0,19] / κ≥128 / E>64 位 ⇒ jmp ds_rej（照旧如实拒）。
     #   N=A·10^s ≤53+64=117 位（s≤19 ⇒ 10^s<2^64 单字，P10I 高字恒 0 不取）；q/rem/half 双字三段：
     #   q=N>>κ（shrd 0F AD/shr，κ≥64 走单字移）、rem=N−q<<κ（先 sub/sbb 得 q<<κ−N 再 128 位 not/not/add/adc 求负）、half=1<<(κ−1)；半偶舍入：rem>half ⇒ q+1（add/adc），
     #   rem==half ⇒ q+=q&1。_SQ*/_ST* 槽作中转（crit 两支均在读 Q/T 前重写 ⇒ 安全）。
-    buf.here("ds_int16")
+    buf.here("ds_intE")
     _cmp_reg_imm32(buf, 14, 0); buf.jcc(JS, "ds_rej")                    # s<0（大值长除族→6c-4，照旧拒）
     _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_rej")                   # s>19（三字档→6c-3，照旧拒）
     L(0, _SAHI); _test_reg_reg(buf, 0, 0); buf.jcc(JNZ, "ds_rej")        # 防御：A>64 位不可能（约简分子 ≤53）
@@ -1271,31 +1274,31 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _mul_rax_reg(buf, 10)                   # rdx:rax = N
     _mov_reg_reg(buf, 8, 0); _mov_reg_reg(buf, 9, 2)     # r8=Nlo r9=Nhi
     L(0, _SKAP); _mov_reg_reg(buf, 15, 0)   # r15=κ（L 经 rax 摆渡后 rax=Nlo 已另存 r8，不冲突）
-    _test_reg_reg(buf, 15, 15); buf.jcc(JZ, "ds_i16_k0")
+    _test_reg_reg(buf, 15, 15); buf.jcc(JZ, "ds_iE_k0")
     _cmp_reg_imm32(buf, 15, 128); buf.jcc(JGE, "ds_rej")  # κ≥128 ⇒ N>>κ=0 ⇒ 拒
-    _cmp_reg_imm32(buf, 15, 64); buf.jcc(JGE, "ds_i16_qbig")   # ── q = N>>κ ──
+    _cmp_reg_imm32(buf, 15, 64); buf.jcc(JGE, "ds_iE_qbig")   # ── q = N>>κ ──
     _mov_reg_reg(buf, 1, 15)
     _mov_reg_reg(buf, 0, 8); _mov_reg_reg(buf, 2, 9)
     _shrd_reg_reg_cl(buf, 0, 2)             # qlo=(Nlo:Nhi)>>κ 低字
     _shr_reg_cl(buf, 2)                     # qhi=Nhi>>κ
-    buf.jmp("ds_i16_qdone")
-    buf.here("ds_i16_qbig")
+    buf.jmp("ds_iE_qdone")
+    buf.here("ds_iE_qbig")
     _mov_reg_reg(buf, 1, 15); _sub_reg_imm32(buf, 1, 64)
     _mov_reg_reg(buf, 0, 9); _shr_reg_cl(buf, 0)          # qlo=Nhi>>(κ−64)（q≤2^57 单字）
     _zero_reg(buf, 2)
-    buf.here("ds_i16_qdone")
+    buf.here("ds_iE_qdone")
     _mov_reg_reg(buf, 10, 0); _mov_reg_reg(buf, 11, 2)    # qlo→r10、qhi→r11
     # ── rem = N − (q<<κ)（双字）──
     _mov_reg_reg(buf, 0, 10); _mov_reg_reg(buf, 2, 11)
-    _cmp_reg_imm32(buf, 15, 64); buf.jcc(JGE, "ds_i16_sbig")
+    _cmp_reg_imm32(buf, 15, 64); buf.jcc(JGE, "ds_iE_sbig")
     _mov_reg_reg(buf, 1, 15)
     _shld_reg_reg_cl(buf, 2, 0); _shl_reg_cl(buf, 0)
-    buf.jmp("ds_i16_shdone")
-    buf.here("ds_i16_sbig")
+    buf.jmp("ds_iE_shdone")
+    buf.here("ds_iE_sbig")
     _mov_reg_reg(buf, 1, 15); _sub_reg_imm32(buf, 1, 64)
     _mov_reg_reg(buf, 2, 0); _zero_reg(buf, 0)
     _shl_reg_cl(buf, 2)                     # hi=qlo<<(κ−64)、lo=0
-    buf.here("ds_i16_shdone")
+    buf.here("ds_iE_shdone")
     _sub_reg_reg(buf, 0, 8); _sbb_reg_reg(buf, 2, 9)      # X = q<<κ − N（≤0，二补 = 2^128 − rem）
     buf.raw(0x48, 0xF7, 0xD0)             # not rax（128 位求负→真 rem = N − q<<κ ∈[0,2^κ)）
     buf.raw(0x48, 0xF7, 0xD2)             # not rdx
@@ -1304,37 +1307,37 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     SR(_SQLO, 0); SR(_SQHI, 2)              # rem 存 Q 中转槽
     # ── half = 1<<(κ−1) ──
     _mov_reg_reg(buf, 0, 15); _dec_reg(buf, 0)            # g=κ−1
-    _cmp_reg_imm32(buf, 0, 64); buf.jcc(JGE, "ds_i16_hbig")
+    _cmp_reg_imm32(buf, 0, 64); buf.jcc(JGE, "ds_iE_hbig")
     _mov_reg_reg(buf, 1, 0)
     mov_imm32(buf, 0, 1); _shl_reg_cl(buf, 0)             # halflo=1<<g
     _zero_reg(buf, 2)                       # halfhi=0
-    buf.jmp("ds_i16_hdone")
-    buf.here("ds_i16_hbig")
+    buf.jmp("ds_iE_hdone")
+    buf.here("ds_iE_hbig")
     _sub_reg_imm32(buf, 0, 64); _mov_reg_reg(buf, 1, 0)
     mov_imm32(buf, 2, 1); _shl_reg_cl(buf, 2)             # halfhi=1<<(g−64)
     _zero_reg(buf, 0)                       # halflo=0
-    buf.here("ds_i16_hdone")
+    buf.here("ds_iE_hdone")
     SR(_STLO, 0); SR(_STHI, 2)              # half 存 T 中转槽
     # ── 双字比较 rem vs half（先 hi 后 lo；jb 截断 / ja 进一 / je 半偶 tie）──
     L(0, _SQHI); _mov_reg_reg(buf, 9, 0)    # r9=remhi（Nhi 已用完，r9 复用）
     L(8, _STHI)                             # r8=halfhi（L 经 rax 摆渡，remhi 已存 r9 不受毁）
-    _cmp_reg_reg(buf, 9, 8); buf.jcc(JB, "ds_i16_end")
-    buf.jcc(JA, "ds_i16_up")
+    _cmp_reg_reg(buf, 9, 8); buf.jcc(JB, "ds_iE_end")
+    buf.jcc(JA, "ds_iE_up")
     L(0, _SQLO); _mov_reg_reg(buf, 9, 0)
     L(8, _STLO)
-    _cmp_reg_reg(buf, 9, 8); buf.jcc(JB, "ds_i16_end")
-    buf.jcc(JA, "ds_i16_up")
+    _cmp_reg_reg(buf, 9, 8); buf.jcc(JB, "ds_iE_end")
+    buf.jcc(JA, "ds_iE_up")
     _mov_reg_reg(buf, 0, 10); _and_rax_imm32(buf, 1); _add_reg_reg(buf, 10, 0)   # tie⇒向偶：q+=q&1（恒无进位）
-    buf.jmp("ds_i16_end")
-    buf.here("ds_i16_up")
+    buf.jmp("ds_iE_end")
+    buf.here("ds_iE_up")
     buf.raw(0x49, 0x83, 0xC2, 0x01)         # add r10,1
     buf.raw(0x49, 0x83, 0xD3, 0x00)         # adc r11,0（/2=ADC，非 0xC2=add）
-    buf.here("ds_i16_end")
+    buf.here("ds_iE_end")
     _test_reg_reg(buf, 11, 11); buf.jcc(JNZ, "ds_rej")    # E>64 位（防御）
     _test_reg_reg(buf, 10, 10); buf.jcc(JLE, "ds_rej")    # E≤0（防御）
     _mov_reg_reg(buf, 0, 10); SR(_SE, 0)
     buf.jmp("ds_after_E")
-    buf.here("ds_i16_k0")                   # κ==0 ⇒ E=N（验单字）
+    buf.here("ds_iE_k0")                   # κ==0 ⇒ E=N（验单字）
     _test_reg_reg(buf, 9, 9); buf.jcc(JNZ, "ds_rej")
     _test_reg_reg(buf, 8, 8); buf.jcc(JLE, "ds_rej")
     _mov_reg_reg(buf, 0, 8); SR(_SE, 0)
