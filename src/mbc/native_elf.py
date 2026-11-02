@@ -59,6 +59,9 @@ P-c2（浮点垂直切片，见 docs/spec/NATIVE_ELF_PC.md §三 N2）：
   S3c-6a 最短往返 κ>63 解禁（判据算术升位）：将 dtoa_shortest 判据里的 P=E·B（B=2^κ）从「物化 64 位 B + mul」
      改为「对 E 做 128 位左移 κ」（shift_E_by_kappa），κ≥64 先验 bits(E)+κ≤128、逾位 jmp ds_rej——E<<κ≤128 的
      κ>63 小数十进制（0.0001 类）入域，与模型 crit_strict 的 P>M128 守卫逐值等价；表跨（|u|>18）/次正规仍如实拒
+  S3c-6b-1 最短往返 表跨 |u|=19 解禁（P10I 整数表扩一项 10^19）：因 10^19<2^64 仍单字可容，把判据两处
+     pow10_out 守卫 |u|>18 改为 >19（不动判据字宽、不动数字生成），2^-19 类精确二进制小数入域；|u|≥20（需 128
+     位乘子/三字，与 6c 数字生成升多字共享地基）仍如实拒
 （以上为运行期 float 输出面；`/` 真除越域产 ±inf 与 VM ZeroDivisionError 已登记分歧；越域运行期 float 的 `//`/`%` 仍静态拒——见 S4b）。
 列表元素 P-b 限 int/bool（同质）；首期字符串限 ASCII（多字节拒）。str×数值连接（需 itoa）/运行期（非字面量）计算的 str/异构列表 repr（需运行期标签）属 P-c1 后续；字面量 str/异构列表经编译期折叠已支持。
 集合之外的构造（非 ASCII 串 / 字典 / 闭包 / 异常，及越域运行期 float 的 `//`/`%` 算术）一律 `NativeNotSupported` 显式拒绝（不臆造、不数值伪造）；运行期 float 输出改由 dtoa_shortest 全接管——放行子集逐字节精确、越子集运行期 exit_group(1) 如实失败（不再编译期拒）。
@@ -290,7 +293,7 @@ HEAP_ADDR = DATA_VADDR + HEAP_OFF     # bump 堆首地址（r12 初始值）
 #      GVARS=0x20000 之下的空洞；文件映射区，非 .bss，运行时只读）。与旧 floatq 定标表 POW10_OFF 独立。
 P10D_LO = -324                        # double(10^m) 表下标下界（10^-324 最近 double = DBL_MIN，覆盖次正规下界）
 P10D_N = 633                          # double 表项数 m=-324..308（decpt 二分定位 + 逐位 scale 共用；正确舍入=参考 pow10_table）
-P10I_N = 19                           # 精确整数 10^n 表 n=0..18（10^19>2^64 越界 ⇒ 判据 pow10_out 拒）
+P10I_N = 20                           # 精确整数 10^n 表 n=0..19（10^19<2^64 仍单字可容；10^20>2^64 越界 ⇒ 判据 pow10_out 拒）
 P10D_OFF = 0x11000                    # double 表基（段内偏移；.double，索引 (m - P10D_LO)，每项 +8）
 P10I_OFF = P10D_OFF + P10D_N * 8 + 8  # +8 留 double 表末 0 哨兵；整数 10^n 表基（段内偏移；.quad，索引 n）
 STR_OFF = (P10I_OFF + P10I_N * 8 + 7) & ~7     # 特殊值串起点（段内偏移，8 字节对齐）
@@ -378,10 +381,10 @@ def dtoa_precision_declaration() -> dict:
                       "N==v·scale，不等即 dt_oob——兼封住“封闭后档降不回”的空洞档）"),
         "out_of_domain": ("静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编；"
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
-        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
-                               "对放行子集（sig≤15 且判据/表跨/E<<κ≤128 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数）；"
-                               "越子集（16-17 位、10^22 表跨、E<<κ 逾 128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
-                               "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict) 坐实（668 例全域 WSL 实跑差 0）"),
+        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁）：最短往返管线（定档→逐位生 E→128 位严格判据→排版）"
+                               "对放行子集（sig≤15 且判据/表跨≤19/E<<κ≤128 全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数）；"
+                               "越子集（16-17 位、|u|≥20 深表跨、E<<κ 逾 128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+                               "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict) 坐实（全域 WSL 实跑差 0）"),
     }
 
 
@@ -792,8 +795,9 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     `.trae/pc_s3c5d1d_gates.py` 管线：特殊值判别 → POW10 double 表 ucomisd 二分定档 nd →
     k=1..15 mulsd+cvtsd2si 生候选基串 E → crit_strict 128 位整数判据（含真守卫）→ 去尾零/
     进位 → 定点/科学排版入 SBUF → 单次 write_span 刷出。S3c-6a 起判据里 P=E·B 改由 E<<κ 的
-    128 位左移达成（不再物化 B=2^κ），故解禁 κ>63 小数十进制（0.0001 类）；E<<κ 逾 128 位、
-    表跨（|u|>18）、16-17 位扫尽、次正规一律 jmp exit1（运行期如实失败，绝不伪通过）。
+    128 位左移达成（不再物化 B=2^κ），故解禁 κ>63 小数十进制（0.0001 类）；S3c-6b-1 起 P10I 整数表
+    扩至 10^19（单字），故 |u|=19 表跨小数（2^-19 类）入域；E<<κ 逾 128 位、表跨（|u|>19）、
+    16-17 位扫尽、次正规一律 jmp exit1（运行期如实失败，绝不伪通过）。
 
     寄存器纪律：全程无 syscall 直到末次 flush ⇒ rcx/rdx/r8..r15 自由；rbx/rbp/r12/rsp 不碰；
     xmm0=av 持久，xmm1=表档，xmm2=p。计算态循环不跨 syscall（无 print_int）。"""
@@ -1031,7 +1035,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _test_reg_reg(buf, 14, 14)
     buf.jcc(JS, "ds_crit_neg")
     # ---- u>=0：P=EB·10^u, Q=A, rhs10=1 ----
-    _cmp_reg_imm32(buf, 14, 18); buf.jcc(JG, "ds_rej")      # pow10_out
+    _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_rej")      # pow10_out（S3c-6b-1：|u|≤19 单字表）
     shift_E_by_kappa("u")                   # rax:rdx=EB=E<<κ（>128 位则 jmp ds_rej）
     _test_reg_reg(buf, 2, 2)
     buf.jcc(JNZ, "ds_eb_big")
@@ -1053,7 +1057,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     # ---- u<0：t=-u, P=E*B, Q=A*10^t（guard ≤128）, rhs10=10^t ----
     buf.here("ds_crit_neg")
     _neg_reg(buf,14)                        # t=-u
-    _cmp_reg_imm32(buf, 14, 18); buf.jcc(JG, "ds_rej")
+    _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_rej")      # pow10_out（S3c-6b-1：t≤19 单字表）
     shift_E_by_kappa("d")                   # rax:rdx=P=E<<κ（>128 位则 jmp ds_rej）
     SR(_SPLO, 0); SR(_SPHI, 2)
     L(8, _SALO); L(9, _SAHI)                # A lo/hi
