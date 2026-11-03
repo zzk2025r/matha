@@ -1,5 +1,21 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c2 S3c-6c-4a：**`s<0` 大整数档长除支 `ds_intdiv`（单字 `div`）解禁**（6c-4 首刀·按 10 幂整数长除·第三种原语）（阶段3-3 ④ native 跨平台）
+
+轴 C 收官后启动 6c-4（`band_neg`）。独立勘察（`.trae/pc_s3c6c4_eval.py`，22,126 例大整数域）坐实三事实：① **`band_neg` 恒 `κ=0`**（可证：`nd≥17⇒|v|>2^53⇒ulp≥2⇒v` 整数 `⇒B=1`）⇒ `E=round_half_even(A/10^{|s|})` 是纯整数按 10 幂长除，与既有「乘字 `N=A·10^s` 移位除 `2^κ`」正交；② 长除模型喂回**既有 `crit_strict`**（`u=nd-k=t>0` 走 u≥0 支）判 hit 即 `str(E)` 排版 **BAD=0**，`crit 非-hit 拒因为空`——判据侧无需任何新机器码；③ 位宽分桶：`A<2^64` 约 26%（单字 `div`）、`A≤2^128` 约 74%（两步 `div`，商 `E≤17` 位 `<2^57` 且高位商恒 0 因 `Ahi<10^{|s|}`）、`|s|≤19` 占 99.8%。按风险拆三刀，本刀先落最低风险的 **6c-4a**（`A<2^64`、`|s|≤19`）。
+
+模型（`.trae/pc_s3c5d1d_gates.py::_int_E16`）加 `s<0` 支（严格镜像机器守卫 `κ==0 ∧ A<2^64 ∧ 1≤|s|≤19`，余者仍 `band_neg` 拒）；`.trae/_c4a_repr.py` 真值=repr 坐实：新面逐例==`repr(abs)` BAD=0、A≥2^64/|s|≥20 正确仍拒、既有 `build_subset` 零回归、守卫一致性偏差 0。
+
+机器码 `src/mbc/native_elf.py`：`ds_intE` 头 `s<0` 由 `JS ds_rej` 改指新支 **`ds_intdiv`**——守卫 `_SAHI==0`(A<2^64，否则归 4b)/`_SKAP==0`/`|s|≤19`（`neg r14` 取 t，`JG 19` 归 4c），载 `d=10^t`（`P10I[t]` 低字，`t≤19` 高字恒 0），`rdx=0`+`rax=A` **单条 `div rsi`** → `q=rax,r=rdx`（`A<2^64⇒0<d` 无 #DE），`half=d>>1`，`cmp rdx,r8`：`r>half⇒q+1`、`r==half⇒q+=q&1`（half-even tie）、`r<half⇒不变`；`E>0` 守卫后 `SR(_SE)`、`_SIRES=1`（复用段 C 邻值重试，对齐边界幂次 asym）、`jmp ds_after_E` 汇流既有 u≥0 crit/排版。**`ds_intE` 乘字支、crit、Phase E 一字未动**。
+
+验证：
+- **oracle**（`.trae/pc_dso_oracle.py`，WSL 实跑逐字节对拍，新增 band_neg 定向正/负例 + `A≥2^64` 如实拒 + 连续整数段）：**OK=700 / 如实拒=229 / 失败 0**（较 6c-3b 的 OK=477 净增 223＝6c-4a 新放行面，`A≥2^64` 类仍诚实 rc=1）。
+- **Gate**（`run_native_elf.py`）：**42 正（+c29_float_intdiv_s1_19）+ 15 拒 + 5 越界 + 2 档空洞，失败 0**（原 41 正零回归，c29 含 k=16/k=17 div 面与负号 `-9.366340774161518e+17` 逐字节==VM）。
+- **三门禁全绿**：native pytest 1032 passed、`dep_audit` 违规 0/越界 0、`test_doc_facts`/`test_kernel_purity`/`test_ast_vm_gap` 43 passed。
+- `objdump -D -b binary -m i386:x86-64` 逐指令核对 `ds_intdiv`（`neg r14`/`cmp $19`/`div rsi`/`shr $1`/`cmp r8,rdx`/tie `and $1;add r9`/`SR(_SE)`/`_SIRES`）。
+
+`core_py_lines` 34,105→**34,133**（净 +28）。下一片：**6c-4b**（`A≤2^128` 两步 `div`，`_SAHI` 启用，解锁主体 ~74%，中风险需单独授权）；6c-4c（`|s|≥20` 真 128/128 长除，~31 例，建议默认如实拒）。
+
 ## native 跨平台 P-c2 S3c-6c-3b：**`s∈[23,38]` 三字乘子解禁 + binade 边界往返区间不对称修正**（轴 C 第三刀·下·全期最高风险收官）（阶段3-3 ④ native 跨平台）
 
 承 6c-3a 与用户「先修判断→落机器码」。本刀两件正交事：
