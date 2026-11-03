@@ -1266,13 +1266,20 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     #   rem==half ⇒ q+=q&1。_SQ*/_ST* 槽作中转（crit 两支均在读 Q/T 前重写 ⇒ 安全）。
     buf.here("ds_intE")
     _cmp_reg_imm32(buf, 14, 0); buf.jcc(JS, "ds_rej")                    # s<0（大值长除族→6c-4，照旧拒）
-    _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_rej")                   # s>19（三字档→6c-3，照旧拒）
+    _cmp_reg_imm32(buf, 14, 22); buf.jcc(JG, "ds_rej")                   # s>22（三字档→6c-3b，照旧拒；S3c-6c-3a 双字乘子覆盖 s≤22）
     L(0, _SAHI); _test_reg_reg(buf, 0, 0); buf.jcc(JNZ, "ds_rej")        # 防御：A>64 位不可能（约简分子 ≤53）
-    L(0, _SALO)                             # rax=A
-    _mov_reg_reg(buf, 7, 14); _shl_reg_imm(buf, 7, 4); _add_reg_imm32(buf, 7, P10I_ADDR)
+    _mov_reg_reg(buf, 7, 14); _shl_reg_imm(buf, 7, 4); _add_reg_imm32(buf, 7, P10I_ADDR)   # r7=&P10I[s]
     _mov_reg_mem(buf, 10, 7, 0)             # r10=10^s（低字）
-    _mul_rax_reg(buf, 10)                   # rdx:rax = N
-    _mov_reg_reg(buf, 8, 0); _mov_reg_reg(buf, 9, 2)     # r8=Nlo r9=Nhi
+    _mov_reg_mem(buf, 11, 7, 8)             # r11=10^s（高字，s≥20 非零；S3c-6c-3a 双字乘子）
+    L(0, _SALO)                             # rax=A（第一次取；_SALO 槽可重复 L）
+    _mul_rax_reg(buf, 10)                   # m1=A·lo10 → rdx:rax
+    _mov_reg_reg(buf, 8, 0)                 # r8=Nlo=m1lo
+    _mov_reg_reg(buf, 9, 2)                 # r9=m1hi
+    L(0, _SALO)                             # rax=A（第二次重取；mul 已毁 rax）
+    _mul_rax_reg(buf, 11)                   # m2=A·hi10 → rdx:rax
+    _add_reg_reg(buf, 9, 0)                 # r9=Nhi=m1hi+m2lo（CF=进位）
+    buf.raw(0x48, 0x83, 0xD2, 0x00)         # adc rdx,0 → N 第三字（/2=ADC，复用 6b-2-A 范式）
+    _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")   # N>128 位 → 如实拒（s≤22 恒 0；三字档归 6c-3b）
     L(0, _SKAP); _mov_reg_reg(buf, 15, 0)   # r15=κ（L 经 rax 摆渡后 rax=Nlo 已另存 r8，不冲突）
     _test_reg_reg(buf, 15, 15); buf.jcc(JZ, "ds_iE_k0")
     _cmp_reg_imm32(buf, 15, 128); buf.jcc(JGE, "ds_rej")  # κ≥128 ⇒ N>>κ=0 ⇒ 拒
