@@ -1,5 +1,21 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c2 S3c-6c-4b：**`s<0` 大整数档长除支 `ds_intdiv` 解锁 `A≤2^128`（128÷64→单条 `div`）**（6c-4 第二刀·放开 6c-4a 的 `A<2^64` 限制）（阶段3-3 ④ native 跨平台）
+
+6c-4b 面＝band_neg 中 `A∈(2^64,2^128] ∧ κ==0 ∧ |s|≤19`（约占 band_neg 的 74%，解锁主体）。**语义勘察**坐实两点：① prologue（`native_elf.py` line 999-1000）以 `exp2>75 ⇒ A>128 位 ⇒ 如实拒` 为硬上界，而 `|s|≤19 ⇒ nd≤36 ⇒ |v|<1e36<2^120 ⇒ exp2≤68`，**新面全落 prologue 已 admit 区、`_SAHI`（hi=mant<<(exp2−64)，line 1015-1023）已正确填**；② 几何恒 `Ahi<d`（`Ahi/d≈10^k/2^64≪1`），128 位被除数用 **x86 `div` 原生 `rdx:rax÷d` 单条指令**直接成立（无需两步），只要 `rdx=Ahi<rsi=d` 即无 `#DE`，商 `q=A//d<2^64` 落 `rax`。
+
+模型（`_int_E16` s<0 支）去掉 `A>>64` 守卫（放行 128 位，`|s|≤19` 已自动界定 `A<2^120`）；`.trae/_c4b_repr.py` 真值=repr 坐实：新面大整数（nd 20..36、A>2^64）逐例==`repr(abs)` BAD=0、`|s|≥20` 正确仍拒（6c-4c 面）、4a 旧面 + `build_subset` 零回归、守卫一致性偏差 0。
+
+机器码 `src/mbc/native_elf.py`：`ds_intdiv` 将 `_SAHI==0⇒ds_rej` 拒闸换为**装载 128 位被除数**——`L(_SAHI); mov rdx,rax`（Ahi）+ **`cmp rdx,rsi; JAE ds_rej`** 防御闸（域内恒不触发，仅避 `#DE`）+ `L(_SALO)`（rax=Alo）+ **单条 `div r6`**（rdx:rax=A÷d→q=rax,r=rdx）；half/舍入/`E>0`/`_SE`/`_SIRES=1`/`jmp ds_after_E` 与 6c-4a 完全一致。**`ds_intE` 乘字支、crit、Phase E 一字未动**（净 +0/−0 行，`core_py_lines` 不变）。
+
+验证：
+- **oracle**（`.trae/pc_dso_oracle.py`，WSL 实跑逐字节对拍，band_neg 定向正/负例扩至 `A>2^64`：`4e19/9e19/8e21/1.2e22/5.2e25` + `1e20/1e30` 连续段）：**OK=915 / 如实拒=114 / 失败 0**（较 6c-4a 的 OK=700/如实拒=229 净增 215 OK、如实拒减 115——原 `A≥2^64` 如实拒者现逐字节==repr）。
+- **Gate**（`run_native_elf.py`）：**43 正（+c30_float_intdiv_hi_a_gt_2p64）+ 15 拒 + 5 越界 + 2 档空洞，失败 0**（原 42 正零回归，c30 含 `A>2^96` 超大整数与负号）。
+- **三门禁**：native pytest、`dep_audit` 违规 0/越界 0、`test_doc_facts`/`test_kernel_purity`/`test_ast_vm_gap` 全绿。
+- `objdump -D -b binary -m i386:x86-64` 逐指令核对 `ds_intdiv`（`mov 0x422708→rdx`/`cmp rsi,rdx;jae`/`mov 0x422700→rax`/`div rsi`/`shr $1`/`cmp r8,rdx`）。
+
+下一片：**6c-4c**（`|s|≥20` 真 128/128 长除，~31 例，建议默认如实拒）。
+
 ## native 跨平台 P-c2 S3c-6c-4a：**`s<0` 大整数档长除支 `ds_intdiv`（单字 `div`）解禁**（6c-4 首刀·按 10 幂整数长除·第三种原语）（阶段3-3 ④ native 跨平台）
 
 轴 C 收官后启动 6c-4（`band_neg`）。独立勘察（`.trae/pc_s3c6c4_eval.py`，22,126 例大整数域）坐实三事实：① **`band_neg` 恒 `κ=0`**（可证：`nd≥17⇒|v|>2^53⇒ulp≥2⇒v` 整数 `⇒B=1`）⇒ `E=round_half_even(A/10^{|s|})` 是纯整数按 10 幂长除，与既有「乘字 `N=A·10^s` 移位除 `2^κ`」正交；② 长除模型喂回**既有 `crit_strict`**（`u=nd-k=t>0` 走 u≥0 支）判 hit 即 `str(E)` 排版 **BAD=0**，`crit 非-hit 拒因为空`——判据侧无需任何新机器码；③ 位宽分桶：`A<2^64` 约 26%（单字 `div`）、`A≤2^128` 约 74%（两步 `div`，商 `E≤17` 位 `<2^57` 且高位商恒 0 因 `Ahi<10^{|s|}`）、`|s|≤19` 占 99.8%。按风险拆三刀，本刀先落最低风险的 **6c-4a**（`A<2^64`、`|s|≤19`）。
