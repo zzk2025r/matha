@@ -14,7 +14,7 @@
 - **三门禁**：native pytest、`dep_audit` 违规 0/越界 0、`test_doc_facts`/`test_kernel_purity`/`test_ast_vm_gap` 全绿。
 - `objdump -D -b binary -m i386:x86-64` 逐指令核对 `ds_intdiv`（`mov 0x422708→rdx`/`cmp rsi,rdx;jae`/`mov 0x422700→rax`/`div rsi`/`shr $1`/`cmp r8,rdx`）。
 
-下一片：**6c-4c**（`|s|≥20` 真 128/128 长除，~31 例，建议默认如实拒）。
+**6c-4c**（`|s|≥20` 真 128/128 长除，仅 ~31 例、收益极低风险最高）经用户决定**长期如实拒**——`ds_intdiv` 现有 `JG 19 ⇒ ds_rej` 即最终语义，无需改任何机器码。**6c-4（band_neg 大整数长除族）至此收官**（4a/4b 已交付、4c 决定不做）。
 
 ## native 跨平台 P-c2 S3c-6c-4a：**`s<0` 大整数档长除支 `ds_intdiv`（单字 `div`）解禁**（6c-4 首刀·按 10 幂整数长除·第三种原语）（阶段3-3 ④ native 跨平台）
 

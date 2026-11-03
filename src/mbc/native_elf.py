@@ -409,7 +409,7 @@ def dtoa_precision_declaration() -> dict:
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
         "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 双字乘子解禁 + S3c-6b-2-B1 u<0 深表跨 |u|≤38（EB≤128）双字 Q/T 解禁 + S3c-6b-2-B2 u<0 深表跨 EB/Q/D 升三字（≤192、D 高字验零回落双字） + S3c-6c-1/2 k=16/17 整数 E 支 ds_intE（N=A·10^s 精确带舍入右移，s∈[0,19]） + S3c-6c-4a/4b s<0 大整数档长除支 ds_intdiv（128÷64→64 单条 div E=round_half_even(A/10^|s|)，κ==0∧A≤2^128∧|s|≤19））：最短往返管线（定档→逐位生 E→128/192 位严格判据→排版）"
                                "对放行子集（sig≤15 全过判据/表跨（u≥0≤38双字、u<0≤38）/E<<κ≤192（u<0 三字）与 D≤128；或 sig∈{16,17} 且整数支档内（s=k−nd∈[0,19]、κ<128、E≤64 位）同判据全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数/10^20 类大值/5.1e-15 类深小数/7.69e-22 类三字深小数/1/3 类 16 位循环小数/双舍入 17 位值）；"
-                               "越子集（整数支档拒 s∈[20,38]（nd≤−3 的 17 位→6c-3）已解锁、s<0 大整数档放行 A≤2^128∧|s|≤19（余 |s|≥20→6c-4c 真 128/128 长除）/κ≥128、E<<κ 逾 192 位、D>128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+                               "越子集（整数支档拒 s∈[20,38]（nd≤−3 的 17 位→6c-3）已解锁、s<0 大整数档放行 A≤2^128∧|s|≤19（余 |s|≥20（6c-4c，经用户决定长期如实拒、非待办））/κ≥128、E<<κ 逾 192 位、D>128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
                                "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict)（含 k≥16 整数支 _int_E16，与 ds_intE 逐守卫同口径）坐实（全域 WSL 实跑差 0）"),
     }
 
@@ -1381,7 +1381,7 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     # ---------------- S3c-6c-4a/4b：s<0 大整数档长除支 ds_intdiv（E=round_half_even(A/10^|s|)，128÷64→64 单条 div） ----------------
     #   band_neg 恒 κ==0（已证：nd≥17⇒|v|>2^53⇒ulp≥2⇒v 整数⇒B=1）⇒ E=round_half_even(A/10^t), t=|s|=nd−k。
     #   放行面严格镜像 _int_E16 s<0 支：κ==0 ∧ A≤2^128（|s|≤19⇒nd≤36⇒A<2^120，prologue exp2≤75 已 admit 并填 _SAHI）∧ 1≤|s|≤19（除数 10^t<2^64 单字）；
-    #   余者（|s|≥20→6c-4c 真 128/128 长除、κ≠0/Ahi≥d 防御）一律 jmp ds_rej 运行期如实拒。
+    #   余者（|s|≥20：6c-4c——经用户决定长期如实拒、非待办；κ≠0/Ahi≥d 防御）一律 jmp ds_rej 运行期如实拒。
     #   单条 div rdx:rax=A(128)÷r6=d（几何 Ahi<d 恒真 ⇒ 商 <2^64 落 rax、无 #DE，另有 Ahi<d 防御闸）→ q=rax,r=rdx；half=d>>1（d 偶）；r>half→q+1、r==half→q+=q&1、r<half→不变；E→_SE 后汇流 ds_after_E（重算 u=nd−k>0 走既有 u≥0 crit）。
     buf.here("ds_intdiv")
     L(0, _SKAP); _test_reg_reg(buf, 0, 0); buf.jcc(JNZ, "ds_rej")   # κ≠0 → 防御如实拒（band_neg 恒 κ=0）
