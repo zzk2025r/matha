@@ -407,9 +407,9 @@ def dtoa_precision_declaration() -> dict:
                       "N==v·scale，不等即 dt_oob——兼封住“封闭后档降不回”的空洞档）"),
         "out_of_domain": ("静态即 NativeNotSupported 拒；越界运行期 exit_group(1) 如实失败，绝不瞎编；"
                            "档空洞（封闭产 d∈7..10 且 |v|≥深档阈）由整数性回检转运行期失败"),
-        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 双字乘子解禁 + S3c-6b-2-B1 u<0 深表跨 |u|≤38（EB≤128）双字 Q/T 解禁 + S3c-6b-2-B2 u<0 深表跨 EB/Q/D 升三字（≤192、D 高字验零回落双字） + S3c-6c-1/2 k=16/17 整数 E 支 ds_intE（N=A·10^s 精确带舍入右移，s∈[0,19]） + S3c-6c-4a/4b s<0 大整数档长除支 ds_intdiv（128÷64→64 单条 div E=round_half_even(A/10^|s|)，κ==0∧A≤2^128∧|s|≤19））：最短往返管线（定档→逐位生 E→128/192 位严格判据→排版）"
+        "shortest_roundtrip": ("已实现（S3c-5d dtoa_shortest 机器码 + S3c-6a κ>63 解禁 + S3c-6b-1 表跨 |u|=19 解禁 + S3c-6b-2-A u≥0 深表跨 |u|≤38 双字乘子解禁 + S3c-6b-2-B1 u<0 深表跨 |u|≤38（EB≤128）双字 Q/T 解禁 + S3c-6b-2-B2 u<0 深表跨 EB/Q/D 升三字（≤192、D 高字验零回落双字） + S3c-6c-1/2 k=16/17 整数 E 支 ds_intE（N=A·10^s 精确带舍入右移，s∈[0,19]） + S3c-6c-4a/4b/4c s<0 大整数档长除支 ds_intdiv（|s|≤19 走 128÷64→64 单条 div、|s|≥20 走 ds_intdiv_big 定长 128 次二进制恢复 128÷128→64 长除（除数 d=10^|s|>2^64 取双字 lo/hi、商 q<2^57 落单字），E=round_half_even(A/10^|s|)，κ==0∧A≤2^128∧|s|≤23（面内 nd≤39∧k≥16 ⇒ |s|≤23 天然成立；P>128 位宽越界者汇流后 u≥0 crit 诚实拒）））：最短往返管线（定档→逐位生 E→128/192 位严格判据→排版）"
                                "对放行子集（sig≤15 全过判据/表跨（u≥0≤38双字、u<0≤38）/E<<κ≤192（u<0 三字）与 D≤128；或 sig∈{16,17} 且整数支档内（s=k−nd∈[0,19]、κ<128、E≤64 位）同判据全过）逐字节==repr(v)（含 0.1 类/×÷产 float/科学计数法/κ>63 小数/2^-19 表跨小数/10^20 类大值/5.1e-15 类深小数/7.69e-22 类三字深小数/1/3 类 16 位循环小数/双舍入 17 位值）；"
-                               "越子集（整数支档拒 s∈[20,38]（nd≤−3 的 17 位→6c-3）已解锁、s<0 大整数档放行 A≤2^128∧|s|≤19（余 |s|≥20（6c-4c，经用户决定长期如实拒、非待办））/κ≥128、E<<κ 逾 192 位、D>128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
+                               "越子集（整数支档拒 s∈[20,38]（nd≤−3 的 17 位→6c-3）已解锁、s<0 大整数档放行 A≤2^128∧|s|≤23（6c-4c 已交付全带：|s|≤19 单条 div + |s|≥20 ds_intdiv_big 长除；面内 A≤2^128 ⇒ nd≤39 ⇒ |s|≤nd−k≤23，|s|≥24 天然不可达无需三字除数；|s|=22/23 中 P>128 位宽越界者由后游 u≥0 crit 诚实拒）/κ≥128、E<<κ 逾 192 位、D>128 位等）运行期 exit1 如实拒；语义权威由 .trae/pc_s3c1_ref.py 参考器"
                                "与 .trae/pc_s3c5d1d_gates.py::pipeline(v,crit_strict)（含 k≥16 整数支 _int_E16，与 ds_intE 逐守卫同口径）坐实（全域 WSL 实跑差 0）"),
     }
 
@@ -568,6 +568,11 @@ def _shl_reg_imm(buf: _Buf, reg: int, n: int) -> None:         # shl reg,imm8（
 def _shr_reg_imm(buf: _Buf, reg: int, n: int) -> None:         # shr reg,imm8（C1 /5）
     rex = 0x49 if reg >= 8 else 0x48
     buf.raw(rex, 0xC1, 0xC0 | (5 << 3) | (reg & 7)); buf.raw(n & 0xFF)
+
+
+def _rcl_reg1(buf: _Buf, reg: int) -> None:                   # rcl reg,1（D1 /2：reg/flag 左循环移 1 位经 CF，S3c-6c-4c 二进制恢复长除的组合移位链）
+    rex = 0x49 if reg >= 8 else 0x48
+    buf.raw(rex, 0xD1, 0xD0 | (reg & 7))
 
 
 def _bsr_reg_reg(buf: _Buf, dst: int, src: int) -> None:       # bsr dst,src（0F BD /r）：最高置位位索引（src=0 未定义，需先 test）
@@ -1216,7 +1221,14 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     buf.jcc(JS, "ds_dshl")
     # ---- sh>=0：T=rhs10<<sh ----
     L(2, _SRHSHI); _test_reg_reg(buf, 2, 2); buf.jcc(JNZ, "ds_rej")   # S3c-6b-2-B1：sh≥0 且 rhs10 双字（t≥20）本刀不支持→诚实拒（语料无此类，防御）
-    _cmp_reg_imm32(buf, 14, 68); buf.jcc(JG, "ds_rej")      # thr_gt128
+    # thr_gt128：rhs10==1 恰为 u≥0 全支（line 1157 恒置 rhs10=1），T=1<<sh≤2^127 恒落 128 位内 ⇒ 放宽至 sh≤127（镜像模型 crit_strict u≥0 `rhs_e>=128⇒拒`）；
+    #   rhs10≠1（=10^t 单字，u<0）保留 sh≤68 保守界，既有语料零回归。
+    _cmp_reg_imm32(buf, 7, 1); buf.jcc(JE, "ds_thr_lax")     # r7=rhs10 低字；==1 → u≥0 放宽支
+    _cmp_reg_imm32(buf, 14, 68); buf.jcc(JG, "ds_rej")       # thr_gt128（u<0：rhs10=10^t 单字）
+    buf.jmp("ds_thr_done")
+    buf.here("ds_thr_lax")
+    _cmp_reg_imm32(buf, 14, 127); buf.jcc(JG, "ds_rej")      # thr_gt128（u≥0：rhs10=1，T=1<<sh≤2^127）
+    buf.here("ds_thr_done")
     _mov_reg_reg(buf, 0, 7)                 # rax=rhs10
     _zero_reg(buf, 2)
     _cmp_reg_imm32(buf, 14, 64)
@@ -1378,15 +1390,15 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     mov_imm32(buf, 0, 1); SR(_SIRES, 0)     # S3c-6c-3b：κ==0 整数支（保守一致；大值长除一般不到此）
     buf.jmp("ds_after_E")
 
-    # ---------------- S3c-6c-4a/4b：s<0 大整数档长除支 ds_intdiv（E=round_half_even(A/10^|s|)，128÷64→64 单条 div） ----------------
+    # ---------------- S3c-6c-4a/4b/4c：s<0 大整数档长除支 ds_intdiv（E=round_half_even(A/10^|s|)；|s|≤19 单条 div、|s|≥20 二进制恢复长除） ----------------
     #   band_neg 恒 κ==0（已证：nd≥17⇒|v|>2^53⇒ulp≥2⇒v 整数⇒B=1）⇒ E=round_half_even(A/10^t), t=|s|=nd−k。
-    #   放行面严格镜像 _int_E16 s<0 支：κ==0 ∧ A≤2^128（|s|≤19⇒nd≤36⇒A<2^120，prologue exp2≤75 已 admit 并填 _SAHI）∧ 1≤|s|≤19（除数 10^t<2^64 单字）；
-    #   余者（|s|≥20：6c-4c——经用户决定长期如实拒、非待办；κ≠0/Ahi≥d 防御）一律 jmp ds_rej 运行期如实拒。
-    #   单条 div rdx:rax=A(128)÷r6=d（几何 Ahi<d 恒真 ⇒ 商 <2^64 落 rax、无 #DE，另有 Ahi<d 防御闸）→ q=rax,r=rdx；half=d>>1（d 偶）；r>half→q+1、r==half→q+=q&1、r<half→不变；E→_SE 后汇流 ds_after_E（重算 u=nd−k>0 走既有 u≥0 crit）。
+    #   放行面严格镜像 _int_E16 s<0 支：κ==0 ∧ A≤2^128（prologue exp2≤75 已 admit 并填 _SAHI）∧ |s|≥1；|s|≤19 走单字 div 快路（4a/4b）、|s|≥20 除数 d=10^|s|>2^64 需 2 字→走 ds_intdiv_big 128 次二进制恢复长除（4c）；
+    #   κ≠0/A>2^128（prologue 已挡）一律 jmp ds_rej；放行面内位宽越界者（|s|=22/23 中 P>128）由汇流后既有 u≥0 crit 的 prod_gt128/pow10_out 诚实拒（判定侧零新码）。
+    #   快路：单条 div rdx:rax=A(128)÷r6=d（几何 Ahi<d 恒真 ⇒ 商 <2^64 落 rax、无 #DE，另有 Ahi<d 防御闸）→ q=rax,r=rdx；half=d>>1（d 偶）；r>half→q+1、r==half→q+=q&1、r<half→不变；E→_SE 后汇流 ds_after_E（重算 u=nd−k>0 走既有 u≥0 crit）。
     buf.here("ds_intdiv")
     L(0, _SKAP); _test_reg_reg(buf, 0, 0); buf.jcc(JNZ, "ds_rej")   # κ≠0 → 防御如实拒（band_neg 恒 κ=0）
     _neg_reg(buf, 14)                                              # r14=t=|s|=−s（s<0 ⇒ t≥1；ds_after_E 会重算 r14，毁之无妨）
-    _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_rej")              # |s|>19 → 如实拒（6c-4c 面）
+    _cmp_reg_imm32(buf, 14, 19); buf.jcc(JG, "ds_intdiv_big")      # |s|>19 → 2 字除数二进制恢复长除（6c-4c，见下方 ds_intdiv_big）
     _mov_reg_reg(buf, 7, 14); _shl_reg_imm(buf, 7, 4); _add_reg_imm32(buf, 7, P10I_ADDR)   # r7=&P10I[t]
     _mov_reg_mem(buf, 6, 7, 0)                                      # r6=d=10^t（低字；t≤19 ⇒ 高字恒 0）
     L(0, _SAHI); _mov_reg_reg(buf, 2, 0)                           # rdx=Ahi（被除数高字；_SALO/_SAHI=128 位 A，prologue exp2≤75 已填）
@@ -1404,6 +1416,58 @@ def _emit_dtoa_shortest(buf: _Buf) -> None:
     _test_reg_reg(buf, 0, 0); buf.jcc(JLE, "ds_rej")              # E≤0 防御拒（q<2^64 恒真：Ahi<d ⇒ 商落 rax、d≥10）
     SR(_SE, 0)
     mov_imm32(buf, 0, 1); SR(_SIRES, 0)                          # 整数支 k 首试 → miss 时允许 E+1 邻值重试（复用段 C，对齐边界幂次 asym）
+    buf.jmp("ds_after_E")
+
+    # ---------------- S3c-6c-4c：|s|≥20 大整数 128÷128→64 二进制恢复长除 ds_intdiv_big ----------------
+    #   除数 d=10^t（t≥20 → d>2^64、取 P10I 双字 lo/hi）；被除数 A=_SAHI:_SALO（128 位，prologue exp2≤75 已填）；
+    #   定长 128 次逐位恢复：组合移位 [R:D] 左移 1（D 当前最高位入 R 最低位），R>=d 则 R-=d 且商位置 1。
+    #   前缀商 ≤ 最终商 <2^57 ⇒ 仅需单字 q（r10），无 q_hi。循环后 R=A mod d 与 half=d>>1 比做 half-even 舍入。
+    #   只用 rax/rdx/rsi/rdi/r8/r9/r10/r11/rcx + r14 计数；不动 r13(k，ds_after_E 重算 u 依赖)；ds_intE/crit/Phase E 一字不动。
+    buf.here("ds_intdiv_big")
+    _mov_reg_reg(buf, 11, 14); _shl_reg_imm(buf, 11, 4); _add_reg_imm32(buf, 11, P10I_ADDR)   # r11=&P10I[t]（t 活至此，后转计数）
+    _mov_reg_mem(buf, 6, 11, 0)                                      # rsi=dlo=10^t 低字
+    _mov_reg_mem(buf, 7, 11, 8)                                      # rdi=dhi=10^t 高字（t≥20 非零）
+    L(2, _SAHI)                                                      # rdx=Dhi（先装高字，rax 摆渡后随即被 _SALO 覆写无妨）
+    L(0, _SALO)                                                      # rax=Dlo
+    _zero_reg(buf, 8); _zero_reg(buf, 9)                           # Rlo=Rhi=0
+    _zero_reg(buf, 10)                                             # q=0
+    mov_imm32(buf, 14, 128)                                        # r14=128 位计数
+    buf.here("ds_c4c_loop")
+    _shl_reg_imm(buf, 0, 1)                                        # 组合 [R:D] 左移 1：Dlo<<1，CF=旧 Dlo63
+    _rcl_reg1(buf, 2)                                             # rcl Dhi：<<1|CF；CF=D 当前最高位
+    _rcl_reg1(buf, 8)                                             # rcl Rlo：<<1|D 最高位（被除数位入余数）
+    _rcl_reg1(buf, 9)                                             # rcl Rhi
+    _add_reg_reg(buf, 10, 10)                                     # q<<=1（待置决策位）
+    _cmp_reg_reg(buf, 9, 7)                                       # Rhi vs dhi
+    buf.jcc(JB, "ds_c4c_next")                                    # Rhi<dhi ⇒ R<d，不减
+    buf.jcc(JNE, "ds_c4c_sub")                                    # Rhi>dhi ⇒ R>=d，减（Rhi==dhi 落低字比较）
+    _cmp_reg_reg(buf, 8, 6)                                       # 高字相等：Rlo vs dlo
+    buf.jcc(JB, "ds_c4c_next")                                    # Rlo<dlo ⇒ R<d，不减
+    buf.here("ds_c4c_sub")
+    _sub_reg_reg(buf, 8, 6); _sbb_reg_reg(buf, 9, 7)             # R -= d（借位链）
+    _add_reg_imm32(buf, 10, 1)                                    # 商最低位置 1
+    buf.here("ds_c4c_next")
+    _dec_reg(buf, 14)
+    buf.jcc(JNZ, "ds_c4c_loop")
+    mov_imm32(buf, 1, 1)                                          # rcx=1（cl=1，供 shrd/shr）
+    _mov_reg_reg(buf, 0, 6)                                       # rax=dlo（D 已死，借道算 half）
+    _mov_reg_reg(buf, 2, 7)                                       # rdx=dhi
+    _shrd_reg_reg_cl(buf, 0, 2)                                   # rax=half_lo=(dlo>>1)|(dhi&1)<<63
+    _shr_reg_cl(buf, 2)                                           # rdx=half_hi=dhi>>1
+    _cmp_reg_reg(buf, 9, 2)                                       # Rhi vs half_hi
+    buf.jcc(JB, "ds_idb_end")                                     # R<half ⇒ 舍去
+    buf.jcc(JA, "ds_idb_up")                                      # R>half ⇒ 进一（高字 >；相等落低字）
+    _cmp_reg_reg(buf, 8, 0)                                       # 高字相等：Rlo vs half_lo
+    buf.jcc(JB, "ds_idb_end")
+    buf.jcc(JA, "ds_idb_up")
+    _mov_reg_reg(buf, 0, 10); _and_rax_imm32(buf, 1); _add_reg_reg(buf, 10, 0)   # 恰等 tie→向偶：q += q&1
+    buf.jmp("ds_idb_end")
+    buf.here("ds_idb_up")
+    _add_reg_imm32(buf, 10, 1)                                    # q += 1
+    buf.here("ds_idb_end")
+    _test_reg_reg(buf, 10, 10); buf.jcc(JLE, "ds_rej")           # E=q≤0 防御拒（q<2^57 恒正）
+    SR(_SE, 10)
+    mov_imm32(buf, 0, 1); SR(_SIRES, 0)                          # 复用段 C 邻值重试
     buf.jmp("ds_after_E")
 
     # ---------------- Phase E：排版（E→数字→去尾零/进位→定点/科学）----------------

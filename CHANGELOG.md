@@ -1,5 +1,25 @@
 # Matha 变更摘要
 
+## native 跨平台 P-c2 S3c-6c-4c：**`s<0` 大整数档 `|s|≥20` 真 128÷128→64 二进制恢复长除 `ds_intdiv_big` 解锁**（6c-4 收官刀·band_neg 全带）（阶段3-3 ④ native 跨平台）
+
+> **勘察更正**：6c-4a/4b 曾预估 `|s|≥20` 仅「~31 例、收益极低、建议长期如实拒」。实勘察推翻此估——`|s|≥20` 命中面是 **36–39 位十进制大整数的连续带**（`nd∈[36,39]`、`|s|=nd−k∈[20,23]`）：`|s|=20` hit 5198、`|s|=21` hit 5223（全干净），`|s|=22` hit 3120 + `prod_gt128` 2168，`|s|=23` 多数被后游位宽诚实拒。故本刀按高风险切片单独授权交付。
+
+**放行面**＝band_neg（`s=k−nd<0`、`k∈{16,17}`、`κ==0` 恒成立）中 `κ==0 ∧ A≤2^128 ∧ |s|≥1`。面内 `A≤2^128 ⇒ nd≤39 ⇒ |s|≤nd−k≤23`，`|s|≥24`（除数需三字）**天然不可达**，无需三字长除。`|s|≤19` 仍走 6c-4a/4b 单条 `div` 快路；`|s|≥20` 除数 `d=10^|s|>2^64` 取 **2 字**（`P10I[t]` 双字 lo/hi），走新支 `ds_intdiv_big`。`A<2^128`、`d≥10^20≈2^66.4` ⇒ 商 `q=A//d<2^57` **恒落单字**，且二进制恢复法前缀商单调 ≤ 最终商 `<2^57<2^64` ⇒ 全程仅需 1 个 64 位 `q` 寄存器（无 `q_hi`）。
+
+**机器码** `src/mbc/native_elf.py`：`ds_intdiv` 去 `cmp r14,19 ⇒ JG ds_rej`，改为 `JG ds_intdiv_big`（`|s|≥20` 转长除）。新支 `ds_intdiv_big`＝**定长 128 次二进制恢复长除**：装 `rsi/rdi=d(10^t 双字)`、`rdx:rax=A(128 位)`、`r8:r9=R=0`、`r10=q=0`、`r14=128`；每轮组合移位 `shl rax,1 → rcl rdx,1 → rcl r8,1 → rcl r9,1`（被除数最高位入余数最低位）、`add r10,r10`（q<<=1），128 位 `cmp r9,rdi / jb / jne / cmp r8,rsi / jb` 后 `sub r8,rsi; sbb r9,rdi; add r10,1` 恢复；循环毕 `R=A mod d` 与 `half=d>>1`（`shrd rax,rdx,1 / shr rdx,1`）比做 half-even 舍入（`R>half⇒q+1`、`R==half⇒q+=q&1`）；`E=q≤0` 防御拒、`SR(_SE)`、`_SIRES=1`、`jmp ds_after_E`。只用 `rax/rdx/rsi/rdi/r8/r9/r10/rcx+r14`，**不动 `r13`(k)**。
+
+**关键坑（对拍暴露·后游 `ds_crit_cmp` 一处界修正）**：`|s|≥21`（`nd≥37`）大整数带 ulp 指数 `sh=he≈70>68`，命中既有 `ds_crit_cmp` 的 `thr_gt128` 保守界（`cmp r14,68 ⇒ JG ds_rej`）——该界在 **k=1 的 mulsd 候选**阶段即把整值判死，永远走不到整数支 `ds_intdiv`。勘察坐实此界**严于模型**：`crit_strict` 的 u≥0 支（`rhs10=1`）用 `rhs_e≥128⇒拒`（`T=1<<sh≤2^127` 恒落 128 位内），仅 u<0（`rhs10=10^t` 单字）才需 `sh≤68`。故按 `rhs10==1`（恰 u≥0 全支，line 1157 恒置）分流放宽至 `sh≤127`（镜像模型），`rhs10≠1` 保留 `68` ⇒ 既有语料零回归。此修正与 `ds_intdiv_big` 同为放行所必需，属面内判定纪律对齐，非扩面。
+
+模型（`_int_E16` s<0 支）去 `-s>19` 守卫、加镜像 prologue 的 `A>2^128 ⇒ band_neg` 守卫；`.trae/_c4c_repr.py` 真值=repr 坐实：`|s|∈[20,23]` 定向/连续段/负镜像逐例==`repr(abs)` **BAD=0**、守卫一致性偏差 0、4a/4b + `build_subset` 零回归（ok=39176）、`|s|≥22` 中 `prod_gt128` 者期望仍如实拒。`.trae/_c4c_sim.py`/`_c4c_sim3.py`：任意精度与 64 位寄存器级双复刻 vs 模型 MISMATCH=0。
+
+验证：
+- **oracle**（`.trae/pc_dso_oracle.py`，WSL 实跑逐字节对拍，补 `|s|≥20` 定向正/负例 + `1e36/1e38` 连续段 + 随机 36–38 位 + 负大整数镜像）：**OK=1102 / 如实拒=115 / 失败 0**（较 6c-4b 的 OK=915 净增 187 OK，`|s|≥20` 大整数带现逐字节==repr）。
+- **Gate**（`run_native_elf.py`）：**44 正（+c31_float_intdiv_a_gt_2p120，含 `8.746581416458314e35/1.234567890123456e36/1.3579246801357925e37/7.777777777777777e37` 与负号）+ 15 拒 + 5 越界 + 2 档空洞，失败 0**（原 43 正零回归）。
+- **三门禁全绿**：native pytest 1032 passed、`dep_audit` 违规 0/越界 0、`test_doc_facts`/`test_kernel_purity`/`test_ast_vm_gap` 43 passed。
+- `objdump -D -b binary -m i386:x86-64` 逐指令核对 `ds_intdiv_big`（`shl/rcl×3` 进位链、`add r10,r10`、128 位 `cmp/sbb`、half `shrd/shr`、tie 分支、寄存器纪律不动 `r13`）。
+
+`core_py_lines` 34,133→**34,197**（净 +64）。**6c-4（band_neg 大整数长除族）至此真收官**（4a `A<2^64`／4b `A≤2^128,|s|≤19`／4c `|s|≥20` 128÷128 长除，全带 `κ==0∧A≤2^128∧|s|≤23` 交付）。
+
 ## native 跨平台 P-c2 S3c-6c-4b：**`s<0` 大整数档长除支 `ds_intdiv` 解锁 `A≤2^128`（128÷64→单条 `div`）**（6c-4 第二刀·放开 6c-4a 的 `A<2^64` 限制）（阶段3-3 ④ native 跨平台）
 
 6c-4b 面＝band_neg 中 `A∈(2^64,2^128] ∧ κ==0 ∧ |s|≤19`（约占 band_neg 的 74%，解锁主体）。**语义勘察**坐实两点：① prologue（`native_elf.py` line 999-1000）以 `exp2>75 ⇒ A>128 位 ⇒ 如实拒` 为硬上界，而 `|s|≤19 ⇒ nd≤36 ⇒ |v|<1e36<2^120 ⇒ exp2≤68`，**新面全落 prologue 已 admit 区、`_SAHI`（hi=mant<<(exp2−64)，line 1015-1023）已正确填**；② 几何恒 `Ahi<d`（`Ahi/d≈10^k/2^64≪1`），128 位被除数用 **x86 `div` 原生 `rdx:rax÷d` 单条指令**直接成立（无需两步），只要 `rdx=Ahi<rsi=d` 即无 `#DE`，商 `q=A//d<2^64` 落 `rax`。
