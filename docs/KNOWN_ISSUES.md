@@ -244,6 +244,17 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   被改写为 `func (x + y) -> Int`，丢失函数名）。这属未背书优化器的**输出正确性**缺陷（本
   节降级范围，不入门禁背书）；6f-D 仅锁其经 `UnifiedGrowth.self_grow` 的**四属性交接契约与不
   裸抛**（见 `tests/test_growth_subsystems_lock.py`），不背书改写结果。正确性修复另立轨道。
+- **阶段 7·P1 更新（坏码底线已打死）**：为 `MathaGrowthEngine.grow` 加装不可绕过的**正确性闸门**
+  （`_is_safe_candidate`：出码须 ①能被重新解析、②守恒原文已绑定的顶层名字 `Binding`/`FuncDef`）；
+  未过闸门的候选**诚实回退**上一安全版本（`optimizations_applied` 置空、记 `errors`、不前传）。
+  由此上条 `func` 丢名（元凶 A）与 `y = 3.0 + 4.0 → 7.0 = 7.0` 赋值退化为裸等式（元凶 B）两类
+  **坏源码**已由 `tests/test_growth_optimizer_correctness.py` 入门禁封死——**只保证「绝不出坏码」，
+  仍不背书优化的有效性/更快**（P2 修规则、P3 逐规则语义对拍，各自另立片）。合法三角折叠（`sin²+cos²
+  → 1`，绑定名不变）经闸门照常放行。
+- **新发现 phantom（阶段 7 登记）**：`MathaGrowthEngine._verify` 把 `improved`(str) 误当
+  `CrossLanguageVerifier.verify` 的 `sources` 参数传入，`verify` 内执行 `sources.items()`——字符串无
+  `.items()` → 抛异常被 `except` 吞 → `cross_language_consistent` **恒 False**；且 `verify` 本意是
+  「同算法×多语言前端」互拍、非「改写是否保持原文语义」。故 P1 闸门不依赖 `_verify`，其本身修正另立切片。
 - 已上锁的只有内核侧自动修复契约：`src/autonomous.py` 的 `AutoDebugger`/优化/自生长
   由 `tests/test_integration/test_auto_debug_e2e.py` 等 3 个 e2e 文件覆盖，不属本节降级范围。
 

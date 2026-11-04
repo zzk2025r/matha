@@ -57,7 +57,13 @@ class MathaGrowthEngine:
         self._verifier = CrossLanguageVerifier()
 
     def grow(self, source: str) -> GrowthReport:
-        """主入口：迭代优化源码。"""
+        """主入口：迭代优化源码。
+
+        正确性闸门（P1·只保证「绝不出坏源码」，不承诺优化有效）：每一轮候选改写
+        必须 ①能被重新解析、②不丢失原文已绑定的名字（Binding 变量 / FuncDef），
+        否则回退上一安全版本、如实置空本轮 optimizations_applied，停止前传。
+        闸门只作用于此「前传决策」，_single_growth_iteration 保持原样（不改写规则本身）。
+        """
         report = GrowthReport(iteration=0, source=source)
         current = source
 
@@ -65,7 +71,23 @@ class MathaGrowthEngine:
             report = self._single_growth_iteration(current, iteration)
             if not report.optimizations_applied:
                 break
-            current = report.improved_source
+            candidate = report.improved_source
+            if not self._is_safe_candidate(current, candidate):
+                # 诚实回退：本轮改写未过闸门，保留上一安全版本，绝不产出坏源码。
+                report = GrowthReport(
+                    iteration=iteration,
+                    source=current,
+                    diagnostics=report.diagnostics,
+                    optimization_suggestions=report.optimization_suggestions,
+                    improved_source=current,
+                    optimizations_applied=[],
+                    errors=[
+                        f"第 {iteration} 轮改写未通过正确性闸门，已回退"
+                        "（不产出不可解析 / 丢失已绑定名字的源码）"
+                    ],
+                )
+                break
+            current = candidate
 
         report.improved_source = current
         return report
@@ -131,12 +153,55 @@ class MathaGrowthEngine:
         return improved, applied
 
     def _verify(self, original: str, improved: str) -> bool:
-        """交叉语言验证：对比原始与优化后的一致性。"""
+        """交叉语言验证：对比原始与优化后的一致性。
+
+        ⚠ 已知 phantom（见 KNOWN_ISSUES.md §7c）：本方法把 `improved`(str) 当作
+        `CrossLanguageVerifier.verify` 的 `sources` 参数传入，而 verify 内部执行
+        `sources.items()`——字符串无 `.items()` → 抛异常被 except 吞 → 恒返回 False。
+        且 verify 的语义本是「同算法×多语言前端」互拍，非「改写是否保持原文语义」。
+        因此 `cross_language_consistent` 是不可靠信号，grow 的正确性判定**不依赖**它，
+        改由 `_is_safe_candidate` 的两档硬底线承担。修正 _verify 本身另立切片。
+        """
         try:
             result = self._verifier.verify(original, improved)
             return result.consistent
         except Exception:
             return False
+
+    def _is_safe_candidate(self, original: str, improved: str) -> bool:
+        """正确性闸门：判定候选改写是否「绝不出坏源码」。
+
+        Tier 1：`improved` 必须能被重新解析（否则产出语法坏码，如函数名被删）。
+        Tier 2：`improved` 不得丢失 `original` 已绑定的顶层名字（Binding 变量 / FuncDef），
+                防「赋值声明退化为裸表达式」这类能过 parser 却语义腐蚀的改写。
+        原文本就不可解析时，无从谈保持语义，仅要求 `improved` 至少可解析。
+        """
+        if improved == original:
+            return True
+        from src.parser import parse
+        try:
+            prog_i = parse(improved)
+        except Exception:
+            return False
+        try:
+            prog_o = parse(original)
+        except Exception:
+            return True
+        return self._bound_names(prog_o) <= self._bound_names(prog_i)
+
+    @staticmethod
+    def _bound_names(program) -> set[str]:
+        """收集顶层已绑定/声明的名字：Binding(Variable) 与 FuncDef。"""
+        from src import ast_nodes as _ast
+        names: set[str] = set()
+        for d in getattr(program, "decls", []):
+            if isinstance(d, _ast.Binding) and isinstance(d.target, _ast.Variable):
+                names.add(d.target.name)
+            elif isinstance(d, _ast.FuncDef):
+                fname = getattr(d, "name", None)
+                if isinstance(fname, str):
+                    names.add(fname)
+        return names
 
     # ================================================================
     # 优化规则实现
