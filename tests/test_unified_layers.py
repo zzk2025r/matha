@@ -902,6 +902,112 @@ class TestUnifiedGrowthDeep:
 
 
 # ============================================================
+# 12b. UnifiedGrowth 包装委派契约锁（阶段 6e·补全）
+# ============================================================
+
+class TestUnifiedGrowthWrapperLocks:
+    """锁定 UnifiedGrowth 各包装方法对子系统真实委派契约。
+
+    过往 4 处 phantom（GrowthEngine 构造参数 / list_formulas 名字当对象 /
+    FormulaFictionalizer 幽灵导入 / get_current_version 的 _registry 属性错误）均潜伏在
+    **无锁包装方法**里——因为它们只测了 fallback、未跑真实路径。本类对每个包装方
+    法做**真实离线冒烟**（能像人工排查那样抓出属性/参数错配），对会写文件的
+    devour* 用桩注入只锁 record→dict 映射契约。只锁接线，不背书子系统输出正确性。
+    """
+
+    # ── 公式编译：真实走 FormulaCompiler.compile_formula 并校验 result 属性名 ──
+    def test_compile_formula_wired(self):
+        from src.unified_growth import UnifiedGrowth
+        from src.formula_system import get_formula_registry
+        reg = get_formula_registry()
+        if not list(reg.list_formulas()):
+            reg.register_geometric_defaults()
+        name = next(iter(reg.list_formulas()))
+        ug = UnifiedGrowth()
+        r = ug.compile_formula(name)  # 旧隐患：result.python_code/.optimizations 等属性名错配会被吞成 error
+        assert isinstance(r, dict)
+        assert {"success", "name", "python", "c", "optimizations", "error"} <= set(r)
+        assert r["success"] is True and r["name"] == name
+
+    # ── 公式生长：真实走 FormulaGrowthEngine.compose 并锁 schema ──
+    def test_formula_grow_compose_wired(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        r = ug.formula_grow("compose", names=[])
+        assert isinstance(r, dict)
+        assert r["success"] is True and "results" in r  # 旧隐患：DomainFormulaRegistry/registry._formulas 错配
+
+    # ── get_current_version：锁定不再走 _registry phantom 属性、取唯一版本源 ──
+    def test_get_current_version_from_single_source(self):
+        from src.unified_growth import get_current_version
+        from src.__version__ import __version__
+        assert get_current_version() == __version__  # 旧缺陷：恒回退硬编码 "1.0.0"
+
+    # ── devour/devour_file：桩注入锁 record→dict 映射（避免写文件副作用）──
+    def _stub_bridge(self, growth):
+        class _Fn:
+            name = "f"
+            generated = "func f() = 1"
+            body = "1"
+
+        class _Rec:
+            success = True
+            verified = True
+            written = False
+            steps = ["parse", "gen"]
+            error = None
+            functions = [_Fn()]
+            def summary(self):
+                return "devoured 1 fn"
+
+        class _Stub:
+            def __init__(self):
+                self.calls = []
+            def devour(self, lang, source, module_name):
+                self.calls.append(("devour", lang, source, module_name)); return _Rec()
+            def devour_file(self, path, module_name):
+                self.calls.append(("devour_file", path, module_name)); return _Rec()
+            def fuse(self, record):
+                return True
+
+        stub = _Stub()
+        growth._bridge = stub
+        return stub
+
+    def test_devour_wrapper_maps_record(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        stub = self._stub_bridge(ug)
+        r = ug.devour("python", "def f(): return 1", "m")
+        assert stub.calls == [("devour", "python", "def f(): return 1", "m")]
+        assert r["success"] is True and r["verified"] is True
+        assert r["functions"][0]["name"] == "f" and r["summary"] == "devoured 1 fn"
+
+    def test_devour_file_wrapper_maps_record(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        stub = self._stub_bridge(ug)
+        r = ug.devour_file("x.py", "m")
+        assert stub.calls == [("devour_file", "x.py", "m")]
+        assert isinstance(r, dict) and r["success"] is True
+
+    # ── 插件市场：真实离线冒烟，锁返回类型与诚实降级（不联网、remote=False）──
+    def test_market_wrappers_honest_types(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        assert isinstance(ug.search_packages("arithmetic", remote=False), list)
+        assert isinstance(ug.get_package_info("__nope__"), str)
+        assert isinstance(ug.rate_package("__nope__", 5), bool)
+        rating = ug.get_package_rating("__nope__")
+        assert isinstance(rating, dict) and "average" in rating and "count" in rating
+        assert isinstance(ug.check_updates(), list)
+        assert isinstance(ug.get_dependency_tree("__nope__"), dict)
+        assert isinstance(ug.check_conflicts(["__nope__"]), list)
+        # dry_run + 不存在包 → 不触发安装、空列表
+        assert isinstance(ug.upgrade_packages("__nope__", dry_run=True), list)
+
+
+# ============================================================
 # 13. 诊断深入测试
 # ============================================================
 

@@ -502,12 +502,15 @@ def apply_remote_upgrade(server_url: str, current_version: str) -> dict:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 def get_current_version() -> str:
-    """获取当前版本。"""
+    """获取当前版本（取自唯一版本源 `src.__version__`）。
+
+    过去读 `ug._growth_engine._registry._formulas.get("version")`，但 `GrowthEngine` 并无
+    `_registry` 属性 → 每次 AttributeError 被 `except` 吞掉、恒回退硬编码 "1.0.0"（与实际
+    版本矛盾的 phantom 属性访问）。现直接取唯一版本源；保留异常退路但不依赖不存在的属性。
+    """
     try:
-        from src.unified_growth import get_unified_growth
-        ug = get_unified_growth()
-        ug._ensure_initialized()
-        return ug._growth_engine._registry._formulas.get("version", "1.0.0")
+        from src.__version__ import __version__
+        return __version__
     except Exception:
         return "1.0.0"
 
