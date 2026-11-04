@@ -30,8 +30,8 @@ def _get_matha_growth():
         return None
 def _get_inner_loop():
     try:
-        from src.inner_loop import InnerLoop
-        return InnerLoop
+        from src.inner_loop import MathaInnerLoop
+        return MathaInnerLoop
     except ImportError:
         return None
 def _get_original_growth():
@@ -103,8 +103,11 @@ class UnifiedGrowth:
                 self._matha_growth = cls()
         if self._inner_loop is None:
             cls = _get_inner_loop()
-            if cls and self._interp:
-                self._inner_loop = cls(self._interp)
+            if cls:
+                # MathaInnerLoop.__init__ 无参（自含解释器）；若统一层已有 interp 则注入共享。
+                self._inner_loop = cls()
+                if self._interp is not None:
+                    self._inner_loop._interp = self._interp
         if self._original is None:
             self._original = _get_original_growth()
         if self._formula_growth is None:

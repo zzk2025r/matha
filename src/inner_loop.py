@@ -1127,6 +1127,54 @@ class MathaInnerLoop:
         result = self.run_cycle(verbose=verbose)
         return result
 
+    def run(self, task: str, max_rounds: int = 3, verbose: bool = False) -> dict:
+        """语义包装：驱动闭环自改进为一项任务服务（unified_growth 适配契约·阶段 6d §五）。
+
+        这是 `UnifiedGrowth.run_inner_loop(task, max_rounds)` 真正接入本循环的入口，
+        取代过去恒返回「inner_loop 不可用」的 phantom 通道。语义：
+          1. 惰性初始化：仅当核心模块缺失时尝试 `init_modules`（失败则诚实降级、绝不抛）；
+          2. 至多跑 `max_rounds` 轮 `run_cycle`；命中「健康短路」（run_cycle 仅返回
+             diagnosis 且 status==healthy）即提前收敛，避免空转；
+          3. 返回稳定 schema，任何单轮异常被吞并记入 results，整体不抛。
+
+        纪律：本包装**不**把 task 注入感知缓冲——task 仅作结果元数据透传，避免污染
+        交互/健康分而破坏短路语义。锁定见 tests/test_inner_loop_lock.py::L14。
+        """
+        if self._engine is None:
+            try:
+                self.init_modules()
+            except Exception as e:  # 诚实降级：初始化失败仍返回可解析结果，不抛
+                logger.warning("  [内循环] init_modules 失败，降级运行: %s", e)
+        try:
+            n = max(1, int(max_rounds))
+        except (TypeError, ValueError):
+            n = 1
+        rounds_run = 0
+        stopped_early = False
+        results: list[dict] = []
+        for _ in range(n):
+            try:
+                r = self.run_cycle(verbose=verbose)
+            except Exception as e:  # 单轮崩不拖垮整体
+                results.append({"error": str(e)})
+                break
+            rounds_run += 1
+            results.append(r)
+            # 健康短路：run_cycle 仅返回 diagnosis（无 actions）且已 healthy → 收敛
+            if "actions" not in r and r.get("status") == "healthy":
+                stopped_early = True
+                break
+        return {
+            "success": True,
+            "task": task,
+            "rounds_run": rounds_run,
+            "stopped_early": stopped_early,
+            "health_score": self._state.health_score,
+            "status": self._state.status,
+            "cycle_count": self._state.cycle_count,
+            "results": results,
+        }
+
     def start_loop(self, interval: float = 30.0, verbose: bool = True):
         """启动持续内循环模式（后台线程）。"""
         self._interval = interval

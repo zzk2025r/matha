@@ -832,14 +832,27 @@ class TestUnifiedGrowthDeep:
         assert isinstance(result, dict)
         assert "success" in result
 
-    def test_run_inner_loop_fallback(self):
-        """run_inner_loop 降级路径。"""
-        from src.unified_growth import get_unified_growth
-        growth = get_unified_growth()
-        # inner_loop 可能不可用，应返回错误
+    def test_run_inner_loop_wired(self):
+        """run_inner_loop 已真正接入 inner_loop（阶段 6d 适配桥）：注入桩验证委派，不触发重型 init_modules。"""
+        from src.unified_growth import UnifiedGrowth
+
+        class _StubInner:
+            def __init__(self):
+                self.calls = []
+
+            def run(self, task, max_rounds=3):
+                self.calls.append((task, max_rounds))
+                return {"success": True, "task": task, "rounds_run": max_rounds,
+                        "stopped_early": True, "health_score": 100.0,
+                        "status": "healthy", "cycle_count": max_rounds, "results": []}
+
+        growth = UnifiedGrowth()
+        stub = _StubInner()
+        growth._inner_loop = stub
         result = growth.run_inner_loop("简单任务", max_rounds=1)
         assert isinstance(result, dict)
-        assert "success" in result
+        assert result["success"] is True
+        assert stub.calls == [("简单任务", 1)]
 
     def test_backward_compat_exports(self):
         """向后兼容的导出。"""
