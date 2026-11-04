@@ -83,6 +83,10 @@ class UnifiedGrowth:
         self._domain_formula = None
         self._formula_compiler = None
         self._auto_created_interp = False
+        # 原始 growth 子系统的持久注册表（阶段 6f-D 修复：过去每次新建后即弃、无法查询）。
+        self._extension_registry = None
+        # 注册时附带的可调用对象（旧缺陷：func 参数被完全忽略；现如实保留、可查）。
+        self._extension_callables: dict = {}
     def _ensure_initialized(self):
         # 解释器：供 probe/sandbox/upgrade 共享；缺失则自动创建（与是否构建引擎无关）。
         if self._interp is None:
@@ -318,21 +322,40 @@ class UnifiedGrowth:
         }
     # ── 原始扩展注册 ───────────────────────────────────────────────────────
     def register_extension(self, name: str, func) -> bool:
-        """注册扩展功能。"""
+        """注册扩展功能（阶段 6f-D 最小诚实修复）。
+
+        旧缺陷：每次新建临时 `ExtensionRegistry()`、注册后即弃（无任何查询面能取回），
+        且完全忽略传入的 `func`（`Extension` 模型只走 module.class_name 动态导入），却返回
+        True——属与 fictionalize 同族的「声称做成、实则未接线」。现把注册表持久化到实例、
+        并将调用方的 func 如实保留，两者均可经 `list_extensions()` / `get_extension_callable()` 查回。
+        （`Extension` 模型仍不支持直接可调用体，故 func 只作保留/可查，不参与 `get_instance` 动态加载。）
+        """
         self._ensure_initialized()
-        if self._original and "ExtensionRegistry" in self._original:
-            try:
-                from src.growth import Extension
-                registry = self._original["ExtensionRegistry"]()
-                ext = Extension(
-                    name=name, kind="generator", module="",
-                    class_name="", description=f"Auto-registered: {name}",
-                )
-                registry.register(ext)
-                return True
-            except Exception:
-                return False
-        return False
+        if not (self._original and "ExtensionRegistry" in self._original):
+            return False
+        try:
+            from src.growth import Extension
+            if self._extension_registry is None:
+                self._extension_registry = self._original["ExtensionRegistry"]()
+            ext = Extension(
+                name=name, kind="generator", module="",
+                class_name="", description=f"Auto-registered: {name}",
+            )
+            self._extension_registry.register(ext)
+            self._extension_callables[name] = func   # 旧缺陷中被静默丢弃的调用方，现如实保留
+            return True
+        except Exception:
+            return False
+
+    def list_extensions(self) -> list[dict]:
+        """查询已注册扩展（旧缺陷里临时 registry 每次即弃、无从查询）。"""
+        if self._extension_registry is None:
+            return []
+        return self._extension_registry.list_extensions()
+
+    def get_extension_callable(self, name: str):
+        """取回注册时附带的可调用对象（旧缺陷：func 被忽略、无从取回）。"""
+        return self._extension_callables.get(name)
     # ── 插件市场 ──────────────────────────────────────────────────────
     def search_packages(self, query: str, remote: bool = False) -> list[dict]:
         self._ensure_initialized()
