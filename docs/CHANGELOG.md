@@ -183,6 +183,35 @@ P6e 接入原生执行器试点·RV32I 端到端语义闭环（将上方插件�
 - **零改动红线**：本步为纯验证侧新增（适配器与测试），未改内核、未改执行器 `rv32sim`、未改插件与 `src/dynamics/interface.py`。
   `tests/test_plugin_algebra_dynamics.py` 新增 6 项，单文件 547 项全绿。**全量门禁 4735/4735、失败 0。**
 
+成长闭环·编排契约与诚实降级锁（阶段 6d–6f；口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) §7c）：
+
+- **溯源如实**：被编排的子系统（`src/unified_growth.py` 本体、`src/growth_engine.py`、
+  `src/inner_loop.py`、`src/domain_formula.py`、`src/language_bridge.py`、`src/pkg_manager.py`）为**既有实现**，
+  其历史提交未以「阶段 6a–6c」编号（全仓 `阶段6*` 标签最早只到 6d）；本轮可核实的交付是阶段 6d–6f——
+  为上述顶层编排器补上 `make check` 级接线/降级锁并修四类 phantom，不把既有子系统冒称本轮新造。
+- **定位**：把顶层编排器 `UnifiedGrowth`（串 selfupgrade / growth / matha_growth / inner_loop / 领域公式 /
+  语言桥 / 插件市场）的**编排契约与诚实降级**纳入 `make check` 门禁；沿用 §7c 降级——**不背书**其 AI
+  前端 / 市场 / HAL / 优化器的**输出正确性**，只锁接线正确、schema 稳定、子系统缺席时如实降级、绝不裸抛；
+  成长链仍不经 L1 内核入口。
+- **修复四类 phantom 接线缺陷**（阶段 6e）：① `get_growth_stats` 曾把 Interpreter 误当 assistant 传入
+  `GrowthEngine` → 内部触 `.parser` 报错（改用工厂 `create_growth_engine()`）；② `FormulaRegistry.list_formulas()`
+  返回名字 `list[str]` 却被当 `Formula` 对象迭代 `f.domain/f.free_vars()`（改迭代 `_registry._formulas.values()`）；
+  ③ `fictionalize` 依赖全库不存在的幽灵导入 `src.matha.growth.FormulaFictionalizer`（改诚实拒绝、不伪造成功）；
+  ④ `get_current_version` 读不存在的 `_growth_engine._registry`、被 `except` 吞而恒回退硬编码版本（改取唯一版本源
+  `src.__version__`）。
+- **inner_loop 适配桥落地**（阶段 6d）：`run_inner_loop` 真正接入闭环自改进，此前恒报「不可用」。
+- **`register_extension` 最小诚实修复**（阶段 6f-D）：过去每次新建临时 `ExtensionRegistry` 后即弃、且完全忽略
+  传入的 `func` 却返回成功；现持久化注册表、新增 `list_extensions()` / `get_extension_callable()` 可查、`func`
+  如实保留（`Extension` 模型仍不支持可调用体，仅保留不加载）。
+- **新增离线回归锁（均在 `make check` 的 `pytest tests` 内）**：`tests/test_ai_e2e_pipeline.py`（chat 编排契约 +
+  chat→inner_loop 感知 E2E）、`test_growth_subsystems_lock.py`（selfupgrade / growth 直接 API 面，此前零测试）、
+  `test_growth_loop_e2e.py`（单实例顺序驱动整链 + 把「仅断返回类型」的弱契约升级为桩引擎「真实委派发生 +
+  参数/结果透传」强契约 + monkeypatch 可选子系统缺席的诚实降级）、`test_growth_delegation_audit.py`（24 公开
+  包装→委派目标×锁落点审计表 + 完整性守卫：新增/改名公开包装不登记即红）。
+- **如实登记未背书项**：`MathaGrowthEngine.grow` 对 `func` 源码做常量折叠/死代码消除会改写到语义破损
+  （实测丢函数名），属未背书优化器输出正确性，仅锁其经 `self_grow` 的四属性交接契约与不裸抛，正确性修复
+  另立轨道（§7c）。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，
