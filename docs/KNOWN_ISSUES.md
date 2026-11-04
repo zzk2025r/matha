@@ -234,7 +234,11 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 ### 7c. AI 前端（`src/ai_assistant*.py`、`src/openai_compat_server.py`、`src/ai_framework.py`）
 
 - 实测零 `tests/` 引用（grep 无命中），README 亦无 AI 助手功能主张——属仓库内
-  未背书代码，保留不删，不入门禁。
+  未背书代码，保留不删；其**输出正确性不入门禁**（编排/诚实锁见下条）。
+- **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
+  契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
+  入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
+  故五个前端文件的「未背书 / P2 降级」横幅保留不变——本通道属「接线已锁、结果不背书」。
 - 已上锁的只有内核侧自动修复契约：`src/autonomous.py` 的 `AutoDebugger`/优化/自生长
   由 `tests/test_integration/test_auto_debug_e2e.py` 等 3 个 e2e 文件覆盖，不属本节降级范围。
 
