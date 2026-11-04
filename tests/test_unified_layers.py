@@ -854,6 +854,41 @@ class TestUnifiedGrowthDeep:
         assert result["success"] is True
         assert stub.calls == [("简单任务", 1)]
 
+    # ── 阶段 6e 修复锁：GrowthEngine 接线 / domain_formula 对象迭代 / fictionalize 诚实拒绝 ──
+    def test_get_growth_status_wired(self):
+        """6e：GrowthEngine 经 create_growth_engine 正确接线后 get_growth_status 不再抛 AttributeError。"""
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        st = ug.get_growth_status()  # 旧缺陷：Interpreter 被当 assistant → 'Interpreter' has no 'parser'
+        assert isinstance(st, dict)
+        assert "engine_defects" in st and "resources_audited" in st
+
+    def test_domain_formula_summary_real_numbers(self):
+        """6e：domain_formula_summary 改迭代 Formula 对象后返回真实统计、不再吞成 error。"""
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        s = ug.domain_formula_summary()
+        assert "error" not in s
+        assert s["loaded_domains"] > 0
+        assert s["total_formulas"] > 0
+        assert isinstance(s["summary"], str) and "领域公式注册总览" in s["summary"]
+
+    def test_domain_formula_cross_links_no_raise(self):
+        """6e：get_cross_domain_links 同修 str/对象误用后返回 dict（不再 'str' has no 'free_vars'）。"""
+        from src.domain_formula import DomainFormulaRegistry
+        reg = DomainFormulaRegistry()
+        reg.register_all_domains()
+        assert isinstance(reg.get_cross_domain_links(), dict)
+
+    def test_fictionalize_honest_refusal(self):
+        """6e：fictionalize 幽灵依赖清除后如实拒绝、绝不抛 ImportError。"""
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        r = ug.fictionalize("计算两个质量之间的万有引力")  # 旧缺陷：每次抛 ImportError
+        assert isinstance(r, dict)
+        assert r["success"] is False
+        assert "FormulaFictionalizer" in r["error"] and "formula_grow" in r["error"]
+
     def test_backward_compat_exports(self):
         """向后兼容的导出。"""
         from src.unified_growth import (
