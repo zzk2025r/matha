@@ -203,6 +203,40 @@ class MathaGrowthEngine:
                     names.add(fname)
         return names
 
+    def _semantic_equivalent(self, original: str, improved: str) -> bool:
+        """语义等价正交判据（P2-0 harness）：分别独立运行原文与改写文，比对可观测 outputs。
+
+        唯一正交标准（拍板）：在一次性解释器上各跑一遍：
+          - 原文运行出错 → 无法作为基准 → 判 False；
+          - 改写文运行出错 → 破坏原行为 → 判 False；
+          - 两者均成功且 outputs 逐项相等 → 判 True，否则 False。
+        纯离线、无文件副作用、不触 L1 内核入口。**仅作验证 harness**，不接入 grow()
+        运行路径（grow 仍由 P1 闸门的再解析/名守恒兼底）。
+        """
+        o_out, o_err = self._exec_outputs(original)
+        if o_err is not None:
+            return False
+        i_out, i_err = self._exec_outputs(improved)
+        if i_err is not None:
+            return False
+        return o_out == i_out
+
+    @staticmethod
+    def _exec_outputs(source: str):
+        """在一次性全新解释器上跑 source，返回 (outputs, error|None)。
+
+        每次新建 Interpreter，实例间不共享可变状态（杜绝用例间污染）。
+        解析或运行期异常均被捕获为 error 字符串，不裸抛。
+        """
+        try:
+            from src.interp import Interpreter
+            from src.parser import parse
+            interp = Interpreter(debug=False)
+            outputs, _trace = interp.run(parse(source))
+            return outputs, None
+        except Exception as ex:
+            return None, f"{type(ex).__name__}: {ex}"
+
     # ================================================================
     # 优化规则实现
     # ================================================================
