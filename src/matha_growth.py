@@ -24,6 +24,13 @@ from src.cross_language_verifier import CrossLanguageVerifier
 
 logger = logging.getLogger("matha.growth")
 
+# P2-1 算术恒等式正则构件（首批仅 7 条、不泛化）：
+#   操作数限定为标识符（变量名）；恒等元限定为裸整数 0/1（前后字界，绝不碰 0.5/10/11//）。
+_ARITH_BOUND = r'(?<![\w.])'
+_ARITH_NAME = r'[^\W\d]\w*'
+_ARITH_ZERO = r'(?<![\w.])0(?![\d.])'
+_ARITH_ONE = r'(?<![\w.])1(?![\d.])'
+
 
 # ============================================================
 # 成长结果
@@ -128,6 +135,9 @@ class MathaGrowthEngine:
         """应用所有优化规则。"""
         improved = source
         applied = []
+
+        improved, n = self._apply_arith_identities(improved)
+        if n: applied.append(f"算术恒等式 × {n}")
 
         improved, n = self._apply_const_folding(improved)
         if n: applied.append(f"常量折叠 × {n}")
@@ -240,6 +250,67 @@ class MathaGrowthEngine:
     # ================================================================
     # 优化规则实现
     # ================================================================
+
+    def _apply_arith_identities(self, source: str) -> tuple[str, int]:
+        """P2-1：首批 7 条简单算术恒等式（恒等元消去），纯正则、不泛化。
+
+        x+0→x、x-0→x、0+x→x、1*x→x、x*1→x、x/1→x、x**1→x。
+        仅作用于双引号字符串之外的子表达式；左操作数限定为标识符，恒等元限定为
+        裸整数 0/1（带字界）。`*` 与 `**` 互不误伤；`/` 不碰整除 `//`。
+        改写结果经 P1 闸门与语义等价 harness 双重验收；本规则按构造保守、正确。
+        """
+        improved = source
+        total = 0
+        rules = [
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*\+\s*{_ARITH_ZERO}', r'\1'),   # x + 0
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*-\s*{_ARITH_ZERO}', r'\1'),    # x - 0
+            (rf'{_ARITH_ZERO}\s*\+\s*({_ARITH_NAME})', r'\1'),                 # 0 + x
+            (rf'{_ARITH_ONE}\s*\*(?!\*)\s*({_ARITH_NAME})', r'\1'),            # 1 * x
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*\*(?!\*)\s*{_ARITH_ONE}', r'\1'),  # x * 1
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*/\s*{_ARITH_ONE}', r'\1'),     # x / 1
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*\*\*\s*{_ARITH_ONE}', r'\1'),  # x ** 1
+        ]
+        for pattern, repl in rules:
+            improved, c = self._sub_outside_strings(pattern, repl, improved)
+            total += c
+        return improved, total
+
+    @staticmethod
+    def _sub_outside_strings(pattern: str, repl: str, source: str) -> tuple[str, int]:
+        """在双引号字符串之外的区间执行 re.subn，字符串字面量原样保留（防误伤常量）。
+
+        未闭合的引号段一律原样保留（宁可不改，不可改错）。
+        """
+        parts: list[str] = []
+        total = 0
+        i = 0
+        n = len(source)
+        seg_start = 0
+        in_str = False
+        prev = ""
+        while i < n:
+            ch = source[i]
+            if ch == '"' and prev != "\\":
+                if not in_str:
+                    piece = source[seg_start:i]
+                    new_piece, c = re.subn(pattern, repl, piece)
+                    parts.append(new_piece)
+                    total += c
+                    in_str = True
+                    seg_start = i
+                else:
+                    parts.append(source[seg_start:i + 1])
+                    in_str = False
+                    seg_start = i + 1
+            prev = ch
+            i += 1
+        if in_str:
+            parts.append(source[seg_start:])
+        else:
+            new_tail, c = re.subn(pattern, repl, source[seg_start:])
+            parts.append(new_tail)
+            total += c
+        return "".join(parts), total
 
     def _apply_const_folding(self, source: str) -> tuple[str, int]:
         """常量折叠：x = 3.0 + 4.0 → x = 7.0"""
