@@ -115,3 +115,60 @@ class TestChainNeverRaises:
 
     def test_run_inner_loop_empty_task_returns_dict(self, ug):
         assert isinstance(ug.run_inner_loop(""), dict)
+
+
+# ============================================================
+# 6f-B：弱契约 → 强契约（断真实委派发生，而非仅断返回类型）
+# ============================================================
+
+class TestRealDelegationStrengthening:
+    """6e phantom 教训的反面：仅断 `isinstance(x, bool)` 无法区分“真委派”与
+    “碰巧返回同型”。本类用桩引擎坐实：包装确实把调用透传给子系统的对应方法、
+    参数原样到达、结果原样透出。仍只锁**接线**，不背书子系统输出正确性。"""
+
+    def test_run_growth_pipeline_delegates_to_engine(self):
+        """B2：run_growth_pipeline 必须委派 _growth_engine.run_upgrade_pipeline(source)
+        并透传其返回值（旧弱契约仅断 bool，无法证明委派真实发生）。"""
+        calls = []
+
+        class _StubEngine:
+            def run_upgrade_pipeline(self, patch_code):
+                calls.append(patch_code)
+                return "SENTINEL_FROM_ENGINE"
+            def get_growth_stats(self):
+                return {}
+
+        u = UnifiedGrowth()
+        u._ensure_initialized()            # 先建真实引擎，再换成桩（_growth_engine 非 None 则不重建）
+        u._growth_engine = _StubEngine()
+        assert u.run_growth_pipeline(VALID) == "SENTINEL_FROM_ENGINE"  # 结果透传
+        assert calls == [VALID]                                          # 真实委派发生、参数原样到达
+
+    def test_get_growth_status_delegates_to_engine(self):
+        """B2 同族：get_growth_status 必须透传 _growth_engine.get_growth_stats()。"""
+        sentinel = {"total_learned": 7, "total_failures": 2, "known_expressions": []}
+
+        class _StubEngine:
+            def get_growth_stats(self):
+                return sentinel
+            def run_upgrade_pipeline(self, patch_code):
+                return True
+
+        u = UnifiedGrowth()
+        u._ensure_initialized()
+        u._growth_engine = _StubEngine()
+        assert u.get_growth_status() is sentinel          # 直接委派、结果原样透出
+
+    def test_self_grow_success_schema_exact(self, ug):
+        """B3：self_grow 可用时返回**恰好 6 键**（与 unified_growth 定义对齐），不可用时 2 键。"""
+        r = ug.self_grow(VALID)
+        if r.get("success"):
+            assert set(r) == {"success", "report", "improved_source",
+                              "optimizations_applied", "diagnostics", "iteration"}
+        else:                                             # 降级分支也必须 schema 稳定
+            assert set(r) == {"success", "error"}
+
+    def test_self_grow_degraded_schema_exact(self, monkeypatch):
+        monkeypatch.setattr("src.unified_growth._get_matha_growth", lambda: None)
+        r = UnifiedGrowth().self_grow(VALID)
+        assert set(r) == {"success", "error"} and r["success"] is False
