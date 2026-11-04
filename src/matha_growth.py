@@ -347,13 +347,27 @@ class MathaGrowthEngine:
         return '\n'.join(improved_lines), count
 
     def _apply_const_propagation(self, source: str) -> tuple[str, int]:
-        """常量传播：a = 10; b = a + 1 → b = 10 + 1"""
+        r"""常量传播（P2-2 修正版）：仅把「整行右端恰为单一数字字面量」的绑定名传播到其**使用点**。
+
+        严格只做两件事（拍板），修掉元凶 B：
+          ① 纯字面量右端：全行锚定 `= [ \t]*(?!=)(\d+(?:\.\d*)?)[ \t]*$`，右端除单一数字外
+             不得有运算符 / 其它标识符——旧 `(\w+)\s*=\s*([\d.]+)` 把 `y = 3.0 + 4.0` 误读为 `3.0`；
+          ② 只替换使用点：用点正则带 `(?! [ \t]*=)` 前视，赋值左端绑定名与 `==` / `=>` 受保护，
+             并经 `_sub_outside_strings` 避开字符串字面量内部——旧 `re.sub` 连左端一起改写致 `7.0 = 7.0`。
+        数字字面量保守：仅 `\d+(\.\d*)?`，不认负号 / 前导点 / 科学计数（宁可不改）。
+        每条改写经 P1 闸门 `_is_safe_candidate` 与 P2-0 harness `_semantic_equivalent` 双验收。
+        """
         improved = source
         count = 0
-        const_defs = dict(re.findall(r'(\w+)\s*=\s*([\d.]+)', source))
-        for name, val in const_defs.items():
-            improved = re.sub(r'\b' + re.escape(name) + r'\b', val, improved)
-            count += 1
+        def_re = re.compile(
+            r'^[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*(?!=)(\d+(?:\.\d*)?)[ \t]*$',
+            re.MULTILINE,
+        )
+        for name, val in def_re.findall(source):
+            improved, c = self._sub_outside_strings(
+                rf'\b{re.escape(name)}\b(?![ \t]*=)', val, improved
+            )
+            count += c
         return improved, count
 
     def _apply_function_inlining(self, source: str) -> tuple[str, int]:
