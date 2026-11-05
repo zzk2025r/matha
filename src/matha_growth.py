@@ -8,10 +8,12 @@ Matha 自成长系统 v2 — 递归内联、循环展开、内存优化
   1. 常量折叠：x = 3.0 + 4.0 → x = 7.0
   2. 函数内联（单用）：def f(x): return x*x; f(3) → 3*3
   3. 函数内联（递归）：def fib(n): return n if n<2 else fib(n-1)+fib(n-2) → 深度限制内联
-  4. 死代码消除：unused = 999.0 → 移除
+  4. 死代码消除：S3 起已从核心自动管线移除（删未用绑定与 P1 名守恒冲突），
+     迁为 opt-in 扩展 `src/growth_extensions.py::optimize_dead_code`（自带 outputs 对拍）
   5. 常量传播：a = 10.0; b = a + 1 → b = 10.0 + 1
   6. 循环展开：for i in range(4): s += i → s = 0 + 1 + 2 + 3
-  7. 内存优化：临时变量栈提升（消除中间分配）
+  7. 内存优化（临时变量内联）：S2 起已从核心自动管线移除（删绑定与 P1 名守恒冲突），
+     迁为 opt-in 扩展 `src/growth_extensions.py::optimize_temp_inlining`（自带 outputs 对拍）
   8. 三角恒等式：sin(x) + cos(π/2-x) → sin²x + cos²x = 1 等简化
 """
 from __future__ import annotations
@@ -38,16 +40,18 @@ _ARITH_ONE = r'(?<![\w.])1(?![\d.])'
 
 @dataclass
 class GrowthReport:
-    """单次成长循环的结果。"""
+    """单次成长循环的结果。
+
+    S5：已移除三个幻影字段 `languages_analyzed` / `performance_before_ms` /
+    `performance_after_ms`——它们仅在数据类定义中出现、`grow` 全程不写（恒默认），属误导面；
+    且「性能计时」与本轨道「不承诺更快」纪律相违。无消费方，故直接删除而非伪填。
+    """
     iteration: int
     source: str
-    languages_analyzed: list[str] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
     optimization_suggestions: list[str] = field(default_factory=list)
     improved_source: str = ""
     optimizations_applied: list[str] = field(default_factory=list)
-    performance_before_ms: float = 0.0
-    performance_after_ms: float = 0.0
     cross_language_consistent: bool = False
     errors: list[str] = field(default_factory=list)
 
@@ -142,8 +146,9 @@ class MathaGrowthEngine:
         improved, n = self._apply_const_folding(improved)
         if n: applied.append(f"常量折叠 × {n}")
 
-        improved, n = self._apply_dead_code_elimination(improved)
-        if n: applied.append(f"死代码消除 × {n}")
+        # S3：死代码消除已从核心自动管线**移除**——删未用绑定同样破 P1 名守恒（被删名即其
+        # 自身），且旧实现把赋值自身 LHS 也算进 used → 恒 no-op。真删除能力迁为 opt-in
+        # 扩展，见 `src/growth_extensions.py`。
 
         improved, n = self._apply_const_propagation(improved)
         if n: applied.append(f"常量传播 × {n}")
@@ -154,8 +159,8 @@ class MathaGrowthEngine:
         improved, n = self._apply_loop_unrolling(improved)
         if n: applied.append(f"循环展开 × {n}")
 
-        improved, n = self._apply_memory_optimization(improved)
-        if n: applied.append(f"内存优化 × {n}")
+        # S2：内存优化（临时变量内联）已从核心自动管线**移除**——删绑定行丢名与 P1
+        # 名守恒契约结构性冲突（恒被拒），迁为 opt-in 扩展，见 `src/growth_extensions.py`。
 
         improved, n = self._apply_trig_identities(improved)
         if n: applied.append(f"三角恒等式 × {n}")
@@ -163,18 +168,32 @@ class MathaGrowthEngine:
         return improved, applied
 
     def _verify(self, original: str, improved: str) -> bool:
-        """交叉语言验证：对比原始与优化后的一致性。
+        """交叉验证（S4·真实通路）：把改写前/后各自送入 CrossLanguageVerifier 的
+        python（Matha）前端通道，编译为 MIR 并执行，据验证器自身产出的可观测结果判一致。
 
-        ⚠ 已知 phantom（见 KNOWN_ISSUES.md §7c）：本方法把 `improved`(str) 当作
-        `CrossLanguageVerifier.verify` 的 `sources` 参数传入，而 verify 内部执行
-        `sources.items()`——字符串无 `.items()` → 抛异常被 except 吞 → 恒返回 False。
-        且 verify 的语义本是「同算法×多语言前端」互拍，非「改写是否保持原文语义」。
-        因此 `cross_language_consistent` 是不可靠信号，grow 的正确性判定**不依赖**它，
-        改由 `_is_safe_candidate` 的两档硬底线承担。修正 _verify 本身另立切片。
+        真实契约（见 src/cross_language_verifier.py）：`verify(algorithm: str,
+        sources: dict[str, str]) -> CrossLanguageResult`——旧实现把 `improved`(str) 当作
+        `sources` 传入，verify 内部执行 `sources.items()` → 抛异常被 except 吞 → 恒 False（phantom）。
+        现按契约以 `{'python': <源码>}` 正确调用。判据只用**真实**字段：
+          ① 改写前后两侧在该前端均编译+执行成功（`LanguageResult.success`）；
+          ② 两侧 `vm_outputs` 逐项相等。
+        二者皆真才返回 True。任一侧失败 / 缺该语言结果 / 调用抛异常 → **诚实 False**
+        （无法验证，绝不误报为一致）。绝不读 `CrossLanguageResult.consistent`——它默认
+        True、仅在 ≥2 语言互拍分歧时才置 False，单语言场景下是「未验证≠一致」的假阳性陷阱。
+
+        ⚠ 本字段**不是** grow 的安全闸门：grow 的「绝不出坏源码」仍**只**依赖 P1
+        `_is_safe_candidate`。`_verify` 只是经交叉工具链通道的独立佐证信号，供诊断参考。
         """
         try:
-            result = self._verifier.verify(original, improved)
-            return result.consistent
+            r_o = self._verifier.verify("growth-original", {"python": original})
+            r_i = self._verifier.verify("growth-improved", {"python": improved})
+            o = r_o.languages.get("python")
+            i = r_i.languages.get("python")
+            if o is None or i is None:
+                return False
+            if not (o.success and i.success):
+                return False
+            return o.vm_outputs == i.vm_outputs
         except Exception:
             return False
 
@@ -341,23 +360,9 @@ class MathaGrowthEngine:
             count += 1
         return '\n'.join(lines), count
 
-    def _apply_dead_code_elimination(self, source: str) -> tuple[str, int]:
-        """死代码消除：移除未使用的变量赋值。"""
-        lines = source.split('\n')
-        used = set(re.findall(r'\b\w+\b', source))
-        improved_lines = []
-        count = 0
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith('#') or not stripped:
-                improved_lines.append(line)
-                continue
-            m = re.match(r'^(\w+)\s*=\s*(.+)$', stripped)
-            if m and m.group(1) not in used:
-                count += 1
-                continue
-            improved_lines.append(line)
-        return '\n'.join(improved_lines), count
+    # S3：`_apply_dead_code_elimination`（旧「删未用赋值行」）已删除——它把自身 LHS 也算进
+    # used → 恒 no-op；且删未用绑定同样破 P1 名守恒。真删除能力已重写为正确版本并迁为
+    # opt-in 扩展（自带 outputs 对拍、不走 P1），见 `src/growth_extensions.py::optimize_dead_code`。
 
     def _apply_const_propagation(self, source: str) -> tuple[str, int]:
         r"""常量传播（P3-2·逐行顺序扫描·位置感知）：只把「当前活跃纯字面量」传播到其**定义之后**的使用点。
@@ -450,30 +455,68 @@ class MathaGrowthEngine:
         return improved, count
 
     def _apply_loop_unrolling(self, source: str) -> tuple[str, int]:
-        """循环展开（简化版）。"""
-        improved = source
-        count = 0
-        loop_re = re.compile(r'for\s+(\w+)\s+in\s+range\((\d+)\):\s*\n(.+?)\n(?=\n|\Z)', re.DOTALL)
-        for m in loop_re.finditer(source):
-            var, n, body = m.groups()
-            n = int(n)
-            if n <= 10:
-                expanded = ''
-                for i in range(n):
-                    expanded += body.replace(var, str(i)) + '\n'
-                improved = improved.replace(m.group(0), expanded.strip())
-                count += 1
-        return improved, count
+        r"""循环展开（S1·按 Matha 真实 `for v in <iterable> { … }` 语法·保守可证等价）。
 
-    def _apply_memory_optimization(self, source: str) -> tuple[str, int]:
-        """内存优化：临时变量栈提升。"""
+        旧实现正则 `for … in range(N):\n` 针对 Python 冒号缩进语法——Matha 根本不用该语法
+        （真实为花括号块 `for v in <expr> { … }`、`range(a,b)` 两参），故旧规则只在非法输入上
+        触发，且 `body.replace(var, i)` 子串误伤（`ab`→`0b`）。现仅在**可静态枚举且可证等价**时展开：
+          ① 单循环变量（非元组解构 `(a,b)`）；
+          ② iterable 为数字字面量列表 `[n,…]` 或 `range(int,int)`/`range(int)(int)`（跨度≤阈值）；
+          ③ 块体无嵌套花括号、不含控制流关键字、且不在体内重新赋值循环变量（避免改变循环
+             变量的逐迭代作用域/清除语义）；
+          ④ 循环变量按**词边界**、经 `_sub_outside_strings` 逐元素代入，替换后体内不再出现循环变量
+             → 与原解释器“循环后清除循环变量”作用域一致。
+        展开后候选经 P1 闸门（名守恒）兜底、由表征锁逐例验证 `_semantic_equivalent` 等价。
+        """
+        _NUM = r'\d+(?:\.\d*)?'
+        span_cap = 16
+        loop_re = re.compile(
+            r'for\s+([^\W\d]\w*)\s+in\s+'
+            r'(\[[^\[\]]*\]|range\([^)]*\)(?:\s*\([^)]*\))?)'
+            r'\s*\{\s*([^{}]*)\s*\}'
+        )
         improved = source
         count = 0
-        temp_re = re.compile(r'^\s*(\w+)\s*=\s*temp_\w+\s*$', re.MULTILINE)
-        for m in temp_re.finditer(source):
-            improved = improved[:m.start()] + improved[m.end():]
+        for m in loop_re.finditer(source):
+            var, iterable_raw, body = m.group(1), m.group(2), m.group(3)
+            # 体内控制流/结构关键字一律不展开（保守）
+            if re.search(r'\b(break|continue|return|func|let|match|switch|typeof|if|for|while)\b', body):
+                continue
+            # 体内重新赋值循环变量（=`var =`/`var op=`，但非 `==`）→ 作用域难证等价 → 不展开
+            if re.search(rf'\b{re.escape(var)}\b\s*(?:[+\-*/%])?=(?!=)', body):
+                continue
+            # 解析可枚举元素
+            if iterable_raw.startswith('['):
+                inner = iterable_raw[1:-1].strip()
+                if inner == '':
+                    elems: list[str] = []
+                else:
+                    parts = [p.strip() for p in inner.split(',')]
+                    if len(parts) > span_cap or not all(re.fullmatch(_NUM, p) for p in parts):
+                        continue
+                    elems = parts
+            else:
+                rm = (re.fullmatch(r'range\(\s*(\d+)\s*,\s*(\d+)\s*\)', iterable_raw)
+                      or re.fullmatch(r'range\(\s*(\d+)\s*\)\s*\(\s*(\d+)\s*\)', iterable_raw))
+                if not rm:
+                    continue
+                a, b = int(rm.group(1)), int(rm.group(2))
+                if b < a or (b - a) > span_cap:
+                    continue
+                elems = [str(x) for x in range(a, b)]
+            # 逐元素词边界代入循环变量（避开字符串）；替换后体内不再引用 var → 作用域与原始一致
+            instances = [
+                self._sub_outside_strings(rf'\b{re.escape(var)}\b', v, body)[0]
+                for v in elems
+            ]
+            unrolled = '\n'.join(instances)
+            improved = improved.replace(m.group(0), unrolled, 1)
             count += 1
         return improved, count
+
+    # S2：`_apply_memory_optimization`（旧「删 `x = temp_*` 行」）已删除——它丢绑定名 →
+    # 恒被 P1 拒、且并非真「栈提升」。其能力已重写为正确的临时变量内联，迁为 opt-in 扩展
+    # （自带 outputs 对拍、不走 P1），见 `src/growth_extensions.py::optimize_temp_inlining`。
 
     def _apply_trig_identities(self, source: str) -> tuple[str, int]:
         """P4: 三角恒等式优化规则。

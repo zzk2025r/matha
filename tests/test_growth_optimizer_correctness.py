@@ -5,7 +5,7 @@
   ① grow 出码恒「等于原文回退」或「可被重新解析」；
   ② 出码不丢失原文已绑定的顶层名字（Binding 变量 / FuncDef）；
   ③ 候选改写未过闸门时诚实回退（optimizations_applied 置空、记 errors、不前传坏码）。
-**不背书**优化的"有效性/更快"（属 P2/P3），也**不依赖** `_verify`（其为恒 False 的 phantom）。
+**不背书**优化的"有效性/更快"（属 P2/P3），也**不依赖** `_verify`（它只是经交叉工具链通道的佐证信号，非安全闸门；grow 安全恒只靠 P1）。
 全程离线、毫秒级、无文件副作用、不触 L1 内核入口。
 """
 from __future__ import annotations
@@ -75,11 +75,14 @@ class TestGrowNeverEmitsBadSource:
 
 
 class TestHonestFallback:
-    def test_rejected_candidate_empties_applied_and_records_error(self, engine):
-        # P2-3 后 function_inlining 已保守正确、不再自造坏候选（CURRY_A 干净地不被优化）；
-        # 回退契约改由 memory_optimization 的真实越界触发——它删掉仍被引用的绑定 x，
-        # 名守恒判破 → 闸门回退。这也佐证 P1 闸门能兜住其它规则的越界。
-        src = "x = temp_a\ny = x + 1\n"
+    def test_rejected_candidate_empties_applied_and_records_error(self, engine, monkeypatch):
+        # 回退契约（不依赖破坏性规则）：任一规则产出未过 P1 的候选 → grow 诚实回退。
+        # S2 起 memory_optimization 已移出核心管线，回退触发不再靠它产坏候选；
+        # 改直接向管线喂一个受控坏候选（丢已绑定名 x、破 P1 名守恒）验证回退契约。
+        src = "x = 1.0\ny = x + 1\n"
+        bad = "y = x + 1\n"   # 丢绑定 x → _is_safe_candidate 应判不安全
+        assert engine._is_safe_candidate(src, bad) is False
+        monkeypatch.setattr(engine, "_apply_optimizations", lambda s: (bad, ["受控破坏性改写 × 1"]))
         rep = engine.grow(src)
         assert rep.optimizations_applied == []
         assert rep.improved_source == src  # 回退到上一安全版本（此处即原文）
