@@ -313,20 +313,33 @@ class MathaGrowthEngine:
         return "".join(parts), total
 
     def _apply_const_folding(self, source: str) -> tuple[str, int]:
-        """常量折叠：x = 3.0 + 4.0 → x = 7.0"""
-        improved = source
+        r"""常量折叠（P3-1·全行锚定）：仅折「整行右端恰为 `num op num`」为单一字面量。
+
+        修优先级腐蚀：旧 `([\d.]+\s*[+\-*/%]\s*[\d.]+)` 只吃前两个操作数、不锚定整行，
+        把 `x = 1 + 2 * 3` 折成 `x = 3 * 3`（=9≠7，过 P1 却改坏值）。现逐行 `fullmatch`，要求
+        右端除「数字 op 数字」外不得再有第三个运算符/操作数 → `1 + 2 * 3`、`8 // 2`（双运算符）
+        自然不匹配、不折。op 集沿用 `+ - * / %`（不新增）；除零/取模零守卫保留；逐行重建替换，
+        不再全局 str.replace（避免同名片段误伤）；数字操作数严格 `\d+(?:\.\d*)?`。
+        每条改写经 P1 闸门 `_is_safe_candidate` 与 P2-0 harness `_semantic_equivalent` 双验收。
+        """
+        lines = source.split('\n')
         count = 0
-        const_pattern = re.compile(r'(\w+)\s*=\s*([\d.]+\s*[+\-*/%]\s*[\d.]+)')
-        for match in const_pattern.finditer(source):
-            var_name = match.group(1)
-            expr = match.group(2)
+        for idx, line in enumerate(lines):
+            m = re.fullmatch(
+                r'[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*'
+                r'(\d+(?:\.\d*)?)[ \t]*([+\-*/%])[ \t]*(\d+(?:\.\d*)?)[ \t]*',
+                line,
+            )
+            if not m:
+                continue
+            var, a, op, b = m.group(1), m.group(2), m.group(3), m.group(4)
             try:
-                result = eval(expr)
-                improved = improved.replace(match.group(0), f"{var_name} = {result}")
-                count += 1
-            except (SyntaxError, ZeroDivisionError, NameError):
-                pass
-        return improved, count
+                result = eval(f"{a}{op}{b}")  # a/b 严格数字字面量、op 属固定集，非任意求值
+            except (SyntaxError, ZeroDivisionError, ValueError):
+                continue
+            lines[idx] = f"{var} = {result}"
+            count += 1
+        return '\n'.join(lines), count
 
     def _apply_dead_code_elimination(self, source: str) -> tuple[str, int]:
         """死代码消除：移除未使用的变量赋值。"""
