@@ -14,11 +14,17 @@ Matha 自主成长系统：可扩展模块注册、自诊断、自修改、成�
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+# 内核/源码树根（src/）：自修改引擎绝不允许改写其内文件（内核纯净度闸门）。
+_KERNEL_SRC_ROOT = Path(__file__).resolve().parent
 
 # ============================================================
 # 扩展注册表
@@ -247,13 +253,22 @@ class SelfDiagnostic:
 
 @dataclass
 class Modification:
-    """代码修改单元。"""
+    """代码修改单元。
+
+    Tier 2·A3：新增 `apply_to_disk` 开关（默认 False）。内置诊断建议（如
+    “启用某 Pass”）并非文件内容变更，属 `apply_to_disk=False` 的**仅建议**，`apply` 会
+    诚实拒绘盘、不谎称已应用；仅当调用方显式置 True（带合法 `target`/`operation`/`diff`）
+    时才走真实落盘应用（写前完整性校验 + 写后回滚）。
+    """
     target: str  # 目标文件/模块
     operation: str  # "add", "remove", "replace"
     description: str
     diff: str
     validation: Callable[[], bool]
     rollback: Callable[[], None]
+    apply_to_disk: bool = False  # 仅显式 True 才真实写文件（内置建议默认仅建议、不落盘）
+    _original_bytes: bytes | None = field(default=None, repr=False, compare=False)
+    _pending_content: str | None = field(default=None, repr=False, compare=False)
 
 
 class SelfModifier:
@@ -293,40 +308,147 @@ class SelfModifier:
         return None
 
     def apply(self, modification: Modification) -> bool:
-        """应用修改。"""
+        """真实应用修改（写前强制完整性校验 + 写后失败回滚）。
+
+        取代旧 phantom（`_sandbox_validate` 恒 True + `_execute_modification` 空体）。纪律：
+          1. 非落盘修改（`apply_to_disk=False`，如内置“启用 Pass”建议）→ 诚实 False，绝不谎称已应用；
+          2. 调用方 `validation()` 为假 → 拒绝；
+          3. 沙箱前置校验（内核纯净闸门 + 候选生成 + `.py` dry-run 编译）不过 → 拒绝；
+          4. 真实执行（原文快照 + 原子写）；任一异常/写后完整性不达标 → **立即回滚到原文**。
+        """
+        if not modification.apply_to_disk:
+            # 仅建议（非文件变更）：不写盘、不计入已应用。
+            self._modifications.append(modification)
+            return False
         if not modification.validation():
             return False
-
-        # 在沙箱中验证
         if not self._sandbox_validate(modification):
             return False
-
-        # 应用修改
         try:
-            self._execute_modification(modification)
-            self._applied.append(modification)
-            return True
+            if not self._execute_modification(modification):
+                return False
         except Exception:
+            self._restore(modification)
             return False
-
-    def rollback(self, modification: Modification) -> None:
-        """回滚修改。"""
-        modification.rollback()
-        self._applied.remove(modification)
-
-    def _sandbox_validate(self, modification: Modification) -> bool:
-        """在沙箱中验证修改。"""
-        # 简化实现：实际应使用 Sandbox 机制
+        if not self._post_verify(modification):
+            self._restore(modification)
+            return False
+        self._applied.append(modification)
         return True
 
-    def _execute_modification(self, modification: Modification) -> None:
-        """执行修改。"""
+    def rollback(self, modification: Modification) -> None:
+        """回滚修改：先按原文快照落盘还原，再调调用方自带的 rollback 回调。"""
+        self._restore(modification)
+        try:
+            modification.rollback()
+        finally:
+            if modification in self._applied:
+                self._applied.remove(modification)
+
+    def _candidate_content(self, modification: Modification) -> tuple[str | None, str]:
+        """由 operation/diff 生成候选全文。返回 `(content, "")` 或 `(None, reason)`。"""
+        op = modification.operation
+        if op == "replace":
+            return modification.diff, ""
+        if op == "add":
+            try:
+                existing = Path(modification.target).read_text(encoding="utf-8") \
+                    if Path(modification.target).exists() else ""
+            except OSError as e:
+                return None, f"读取目标失败: {e}"
+            return existing + modification.diff, ""
+        return None, f"不支持的修改操作（仅 replace/add 可真实落盘）: {op!r}"
+
+    def _sandbox_validate(self, modification: Modification) -> bool:
+        """写前真实沙箱校验（**只读、绝不写文件**）。
+
+        内核纯净闸门：拒绝落在 `src/` 树内的目标；拒绝目录；候选内容若为 `.py` 必须 dry-run 编译通过。
+        """
+        try:
+            target = Path(modification.target).resolve()
+        except (OSError, RuntimeError):
+            return False
+        try:
+            target.relative_to(_KERNEL_SRC_ROOT)
+            return False  # 内核/源码树内 → 拒绝
+        except ValueError:
+            pass
+        if target.is_dir():
+            return False
+        content, err = self._candidate_content(modification)
+        if content is None:
+            return False
+        if target.suffix == ".py":
+            try:
+                compile(content, str(target), "exec")
+            except (SyntaxError, ValueError):
+                return False
+        return True
+
+    def _execute_modification(self, modification: Modification) -> bool:
+        """真实执行：快照原文 → 临时文件 + `os.replace` 原子写入。返回是否成功落盘。"""
+        target = Path(modification.target).resolve()
+        content, err = self._candidate_content(modification)
+        if content is None:
+            return False
+        try:
+            modification._original_bytes = target.read_bytes() if target.exists() else None
+        except OSError:
+            return False
+        # 缓存本次落盘的候选内容：`add` 非幂等（重读已改写文件再追加会得不同内容），
+        # 写后校验必须比对同一份候选，故在此固定而非重新推导。
+        modification._pending_content = content
+        tmp = target.with_name(f"{target.name}.tmp.{os.getpid()}")
+        try:
+            # 按字节写入：规避 Windows 文本模式 `\n`→`\r\n` 转换，
+            # 使写后 `_post_verify` 的 `read_bytes()` 与候选内容 hash 精确一致。
+            tmp.write_bytes(content.encode("utf-8"))
+            os.replace(tmp, target)
+        except OSError:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+            return False
         self._modifications.append(modification)
-        # 实际修改逻辑在这里实现
-        pass
+        return True
+
+    def _post_verify(self, modification: Modification) -> bool:
+        """写后完整性校验：读回磁盘字节与**本次落盘候选** hash 一致；`.py` 再编译自检。"""
+        content = getattr(modification, "_pending_content", None)
+        if content is None:
+            content, _ = self._candidate_content(modification)
+        if content is None:
+            return False
+        try:
+            on_disk = Path(modification.target).read_bytes()
+        except OSError:
+            return False
+        if hashlib.sha256(on_disk).hexdigest() != hashlib.sha256(content.encode("utf-8")).hexdigest():
+            return False
+        if Path(modification.target).suffix == ".py":
+            try:
+                compile(content, modification.target, "exec")
+            except (SyntaxError, ValueError):
+                return False
+        return True
+
+    def _restore(self, modification: Modification) -> None:
+        """按快照回滚：`_original_bytes` 为 None → 删除新建文件；否则按字节还原。"""
+        original = getattr(modification, "_original_bytes", None)
+        target = Path(modification.target)
+        try:
+            if original is None:
+                if target.exists():
+                    target.unlink()
+            else:
+                target.write_bytes(original)
+        except OSError:
+            pass
 
     def get_stats(self) -> dict:
-        """获取修改统计。"""
+        """获取修改统计（仅统计**真实落盘且校验通过**的为已应用）。"""
         return {
             "总修改数": len(self._modifications),
             "已应用数": len(self._applied),
