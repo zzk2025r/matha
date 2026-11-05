@@ -251,6 +251,19 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   **坏源码**已由 `tests/test_growth_optimizer_correctness.py` 入门禁封死——**只保证「绝不出坏码」，
   仍不背书优化的有效性/更快**（P2 修规则、P3 逐规则语义对拍，各自另立片）。合法三角折叠（`sin²+cos²
   → 1`，绑定名不变）经闸门照常放行。
+- **阶段 7·P2/P3 更新（算术规则语义对拍背书 · 三角政策 A）**：常量折叠（P3-1 全行锚定，修优先级
+  腐蚀）、常量传播（P2-2 纯字面量右端 + P3-2 逐行位置感知，修前向引用/重绑定腐蚀）、函数内联（P2-3
+  保守正确）、算术恒等式（P2-1）四条**算术**改写，现每条同时经 P1 闸门 `_is_safe_candidate` 与 P2-0
+  harness `_semantic_equivalent`（两侧各在一次性解释器独立跑一遍、比对可观测 `outputs`）**双验收**，
+  分片锁入 `tests/test_growth_const_folding.py`、`tests/test_growth_const_propagation.py`、
+  `tests/test_growth_const_propagation_forward.py`、`tests/test_growth_function_inlining.py`。
+- **政策 A（三角恒等式分级背书 · 如实登记）**：`_apply_trig_identities`（如 `sin²+cos² → 1`、
+  `tan → sin/cos`）为浮点近似、结果不逐位相等，`_semantic_equivalent` 的精确 `outputs` 比对会判「不等价」，
+  故三角改写**不纳入**语义等价背书口径，维持 **P1/schema 级**背书（出码可再解析 + 守恒顶层绑定名，由
+  `tests/test_matha_growth_engine.py` 锁定）——与上述算术规则的「双验收」分级不同，不粉饰为已语义背书。
+  另注：`_apply_trig_identities` 现为 `MathaGrowthEngine` **核心方法**（非可选插件），「迁出为可选插件」
+  是另一需单独批准的重构片，本轨道未做。grow 的 P1 坏码底线仍兜底全部规则；仍未背书：优化的有效性/更快、
+  `_verify` phantom（见下条）修正另立片。
 - **新发现 phantom（阶段 7 登记）**：`MathaGrowthEngine._verify` 把 `improved`(str) 误当
   `CrossLanguageVerifier.verify` 的 `sources` 参数传入，`verify` 内执行 `sources.items()`——字符串无
   `.items()` → 抛异常被 `except` 吞 → `cross_language_consistent` **恒 False**；且 `verify` 本意是
