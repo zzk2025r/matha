@@ -43,7 +43,17 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.__version__ import get_version
+
 logger = logging.getLogger("matha.inner_loop")
+
+
+def _version_tuple(v: str) -> tuple[int, int, int]:
+    """版本串 → 可比较三元组（取前三段数字，不足补 0）。"""
+    nums = [int(x) for x in re.findall(r"\d+", v)]
+    while len(nums) < 3:
+        nums.append(0)
+    return (nums[0], nums[1], nums[2])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -545,12 +555,18 @@ class MathaInnerLoop:
 
     # ── 5. 自升级层 ────────────────────────────────────────────────────────────
 
-    def self_upgrade_check(self) -> dict:
-        """自升级检查：检测版本状态和可用升级。"""
-        current_version = "1.2.22"
-        known_versions = ["1.2.21", "1.2.20", "1.2.19", "1.2.18", "1.2.17"]
-        latest = max(known_versions) if known_versions else current_version
-        is_latest = current_version >= latest
+    def self_upgrade_check(self, known_latest: str | None = None) -> dict:
+        """自升级检查：如实报告当前版本（唯一版本源）与可得升级。
+
+        A2 修复：不再硬编码假版本（旧：`current='1.2.22'`、`known=['1.2.21',…]`）。
+        `current_version` 取自唯一版本源 `src.__version__`；离线环境无远程更新通道，
+        「最新可得版本」即当前源版本本身，故如实报告 `is_latest=True / can_upgrade=False`，
+        绝不伪造可用升级。若调用方经真实渠道传入 `known_latest`，则据实比较。
+        待处理高危补丁仍来自引擎真实缺陷统计。
+        """
+        current_version = get_version()
+        latest = known_latest or current_version
+        is_latest = _version_tuple(current_version) >= _version_tuple(latest)
 
         pending_patches = []
         if self._engine:
@@ -601,8 +617,8 @@ class MathaInnerLoop:
             except Exception as e:
                 result["errors"].append(f"补丁 {patch_info['defect']} 异常: {e}")
 
-        result["from_version"] = "1.3.0"
-        result["to_version"] = target_version or "1.3.0"
+        result["from_version"] = get_version()
+        result["to_version"] = target_version or get_version()
         result["patches_applied"] = applied
         result["success"] = applied > 0 or len(defects) == 0
         logger.info(f"  [自升级] 应用补丁: {applied}/{len(patches)}")
