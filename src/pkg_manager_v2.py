@@ -556,35 +556,38 @@ class MathaPackageManager(MathaPackage):
         return suggestions
 
     def get_dependency_tree(self, pkg_name: str, depth: int = 5) -> dict:
-        """获取完整的依赖树（包含版本信息）。"""
+        """获取完整的依赖树（包含版本信息）。
+
+        Tier 2·D0 修复：旧实现的嵌套 `_build_tree` 误以递归调用公开的 2 参
+        `self.get_dependency_tree(dep_name, depth-1, seen)`（多传一个 seen）→ 只要注册包
+        含已注册依赖即抛 TypeError（UnifiedGrowth 包装层又用 except → {} 掩盖）。现递归内
+        聚于本地 `_build_tree`，并尊重 `depth`、`installed` 输出 str|None 以保证 JSON 可序列化。
+        """
         if pkg_name not in self.registry:
             return {}
 
-        result = {"name": pkg_name, "version": str(self.registry[pkg_name].version), "dependencies": {}}
-
-        def _build_tree(name: str, depth: int, seen: set):
-            if depth <= 0 or name in seen:
+        def _build_tree(name: str, remaining: int, seen: set) -> dict:
+            if remaining <= 0 or name in seen or name not in self.registry:
                 return {}
-            seen.add(name)
-
-            if name not in self.registry:
-                return {}
-
-            pkg = self.registry[name]
-            deps = {}
-            for dep_name, dep_spec in pkg.dependencies.items():
+            seen = seen | {name}                    # 不可变传参，避免兄弟分支共享污染
+            deps: dict = {}
+            for dep_name, dep_spec in self.registry[name].dependencies.items():
                 if dep_name not in self.registry:
                     continue
                 dep_version = Version.parse(dep_spec) if isinstance(dep_spec, str) else dep_spec
+                installed_ver = self.installed.get(dep_name)
                 deps[dep_name] = {
                     "version": str(dep_version),
-                    "installed": self.installed.get(dep_name),
-                    "dependencies": self.get_dependency_tree(dep_name, depth - 1, seen.copy())
+                    "installed": str(installed_ver) if installed_ver is not None else None,
+                    "dependencies": _build_tree(dep_name, remaining - 1, seen),
                 }
             return deps
 
-        result["dependencies"] = _build_tree(pkg_name, 5, set())
-        return result
+        return {
+            "name": pkg_name,
+            "version": str(self.registry[pkg_name].version),
+            "dependencies": _build_tree(pkg_name, depth, set()),
+        }
 
     def check_updates(self) -> list[dict]:
         """检查已安装包的更新。"""

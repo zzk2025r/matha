@@ -292,7 +292,9 @@ class CrossDomainFormulaEngine:
     def analyze_links(self) -> list[CrossDomainLink]:
         """分析所有跨领域联动。"""
         registry = self._domain_reg.registry
-        formulas = list(registry.list_formulas())
+        # list_formulas() 返回名字 str；需 Formula 对象才能调 free_vars()/取 .name/.domain，
+        # 故与兄弟方法 DomainFormulaRegistry.get_cross_domain_links 一致，取注册表值。
+        formulas = list(registry._formulas.values())
         self._links = []
 
         for i, f1 in enumerate(formulas):

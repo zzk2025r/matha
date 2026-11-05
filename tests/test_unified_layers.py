@@ -880,6 +880,29 @@ class TestUnifiedGrowthDeep:
         reg.register_all_domains()
         assert isinstance(reg.get_cross_domain_links(), dict)
 
+    def test_cross_domain_engine_analyze_links_no_raise(self):
+        """Tier 2·C0：CrossDomainFormulaEngine.analyze_links 同修 str/对象误用，
+        迭代 Formula 对象→返回真实 CrossDomainLink 列表（不再 'str' has no 'free_vars'）。"""
+        from src.domain_formula import DomainFormulaRegistry, CrossDomainFormulaEngine, CrossDomainLink
+        reg = DomainFormulaRegistry()
+        reg.register_all_domains()
+        links = CrossDomainFormulaEngine(reg).analyze_links()
+        assert isinstance(links, list) and links            # 领域公式充分互联，非空
+        l = links[0]
+        assert isinstance(l, CrossDomainLink)
+        assert isinstance(l.formula_a, str) and isinstance(l.formula_b, str)
+        assert l.shared_vars and all(isinstance(v, str) for v in l.shared_vars)
+
+    def test_cross_domain_engine_knowledge_graph_no_raise(self):
+        """Tier 2·C0：get_knowledge_graph（内部依赖 analyze_links）返回非空 dict、节点结构完整。"""
+        from src.domain_formula import DomainFormulaRegistry, CrossDomainFormulaEngine
+        reg = DomainFormulaRegistry()
+        reg.register_all_domains()
+        graph = CrossDomainFormulaEngine(reg).get_knowledge_graph()
+        assert isinstance(graph, dict) and graph
+        node = next(iter(graph.values()))
+        assert set(node) == {"domain", "links", "shared_with"}
+
     def test_fictionalize_honest_refusal(self):
         """6e：fictionalize 幽灵依赖清除后如实拒绝、绝不抛 ImportError。"""
         from src.unified_growth import UnifiedGrowth
@@ -1005,6 +1028,30 @@ class TestUnifiedGrowthWrapperLocks:
         assert isinstance(ug.check_conflicts(["__nope__"]), list)
         # dry_run + 不存在包 → 不触发安装、空列表
         assert isinstance(ug.upgrade_packages("__nope__", dry_run=True), list)
+
+    def test_dependency_tree_nested_real(self, tmp_path):
+        """Tier 2·D0：get_dependency_tree 对嵌套依赖（app→lib→core）产出真实树，
+        不再因递归误用 2 参公开方法而 TypeError；且尊重 depth、可 JSON 序列化。
+        用 tmp root 隔离，绝不写仓库。"""
+        import json
+        from src.pkg_manager_v2 import MathaPackageManager
+        from src.pkg_manager import PackageMeta, Version
+        mgr = MathaPackageManager(root_dir=str(tmp_path))
+        mgr.registry['app'] = PackageMeta(name='app', version=Version(1, 0, 0),
+                                          dependencies={'lib': '2.0.0'})
+        mgr.registry['lib'] = PackageMeta(name='lib', version=Version(2, 0, 0),
+                                          dependencies={'core': '0.1.0'})
+        mgr.registry['core'] = PackageMeta(name='core', version=Version(0, 1, 0))
+        tree = mgr.get_dependency_tree('app')
+        assert tree['name'] == 'app' and tree['version'] == '1.0.0'
+        assert tree['dependencies']['lib']['version'] == '2.0.0'
+        assert tree['dependencies']['lib']['dependencies']['core']['version'] == '0.1.0'
+        json.dumps(tree)                                   # 旧 bug：installed 为 Version → 不可序列化
+        # depth 尊重：depth=2 时不再深入 core
+        shallow = mgr.get_dependency_tree('app', depth=1)
+        assert shallow['dependencies']['lib']['dependencies'] == {}
+        # 未知包诚实空 dict
+        assert mgr.get_dependency_tree('__nope__') == {}
 
 
 # ============================================================
