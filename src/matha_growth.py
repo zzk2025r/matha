@@ -371,18 +371,55 @@ class MathaGrowthEngine:
         return improved, count
 
     def _apply_function_inlining(self, source: str) -> tuple[str, int]:
-        """函数内联（简化版）。"""
+        r"""函数内联（P2-3·选项 1·按构造正确的保守版）。
+
+        只处理 curried 单表达式形态 `func n(ps) -> T = (ps) => expr`，且仅在「可证等价」
+        时把调用点 `n(args)` 就地内联为 `(expr[ps:=args])`，**绝不动函数定义本身**（定义
+        头以 `func\s+$` 前缀识别并跳过，故元凶 A「删函数名」从结构上不可能复发）。可证等价须同时满足：
+          ① 形参表全为干净标识符，且实参数 == 形参数；
+          ② 每个实参为「简单 token」（标识符或纯数字字面量）——避免重复求值副作用与优先级改变；
+          ③ body 的自由标识符 ⊆ 形参集（函数只闭合于自身参数 → 在任意调用点内联都不改变
+             变量解析，规避遮蔽/捕获/递归风险；含自由变量的函数一律不内联）。
+        形参→实参替换用单遍正则（长名优先）一次完成，避免顺序替换串扰；全程经
+        `_sub_outside_strings` 避开字符串字面量。其余形态一律原样不动。
+        """
         improved = source
         count = 0
-        fn_re = re.compile(r'func\s+(\w+)\s*\([^)]*\)\s*->\s*\w+\s*=\s*\([^)]*\)\s*=>\s*(.+?)(?:\n|$)')
+        fn_re = re.compile(
+            r'func\s+([^\W\d]\w*)\s*\([^)]*\)\s*->\s*\w+\s*=\s*\(([^)]*)\)\s*=>\s*(.+?)(?:\n|$)'
+        )
         for m in fn_re.finditer(source):
             name = m.group(1)
-            body = m.group(2).strip()
-            calls = re.findall(rf'\b{name}\s*\(([^)]*)\)', source)
-            if calls:
-                for call in calls:
-                    improved = improved.replace(f"{name}({call})", f"({body})")
-                count += len(calls)
+            params_raw = m.group(2)
+            body = m.group(3).strip()
+            params = [p.strip() for p in params_raw.split(',')] if params_raw.strip() else []
+            if any(not re.fullmatch(r'[^\W\d]\w*', p) for p in params):
+                continue  # 形参非干净标识符 → 不内联
+            if set(re.findall(r'[^\W\d]\w*', body)) - set(params):
+                continue  # body 含非形参的自由标识符 → 不内联
+            pat = (r'\b(' + '|'.join(re.escape(p) for p in sorted(params, key=len, reverse=True)) + r')\b'
+                   if params else None)
+            call_re = re.compile(rf'\b{re.escape(name)}\s*\(([^)]*)\)')
+
+            def repl(cm, _body=body, _pat=pat, _params=params):
+                nonlocal count
+                if re.search(r'func\s+$', cm.string[:cm.start()]):
+                    return cm.group(0)  # 定义头，非调用点 → 不动
+                raw = cm.group(1)
+                args = [a.strip() for a in raw.split(',')] if raw.strip() else []
+                if len(args) != len(_params):
+                    return cm.group(0)
+                if any(not re.fullmatch(r'[^\W\d]\w*|\d+(?:\.\d*)?', a) for a in args):
+                    return cm.group(0)  # 实参非简单 token → 不内联
+                amap = dict(zip(_params, args))
+                if _pat is None:
+                    inl_body = _body
+                else:
+                    inl_body, _ = self._sub_outside_strings(_pat, lambda mm: amap[mm.group(0)], _body)
+                count += 1
+                return f"({inl_body})"
+
+            improved = call_re.sub(repl, improved)
         return improved, count
 
     def _apply_loop_unrolling(self, source: str) -> tuple[str, int]:

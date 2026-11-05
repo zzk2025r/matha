@@ -76,9 +76,13 @@ class TestGrowNeverEmitsBadSource:
 
 class TestHonestFallback:
     def test_rejected_candidate_empties_applied_and_records_error(self, engine):
-        rep = engine.grow(CURRY_A)
+        # P2-3 后 function_inlining 已保守正确、不再自造坏候选（CURRY_A 干净地不被优化）；
+        # 回退契约改由 memory_optimization 的真实越界触发——它删掉仍被引用的绑定 x，
+        # 名守恒判破 → 闸门回退。这也佐证 P1 闸门能兜住其它规则的越界。
+        src = "x = temp_a\ny = x + 1\n"
+        rep = engine.grow(src)
         assert rep.optimizations_applied == []
-        assert rep.improved_source == CURRY_A  # 回退到上一安全版本（此处即原文）
+        assert rep.improved_source == src  # 回退到上一安全版本（此处即原文）
         assert rep.errors  # 如实登记回退原因
 
     def test_grow_never_raises(self, engine):
