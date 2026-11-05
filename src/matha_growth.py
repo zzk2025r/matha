@@ -360,28 +360,42 @@ class MathaGrowthEngine:
         return '\n'.join(improved_lines), count
 
     def _apply_const_propagation(self, source: str) -> tuple[str, int]:
-        r"""常量传播（P2-2 修正版）：仅把「整行右端恰为单一数字字面量」的绑定名传播到其**使用点**。
+        r"""常量传播（P3-2·逐行顺序扫描·位置感知）：只把「当前活跃纯字面量」传播到其**定义之后**的使用点。
 
-        严格只做两件事（拍板），修掉元凶 B：
-          ① 纯字面量右端：全行锚定 `= [ \t]*(?!=)(\d+(?:\.\d*)?)[ \t]*$`，右端除单一数字外
-             不得有运算符 / 其它标识符——旧 `(\w+)\s*=\s*([\d.]+)` 把 `y = 3.0 + 4.0` 误读为 `3.0`；
-          ② 只替换使用点：用点正则带 `(?! [ \t]*=)` 前视，赋值左端绑定名与 `==` / `=>` 受保护，
-             并经 `_sub_outside_strings` 避开字符串字面量内部——旧 `re.sub` 连左端一起改写致 `7.0 = 7.0`。
-        数字字面量保守：仅 `\d+(\.\d*)?`，不认负号 / 前导点 / 科学计数（宁可不改）。
+        承 P2-2 两条保守约束（① 纯字面量右端全行锚定 ② 只替换使用点、左端/`==`/`=>` 受保护、
+        经 `_sub_outside_strings` 避开字符串），并修掉「前向引用 / 重绑定」腐蚀（元凶 C）：
+        旧 `def_re.findall(source)` 找到每个纯字面量定义后把名字回灌到**全文所有**使用点，
+        既灌向定义**之前**的使用点（`x=2.0*3.0; y=x+1; x=10.0` → `y` 由 7.0 被改成 11.0，
+        过 P1 却语义腐蚀），也无视同名重绑定。现逐行顺序扫描，维护 `known`（name → 最近一次
+        纯字面量绑定的活跃值）：每行先用「进入本行前」的活跃字面量替换本行使用点，再据本行更新状态
+        （纯字面量赋值→更新活跃值；非字面量赋值→失效，后续不再传播旧值）。自引用行（`y=y+1`）
+        先按旧值替换、再判失效。数字形态仅 `\d+(?:\.\d*)?`（不认负号/前导点/科学计数，宁可不改）。
         每条改写经 P1 闸门 `_is_safe_candidate` 与 P2-0 harness `_semantic_equivalent` 双验收。
         """
-        improved = source
-        count = 0
         def_re = re.compile(
-            r'^[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*(?!=)(\d+(?:\.\d*)?)[ \t]*$',
-            re.MULTILINE,
+            r'[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*(?!=)(\d+(?:\.\d*)?)[ \t]*'
         )
-        for name, val in def_re.findall(source):
-            improved, c = self._sub_outside_strings(
-                rf'\b{re.escape(name)}\b(?![ \t]*=)', val, improved
-            )
-            count += c
-        return improved, count
+        assign_re = re.compile(r'[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*(?!=)')
+        lines = source.split('\n')
+        improved_lines: list[str] = []
+        known: dict[str, str] = {}
+        count = 0
+        for line in lines:
+            newline = line
+            for name, val in known.items():
+                newline, c = self._sub_outside_strings(
+                    rf'\b{re.escape(name)}\b(?![ \t]*=)', val, newline
+                )
+                count += c
+            improved_lines.append(newline)
+            dm = def_re.fullmatch(line)
+            if dm:
+                known[dm.group(1)] = dm.group(2)
+            else:
+                am = assign_re.match(line)
+                if am:
+                    known.pop(am.group(1), None)
+        return '\n'.join(improved_lines), count
 
     def _apply_function_inlining(self, source: str) -> tuple[str, int]:
         r"""函数内联（P2-3·选项 1·按构造正确的保守版）。
