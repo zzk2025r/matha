@@ -262,12 +262,8 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   故三角改写**不纳入**语义等价背书口径，维持 **P1/schema 级**背书（出码可再解析 + 守恒顶层绑定名，由
   `tests/test_matha_growth_engine.py` 锁定）——与上述算术规则的「双验收」分级不同，不粉饰为已语义背书。
   另注：`_apply_trig_identities` 现为 `MathaGrowthEngine` **核心方法**（非可选插件），「迁出为可选插件」
-  是另一需单独批准的重构片，本轨道未做。grow 的 P1 坏码底线仍兜底全部规则；仍未背书：优化的有效性/更快、
-  `_verify` phantom（见下条）修正另立片。
-- **新发现 phantom（阶段 7 登记）**：`MathaGrowthEngine._verify` 把 `improved`(str) 误当
-  `CrossLanguageVerifier.verify` 的 `sources` 参数传入，`verify` 内执行 `sources.items()`——字符串无
-  `.items()` → 抛异常被 `except` 吞 → `cross_language_consistent` **恒 False**；且 `verify` 本意是
-  「同算法×多语言前端」互拍、非「改写是否保持原文语义」。故 P1 闸门不依赖 `_verify`，其本身修正另立切片。
+  是另一需单独批准的重构片，本轨道未做。grow 的 P1 坏码底线仍兜底全部规则；仍未背书：优化的有效性/更快。
+- **phantom 已修（Tier 1·S4 落地；本条如实更正旧「阶段 7 新发现 phantom」登记）**：`MathaGrowthEngine._verify` 历史上曾把 `improved`(str) 误当 `CrossLanguageVerifier.verify` 的 `sources` 参数传入（`sources.items()` 抛异常被 `except` 吞 → `cross_language_consistent` 恒 False）。现按真实契约以 `{'python': <源码>}` 调用、只取两侧 `.success`/`.vm_outputs` 判据、不读默认 True 的 `result.consistent`（单语言场景假阳性），已由 `tests/test_growth_cross_verify.py` 入门禁锁定。`grow` 出码安全仍**只**依赖 P1 `_is_safe_candidate`，不依赖此字段。
 - 已上锁的只有内核侧自动修复契约：`src/autonomous.py` 的 `AutoDebugger`/优化/自生长
   由 `tests/test_integration/test_auto_debug_e2e.py` 等 3 个 e2e 文件覆盖，不属本节降级范围。
 
