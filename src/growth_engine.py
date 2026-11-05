@@ -6,7 +6,7 @@ Matha 自主成长引擎 v1.2.18
   2. 跨功能缺陷联动 / 平衡 / 交互
   3. 自动自检各模块缺陷
   4. 直接调用各功能互相辅助
-  5. 网络自动搜索（WebSearch MCP）
+  5. 网络自动搜索（默认离线·仅显式启用 MATHA_ALLOW_NETWORK_SEARCH 才联网）
   6. 性能/资源不足自动提交成长需求
   7. 成长缺陷自动替换 / 升级回滚
 """
@@ -129,6 +129,10 @@ class GrowthEngine:
         self._remediation_queue: list[tuple[Defect, RemediationAction]] = []
         self._upgrade_history: list[dict] = []
         self._web_search_cache: dict[str, str] = {}
+        # Tier 2·A4：默认离线——绝不主动联网。仅当经 env MATHA_ALLOW_NETWORK_SEARCH
+        # 显式开启时，web_search 才尝试 MCP/HTTP 搜索；否则诚实返回 None（不伪造结果）。
+        self.allow_network = os.environ.get(
+            "MATHA_ALLOW_NETWORK_SEARCH", "").strip().lower() in ("1", "true", "yes", "on")
         self._report: GrowthReport | None = None
         # Tier 2·A1：最近一次已应用补丁的 (target, 原文字节) 快照，供无参回滚。
         self._last_snapshot: tuple[Path, bytes | None] | None = None
@@ -663,11 +667,21 @@ class GrowthEngine:
     # ── 5. 网络搜索补丁 ──────────────────────────────────────────────────────────
 
     def web_search(self, query: str) -> str | None:
-        """通过网络搜索获取补丁方案（优先使用 MCP WebSearch）。"""
+        """联网搜索补丁方案（默认离线·诚实拒绝）。
+
+        Tier 2·A4：遵循核心纯净 / 离线口径——默认**不主动发起任何网络请求**，
+        如实返回 None 并说明被禁用，绝不伪造搜索结果。仅当显式开启 `allow_network`
+        （env `MATHA_ALLOW_NETWORK_SEARCH`）时，才尝试 MCP / HTTP 搜索。
+        """
         if query in self._web_search_cache:
             return self._web_search_cache[query]
 
-        # 尝试使用 MCP WebSearch（超时 2s）
+        if not self.allow_network:
+            logger.info(f"  [搜索] '{query}' → 离线模式跳过（未启用网络搜索；"
+                        f"如需启用请设 MATHA_ALLOW_NETWORK_SEARCH=1）")
+            return None
+
+        # 显式开启后：尝试使用 MCP WebSearch（超时 2s）
         try:
             from run_mcp import run_mcp
             result = run_mcp({"server_name": "default", "tool_name": "WebSearch",
