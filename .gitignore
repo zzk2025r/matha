@@ -57,6 +57,18 @@ coverage/
 .htmlcov/
 .pytest_cache/
 
+# 工具运行期缓存
+.mypy_cache/
+.ruff_cache/
+
+# Matha 运行期缓存/环境产物（本机生成，不入库）
+# 注：.matha_packages/ 含已跟踪的 manifest.json，不在此排除
+.matha/
+.matha_cache/
+.matha_envs/
+.matha_v4_cache/
+.mpm_cache/
+
 # 大文件（LLVM/二进制）
 lib/llvmlite_pkg/
 *.dll
@@ -124,6 +136,9 @@ src/test.bc
 release/
 offline_package/
 installed/
+
+# 体检阶段 1b：Flutter 实验田与 vendored llvmlite 脱离跟踪，本地保留（零引用/零门禁）
+test_app/
 
 # P2 脱离跟踪的顶层一次性脚本（本地保留，零引用/零门禁）
 /demo_formula_library.py

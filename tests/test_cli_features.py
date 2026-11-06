@@ -130,5 +130,79 @@ def test_help_mentions_feature(capsys):
     assert "feature" in capsys.readouterr().out
 
 
+# ============================================================
+# 阶段 2a 判据锁：CLI 不得残留「零副作用打印就绪」假成功存根
+# ============================================================
+
+import re
+import inspect
+import importlib
+
+
+def _matha_main_source() -> str:
+    """取 `src/matha_main.py` 全文源码。
+
+    注：`from src import matha_main` 会命中 src 包懒导出表里的 `main` 函数
+    （同名遮蔽），故用 importlib 从 sys.modules 取真正的模块对象。
+    """
+    mod = importlib.import_module("src.matha_main")
+    return inspect.getsource(mod)
+
+# 旧存根的唯一指纹：构造 MathaSystem 却什么都不调用，只 print 就绪后 return 0。
+_FAKE_STUB_FINGERPRINT = "MathaSystem(debug=False)"
+
+# 有真实 src 后端 / 领域插件的命令：任何异常都会 return 1，
+# 因此 rc==0 即是「真的做了活」的硬证，而非假成功。
+_REAL_BACKED_COMMANDS = [
+    "typecheck", "mtest", "format", "async",
+    "nn", "ml", "data", "symbolic", "web",
+]
+
+# 无任何后端且无对应插件、已在阶段 2a 删除子命令注册的旧存根名。
+_REMOVED_STUB_COMMANDS = [
+    "frontend", "general", "science2", "compiler_full",
+    "toolchain", "graphics", "security2",
+]
+
+
+def test_no_fake_success_stub_fingerprint():
+    """源码级判据锁：不得再出现「MathaSystem(debug=False)+就绪+return 0」零副作用存根。"""
+    src = _matha_main_source()
+    assert _FAKE_STUB_FINGERPRINT not in src
+
+
+def test_every_registered_handler_is_defined():
+    """所有 func=_cmd_* 引用都必须有定义（无悬空注册）。"""
+    src = _matha_main_source()
+    refs = set(re.findall(r"func=(_cmd_\w+)", src))
+    defs = set(re.findall(r"^def (_cmd_\w+)", src, re.M))
+    assert refs <= defs, f"悬空注册（引用未定义）: {sorted(refs - defs)}"
+
+
+@pytest.mark.parametrize("cmd", _REAL_BACKED_COMMANDS)
+def test_real_backed_commands_do_not_fake_success(cmd, capsys):
+    """接线/领域加载命令必须真实执行（rc==0）；失败会 return 1，不会假成功。"""
+    assert main([cmd]) == 0
+
+
+@pytest.mark.parametrize("cmd", _REMOVED_STUB_COMMANDS)
+def test_removed_stub_commands_are_rejected(cmd):
+    """无后端的旧存根命令已从 argparse 删除：未知名必须显式失败（非 0），不冒充成功。"""
+    with pytest.raises(SystemExit) as e:
+        main([cmd])
+    assert e.value.code != 0
+
+
+def test_help_exposes_wired_and_hides_removed(capsys):
+    """--help 快照：接线命令可见，被删存根命令不可见。"""
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    out = capsys.readouterr().out
+    for cmd in ("typecheck", "mtest", "format", "async", "doc", "viz", "symbolic"):
+        assert cmd in out, f"--help 缺少已接线命令 {cmd}"
+    for cmd in _REMOVED_STUB_COMMANDS:
+        assert cmd not in out, f"--help 仍暴露已删除的存根命令 {cmd}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v", "-s"]))

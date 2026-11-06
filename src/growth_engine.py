@@ -6,12 +6,13 @@ Matha 自主成长引擎 v1.2.18
   2. 跨功能缺陷联动 / 平衡 / 交互
   3. 自动自检各模块缺陷
   4. 直接调用各功能互相辅助
-  5. 网络自动搜索（WebSearch MCP）
+  5. 网络自动搜索（默认离线·仅显式启用 MATHA_ALLOW_NETWORK_SEARCH 才联网）
   6. 性能/资源不足自动提交成长需求
   7. 成长缺陷自动替换 / 升级回滚
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 # ── 路径设置 ─────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -127,7 +129,13 @@ class GrowthEngine:
         self._remediation_queue: list[tuple[Defect, RemediationAction]] = []
         self._upgrade_history: list[dict] = []
         self._web_search_cache: dict[str, str] = {}
+        # Tier 2·A4：默认离线——绝不主动联网。仅当经 env MATHA_ALLOW_NETWORK_SEARCH
+        # 显式开启时，web_search 才尝试 MCP/HTTP 搜索；否则诚实返回 None（不伪造结果）。
+        self.allow_network = os.environ.get(
+            "MATHA_ALLOW_NETWORK_SEARCH", "").strip().lower() in ("1", "true", "yes", "on")
         self._report: GrowthReport | None = None
+        # Tier 2·A1：最近一次已应用补丁的 (target, 原文字节) 快照，供无参回滚。
+        self._last_snapshot: tuple[Path, bytes | None] | None = None
 
         # ── 定义需要审计的资源清单 ──
         self._resource_spec: list[dict] = self._build_resource_spec()
@@ -659,11 +667,21 @@ class GrowthEngine:
     # ── 5. 网络搜索补丁 ──────────────────────────────────────────────────────────
 
     def web_search(self, query: str) -> str | None:
-        """通过网络搜索获取补丁方案（优先使用 MCP WebSearch）。"""
+        """联网搜索补丁方案（默认离线·诚实拒绝）。
+
+        Tier 2·A4：遵循核心纯净 / 离线口径——默认**不主动发起任何网络请求**，
+        如实返回 None 并说明被禁用，绝不伪造搜索结果。仅当显式开启 `allow_network`
+        （env `MATHA_ALLOW_NETWORK_SEARCH`）时，才尝试 MCP / HTTP 搜索。
+        """
         if query in self._web_search_cache:
             return self._web_search_cache[query]
 
-        # 尝试使用 MCP WebSearch（超时 2s）
+        if not self.allow_network:
+            logger.info(f"  [搜索] '{query}' → 离线模式跳过（未启用网络搜索；"
+                        f"如需启用请设 MATHA_ALLOW_NETWORK_SEARCH=1）")
+            return None
+
+        # 显式开启后：尝试使用 MCP WebSearch（超时 2s）
         try:
             from run_mcp import run_mcp
             result = run_mcp({"server_name": "default", "tool_name": "WebSearch",
@@ -826,82 +844,192 @@ class GrowthEngine:
                 logger.info(f"  [自动扩充] 关键词 {intent_type.value}: +{len(new_kw)} 个")
         return added
 
-    # ── 7. 升级管道 ──────────────────────────────────────────────────────────────
+    # ── 7. 升级管道（Tier 2·A1 真实化：显式目标 + 强制前置完整性校验 + 异常熔断回滚）──
 
-    def run_upgrade_pipeline(self, patch_code: str, verify_fn=None) -> bool:
-        """执行升级管道：应用补丁 → 验证 → 失败则回滚。"""
+    def _resolve_upgrade_target(self, target_path: str | None) -> tuple[Path | None, str]:
+        """把升级目标解析为绝对路径并过**内核纯净度闸门**。
+
+        返回 `(Path, "")` 合法；`(None, reason)` 被拒。规则：
+          - 必须显式提供 target_path（无目标即拒绝，杜绝过去『模拟成功』phantom）；
+          - **绝不允许**落在内核/源码树 `src/` 内（成长引擎不得改写内核/唯一版本源）；
+          - 拒绝目录 / 非常规文件 / 父目录不存在 / 解析异常（含 `..` 穿越后仍按解析结果判定）。
+        """
+        if not target_path:
+            return None, "未提供升级目标文件（不再模拟成功）"
+        try:
+            p = Path(target_path).resolve()
+        except (OSError, RuntimeError) as e:
+            return None, f"目标路径解析失败: {e}"
+        src_root = Path(__file__).resolve().parent  # = src/
+        try:
+            p.relative_to(src_root)
+            return None, f"拒绝改写内核/源码树内文件（内核纯净度）: {p}"
+        except ValueError:
+            pass  # 不在 src/ 下 → 允许
+        if p.is_dir():
+            return None, f"目标是目录而非文件: {p}"
+        if p.exists() and not p.is_file():
+            return None, f"目标不是普通文件: {p}"
+        if not p.parent.is_dir():
+            return None, f"目标父目录不存在: {p.parent}"
+        return p, ""
+
+    def _snapshot_and_apply(self, target: Path, new_content: str) -> tuple[bool, bytes | None, str]:
+        """强制前置完整性校验 → 原子写入。返回 `(applied, 原文字节|None, error)`。
+
+        写前：读现有原文快照（用于回滚与 hash 完整性对比）；对 `.py` 目标做 dry-run 语法编译，
+        不过则**拒绝写入**。写入用临时文件 + `os.replace` 原子替换，中断不会留下半截内容。
+        """
+        original: bytes | None = None
+        if target.exists():
+            try:
+                original = target.read_bytes()
+            except OSError as e:
+                return False, None, f"读取目标失败，拒绝写入: {e}"
+        if target.suffix == ".py":
+            try:
+                compile(new_content, str(target), "exec")
+            except (SyntaxError, ValueError) as e:
+                return False, original, f"补丁语法校验失败，拒绝写入: {e}"
+        tmp = target.with_name(f"{target.name}.tmp.{os.getpid()}")
+        try:
+            tmp.write_text(new_content, encoding="utf-8")
+            os.replace(tmp, target)
+        except OSError as e:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+            return False, original, f"写入失败: {e}"
+        return True, original, ""
+
+    def _restore_target(self, target: Path, original: bytes | None) -> str:
+        """按快照回滚：`original is None` 表示原本不存在 → 删除新建文件；否则按字节还原。
+        返回错误串（空串=成功）。"""
+        try:
+            if original is None:
+                if target.exists():
+                    target.unlink()
+            else:
+                target.write_bytes(original)
+        except OSError as e:
+            return f"回滚失败: {e}"
+        return ""
+
+    def _verify_written(self, target: Path, new_content: str, verify_fn=None) -> bool:
+        """写后校验：优先 `verify_fn(new_content)`（抛异常判失败）；缺省对 `.py` 再编译自检。"""
+        if verify_fn is not None:
+            try:
+                return bool(verify_fn(new_content))
+            except Exception as e:
+                logger.warning(f"  [升级] 写后校验异常，判失败: {e}")
+                return False
+        if target.suffix == ".py":
+            try:
+                compile(new_content, str(target), "exec")
+                return True
+            except (SyntaxError, ValueError):
+                return False
+        return True
+
+    def run_upgrade_pipeline(self, patch_code: str, verify_fn=None,
+                             target_path: str | None = None) -> bool:
+        """升级管道（真实应用·安全前置）：显式目标 + 完整性校验 + 校验后回滚。
+
+        取代过去『`_apply_patch` 恒返回 True 的模拟成功』phantom。纪律：
+          1. 无显式 `target_path` → **诚实拒绝**（False），不再谎称已应用；
+          2. 目标须过内核纯净度闸门（拒绝 `src/` 树内 / 目录 / 路径异常）；
+          3. 写前强制完整性校验（原文快照 + `.py` 语法 dry-run）；
+          4. 写后校验（`verify_fn(new_content)` 优先，缺省再编译）；
+          5. 任一步失败/异常 → **立即回滚到原文**（绝对禁止强制应用）。
+        返回 bool：仅当确实写入且校验通过才 True，并把真实状态（applied/verified/
+        rolled_back/hash）记入 `_upgrade_history` 供审计。委派契约不变：
+        `UnifiedGrowth.run_growth_pipeline` 仍以位置参 `patch_code` 透传本方法返回值。
+        """
         logger.info(f"  [升级] 开始升级管道，补丁长度={len(patch_code)}")
-
-        # Step 1: 沙箱验证
-        logger.info("  [升级] Step 1: 沙箱验证")
-        sandbox_ok = self._sandbox_verify(patch_code)
-        if not sandbox_ok:
-            self._add_defect(
-                DefectCategory.升级回滚,
-                Severity.HIGH,
-                "升级管道：沙箱验证失败",
-                "upgrade_pipeline"
-            )
+        target, reason = self._resolve_upgrade_target(target_path)
+        if target is None:
+            logger.info(f"  [升级] 未应用：{reason}")
+            self._upgrade_history.append({
+                "patch_length": len(patch_code), "applied": False,
+                "verified": False, "success": False, "reason": reason,
+                "timestamp": time.time(),
+            })
             return False
 
-        # Step 2: 应用补丁
-        logger.info("  [升级] Step 2: 应用补丁")
-        applied = self._apply_patch(patch_code)
+        applied, original, err = self._snapshot_and_apply(target, patch_code)
         if not applied:
             self._add_defect(
-                DefectCategory.升级回滚,
-                Severity.HIGH,
-                "升级管道：补丁应用失败",
-                "upgrade_pipeline"
+                DefectCategory.升级回滚, Severity.HIGH,
+                f"升级管道：应用前校验/写入失败已拒 ({err})", "upgrade_pipeline",
             )
+            self._upgrade_history.append({
+                "patch_length": len(patch_code), "applied": False,
+                "verified": False, "success": False, "target": str(target),
+                "reason": err, "timestamp": time.time(),
+            })
             return False
 
-        # Step 3: 验证
-        logger.info("  [升级] Step 3: 验证")
-        if verify_fn:
-            verify_ok = verify_fn()
-        else:
-            verify_ok = self._verify_after_patch()
-        if not verify_ok:
-            logger.warning("  [升级] 验证失败，执行回滚")
-            self._rollback_patch()
+        original_hash = hashlib.sha256(original).hexdigest()[:16] if original is not None else None
+        new_hash = hashlib.sha256(patch_code.encode("utf-8")).hexdigest()[:16]
+
+        verified = self._verify_written(target, patch_code, verify_fn)
+        if not verified:
+            rb_err = self._restore_target(target, original)
             self._add_defect(
-                DefectCategory.升级回滚,
-                Severity.CRITICAL,
-                "升级管道：验证失败已回滚",
-                "upgrade_pipeline"
+                DefectCategory.升级回滚, Severity.CRITICAL,
+                f"升级管道：写后校验失败已回滚{('（回滚亦失败:' + rb_err + '）') if rb_err else ''}",
+                "upgrade_pipeline",
             )
+            self._upgrade_history.append({
+                "patch_length": len(patch_code), "applied": True,
+                "verified": False, "success": False, "rolled_back": not bool(rb_err),
+                "target": str(target), "hash_before": original_hash, "hash_after": new_hash,
+                "timestamp": time.time(),
+            })
             return False
 
-        # Step 4: 记录升级历史
+        self._last_snapshot = (target, original)
         self._upgrade_history.append({
-            "patch_length": len(patch_code),
-            "success": True,
+            "patch_length": len(patch_code), "applied": True,
+            "verified": True, "success": True, "target": str(target),
+            "hash_before": original_hash, "hash_after": new_hash,
             "timestamp": time.time(),
         })
-        logger.info("  [升级] 升级成功 ✓")
+        logger.info(f"  [升级] 已应用并校验通过 → {target}")
         return True
 
     def _sandbox_verify(self, patch_code: str) -> bool:
-        """沙箱内验证补丁语法。"""
+        """（保留）补丁语法沙箱自检。"""
         try:
             compile(patch_code, "<patch>", "exec")
             return True
-        except SyntaxError:
+        except (SyntaxError, ValueError):
             return False
 
-    def _apply_patch(self, patch_code: str) -> bool:
-        """应用补丁（模拟）。"""
-        # 实际生产中这里会修改对应源文件
-        logger.debug(f"  [补丁] 应用补丁（{len(patch_code)} 字符）")
-        return True  # 模拟成功
+    def _apply_patch(self, patch_code: str, target_path: str | None = None) -> bool:
+        """向后兼容薄封装：真实应用需显式 `target_path`，委托 `run_upgrade_pipeline`。
+        无目标 → 诚实 False（不再模拟成功）。"""
+        return self.run_upgrade_pipeline(patch_code, target_path=target_path)
 
-    def _rollback_patch(self) -> None:
-        """回滚补丁。"""
-        logger.info("  [回滚] 回滚补丁")
+    def _rollback_patch(self, target_path: str | None = None) -> None:
+        """回滚：按最近一次已应用快照还原目标。无参亦安全（inner_loop 依赖）。
+        无可回滚快照时如实记录、绝不抛。"""
+        snap = self._last_snapshot
+        if snap is None:
+            logger.info("  [回滚] 无可回滚快照（本次未应用任何补丁）")
+            return
+        target, original = snap
+        rb_err = self._restore_target(target, original)
+        if rb_err:
+            logger.warning(f"  [回滚] {rb_err}")
+        else:
+            logger.info(f"  [回滚] 已恢复 {target}")
+        self._last_snapshot = None
 
     def _verify_after_patch(self) -> bool:
-        """补丁后验证。"""
+        """（保留）无目标时的通用健康自检，供历史调用点。"""
         try:
             from src.ai_assistant import MathaAIAssistant
             a = MathaAIAssistant()

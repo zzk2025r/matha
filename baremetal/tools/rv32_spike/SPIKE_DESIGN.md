@@ -39,12 +39,13 @@ rv32em.py   字节码 → RV32IM 指令流（两遍：标签 → 分支/绝对�
 
 ## 3. 覆盖集（正式子集 + 静态模式/管道项）
 
-**正式覆盖 opcode（7 条）**：
+**正式覆盖 opcode（8 条）**：
 
 | opcode | 说明 |
 |---|---|
 | `PUSH_CONST` | 仅 int32 常量池槽 |
 | `BINOP` | `+ - * // % == != < > <=`（`//`/`%` 归一到 Python 地板除/取模语义；比较结果带 bool 标记，直接 OUTPUT 打印 `True`/`False` 与 VM 对齐） |
+| `UNARYOP` | int32 标量子集 `neg`/`not`/`~`：`neg`=`0-a`（`a==INT_MIN` 溢出干净失败，VM 为任意精度）；`~`=`a^-1`（int32 封闭）；`not`=真值性取反（`a==0`→1 否则 0，带 bool 标记）。开方/立方根/聚合/角度/自增自减等非 int32 标量一元仍显式拒 |
 | `CALL` | 仅直接调用已定义用户函数（编译期静态解析到标号），argc ≤ 2，实参限标量 |
 | `RET` | 单值返回（标量/bool；列表与函数值跨边界显式拒绝） |
 | `OUTPUT` | 按编译期值型分派：int32 十进制 / `True`/`False` / `[a, b, c]`（Python repr 分隔口径）+ 换行 |
@@ -61,7 +62,7 @@ rv32em.py   字节码 → RV32IM 指令流（两遍：标签 → 分支/绝对�
 ==/!= 编译期静态折叠，排序比较/跨函数边界拒绝）、`PUSH_TRUE/PUSH_FALSE`（bool 标记）、
 `HALT`；另有**内建表** `len`/`get`（for 句型由编译器降为 len/get 内建调用，
 SPIKE 编译期静态融入指令序列，不建运行时函数对象；其他内建仍走「未定义全局」拒绝）。
-集合之外（UNARYOP、MAKE_CLOSURE/闭包/间接调用/一阶、BUILD_DICT/DUP/UNPACK_SEQ/
+集合之外（UNARYOP 的 sqrt/cbrt/sum/prod/angle/自增自减与对列表/null/函数值取一元、MAKE_CLOSURE/闭包/间接调用/一阶、BUILD_DICT/DUP/UNPACK_SEQ/
 GET_ATTR/box 系、float/字符串值（PUSH_CONST 指字符串显式拒绝，不 KeyError）、
 列表/null 跨函数边界、列表拼接/相等、arity>2 等）一律 `NotSupportedRV32` 显式拒绝；
 runner 另有负向例（REJECT_CASES）断言这些源码**必须被拒绝**，误接受即 FAIL。

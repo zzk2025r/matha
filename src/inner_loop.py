@@ -43,7 +43,17 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.__version__ import get_version
+
 logger = logging.getLogger("matha.inner_loop")
+
+
+def _version_tuple(v: str) -> tuple[int, int, int]:
+    """版本串 → 可比较三元组（取前三段数字，不足补 0）。"""
+    nums = [int(x) for x in re.findall(r"\d+", v)]
+    while len(nums) < 3:
+        nums.append(0)
+    return (nums[0], nums[1], nums[2])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -545,12 +555,18 @@ class MathaInnerLoop:
 
     # ── 5. 自升级层 ────────────────────────────────────────────────────────────
 
-    def self_upgrade_check(self) -> dict:
-        """自升级检查：检测版本状态和可用升级。"""
-        current_version = "1.2.22"
-        known_versions = ["1.2.21", "1.2.20", "1.2.19", "1.2.18", "1.2.17"]
-        latest = max(known_versions) if known_versions else current_version
-        is_latest = current_version >= latest
+    def self_upgrade_check(self, known_latest: str | None = None) -> dict:
+        """自升级检查：如实报告当前版本（唯一版本源）与可得升级。
+
+        A2 修复：不再硬编码假版本（旧：`current='1.2.22'`、`known=['1.2.21',…]`）。
+        `current_version` 取自唯一版本源 `src.__version__`；离线环境无远程更新通道，
+        「最新可得版本」即当前源版本本身，故如实报告 `is_latest=True / can_upgrade=False`，
+        绝不伪造可用升级。若调用方经真实渠道传入 `known_latest`，则据实比较。
+        待处理高危补丁仍来自引擎真实缺陷统计。
+        """
+        current_version = get_version()
+        latest = known_latest or current_version
+        is_latest = _version_tuple(current_version) >= _version_tuple(latest)
 
         pending_patches = []
         if self._engine:
@@ -601,8 +617,8 @@ class MathaInnerLoop:
             except Exception as e:
                 result["errors"].append(f"补丁 {patch_info['defect']} 异常: {e}")
 
-        result["from_version"] = "1.3.0"
-        result["to_version"] = target_version or "1.3.0"
+        result["from_version"] = get_version()
+        result["to_version"] = target_version or get_version()
         result["patches_applied"] = applied
         result["success"] = applied > 0 or len(defects) == 0
         logger.info(f"  [自升级] 应用补丁: {applied}/{len(patches)}")
@@ -1126,6 +1142,54 @@ class MathaInnerLoop:
         self.init_modules()
         result = self.run_cycle(verbose=verbose)
         return result
+
+    def run(self, task: str, max_rounds: int = 3, verbose: bool = False) -> dict:
+        """语义包装：驱动闭环自改进为一项任务服务（unified_growth 适配契约·阶段 6d §五）。
+
+        这是 `UnifiedGrowth.run_inner_loop(task, max_rounds)` 真正接入本循环的入口，
+        取代过去恒返回「inner_loop 不可用」的 phantom 通道。语义：
+          1. 惰性初始化：仅当核心模块缺失时尝试 `init_modules`（失败则诚实降级、绝不抛）；
+          2. 至多跑 `max_rounds` 轮 `run_cycle`；命中「健康短路」（run_cycle 仅返回
+             diagnosis 且 status==healthy）即提前收敛，避免空转；
+          3. 返回稳定 schema，任何单轮异常被吞并记入 results，整体不抛。
+
+        纪律：本包装**不**把 task 注入感知缓冲——task 仅作结果元数据透传，避免污染
+        交互/健康分而破坏短路语义。锁定见 tests/test_inner_loop_lock.py::L14。
+        """
+        if self._engine is None:
+            try:
+                self.init_modules()
+            except Exception as e:  # 诚实降级：初始化失败仍返回可解析结果，不抛
+                logger.warning("  [内循环] init_modules 失败，降级运行: %s", e)
+        try:
+            n = max(1, int(max_rounds))
+        except (TypeError, ValueError):
+            n = 1
+        rounds_run = 0
+        stopped_early = False
+        results: list[dict] = []
+        for _ in range(n):
+            try:
+                r = self.run_cycle(verbose=verbose)
+            except Exception as e:  # 单轮崩不拖垮整体
+                results.append({"error": str(e)})
+                break
+            rounds_run += 1
+            results.append(r)
+            # 健康短路：run_cycle 仅返回 diagnosis（无 actions）且已 healthy → 收敛
+            if "actions" not in r and r.get("status") == "healthy":
+                stopped_early = True
+                break
+        return {
+            "success": True,
+            "task": task,
+            "rounds_run": rounds_run,
+            "stopped_early": stopped_early,
+            "health_score": self._state.health_score,
+            "status": self._state.status,
+            "cycle_count": self._state.cycle_count,
+            "results": results,
+        }
 
     def start_loop(self, interval: float = 30.0, verbose: bool = True):
         """启动持续内循环模式（后台线程）。"""

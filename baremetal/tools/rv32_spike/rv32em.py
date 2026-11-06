@@ -11,14 +11,14 @@ RV32IM ELF32 —— 不经交叉工具链、不经汇编器，MMIO 直写 ns1655
     纯指令/数据指令二分类，见 rv32bc.py）。两入口产物字节一致（runner roundtrip 断言）。
   - 值模型 = 裸 int32 + 编译期标记的堆列表指针/null/bool。字符串值/超 32 位 →
     显式 NotSupportedRV32（PUSH_CONST 指向字符串常量亦显式拒绝，绝不 KeyError）。
-  - 正式覆盖 opcode：PUSH_CONST / BINOP(+ - * // % == != < > <=) / CALL /
-    RET / OUTPUT / BUILD_LIST / INDEX_GET。静态模式/管道项（不计入正式数）：
+  - 正式覆盖 opcode：PUSH_CONST / BINOP(+ - * // % == != < > <=) / UNARYOP(neg not ~) /
+    CALL / RET / OUTPUT / BUILD_LIST / INDEX_GET。静态模式/管道项（不计入正式数）：
     LOAD_GLOBAL/STORE_GLOBAL（全局单元完整语义：int/bool/list/null 均可存读，
     编译期跟踪槽类型）/ LOAD_LOCAL/STORE_LOCAL / JMP/JZ/JNZ（if/elif/else 链
     + while/for 后向回跳的分支全路径；JZ 空表判假与 Python 口径一致）/
     POP/PUSH_NULL（语句位丢弃形状；null 比较编译期静态折叠）/
     PUSH_TRUE/PUSH_FALSE / HALT；内建表 len/get（解锁 for 句型，静态融入发射）。
-    集合之外（UNARYOP、MAKE_CLOSURE/间接调用、BUILD_DICT/DUP、字符串/浮点值、
+    集合之外（UNARYOP 的 sqrt/cbrt/sum/prod/angle/自增自减、MAKE_CLOSURE/间接调用、BUILD_DICT/DUP、字符串/浮点值、
     列表或 null 跨函数边界、arity>2 等）一律显式拒绝，绝不静默产错。
   - 溢出/除零 = 干净失败（非零退出，不伪造值；对齐 native 1a/1c 红线）。
 
@@ -93,8 +93,8 @@ R_T0, R_T1, R_T2, R_T3, R_T4, R_T5 = 5, 6, 7, 28, 29, 30
 # R_CPOOL/R_GLOB/R_UART 为「保留全局寄存器」：用户函数与运行库只读不写。
 # R_EBP 仅按 push/pop 调整，绝不整体改值（除 _start 初始化）。
 
-# 正式计入覆盖集的 opcode（数据结构二条为 P6 扩展新增）
-SUBSET_OPS = {OP.PUSH_CONST, OP.BINOP, OP.CALL, OP.RET, OP.OUTPUT,
+# 正式计入覆盖集的 opcode（数据结构二条为 P6 扩展新增；UNARYOP 为 P6 一元扩展）
+SUBSET_OPS = {OP.PUSH_CONST, OP.BINOP, OP.UNARYOP, OP.CALL, OP.RET, OP.OUTPUT,
               OP.BUILD_LIST, OP.INDEX_GET}
 # 静态模式/管道项（不计入正式数，但 SPIKE 已支持）
 PIPELINE_OPS = {OP.LOAD_GLOBAL, OP.STORE_GLOBAL, OP.LOAD_LOCAL, OP.STORE_LOCAL,
@@ -103,6 +103,8 @@ PIPELINE_OPS = {OP.LOAD_GLOBAL, OP.STORE_GLOBAL, OP.LOAD_LOCAL, OP.STORE_LOCAL,
 
 _INT_OPS = {"+": "add", "-": "sub", "*": "mul", "//": "fdiv", "%": "mod"}
 _CMP_OPS = {"==", "!=", "<", ">", "<="}
+# UNARYOP 中属 int32 标量值模型的子集（其余 sqrt/cbrt/sum/prod/angle/自增类越界显式拒）
+_UNARY_INT = {"neg", "not", "~"}
 
 # SPIKE 内建函数表（编译期静态分派，解锁 for 句型：len/get 融进发射序列，
 # 不建运行时函数对象）。集合外的内建（如 str/dict 相关）仍走「未定义全局」拒绝。
@@ -271,6 +273,30 @@ def _emit_cmp(em, sym):
         _push_reg(em, R_A0)
 
 
+# ---------------------------------------------------------------- UNARYOP
+
+def _emit_unop(em, sym):
+    """弹 1 标量→一元→压 1。neg/not/~ 与 VM `_UNARYOPS` 逐字节一致。
+
+    - neg：`0 - a`；`a == INT_MIN` 时结果 2^31 溢出 int32（VM 为任意精度）→ 干净失败。
+    - `~`：异或 −1（`~a == -a-1`），int32 上封闭（无溢出）。
+    - not：`a == 0` → 1 否则 0（SLTIU 无符号小于 1），真值性口径与 Python 一致。
+    """
+    _pop_to(em, R_T0)
+    if sym == "neg":
+        em.li(R_T1, INT_MIN)
+        em.emit(BEQ(R_T0, R_T1, 0))            # a==INT_MIN → 溢出
+        em._fix_br.append((len(em.code) - 1, "exit_err"))
+        em.emit(SUB(R_T2, ZERO, R_T0))
+        _push_reg(em, R_T2)
+    elif sym == "~":
+        em.emit(XORI(R_T2, R_T0, -1))          # ~a = a ^ 0xFFFFFFFF
+        _push_reg(em, R_T2)
+    elif sym == "not":
+        em.emit(SLTIU(R_T2, R_T0, 1))          # a==0 → 1；否则 0
+        _push_reg(em, R_T2)
+
+
 # ---------------------------------------------------------------- 编译期上下文
 
 class _Ctx:
@@ -402,7 +428,20 @@ def _emit_body(em, ctx, code, nlocals, tag, ltype0=None):
             del stk[-2:]
             stk.append("bool" if sym in _CMP_OPS else "v")
         elif op == OP.UNARYOP:
-            raise NotSupportedRV32("SPIKE 不支持 UNARYOP（负号请用 0 - x）")
+            sym = consts[ins[1]]
+            if not isinstance(sym, str):
+                raise NotSupportedRV32(f"UNARYOP 运算符非常量字符串：{sym!r}")
+            if sym not in _UNARY_INT:
+                raise NotSupportedRV32(
+                    f"SPIKE 不支持 UNARYOP {sym!r}（仅覆盖整数 neg/not/~；"
+                    f"sqrt/cbrt/sum/prod/angle/自增自减未实现）")
+            _need(stk, 1, "UNARYOP")
+            t = stk[-1]
+            if t == "null" or t == "list" or isinstance(t, tuple):
+                raise NotSupportedRV32(
+                    f"UNARYOP {sym!r}：操作数值型 {t!r} 越出 SPIKE int/bool 值模型")
+            _emit_unop(em, sym)
+            stk[-1] = "bool" if sym == "not" else "v"
         elif op in (OP.LOAD_LOCAL, OP.STORE_LOCAL):
             slot = ins[1]
             if slot >= nlocals:

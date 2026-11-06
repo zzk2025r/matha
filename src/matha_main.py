@@ -887,40 +887,30 @@ def main(argv=None) -> int:
                             help="场景名称")
     p_scene.set_defaults(func=_cmd_scene)
 
-    # nn — 神经网络
-    sub.add_parser("nn", help="神经网络工具").set_defaults(func=_cmd_nn)
-    # concurrent — 并发编程
-    sub.add_parser("concurrent", help="并发编程工具").set_defaults(func=_cmd_concurrent)
-    # data — 数据科学
-    sub.add_parser("data", help="数据科学工具").set_defaults(func=_cmd_data)
-    # blockchain — 区块链
-    sub.add_parser("blockchain", help="区块链工具").set_defaults(func=_cmd_blockchain)
-    # quantum — 量子计算
-    sub.add_parser("quantum", help="量子计算工具").set_defaults(func=_cmd_quantum)
-    # audio — 音视频
-    sub.add_parser("audio", help="音视频工具").set_defaults(func=_cmd_audio)
-    # geo — 地理空间
-    sub.add_parser("geo", help="地理空间工具").set_defaults(func=_cmd_geo)
-    # chem — 化学
-    sub.add_parser("chem", help="化学工具").set_defaults(func=_cmd_chem)
-    # astro — 天文学
-    sub.add_parser("astro", help="天文学工具").set_defaults(func=_cmd_astro)
-    # music — 音乐
-    sub.add_parser("music", help="音乐工具").set_defaults(func=_cmd_music)
-    # robot — 机器人
-    sub.add_parser("robot", help="机器人工具").set_defaults(func=_cmd_robot)
-    # 新模块
-    sub.add_parser("pkg", help="包管理工具").set_defaults(func=_cmd_pkg)
-    sub.add_parser("typecheck", help="类型检查工具").set_defaults(func=_cmd_typecheck)
-    sub.add_parser("mtest", help="测试框架工具").set_defaults(func=_cmd_mtest)
-    sub.add_parser("format", help="代码格式化工具").set_defaults(func=_cmd_format)
-    sub.add_parser("doc", help="文档生成工具").set_defaults(func=_cmd_doc)
-    sub.add_parser("async", help="异步编程工具").set_defaults(func=_cmd_async)
-    sub.add_parser("science", help="科学计算工具").set_defaults(func=_cmd_science)
-    sub.add_parser("viz", help="数据可视化工具").set_defaults(func=_cmd_viz)
-    sub.add_parser("symbolic", help="符号计算工具").set_defaults(func=_cmd_symbolic)
-    sub.add_parser("ml", help="机器学习工具").set_defaults(func=_cmd_ml)
-    sub.add_parser("security2", help="安全增强工具").set_defaults(func=_cmd_security2)
+    # 领域能力命令：统一经 _load_domain 真实加载插件并报告符号数（阶段 2a，取代旧
+    # 「打印就绪、return 0」假成功存根）。类型/测试/格式化/异步/文档/可视化/机器学习
+    # 接线到既有 src 模块；无后端且无对应插件的命令（compiler_full/science/science2/
+    # general/frontend/toolchain/graphics/security2 等）已删除子命令，未知名由 argparse
+    # 显式报错，绝不冒充成功。
+    _dom_cmds = {
+        "nn": "neural_network", "concurrent": "concurrent", "data": "data_science",
+        "blockchain": "blockchain", "quantum": "quantum", "audio": "audio_video",
+        "geo": "geospatial", "chem": "chemistry", "astro": "astronomy",
+        "music": "music", "robot": "robotics", "web": "web_framework",
+        "os2": "os_module", "ml_full": "ai_data_science", "quantum2": "quantum_compute",
+        "ml": "neural_network", "symbolic": "symbolic_calculus",
+        "netdrv": "networking", "fsdrv": "filesystem",
+    }
+    for _name, _plugin in _dom_cmds.items():
+        sub.add_parser(_name, help=f"加载领域插件 {_plugin}").set_defaults(
+            func=lambda a, _p=_plugin: _load_domain(_p))
+    # 有真实 src 后端的命令：接线到既有模块（替换旧「就绪」假成功存根）
+    sub.add_parser("typecheck", help="类型检查（type_system）").set_defaults(func=_cmd_typecheck)
+    sub.add_parser("mtest", help="测试框架自检（test_framework）").set_defaults(func=_cmd_mtest)
+    sub.add_parser("format", help="代码格式化（code_formatter）").set_defaults(func=_cmd_format)
+    sub.add_parser("async", help="异步运行时自检（async_runtime）").set_defaults(func=_cmd_async)
+    sub.add_parser("doc", help="文档生成（tools.doc_generator）").set_defaults(func=_cmd_doc)
+    sub.add_parser("viz", help="数据可视化仪表盘（visualizer）").set_defaults(func=_cmd_viz)
     sub.add_parser("compile2", help="编译工具").set_defaults(func=_cmd_compile2)
     sub.add_parser("http", help="HTTP服务器工具").set_defaults(func=_cmd_http)
     sub.add_parser("git", help="版本控制工具").set_defaults(func=_cmd_git)
@@ -936,19 +926,6 @@ def main(argv=None) -> int:
     sub.add_parser("media", help="音视频工具").set_defaults(func=_cmd_media)
     sub.add_parser("geo2", help="地理空间工具").set_defaults(func=_cmd_geo2)
     sub.add_parser("robot2", help="机器人工具").set_defaults(func=_cmd_robot2)
-    sub.add_parser("os2", help="操作系统模块").set_defaults(func=_cmd_os)
-    sub.add_parser("cf", help="完整编译器工具").set_defaults(func=_cmd_compiler_full)
-    sub.add_parser("web", help="Web框架工具").set_defaults(func=_cmd_web)
-    sub.add_parser("frontend", help="前端框架工具").set_defaults(func=_cmd_frontend)
-    sub.add_parser("science2", help="科学计算工具").set_defaults(func=_cmd_science2)
-    sub.add_parser("ml_full", help="机器学习工具").set_defaults(func=_cmd_ml_full)
-    sub.add_parser("quantum2", help="量子计算工具").set_defaults(func=_cmd_quantum2)
-    sub.add_parser("toolchain", help="工具链工具").set_defaults(func=_cmd_toolchain)
-    sub.add_parser("graphics", help="图形引擎工具").set_defaults(func=_cmd_graphics)
-    sub.add_parser("general", help="通用工具").set_defaults(func=_cmd_general)
-    sub.add_parser("general2", help="通用工具").set_defaults(func=_cmd_general)
-    sub.add_parser("netdrv", help="网络驱动").set_defaults(func=_cmd_network_driver)
-    sub.add_parser("fsdrv", help="文件系统驱动").set_defaults(func=_cmd_fs_driver)
     sub.add_parser("devdrv", help="设备驱动框架").set_defaults(func=_cmd_device_driver)
     sub.add_parser("osapi", help="操作系统API").set_defaults(func=_cmd_os_api)
     sub.add_parser("gfxdrv", help="图形驱动").set_defaults(func=_cmd_graphics_driver)
@@ -1049,192 +1026,128 @@ def _cmd_list_domains(args) -> int:
     return 0
 
 
-def _cmd_nn(args) -> int:
-    """神经网络操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_neural_network()
-    print("神经网络模块就绪")
-    return 0
+# ============================================================
+# 阶段 2a 存根处置：领域插件真实加载 / 无后端显式拒绝（不再假成功）
+# ============================================================
 
+def _load_domain(plugin_name: str) -> int:
+    """按清单解析领域插件并真实加载，报告导出符号数。
 
-def _cmd_concurrent(args) -> int:
-    """并发编程操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_concurrent()
-    print("并发编程模块就绪")
-    return 0
+    阶段 2a：取代旧「打印就绪、return 0」存根——要么真正加载成功并报
+    可核验的符号数，要么显式失败返回 1，绝不冒充成功。
+    """
+    import importlib
 
-
-def _cmd_data(args) -> int:
-    """数据科学操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_data_science()
-    print("数据科学模块就绪")
-    return 0
-
-
-def _cmd_blockchain(args) -> int:
-    """区块链操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_blockchain()
-    print("区块链模块就绪")
-    return 0
-
-
-def _cmd_quantum(args) -> int:
-    """量子计算操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_quantum()
-    print("量子计算模块就绪")
-    return 0
-
-
-def _cmd_audio(args) -> int:
-    """音视频操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_audio_video()
-    print("音视频模块就绪")
-    return 0
-
-
-def _cmd_geo(args) -> int:
-    """地理空间操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_geospatial()
-    print("地理空间模块就绪")
-    return 0
-
-
-def _cmd_chem(args) -> int:
-    """化学操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_chemistry()
-    print("化学模块就绪")
-    return 0
-
-
-def _cmd_astro(args) -> int:
-    """天文学操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_astronomy()
-    print("天文学模块就绪")
-    return 0
-
-
-def _cmd_music(args) -> int:
-    """音乐操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_music()
-    print("音乐模块就绪")
-    return 0
-
-
-def _cmd_robot(args) -> int:
-    """机器人操作。"""
-    from src.matha_system import MathaSystem
-    ms = MathaSystem(debug=False)
-    ms._init_robotics()
-    print("机器人模块就绪")
-    return 0
-
-
-# ─── 新模块 ───
-
-def _cmd_pkg(args) -> int:
-    """包管理。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("包管理模块就绪")
+    from src.kernel.exec_api import list_domains
+    entry = None
+    for p in list_domains():
+        if p["name"] == plugin_name:
+            entry = p
+            break
+    if entry is None:
+        print(f"未实现：清单中不存在插件 {plugin_name!r}；"
+              f"用 `matha --list-domains` 查看 82 个领域插件", file=sys.stderr)
+        return 1
+    try:
+        mod = importlib.import_module(f"src.domains.{plugin_name}")
+    except Exception as e:
+        print(f"领域插件 {plugin_name} 加载失败：{e}", file=sys.stderr)
+        return 1
+    n = int(entry["symbols"] or 0)
+    if not n:
+        try:
+            from src.plugin_api import adapt_module
+            n = len(adapt_module(mod).exports())
+        except Exception:
+            n = len(getattr(mod, "__all__", []) or
+                    [k for k in vars(mod) if not k.startswith("_")])
+    print(f"已加载领域插件 {plugin_name}（{entry['display_name']}）："
+          f"导出符号 {n} 个")
     return 0
 
 
 def _cmd_typecheck(args) -> int:
-    """类型检查。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("类型检查模块就绪")
+    """类型检查：跑一遍内核类型推断器的真实 demo。"""
+    try:
+        from src.parser import parse
+        from src.type_system import TypeChecker, TypeInferencer
+        ok = TypeChecker.check(42, "Int", "n")
+        errs = TypeInferencer().infer(parse("x = 1\n"))
+        print(f"类型检查器就绪: Int校验={ok} 演示程序错误数={len(errs)}")
+    except Exception as e:
+        print(f"类型检查模块加载失败: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
 def _cmd_mtest(args) -> int:
-    """测试框架。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("测试框架模块就绪")
+    """测试框架：真实建套件、注册并运行一个 demo 用例。"""
+    try:
+        from src.test_framework import create_test_runner
+        runner = create_test_runner()
+        runner.suite("cli.selfcheck")
+        runner.test("cli.arith", lambda: (1 + 1 == 2))
+        passed, failed = runner.run()
+        print(f"测试框架就绪: 通过 {passed} 失败 {failed}")
+    except Exception as e:
+        print(f"测试框架模块加载失败: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
 def _cmd_format(args) -> int:
-    """代码格式化。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("代码格式化模块就绪")
-    return 0
-
-
-def _cmd_doc(args) -> int:
-    """文档生成。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("文档生成模块就绪")
+    """代码格式化：对一段 demo 源码真实跑格式化。"""
+    try:
+        from src.code_formatter import format_code
+        res = format_code("x=1\n")
+        print(f"代码格式化就绪: 可格式化 demo 源码（style={getattr(res, 'style', 'black')}）")
+    except Exception as e:
+        print(f"代码格式化模块加载失败: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
 def _cmd_async(args) -> int:
-    """异步编程。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("异步编程模块就绪")
+    """异步编程：真实提交一个任务到线程池。"""
+    try:
+        from src.async_runtime import get_thread_pool
+        pool = get_thread_pool()
+        future = pool.submit(sum, [1, 2, 3])
+        print(f"异步运行时就绪: worker={pool.max_workers} 演示任务结果={future.result()}")
+    except Exception as e:
+        print(f"异步运行时模块加载失败: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
-def _cmd_science(args) -> int:
-    """科学计算。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("科学计算模块就绪")
+def _cmd_doc(args) -> int:
+    """文档生成：调用 tools.doc_generator 真实扫描源码并统计可文档化模块。"""
+    try:
+        from pathlib import Path
+        from src.tools.doc_generator import MathaDocGenerator
+        target = getattr(args, "file", None) or "src"
+        p = Path(target)
+        src_dir = str(p) if p.is_dir() else str(p.parent if p.parent else Path("."))
+        gen = MathaDocGenerator([src_dir])
+        modules = gen.discover_modules()
+        print(f"文档生成器就绪: 在 {src_dir} 发现可文档化模块 {len(modules)} 个")
+    except Exception as e:
+        print(f"文档生成模块加载失败: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
 def _cmd_viz(args) -> int:
-    """数据可视化。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("数据可视化模块就绪")
-    return 0
-
-
-def _cmd_symbolic(args) -> int:
-    """符号计算。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("符号计算模块就绪")
-    return 0
-
-
-def _cmd_ml(args) -> int:
-    """机器学习。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("机器学习模块就绪")
-    return 0
-
-
-def _cmd_security2(args) -> int:
-    """安全增强（TLS/OAuth2/JWT）。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("安全增强模块就绪")
+    """数据可视化：调用 visualizer 真实生成领域仪表盘（取代旧 viz 存根）。"""
+    try:
+        from src.visualizer import get_visualizer
+        vis = get_visualizer()
+        vis.visualize_domains()
+        path = vis.save_dashboard()
+        print(f"数据可视化仪表盘已生成: {path}")
+    except Exception as e:
+        print(f"数据可视化模块加载失败: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -1494,102 +1407,6 @@ def _cmd_robot2(args) -> int:
     except Exception as e:
         print(f"机器人引擎模块加载失败: {e}", file=sys.stderr)
         return 1
-    return 0
-
-
-def _cmd_os(args) -> int:
-    """操作系统模块。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("操作系统模块就绪")
-    return 0
-
-
-def _cmd_compiler_full(args) -> int:
-    """完整编译器工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("完整编译器工具就绪")
-    return 0
-
-
-def _cmd_web(args) -> int:
-    """Web框架工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("Web框架模块就绪")
-    return 0
-
-
-def _cmd_frontend(args) -> int:
-    """前端框架工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("前端框架模块就绪")
-    return 0
-
-
-def _cmd_science2(args) -> int:
-    """科学计算工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("科学计算模块就绪")
-    return 0
-
-
-def _cmd_ml_full(args) -> int:
-    """机器学习工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("机器学习模块就绪")
-    return 0
-
-
-def _cmd_quantum2(args) -> int:
-    """量子计算工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("量子计算模块就绪")
-    return 0
-
-
-def _cmd_toolchain(args) -> int:
-    """工具链工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("工具链模块就绪")
-    return 0
-
-
-def _cmd_graphics(args) -> int:
-    """图形引擎工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("图形引擎模块就绪")
-    return 0
-
-
-def _cmd_general(args) -> int:
-    """通用工具。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("通用工具模块就绪")
-    return 0
-
-
-def _cmd_network_driver(args) -> int:
-    """网络驱动。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("网络驱动模块就绪")
-    return 0
-
-
-def _cmd_fs_driver(args) -> int:
-    """文件系统驱动。"""
-    from src.matha_system import MathaSystem
-    MathaSystem(debug=False)
-    print("文件系统驱动模块就绪")
     return 0
 
 

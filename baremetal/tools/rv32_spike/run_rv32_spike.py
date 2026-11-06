@@ -139,6 +139,33 @@ for i in [2, 4] {
 }
 #1：[y]
 """,
+    # —— P6 一元扩展：UNARYOP neg / not / ~ （int32 标量值模型）——
+    "s14_unary_neg": """\
+x = 7
+z = 0 - x
+#1：[-x]
+#1：[-z]
+func 负(n: Int) -> Int = (n) => -n
+#1：[负(9)]
+#1：[负(0 - 3)]
+""",
+    "s15_unary_not": """\
+a = 5
+b = 0
+#1：[not a]
+#1：[not b]
+c = 3 > 2
+#1：[not c]
+#1：[not (2 > 9)]
+""",
+    "s16_unary_bitnot": """\
+p = 5
+q = 0
+#1：[~p]
+#1：[~q]
+n = 0 - 1
+#1：[~n]
+""",
 }
 
 # ---- 覆盖集外（负向）：必须被 NotSupportedRV32 显式拒绝 ----
@@ -162,6 +189,15 @@ xs = [1, 2]
     "r5_dict_literal": """\
 d = {"a": 1}
 #1：[d]
+""",
+    # UNARYOP 越出 int32 标量子集：开方（非 neg/not/~）与对列表取负
+    "r6_unary_sqrt": """\
+x = 4
+#1：[√x]
+""",
+    "r7_unary_neg_on_list": """\
+xs = [1, 2]
+#1：[-xs]
 """,
 }
 

@@ -30,8 +30,8 @@ def _get_matha_growth():
         return None
 def _get_inner_loop():
     try:
-        from src.inner_loop import InnerLoop
-        return InnerLoop
+        from src.inner_loop import MathaInnerLoop
+        return MathaInnerLoop
     except ImportError:
         return None
 def _get_original_growth():
@@ -83,18 +83,22 @@ class UnifiedGrowth:
         self._domain_formula = None
         self._formula_compiler = None
         self._auto_created_interp = False
+        # 原始 growth 子系统的持久注册表（阶段 6f-D 修复：过去每次新建后即弃、无法查询）。
+        self._extension_registry = None
+        # 注册时附带的可调用对象（旧缺陷：func 参数被完全忽略；现如实保留、可查）。
+        self._extension_callables: dict = {}
     def _ensure_initialized(self):
+        # 解释器：供 probe/sandbox/upgrade 共享；缺失则自动创建（与是否构建引擎无关）。
+        if self._interp is None:
+            from src.diag_backends import new_interpreter as Interpreter
+            self._interp = Interpreter()
+            self._auto_created_interp = True
         if self._growth_engine is None:
-            cls = _get_growth_engine()
-            # Auto-create Interpreter if not provided
-            interp = self._interp
-            if interp is None:
-                from src.diag_backends import new_interpreter as Interpreter
-                interp = Interpreter()
-                self._auto_created_interp = True
-            self._growth_engine = cls(interp)
-            if self._auto_created_interp:
-                self._interp = interp
+            # GrowthEngine.__init__(assistant=...) 期望“助手”（其内部自建 parser/interp），
+            # 过去误把 Interpreter 当 assistant 传入 → get_growth_stats() 触 self._assistant.parser 报
+            # AttributeError。改用工厂：无 assistant 时自动创建默认 MathaAIAssistant（与 inner_loop 一致）。
+            from src.growth_engine import create_growth_engine
+            self._growth_engine = create_growth_engine()
         if self._su is None:
             self._su = _get_selfupgrade()
         if self._matha_growth is None:
@@ -103,8 +107,11 @@ class UnifiedGrowth:
                 self._matha_growth = cls()
         if self._inner_loop is None:
             cls = _get_inner_loop()
-            if cls and self._interp:
-                self._inner_loop = cls(self._interp)
+            if cls:
+                # MathaInnerLoop.__init__ 无参（自含解释器）；若统一层已有 interp 则注入共享。
+                self._inner_loop = cls()
+                if self._interp is not None:
+                    self._inner_loop._interp = self._interp
         if self._original is None:
             self._original = _get_original_growth()
         if self._formula_growth is None:
@@ -292,83 +299,63 @@ class UnifiedGrowth:
             "steps": record.steps,
             "error": record.error,
         }
-    # ── 虚构代码生成 ───────────────────────────────────────────────────────
+    # ── 虚构代码生成（诚实拒绝·FormulaFictionalizer 幽灵依赖已清除）────
     def fictionalize(self, description: str,
                     name: str | None = None,
                     params: list[str] | None = None,
                     return_type: str = "Any",
                     category: str = "fictional",
-                    dependencies: list[str] | None = None) -> Any:
-        """从自然语言描述虚构一个函数/API，并注册为可用的函数。
-                Args:
-            description: 自然语言描述，如 "计算两个质量之间的万有引力"
-            name: 函数名（可选，自动生成）
-            params: 参数名列表（可选，自动推断）
-            return_type: 返回类型（可选）
-            category: 分类（可选）
-            dependencies: 依赖的其他虚构函数名（可选）
-                    Returns:
-            可调用的虚构函数
+                    dependencies: list[str] | None = None) -> dict:
+        """从自然语言描述虚构函数/API。
+
+        诚实拒绝：该通道历史依赖 `src.matha.growth.FormulaFictionalizer`——该类在整个代码库
+        中**并不存在**（phantom 引用），且原方法把若干兄弟 API 误写成死嵌套 def、二次调用返回
+        None，过去每次调用都抛 ImportError。现如实返回不可用，并指向已实现且入门禁的等价能力
+        `UnifiedGrowth.formula_grow('generate', ...)`。绝不抛、不导入幽灵类。
         """
-        self._ensure_initialized()
-        if not hasattr(self, '_fictionalizer'):
-            from src.formula_system import FormulaRegistry
-            from src.matha.growth import FormulaFictionalizer
-            self._fictionalizer = FormulaFictionalizer(FormulaRegistry())
-            api = self._fictionalizer.imagine(
-                description=description,
-                name=name,
-                params=params,
-                return_type=return_type,
-                category=category,
-                dependencies=dependencies,
-            )
-            # 实体化并注册为真实可用的函数
-            self._fictionalizer.materialize(api)
-            self._fictionalizer.register_as_real(api)
-            return self._fictionalizer._fictional_functions[api.name]
-        def fictionalize_and_register(self, description: str,
-                                name: str | None = None,
-                                params: list[str] | None = None,
-                                return_type: str = "Any",
-                                category: str = "fictional",
-                                dependencies: list[str] | None = None) -> Any:
-            """虚构并注册一个函数（同 fictionalize，但明确表示注册）"""
-            return self.fictionalize(description, name, params, return_type, category, dependencies)
-        def get_fictional_function(self, name: str) -> Any | None:
-            """获取已虚构的函数。"""
-            if not hasattr(self, '_fictionalizer'):
-                return None
-            return self._fictionalizer.get_fictional_api(name)
-        def list_fictional_functions(self) -> list[str]:
-            """列出所有虚构函数。"""
-            if not hasattr(self, '_fictionalizer'):
-                return []
-            return list(self._fictionalizer._fictional_apis.keys())
-        def call_fictional(self, name: str, *args, **kwargs) -> Any:
-            """调用虚构函数。"""
-            if not hasattr(self, '_fictionalizer'):
-                from src.formula_system import FormulaRegistry
-                from src.matha.growth import FormulaFictionalizer
-                self._fictionalizer = FormulaFictionalizer(FormulaRegistry())
-            return self._fictionalizer.call(name, *args, **kwargs)
+        return {
+            "success": False,
+            "error": "fictionalize 未实现（FormulaFictionalizer 不存在）；"
+                     "如需按描述生成公式，请用 UnifiedGrowth.formula_grow('generate', ...)",
+            "description": description,
+            "name": name,
+        }
     # ── 原始扩展注册 ───────────────────────────────────────────────────────
     def register_extension(self, name: str, func) -> bool:
-        """注册扩展功能。"""
+        """注册扩展功能（阶段 6f-D 最小诚实修复）。
+
+        旧缺陷：每次新建临时 `ExtensionRegistry()`、注册后即弃（无任何查询面能取回），
+        且完全忽略传入的 `func`（`Extension` 模型只走 module.class_name 动态导入），却返回
+        True——属与 fictionalize 同族的「声称做成、实则未接线」。现把注册表持久化到实例、
+        并将调用方的 func 如实保留，两者均可经 `list_extensions()` / `get_extension_callable()` 查回。
+        （`Extension` 模型仍不支持直接可调用体，故 func 只作保留/可查，不参与 `get_instance` 动态加载。）
+        """
         self._ensure_initialized()
-        if self._original and "ExtensionRegistry" in self._original:
-            try:
-                from src.growth import Extension
-                registry = self._original["ExtensionRegistry"]()
-                ext = Extension(
-                    name=name, kind="generator", module="",
-                    class_name="", description=f"Auto-registered: {name}",
-                )
-                registry.register(ext)
-                return True
-            except Exception:
-                return False
-        return False
+        if not (self._original and "ExtensionRegistry" in self._original):
+            return False
+        try:
+            from src.growth import Extension
+            if self._extension_registry is None:
+                self._extension_registry = self._original["ExtensionRegistry"]()
+            ext = Extension(
+                name=name, kind="generator", module="",
+                class_name="", description=f"Auto-registered: {name}",
+            )
+            self._extension_registry.register(ext)
+            self._extension_callables[name] = func   # 旧缺陷中被静默丢弃的调用方，现如实保留
+            return True
+        except Exception:
+            return False
+
+    def list_extensions(self) -> list[dict]:
+        """查询已注册扩展（旧缺陷里临时 registry 每次即弃、无从查询）。"""
+        if self._extension_registry is None:
+            return []
+        return self._extension_registry.list_extensions()
+
+    def get_extension_callable(self, name: str):
+        """取回注册时附带的可调用对象（旧缺陷：func 被忽略、无从取回）。"""
+        return self._extension_callables.get(name)
     # ── 插件市场 ──────────────────────────────────────────────────────
     def search_packages(self, query: str, remote: bool = False) -> list[dict]:
         self._ensure_initialized()
@@ -538,12 +525,15 @@ def apply_remote_upgrade(server_url: str, current_version: str) -> dict:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 def get_current_version() -> str:
-    """获取当前版本。"""
+    """获取当前版本（取自唯一版本源 `src.__version__`）。
+
+    过去读 `ug._growth_engine._registry._formulas.get("version")`，但 `GrowthEngine` 并无
+    `_registry` 属性 → 每次 AttributeError 被 `except` 吞掉、恒回退硬编码 "1.0.0"（与实际
+    版本矛盾的 phantom 属性访问）。现直接取唯一版本源；保留异常退路但不依赖不存在的属性。
+    """
     try:
-        from src.unified_growth import get_unified_growth
-        ug = get_unified_growth()
-        ug._ensure_initialized()
-        return ug._growth_engine._registry._formulas.get("version", "1.0.0")
+        from src.__version__ import __version__
+        return __version__
     except Exception:
         return "1.0.0"
 

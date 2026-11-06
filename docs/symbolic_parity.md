@@ -7,7 +7,7 @@
 `LimitUndetermined` / `SeriesUndetermined` / `OdeUnsupported` /
 `DomainUndetermined`），**不返回乐观默认值**。
 
-机器可判定的回归锁：`tests/test_kernel_symbolic.py`（103 例；字符串断言的值取自
+机器可判定的回归锁：`tests/test_kernel_symbolic.py`（142 例；字符串断言的值取自
 sympy 1.14 实测输出，任意点泰勒则以邻域逼近真函数的数值一致性锁定）。运行：
 
 ```
@@ -60,6 +60,14 @@ python -m pytest tests/test_kernel_symbolic.py -q
 多项式识别还原为精确根式（如 `1/2*sqrt(2)*atan(x/sqrt(2))`）。未加载时输出逐字节不变；
 能力之外（多根式、高次根、超越数）诚实回退 double，绝不臆造。
 
+> 打印插件的结构还原能力已从「实二次域」扩面至：① 多根式域 ℚ(√d1,…,√dk)（SurdVector，如
+> `sqrt(2)+sqrt(3)`）；② 高次纯根 `base^(1/n)`；③ **高次代数数** —— 单一纯根式域
+> ℚ(ⁿ√m)（n≥3）内的线性组合（如 `∛2+∛4 → root(3,2) + root(3,4)`、`∛2·∛2 → root(3,4)`）；
+> ④ **复代数数 a+b√d（d<0）** —— 按虚部拆成 `a + b·√(-d)·i` 精确打印（如 `sqrt(-2) → sqrt(2)*i`、
+> `(1+sqrt(-3))/2 → 1/2 + 1/2*sqrt(3)*i`）。均以中性项树的**结构**为线索（扁平 double 无此线索，
+> 仍诚实回退）；超出单一生成元的混合（双虚基、复数开方、多生成元如 ∛2+∛3、域内一般除法）回 `None`。
+> 对拍锁见 `tests/test_plugin_algebra_dynamics.py`（逐项 `sp.simplify(串 - 独立sympy求值) == 0`）。
+
 **缺口（显式失败，非静默）**：
 
 | 表达式 | 行为 |
@@ -85,10 +93,11 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | ∞ 处主部比较 | 一致 | `log(x)/x → 0`；`x*exp(-x) → 0`；`exp(x)/x**2 → oo` |
 | ∞−∞ 共轭有理化 | 一致 | `sqrt(x+1)-sqrt(x) → 0` |
 | 反三角/Hyperbolic 定值 | 一致 | `atan(x) → π/2`（精确值，不再给 12 位近似） |
+| `0·∞` 慢发散对数 × 幂零因子 | 一致 | `x*log(x)→0`、`sin(x)*log(x)→0`、`x**2*log(x)→0`、`x*log(x)*log(x)→0`（x→0⁺）：有限瑕点处由「log 增长慢于任意正次幕」引理精确定 0（左侧越定义域 x→0⁻ 如实失败） |
 | 振荡型 | 子集 | `sin(x)`（x→∞）**显式失败**；sympy 返回 `Interval(-1, 1)` |
-| `∞−∞` 非根式、`0^0`/`∞^0` 一般式 | 子集 | 落不完判据链时 `LimitUndetermined` |
+| `∞−∞` 非根式、增长层级细比（如 `log(log x)/log x`） | 子集 | 落不完判据链时 `LimitUndetermined`（x→∞ 的 log-log/log 需更细增长层级，超出本引理） |
 
-## 5. 级数 `taylor` / `maclaurin` / `sum_series`（`kernel/symbolic/series.py`）
+## 5. 级数 `taylor` / `maclaurin` / `sum_series` / `fourier_series`（`kernel/symbolic/series.py`）
 
 | 能力 | 判定 | 实测样本 |
 |---|---|---|
@@ -99,6 +108,8 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | `Σ x**n/n! → exp(x)`、`Σ1/n**2 → π²/6` | 一致 | 闭式识别 |
 | 负整数幂求和（`Σ1/n`，调和/`polygamma`） | 子集（插件回退已覆盖） | 内核 `SeriesUndetermined`；`级数求和` 插件懒加载 sympy 给 `137/60`/`digamma(5)+EulerGamma`（见第 10 节） |
 | 求和变量与项内函数不匹配（`Σk`，k 非求和元） | 子集 | 显式失败 |
+| 傅里叶截断级数 `fourier_series(f, x, left, right, order)` | 一致（被积式可闭合时） | 采用 sympy `fourier_series` 同约定（周期 `T=right−left`，基 `cos/sin(2πn(x−left)/T)`，常数项 `a₀/2`）；系数 `aₙ/bₙ` 由内核 `integrate` 求原函数后 Newton–Leibniz 精确回代。多项式/`exp(一次)`/三角（含多项式×三角分部）与 sympy 系数积分采样点一致（tol 1e-6） |
+| 被积式无闭合原函数的傅里叶系数（`abs(x)`、跨 0 的 `1/x`、双频三角积 `cos(x)·x`、`exp(x²)`、`log(x)`×三角） | 子集 | 内核 `SeriesUndetermined`（拒绝数值积分伪造系数） |
 
 ## 6. 常微分方程 `solve_ode`（`kernel/symbolic/ode.py`）
 
@@ -108,7 +119,8 @@ python -m pytest tests/test_kernel_symbolic.py -q
 | 一阶可分离 | 一致 | `y' = y*sin(x) → C1*exp(-cos(x))`；`y' = x**2*y → C1*exp(x**3/3)` |
 | 一阶线性积分因子 | 一致 | `y' + 2*y = exp(-x) → C1*exp(-2*x) + exp(-x)`；`y' + 3*y = exp(2*x) → C1*exp(-3*x) + exp(2*x)/5` |
 | 二阶常系数齐次（相异/重根/共轭） | 一致 | `y'' + 2*y' + y = 0 → C2*x*exp(-x) + C1*exp(-x)` |
-| 待定系数特解（非齐次高阶） | 子集 | 仅覆盖多项式/指数/正弦型右端的部分组合，失败即显式报错 |
+| 二阶常系数**非齐次** `a·y''+b·y'+c·y=r(x)` 待定系数特解 | 一致（右端受限） | 右端 `r ∈ {多项式, e^{kx}, sin(ωx)/cos(ωx), 及多项式×这些}`，含共振（率与特征根重合时乘 `x^s`）；`y''-y=exp(x)→C1*exp(x)+C2*exp(-x)+x*exp(x)/2`；`y''+y=sin(x)→C1*cos(x)+C2*sin(x)-x*cos(x)/2`；`y''-y=x**2+3→-x**2-5+…`（11 例与 sympy `dsolve` **残差对拍**锁入 `test_kernel_symbolic.py`）。越界右端（`1/x`、`ln`、`tan`、分式幂、三角积）显式 `OdeUnsupported` |
+| 待定系数特解（高阶/变系数/其它右端型） | 子集 | 仅上表二阶常系数右端；余者失败即显式报错 |
 | 非线性一阶（`y' = x**2 + y**2`、`y' = (x+y)/x`、`y' = 1/(x+y)`） | 子集（插件回退已覆盖） | 内核 `OdeUnsupported`；`解微分方程` 插件懒加载 sympy 给线性化/Riccati 解（需 Airy 的 `y'=x²+y²` 仍显式失败，见第 10 节） |
 | 幂级数解、Laplace 变换 | 子集 | 内核未实现 |
 
@@ -158,7 +170,8 @@ python -m pytest tests/test_kernel_symbolic.py -q
 5. 振荡型极限（`sin(x)` at ∞）与三角和式累值界。
 6. 精确代数数（`√`、单位根）系数域 —— 内核当前以 double 表示、默认打印为小数；
    可选代数数插件（`enable_exact_algebra()`）在门面发射层把落在二次域 ℚ(√d) 的系数
-   还原为精确根式（默认关、内核零改动，能力之外诚实回退）。
+   还原为精确根式，并覆盖多根式域、高次纯根、单一纯根式域 ℚ(ⁿ√m) 内的高次代数数
+   与复代数数 a+b√d（d<0，按 `i` 拆分）（默认关、内核零改动，能力之外诚实回退）。
 7. 多变量积分、含参积分、主值积分（Cauchy PV）。
 
 以上 7 项在内核中**全部走显式失败路径**，由 `src.stdlib.calculus_symbolic`

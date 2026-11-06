@@ -1661,10 +1661,6 @@ class DomainRegistry:
             reg = {}
             mod._register_robot(reg)
             builtins.update(reg)
-        if mod and hasattr(mod, '_register_av'):
-            reg = {}
-            mod._register_av(reg)
-            builtins.update(reg)
         if mod and hasattr(mod, '_register_package'):
             reg = {}
             mod._register_package(reg)
@@ -1697,10 +1693,6 @@ class DomainRegistry:
             reg = {}
             mod._register_visualization(reg)
             builtins.update(reg)
-        if mod and hasattr(mod, '_register_symbolic'):
-            reg = {}
-            mod._register_symbolic(reg)
-            builtins.update(reg)
         if mod and hasattr(mod, '_register_ml'):
             reg = {}
             mod._register_ml(reg)
@@ -1720,10 +1712,6 @@ class DomainRegistry:
         if mod and hasattr(mod, '_register_build_system'):
             reg = {}
             mod._register_build_system(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_database'):
-            reg = {}
-            mod._register_database(reg)
             builtins.update(reg)
         if mod and hasattr(mod, '_register_ai_framework'):
             reg = {}
@@ -1749,10 +1737,6 @@ class DomainRegistry:
             reg = {}
             mod._register_devops(reg)
             builtins.update(reg)
-        if mod and hasattr(mod, '_register_blockchain'):
-            reg = {}
-            mod._register_blockchain(reg)
-            builtins.update(reg)
         if mod and hasattr(mod, '_register_audio_video'):
             reg = {}
             mod._register_audio_video(reg)
@@ -1765,49 +1749,13 @@ class DomainRegistry:
             reg = {}
             mod._register_robotics(reg)
             builtins.update(reg)
-        if mod and hasattr(mod, '_register_symbolic'):
-            reg = {}
-            mod._register_symbolic(reg)
-            builtins.update(reg)
         if mod and hasattr(mod, '_register_os_module'):
             reg = {}
             mod._register_os_module(reg)
             builtins.update(reg)
-        if mod and hasattr(mod, '_register_compiler_full'):
-            reg = {}
-            mod._register_compiler_full(reg)
-            builtins.update(reg)
         if mod and hasattr(mod, '_register_web_framework'):
             reg = {}
             mod._register_web_framework(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_frontend'):
-            reg = {}
-            mod._register_frontend(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_science_full'):
-            reg = {}
-            mod._register_science_full(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_ml_full'):
-            reg = {}
-            mod._register_ml_full(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_quantum'):
-            reg = {}
-            mod._register_quantum(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_toolchain'):
-            reg = {}
-            mod._register_toolchain(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_graphics'):
-            reg = {}
-            mod._register_graphics(reg)
-            builtins.update(reg)
-        if mod and hasattr(mod, '_register_general'):
-            reg = {}
-            mod._register_general(reg)
             builtins.update(reg)
         if mod and hasattr(mod, '_register_os_extended'):
             reg = {}

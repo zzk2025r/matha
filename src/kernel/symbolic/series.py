@@ -6,6 +6,10 @@
   * 有限和：多项式用 Faulhaber 公式；真分式用部分分式 telescoping；几何级数用闭式。
   * 无穷和：几何、telescoping、``Σ x^n/n! = e^x``、偶数 p-级数（Basel 族 ``π^(2k)/(2·(2k)!)·|B_2k|``）。
   * 其余：Euler–Maclaurin 数值求和并如实返回 float（标记为近似，见 parity 文档）。
+- ``fourier_series(expr, var, left, right, order)``：截断傅里叶级数
+  ``a₀/2 + Σₙ₌₁^order [aₙcos(2πn(x−left)/T) + bₙsin(2πn(x−left)/T)]``（``T=right−left``，
+  与 sympy ``fourier_series(...).truncate`` 同约定）。系数用内核 ``integrate`` 求原函数后
+  Newton–Leibniz 精确回代；乘积 ``f·cos``/``f·sin`` 无闭合原函数时抛 ``SeriesUndetermined``（不数值伪造）。
 
 内核红线：只用标准库，**不得** import sympy/numpy/scipy/numba/tree_sitter/ctypes。
 """
@@ -19,14 +23,14 @@ from src.kernel.symbolic.expr import (
 )
 from src.kernel.symbolic.diff import nth_derivative
 from src.kernel.symbolic.integrate import (
-    _divisors, _from_dense, _horner, _poly_div, _roots, _to_dense,
+    _divisors, _from_dense, _horner, _poly_div, _roots, _to_dense, integrate,
 )
 from src.kernel.symbolic.simplify import canonical, from_poly, key_degree, poly
 
 logger = logging.getLogger("matha.kernel.symbolic")
 
-__all__ = ["taylor", "maclaurin", "sum_series", "SeriesUndetermined",
-           "bernoulli"]
+__all__ = ["taylor", "maclaurin", "sum_series", "fourier_series",
+           "SeriesUndetermined", "bernoulli"]
 
 
 class SeriesUndetermined(ValueError):
@@ -394,6 +398,66 @@ def _tail_estimate(e: Expr, var: str, n0: int) -> float:
     if not (0 < r < 1):
         return 0.0
     return a * r / (1 - r)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  傅里叶级数（截断；系数用内核 integrate 精确回代，不数值伪造）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def fourier_series(expr: Expr, var: str = "x", left: float = -math.pi,
+                   right: float = math.pi, order: int = 5) -> Expr:
+    """``f`` 在 ``[left, right]`` 上的截断傅里叶级数（与 sympy ``fourier_series`` 同式）。
+
+    角频率 ``ω = 2π/T``（``T = right − left``），基为 ``cos(ω n (x − left))`` /
+    ``sin(ω n (x − left))``；常数项取 ``a₀/2``。系数 ``aₙ = (2/T)∫ f·cos``、
+    ``bₙ = (2/T)∫ f·sin`` 均由内核 ``integrate`` 求原函数后 Newton–Leibniz 回代。
+    任一乘积无闭合原函数（如 ``|x|``、``exp(x²)``、``1/x`` 跨 0）→ 抛 ``SeriesUndetermined``。
+    """
+    e = canonical(expr)
+    T = float(right) - float(left)
+    if not math.isfinite(T) or T <= 0:
+        raise SeriesUndetermined(f"傅里叶区间需有限且 right>left: [{left}, {right}]")
+    if not (math.isfinite(float(left)) and math.isfinite(float(right))):
+        raise SeriesUndetermined(f"傅里叶区间端点必须有限: [{left}, {right}]")
+    w = 2.0 * math.pi / T
+
+    def _angle(n: int) -> Expr:
+        return canonical(Mul(_num(w * n), Sub(Var(var), _num(float(left)))))
+
+    parts: list[Expr] = [_num(_interval_integral(e, var, left, right) * (2.0 / T) / 2.0)]
+    for n in range(1, int(order) + 1):
+        ang = _angle(n)
+        a_n = _interval_integral(canonical(Mul(e, _f_cos(ang))), var, left, right) * (2.0 / T)
+        b_n = _interval_integral(canonical(Mul(e, _f_sin(ang))), var, left, right) * (2.0 / T)
+        if abs(a_n) > 1e-11:
+            parts.append(Mul(_num(a_n), _f_cos(_angle(n))))
+        if abs(b_n) > 1e-11:
+            parts.append(Mul(_num(b_n), _f_sin(_angle(n))))
+    return canonical(_chain(parts))
+
+
+def _f_cos(ang: Expr) -> FuncCall:
+    return FuncCall("cos", [ang])
+
+
+def _f_sin(ang: Expr) -> FuncCall:
+    return FuncCall("sin", [ang])
+
+
+def _interval_integral(e: Expr, var: str, lo: float, hi: float) -> float:
+    """``∫_lo^hi e dx``，走内核闭合原函数 + 精确回代；无原函数/非有限 → 如实失败。"""
+    anti = integrate(e, var)
+    if anti is None:
+        raise SeriesUndetermined(f"傅里叶系数被积式无闭合原函数: {e}")
+    try:
+        vh = anti.substitute(var, Num(float(hi))).evaluate({})
+        vl = anti.substitute(var, Num(float(lo))).evaluate({})
+    except Exception:
+        raise SeriesUndetermined(f"傅里叶系数回代失败: {e}")
+    v = float(vh) - float(vl)
+    if not math.isfinite(v):
+        raise SeriesUndetermined(f"傅里叶系数非有限: {e}")
+    return v
 
 
 def poly_in_only(e: Expr, var: str) -> dict[float, float] | None:

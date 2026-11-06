@@ -2,16 +2,18 @@
 Matha 自成长系统 v2 — 递归内联、循环展开、内存优化
 
 实现 Matha 源码的自动分析与优化循环：
-  源码 → 解析/诊断 → 优化建议 → 生成改进版本 → Matha 主链语义等价验证
+  源码 → 解析/诊断 → 优化建议 → 生成改进版本 → P1 坏码闸门 → 主链语义等价验证
 
 优化规则集（v2）：
   1. 常量折叠：x = 3.0 + 4.0 → x = 7.0
   2. 函数内联（单用）：def f(x): return x*x; f(3) → 3*3
   3. 函数内联（递归）：def fib(n): return n if n<2 else fib(n-1)+fib(n-2) → 深度限制内联
-  4. 死代码消除：unused = 999.0 → 移除
+  4. 死代码消除：S3 起已从核心自动管线移除（删未用绑定与 P1 名守恒冲突），
+     迁为 opt-in 扩展 `src/growth_extensions.py::optimize_dead_code`（自带 outputs 对拍）
   5. 常量传播：a = 10.0; b = a + 1 → b = 10.0 + 1
   6. 循环展开：for i in range(4): s += i → s = 0 + 1 + 2 + 3
-  7. 内存优化：临时变量栈提升（消除中间分配）
+  7. 内存优化（临时变量内联）：S2 起已从核心自动管线移除（删绑定与 P1 名守恒冲突），
+     迁为 opt-in 扩展 `src/growth_extensions.py::optimize_temp_inlining`（自带 outputs 对拍）
   8. 三角恒等式：sin(x) + cos(π/2-x) → sin²x + cos²x = 1 等简化
 """
 from __future__ import annotations
@@ -20,9 +22,16 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from src.growth_verify import is_semantically_consistent
+from src.growth_verify import is_semantically_consistent, run_outputs
 
 logger = logging.getLogger("matha.growth")
+
+# P2-1 算术恒等式正则构件（首批仅 7 条、不泛化）：
+#   操作数限定为标识符（变量名）；恒等元限定为裸整数 0/1（前后字界，绝不碰 0.5/10/11//）。
+_ARITH_BOUND = r'(?<![\w.])'
+_ARITH_NAME = r'[^\W\d]\w*'
+_ARITH_ZERO = r'(?<![\w.])0(?![\d.])'
+_ARITH_ONE = r'(?<![\w.])1(?![\d.])'
 
 
 # ============================================================
@@ -31,16 +40,22 @@ logger = logging.getLogger("matha.growth")
 
 @dataclass
 class GrowthReport:
-    """单次成长循环的结果。"""
+    """单次成长循环的结果。
+
+    S5：已移除三个幻影字段 `languages_analyzed` / `performance_before_ms` /
+    `performance_after_ms`——它们仅在数据类定义中出现、`grow` 全程不写（恒默认），属误导面；
+    且「性能计时」与本轨道「不承诺更快」纪律相违。无消费方，故直接删除而非伪填。
+
+    G-1 真修复：`cross_language_consistent` 改名为 `semantic_consistent`。旧名说的是
+    「跨语言」，而该判据实际比的是**同一 Matha 源码改写前/后**的可见输出是否一致（单语言），
+    旧名属误导面命名（且旧通道实为 Python 子集前端，连 Matha 都跑不到）。
+    """
     iteration: int
     source: str
-    languages_analyzed: list[str] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
     optimization_suggestions: list[str] = field(default_factory=list)
     improved_source: str = ""
     optimizations_applied: list[str] = field(default_factory=list)
-    performance_before_ms: float = 0.0
-    performance_after_ms: float = 0.0
     # 改写前后经 Matha 主链执行的可观测输出是否等价（非「跨语言」：验证通路
     # 与输入同为 Matha，旧名 cross_language_consistent 属误导，见 G-1）。
     semantic_consistent: bool = False
@@ -58,7 +73,13 @@ class MathaGrowthEngine:
         self.max_iterations = 5
 
     def grow(self, source: str) -> GrowthReport:
-        """主入口：迭代优化源码。"""
+        """主入口：迭代优化源码。
+
+        正确性闸门（P1·只保证「绝不出坏源码」，不承诺优化有效）：每一轮候选改写
+        必须 ①能被重新解析、②不丢失原文已绑定的名字（Binding 变量 / FuncDef），
+        否则回退上一安全版本、如实置空本轮 optimizations_applied，停止前传。
+        闸门只作用于此「前传决策」，_single_growth_iteration 保持原样（不改写规则本身）。
+        """
         report = GrowthReport(iteration=0, source=source)
         current = source
 
@@ -66,7 +87,23 @@ class MathaGrowthEngine:
             report = self._single_growth_iteration(current, iteration)
             if not report.optimizations_applied:
                 break
-            current = report.improved_source
+            candidate = report.improved_source
+            if not self._is_safe_candidate(current, candidate):
+                # 诚实回退：本轮改写未过闸门，保留上一安全版本，绝不产出坏源码。
+                report = GrowthReport(
+                    iteration=iteration,
+                    source=current,
+                    diagnostics=report.diagnostics,
+                    optimization_suggestions=report.optimization_suggestions,
+                    improved_source=current,
+                    optimizations_applied=[],
+                    errors=[
+                        f"第 {iteration} 轮改写未通过正确性闸门，已回退"
+                        "（不产出不可解析 / 丢失已绑定名字的源码）"
+                    ],
+                )
+                break
+            current = candidate
 
         report.improved_source = current
         # 最终报告的佐证必须描述「调用方原始输入 → 最终产物」：循环内逐步产出的
@@ -111,11 +148,15 @@ class MathaGrowthEngine:
         improved = source
         applied = []
 
+        improved, n = self._apply_arith_identities(improved)
+        if n: applied.append(f"算术恒等式 × {n}")
+
         improved, n = self._apply_const_folding(improved)
         if n: applied.append(f"常量折叠 × {n}")
 
-        improved, n = self._apply_dead_code_elimination(improved)
-        if n: applied.append(f"死代码消除 × {n}")
+        # S3：死代码消除已从核心自动管线**移除**——删未用绑定同样破 P1 名守恒（被删名即其
+        # 自身），且旧实现把赋值自身 LHS 也算进 used → 恒 no-op。真删除能力迁为 opt-in
+        # 扩展，见 `src/growth_extensions.py`。
 
         improved, n = self._apply_const_propagation(improved)
         if n: applied.append(f"常量传播 × {n}")
@@ -126,8 +167,8 @@ class MathaGrowthEngine:
         improved, n = self._apply_loop_unrolling(improved)
         if n: applied.append(f"循环展开 × {n}")
 
-        improved, n = self._apply_memory_optimization(improved)
-        if n: applied.append(f"内存优化 × {n}")
+        # S2：内存优化（临时变量内联）已从核心自动管线**移除**——删绑定行丢名与 P1
+        # 名守恒契约结构性冲突（恒被拒），迁为 opt-in 扩展，见 `src/growth_extensions.py`。
 
         improved, n = self._apply_trig_identities(improved)
         if n: applied.append(f"三角恒等式 × {n}")
@@ -135,106 +176,350 @@ class MathaGrowthEngine:
         return improved, applied
 
     def _verify(self, original: str, improved: str) -> bool:
-        """语义等价佐证：在 Matha 主链上执行两份源码并比对可观测输出。
+        """改写前后语义等价佐证（G-1 真修复）：委派给 :mod:`src.growth_verify`，
+        其内部走 Matha 主链——`src.parser.parse` + `src.interp.Interpreter`（P2-0 已
+        拍板的正交权威），分别运行原文与改写文，比对可观测 outputs。
 
-        判据由 :mod:`src.growth_verify` 统一承载（保守口径：两侧须运行成功
-        **且**有可观测输出且逐项相等；不设「同文即一致」捷径）。本方法不是
-        grow() 的安全闸门，仅为佐证字段；安全闸门属另一轨道。
+        判据（保守，只收紧不放松；无同文捷径）：
+          两侧都必须「运行成功」**且「有可观测输出」**，且 outputs 逐项相等 → True。
+        任一侧解析/运行失败 → **诚实 False**；两侧都无可见输出也 **False**——
+        `[] == []` 虽在数学上成立（同文亦如此），但未观测到任何一致性证据，属
+        「未验证≠一致」的假阳性（即 G-2），故不采信。不设 `original == improved` 捷径：
+        同文恒等但跑不出可见输出（甚至同文垃圾）也不能被声称为「语义一致」。
+        本方法不抛异常（`growth_verify.run_outputs` 已内部收敛）。
 
-        历史（G-1）：此处曾借 CrossLanguageVerifier 验证，但其 "python" 前端是
-        Python 子集前端（ast.parse），且因签名错配抛异常被静默吞掉，导致该
-        字段对任何输入恒为 False、不携带信息。现改走与输入域一致的主链。
+        历史（S4 → G-1）：旧实现把源码送入 `CrossLanguageVerifier` 的 `"python"` 通道，而该
+        前端（`src/mir2_frontend.py::PythonFrontend`）的 `compile` 实为 `ast.parse(source)`——
+        即 **Python 子集**前端，真实 Matha 构造（`func` / `let` / 中文函数名）在其上直接
+        SyntaxError → 两侧不可运行 → 本字段对真实 Matha 程序结构性恒 False（见 KNOWN_ISSUES
+        §7c G-1）。现改走 `grow` 输入域真正的主链：同语义不同程序能真判破（输出不等），
+        合法改写能真判等。
+
+        注：`_semantic_equivalent` harness 本体不动（P2-0 各规则对拍锁依赖其口径）；本方法
+        只在其判据上追加「必须有可观测输出」的保守守卫。
+
+        ⚠ 本字段**不是** grow 的安全闸门：grow 的「绝不出坏源码」仍**只**依赖 P1
+        `_is_safe_candidate`。`_verify` 只是佐证信号，供诊断参考。
+
+        失败原因不再压成布尔：由 `SemanticVerdict.reason` 给出机器可读口径。
         """
         return is_semantically_consistent(original, improved)
+
+    def _is_safe_candidate(self, original: str, improved: str) -> bool:
+        """正确性闸门：判定候选改写是否「绝不出坏源码」。
+
+        Tier 1：`improved` 必须能被重新解析（否则产出语法坏码，如函数名被删）。
+        Tier 2：`improved` 不得丢失 `original` 已绑定的顶层名字（Binding 变量 / FuncDef），
+                防「赋值声明退化为裸表达式」这类能过 parser 却语义腐蚀的改写。
+        原文本就不可解析时，无从谈保持语义，仅要求 `improved` 至少可解析。
+        """
+        if improved == original:
+            return True
+        from src.parser import parse
+        try:
+            prog_i = parse(improved)
+        except Exception:
+            return False
+        try:
+            prog_o = parse(original)
+        except Exception:
+            return True
+        return self._bound_names(prog_o) <= self._bound_names(prog_i)
+
+    @staticmethod
+    def _bound_names(program) -> set[str]:
+        """收集顶层已绑定/声明的名字：Binding(Variable) 与 FuncDef。"""
+        from src import ast_nodes as _ast
+        names: set[str] = set()
+        for d in getattr(program, "decls", []):
+            if isinstance(d, _ast.Binding) and isinstance(d.target, _ast.Variable):
+                names.add(d.target.name)
+            elif isinstance(d, _ast.FuncDef):
+                fname = getattr(d, "name", None)
+                if isinstance(fname, str):
+                    names.add(fname)
+        return names
+
+    def _semantic_equivalent(self, original: str, improved: str) -> bool:
+        """语义等价正交判据（P2-0 harness）：分别独立运行原文与改写文，比对可观测 outputs。
+
+        唯一正交标准（拍板）：在一次性解释器上各跑一遍：
+          - 原文运行出错 → 无法作为基准 → 判 False；
+          - 改写文运行出错 → 破坏原行为 → 判 False；
+          - 两者均成功且 outputs 逐项相等 → 判 True，否则 False。
+        纯离线、无文件副作用、不触 L1 内核入口。**仅作验证 harness**，不接入 grow()
+        运行路径（grow 仍由 P1 闸门的再解析/名守恒兼底）。
+        """
+        o_out, o_err = self._exec_outputs(original)
+        if o_err is not None:
+            return False
+        i_out, i_err = self._exec_outputs(improved)
+        if i_err is not None:
+            return False
+        return o_out == i_out
+
+    @staticmethod
+    def _exec_outputs(source: str):
+        """在一次性全新解释器上跑 source，返回 (outputs, error|None)。
+
+        实现已统一到 :func:`src.growth_verify.run_outputs`（单一真源）：每次新建
+        Interpreter、实例间不共享可变状态（杜绝用例间污染），解析/运行期异常均收敛为
+        error 字符串不裸抛，并结构性 `foreign_routing=False` 关闭外部语言路由。
+        保留本静态方法只为既有 P2-0 harness 与规则对拍锁的调用面不变。
+        """
+        return run_outputs(source)
 
     # ================================================================
     # 优化规则实现
     # ================================================================
 
-    def _apply_const_folding(self, source: str) -> tuple[str, int]:
-        """常量折叠：x = 3.0 + 4.0 → x = 7.0"""
-        improved = source
-        count = 0
-        const_pattern = re.compile(r'(\w+)\s*=\s*([\d.]+\s*[+\-*/%]\s*[\d.]+)')
-        for match in const_pattern.finditer(source):
-            var_name = match.group(1)
-            expr = match.group(2)
-            try:
-                result = eval(expr)
-                improved = improved.replace(match.group(0), f"{var_name} = {result}")
-                count += 1
-            except (SyntaxError, ZeroDivisionError, NameError):
-                pass
-        return improved, count
+    def _apply_arith_identities(self, source: str) -> tuple[str, int]:
+        """P2-1：首批 7 条简单算术恒等式（恒等元消去），纯正则、不泛化。
 
-    def _apply_dead_code_elimination(self, source: str) -> tuple[str, int]:
-        """死代码消除：移除未使用的变量赋值。"""
+        x+0→x、x-0→x、0+x→x、1*x→x、x*1→x、x/1→x、x**1→x。
+        仅作用于双引号字符串之外的子表达式；左操作数限定为标识符，恒等元限定为
+        裸整数 0/1（带字界）。`*` 与 `**` 互不误伤；`/` 不碰整除 `//`。
+        改写结果经 P1 闸门与语义等价 harness 双重验收；本规则按构造保守、正确。
+        """
+        improved = source
+        total = 0
+        rules = [
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*\+\s*{_ARITH_ZERO}', r'\1'),   # x + 0
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*-\s*{_ARITH_ZERO}', r'\1'),    # x - 0
+            (rf'{_ARITH_ZERO}\s*\+\s*({_ARITH_NAME})', r'\1'),                 # 0 + x
+            (rf'{_ARITH_ONE}\s*\*(?!\*)\s*({_ARITH_NAME})', r'\1'),            # 1 * x
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*\*(?!\*)\s*{_ARITH_ONE}', r'\1'),  # x * 1
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*/\s*{_ARITH_ONE}', r'\1'),     # x / 1
+            (rf'{_ARITH_BOUND}({_ARITH_NAME})\s*\*\*\s*{_ARITH_ONE}', r'\1'),  # x ** 1
+        ]
+        for pattern, repl in rules:
+            improved, c = self._sub_outside_strings(pattern, repl, improved)
+            total += c
+        return improved, total
+
+    @staticmethod
+    def _sub_outside_strings(pattern: str, repl: str, source: str) -> tuple[str, int]:
+        """在双引号字符串之外的区间执行 re.subn，字符串字面量原样保留（防误伤常量）。
+
+        未闭合的引号段一律原样保留（宁可不改，不可改错）。
+        """
+        parts: list[str] = []
+        total = 0
+        i = 0
+        n = len(source)
+        seg_start = 0
+        in_str = False
+        prev = ""
+        while i < n:
+            ch = source[i]
+            if ch == '"' and prev != "\\":
+                if not in_str:
+                    piece = source[seg_start:i]
+                    new_piece, c = re.subn(pattern, repl, piece)
+                    parts.append(new_piece)
+                    total += c
+                    in_str = True
+                    seg_start = i
+                else:
+                    parts.append(source[seg_start:i + 1])
+                    in_str = False
+                    seg_start = i + 1
+            prev = ch
+            i += 1
+        if in_str:
+            parts.append(source[seg_start:])
+        else:
+            new_tail, c = re.subn(pattern, repl, source[seg_start:])
+            parts.append(new_tail)
+            total += c
+        return "".join(parts), total
+
+    def _apply_const_folding(self, source: str) -> tuple[str, int]:
+        r"""常量折叠（P3-1·全行锚定）：仅折「整行右端恰为 `num op num`」为单一字面量。
+
+        修优先级腐蚀：旧 `([\d.]+\s*[+\-*/%]\s*[\d.]+)` 只吃前两个操作数、不锚定整行，
+        把 `x = 1 + 2 * 3` 折成 `x = 3 * 3`（=9≠7，过 P1 却改坏值）。现逐行 `fullmatch`，要求
+        右端除「数字 op 数字」外不得再有第三个运算符/操作数 → `1 + 2 * 3`、`8 // 2`（双运算符）
+        自然不匹配、不折。op 集沿用 `+ - * / %`（不新增）；除零/取模零守卫保留；逐行重建替换，
+        不再全局 str.replace（避免同名片段误伤）；数字操作数严格 `\d+(?:\.\d*)?`。
+        每条改写经 P1 闸门 `_is_safe_candidate` 与 P2-0 harness `_semantic_equivalent` 双验收。
+        """
         lines = source.split('\n')
-        used = set(re.findall(r'\b\w+\b', source))
-        improved_lines = []
         count = 0
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith('#') or not stripped:
-                improved_lines.append(line)
+        for idx, line in enumerate(lines):
+            m = re.fullmatch(
+                r'[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*'
+                r'(\d+(?:\.\d*)?)[ \t]*([+\-*/%])[ \t]*(\d+(?:\.\d*)?)[ \t]*',
+                line,
+            )
+            if not m:
                 continue
-            m = re.match(r'^(\w+)\s*=\s*(.+)$', stripped)
-            if m and m.group(1) not in used:
-                count += 1
+            var, a, op, b = m.group(1), m.group(2), m.group(3), m.group(4)
+            try:
+                result = eval(f"{a}{op}{b}")  # a/b 严格数字字面量、op 属固定集，非任意求值
+            except (SyntaxError, ZeroDivisionError, ValueError):
                 continue
-            improved_lines.append(line)
-        return '\n'.join(improved_lines), count
+            lines[idx] = f"{var} = {result}"
+            count += 1
+        return '\n'.join(lines), count
+
+    # S3：`_apply_dead_code_elimination`（旧「删未用赋值行」）已删除——它把自身 LHS 也算进
+    # used → 恒 no-op；且删未用绑定同样破 P1 名守恒。真删除能力已重写为正确版本并迁为
+    # opt-in 扩展（自带 outputs 对拍、不走 P1），见 `src/growth_extensions.py::optimize_dead_code`。
 
     def _apply_const_propagation(self, source: str) -> tuple[str, int]:
-        """常量传播：a = 10; b = a + 1 → b = 10 + 1"""
-        improved = source
+        r"""常量传播（P3-2·逐行顺序扫描·位置感知）：只把「当前活跃纯字面量」传播到其**定义之后**的使用点。
+
+        承 P2-2 两条保守约束（① 纯字面量右端全行锚定 ② 只替换使用点、左端/`==`/`=>` 受保护、
+        经 `_sub_outside_strings` 避开字符串），并修掉「前向引用 / 重绑定」腐蚀（元凶 C）：
+        旧 `def_re.findall(source)` 找到每个纯字面量定义后把名字回灌到**全文所有**使用点，
+        既灌向定义**之前**的使用点（`x=2.0*3.0; y=x+1; x=10.0` → `y` 由 7.0 被改成 11.0，
+        过 P1 却语义腐蚀），也无视同名重绑定。现逐行顺序扫描，维护 `known`（name → 最近一次
+        纯字面量绑定的活跃值）：每行先用「进入本行前」的活跃字面量替换本行使用点，再据本行更新状态
+        （纯字面量赋值→更新活跃值；非字面量赋值→失效，后续不再传播旧值）。自引用行（`y=y+1`）
+        先按旧值替换、再判失效。数字形态仅 `\d+(?:\.\d*)?`（不认负号/前导点/科学计数，宁可不改）。
+        每条改写经 P1 闸门 `_is_safe_candidate` 与 P2-0 harness `_semantic_equivalent` 双验收。
+        """
+        def_re = re.compile(
+            r'[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*(?!=)(\d+(?:\.\d*)?)[ \t]*'
+        )
+        assign_re = re.compile(r'[ \t]*([^\W\d]\w*)[ \t]*=[ \t]*(?!=)')
+        lines = source.split('\n')
+        improved_lines: list[str] = []
+        known: dict[str, str] = {}
         count = 0
-        const_defs = dict(re.findall(r'(\w+)\s*=\s*([\d.]+)', source))
-        for name, val in const_defs.items():
-            improved = re.sub(r'\b' + re.escape(name) + r'\b', val, improved)
-            count += 1
-        return improved, count
+        for line in lines:
+            newline = line
+            for name, val in known.items():
+                newline, c = self._sub_outside_strings(
+                    rf'\b{re.escape(name)}\b(?![ \t]*=)', val, newline
+                )
+                count += c
+            improved_lines.append(newline)
+            dm = def_re.fullmatch(line)
+            if dm:
+                known[dm.group(1)] = dm.group(2)
+            else:
+                am = assign_re.match(line)
+                if am:
+                    known.pop(am.group(1), None)
+        return '\n'.join(improved_lines), count
 
     def _apply_function_inlining(self, source: str) -> tuple[str, int]:
-        """函数内联（简化版）。"""
+        r"""函数内联（P2-3·选项 1·按构造正确的保守版）。
+
+        只处理 curried 单表达式形态 `func n(ps) -> T = (ps) => expr`，且仅在「可证等价」
+        时把调用点 `n(args)` 就地内联为 `(expr[ps:=args])`，**绝不动函数定义本身**（定义
+        头以 `func\s+$` 前缀识别并跳过，故元凶 A「删函数名」从结构上不可能复发）。可证等价须同时满足：
+          ① 形参表全为干净标识符，且实参数 == 形参数；
+          ② 每个实参为「简单 token」（标识符或纯数字字面量）——避免重复求值副作用与优先级改变；
+          ③ body 的自由标识符 ⊆ 形参集（函数只闭合于自身参数 → 在任意调用点内联都不改变
+             变量解析，规避遮蔽/捕获/递归风险；含自由变量的函数一律不内联）。
+        形参→实参替换用单遍正则（长名优先）一次完成，避免顺序替换串扰；全程经
+        `_sub_outside_strings` 避开字符串字面量。其余形态一律原样不动。
+        """
         improved = source
         count = 0
-        fn_re = re.compile(r'func\s+(\w+)\s*\([^)]*\)\s*->\s*\w+\s*=\s*\([^)]*\)\s*=>\s*(.+?)(?:\n|$)')
+        fn_re = re.compile(
+            r'func\s+([^\W\d]\w*)\s*\([^)]*\)\s*->\s*\w+\s*=\s*\(([^)]*)\)\s*=>\s*(.+?)(?:\n|$)'
+        )
         for m in fn_re.finditer(source):
             name = m.group(1)
-            body = m.group(2).strip()
-            calls = re.findall(rf'\b{name}\s*\(([^)]*)\)', source)
-            if calls:
-                for call in calls:
-                    improved = improved.replace(f"{name}({call})", f"({body})")
-                count += len(calls)
+            params_raw = m.group(2)
+            body = m.group(3).strip()
+            params = [p.strip() for p in params_raw.split(',')] if params_raw.strip() else []
+            if any(not re.fullmatch(r'[^\W\d]\w*', p) for p in params):
+                continue  # 形参非干净标识符 → 不内联
+            if set(re.findall(r'[^\W\d]\w*', body)) - set(params):
+                continue  # body 含非形参的自由标识符 → 不内联
+            pat = (r'\b(' + '|'.join(re.escape(p) for p in sorted(params, key=len, reverse=True)) + r')\b'
+                   if params else None)
+            call_re = re.compile(rf'\b{re.escape(name)}\s*\(([^)]*)\)')
+
+            def repl(cm, _body=body, _pat=pat, _params=params):
+                nonlocal count
+                if re.search(r'func\s+$', cm.string[:cm.start()]):
+                    return cm.group(0)  # 定义头，非调用点 → 不动
+                raw = cm.group(1)
+                args = [a.strip() for a in raw.split(',')] if raw.strip() else []
+                if len(args) != len(_params):
+                    return cm.group(0)
+                if any(not re.fullmatch(r'[^\W\d]\w*|\d+(?:\.\d*)?', a) for a in args):
+                    return cm.group(0)  # 实参非简单 token → 不内联
+                amap = dict(zip(_params, args))
+                if _pat is None:
+                    inl_body = _body
+                else:
+                    inl_body, _ = self._sub_outside_strings(_pat, lambda mm: amap[mm.group(0)], _body)
+                count += 1
+                return f"({inl_body})"
+
+            improved = call_re.sub(repl, improved)
         return improved, count
 
     def _apply_loop_unrolling(self, source: str) -> tuple[str, int]:
-        """循环展开（简化版）。"""
-        improved = source
-        count = 0
-        loop_re = re.compile(r'for\s+(\w+)\s+in\s+range\((\d+)\):\s*\n(.+?)\n(?=\n|\Z)', re.DOTALL)
-        for m in loop_re.finditer(source):
-            var, n, body = m.groups()
-            n = int(n)
-            if n <= 10:
-                expanded = ''
-                for i in range(n):
-                    expanded += body.replace(var, str(i)) + '\n'
-                improved = improved.replace(m.group(0), expanded.strip())
-                count += 1
-        return improved, count
+        r"""循环展开（S1·按 Matha 真实 `for v in <iterable> { … }` 语法·保守可证等价）。
 
-    def _apply_memory_optimization(self, source: str) -> tuple[str, int]:
-        """内存优化：临时变量栈提升。"""
+        旧实现正则 `for … in range(N):\n` 针对 Python 冒号缩进语法——Matha 根本不用该语法
+        （真实为花括号块 `for v in <expr> { … }`、`range(a,b)` 两参），故旧规则只在非法输入上
+        触发，且 `body.replace(var, i)` 子串误伤（`ab`→`0b`）。现仅在**可静态枚举且可证等价**时展开：
+          ① 单循环变量（非元组解构 `(a,b)`）；
+          ② iterable 为数字字面量列表 `[n,…]` 或 `range(int,int)`/`range(int)(int)`（跨度≤阈值）；
+          ③ 块体无嵌套花括号、不含控制流关键字、且不在体内重新赋值循环变量（避免改变循环
+             变量的逐迭代作用域/清除语义）；
+          ④ 循环变量按**词边界**、经 `_sub_outside_strings` 逐元素代入，替换后体内不再出现循环变量
+             → 与原解释器“循环后清除循环变量”作用域一致。
+        展开后候选经 P1 闸门（名守恒）兜底、由表征锁逐例验证 `_semantic_equivalent` 等价。
+        """
+        _NUM = r'\d+(?:\.\d*)?'
+        span_cap = 16
+        loop_re = re.compile(
+            r'for\s+([^\W\d]\w*)\s+in\s+'
+            r'(\[[^\[\]]*\]|range\([^)]*\)(?:\s*\([^)]*\))?)'
+            r'\s*\{\s*([^{}]*)\s*\}'
+        )
         improved = source
         count = 0
-        temp_re = re.compile(r'^\s*(\w+)\s*=\s*temp_\w+\s*$', re.MULTILINE)
-        for m in temp_re.finditer(source):
-            improved = improved[:m.start()] + improved[m.end():]
+        for m in loop_re.finditer(source):
+            var, iterable_raw, body = m.group(1), m.group(2), m.group(3)
+            # 体内控制流/结构关键字一律不展开（保守）
+            if re.search(r'\b(break|continue|return|func|let|match|switch|typeof|if|for|while)\b', body):
+                continue
+            # 体内重新赋值循环变量（=`var =`/`var op=`，但非 `==`）→ 作用域难证等价 → 不展开
+            if re.search(rf'\b{re.escape(var)}\b\s*(?:[+\-*/%])?=(?!=)', body):
+                continue
+            # 解析可枚举元素
+            if iterable_raw.startswith('['):
+                inner = iterable_raw[1:-1].strip()
+                if inner == '':
+                    elems: list[str] = []
+                else:
+                    parts = [p.strip() for p in inner.split(',')]
+                    if len(parts) > span_cap or not all(re.fullmatch(_NUM, p) for p in parts):
+                        continue
+                    elems = parts
+            else:
+                rm = (re.fullmatch(r'range\(\s*(\d+)\s*,\s*(\d+)\s*\)', iterable_raw)
+                      or re.fullmatch(r'range\(\s*(\d+)\s*\)\s*\(\s*(\d+)\s*\)', iterable_raw))
+                if not rm:
+                    continue
+                a, b = int(rm.group(1)), int(rm.group(2))
+                if b < a or (b - a) > span_cap:
+                    continue
+                elems = [str(x) for x in range(a, b)]
+            # 逐元素词边界代入循环变量（避开字符串）；替换后体内不再引用 var → 作用域与原始一致
+            instances = [
+                self._sub_outside_strings(rf'\b{re.escape(var)}\b', v, body)[0]
+                for v in elems
+            ]
+            unrolled = '\n'.join(instances)
+            improved = improved.replace(m.group(0), unrolled, 1)
             count += 1
         return improved, count
+
+    # S2：`_apply_memory_optimization`（旧「删 `x = temp_*` 行」）已删除——它丢绑定名 →
+    # 恒被 P1 拒、且并非真「栈提升」。其能力已重写为正确的临时变量内联，迁为 opt-in 扩展
+    # （自带 outputs 对拍、不走 P1），见 `src/growth_extensions.py::optimize_temp_inlining`。
 
     def _apply_trig_identities(self, source: str) -> tuple[str, int]:
         """P4: 三角恒等式优化规则。

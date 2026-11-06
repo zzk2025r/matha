@@ -11,9 +11,9 @@ import math
 import pytest
 
 from src.kernel.symbolic import (
-    accumulated_bounds, continuous_domain, definite, differentiate, integrate,
-    limit, maclaurin, solve_ode, sum_series, symbol_expr, taylor, to_latex,
-    to_pretty, to_str,
+    accumulated_bounds, continuous_domain, definite, differentiate, fourier_series,
+    integrate, limit, maclaurin, solve_ode, sum_series, symbol_expr, taylor,
+    to_latex, to_pretty, to_str,
 )
 from src.kernel.symbolic.diff import UnsupportedExpression
 from src.kernel.symbolic.domain import DomainUndetermined
@@ -160,6 +160,14 @@ LIMIT_CASES = [
     ("tan(x)", "x", math.pi / 2, "-", math.inf),     # 左极限 +oo；曾错报 1.63e16
     ("tan(x)", "x", math.pi / 2, "+", -math.inf),    # 右极限 -oo
     ("log(x)", "x", 0.0, "+", -math.inf),           # 曾 LimitUndetermined
+    # 0·∞ 慢发散对数 × 多项式型零因子 → 0（log 增长慢于任意正次幕；本轮扩面）
+    ("x*log(x)", "x", 0.0, "+", 0.0),
+    ("sin(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("x**2*log(x)", "x", 0.0, "+", 0.0),
+    ("x*log(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("tan(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("sqrt(x)*log(x)", "x", 0.0, "+", 0.0),
+    ("(x-1)*log(x)", "x", 1.0, "+", 0.0),
 ]
 
 
@@ -181,6 +189,18 @@ def test_oscillating_limit_fails_loudly():
 def test_growth_order_exp_beats_power():
     """eˣ/x² 的指数快于多项式已被判据表覆盖（与 sympy 一致）。"""
     assert limit(symbol_expr("exp(x)/x**2"), "x", math.inf) == math.inf
+
+
+def test_log_power_slow_ratio_stays_honest():
+    """log(log x)/log x（x→∞）需增长层级细判（非本引理）→ 内核如实失败。"""
+    with pytest.raises(LimitUndetermined):
+        limit(symbol_expr("log(log(x))/log(x)"), "x", math.inf, "+")
+
+
+def test_log_zero_product_left_side_defers():
+    """x·ln x 在 x→0⁻ 越出实数定义域（ln 参→0⁺ 仅右极限存在）→ 如实失败，不猜 0。"""
+    with pytest.raises(LimitUndetermined):
+        limit(symbol_expr("x*log(x)"), "x", 0.0, "-")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -246,6 +266,72 @@ def test_sum_harmonic_fails_loudly():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  傅里叶级数（截断；周期 T=right−left，基 cos/sin(2πn(x−left)/T)，与 sympy 同约定）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FOURIER_CASES = [
+    # (表达式, left, right)——区间端点用 float（与内核一致）
+    ("x", -math.pi, math.pi),
+    ("x**2", -math.pi, math.pi),
+    ("x**3", -1.0, 1.0),
+    ("x", -1.0, 1.0),
+    ("x", 0.0, 2.0),
+    ("sin(2*x)", -math.pi, math.pi),
+    ("3", -math.pi, math.pi),
+    ("x + x**2", 0.0, 2 * math.pi),
+    ("exp(x)", -math.pi, math.pi),
+    ("cos(x)", -math.pi, math.pi),
+]
+
+_ORDER = 5
+_FPTS = [-1.7, -0.9, -0.3, 0.0, 0.4, 1.1, 1.9]
+
+
+def _sympy_fourier_partial(src, lo_exact, hi_exact, order):
+    """用 sympy 积分器直构截断部分和（不依赖 truncate 的项数约定，避开歧义）。"""
+    import sympy as sp
+    x = sp.symbols("x")
+    f = sp.sympify(src)
+    T = hi_exact - lo_exact
+    w = 2 * sp.pi / T
+    acc = (2 / T) * sp.integrate(f, (x, lo_exact, hi_exact)) / 2
+    for n in range(1, order + 1):
+        ang = n * w * (x - lo_exact)
+        an = (2 / T) * sp.integrate(f * sp.cos(ang), (x, lo_exact, hi_exact))
+        bn = (2 / T) * sp.integrate(f * sp.sin(ang), (x, lo_exact, hi_exact))
+        acc = acc + an * sp.cos(ang) + bn * sp.sin(ang)
+    return sp.lambdify(x, acc, "math")
+
+
+@pytest.mark.parametrize("src,left,right", FOURIER_CASES)
+def test_fourier_series_matches_sympy(src, left, right):
+    """内核截断傅里叶级数与 sympy 系数积分在各采样点一致（tol 1e-6）。"""
+    from src.kernel.symbolic.expr import Num
+    got = fourier_series(symbol_expr(src), "x", left, right, _ORDER)
+    # 传给 sympy 的端点：π 的整数倍用精确 sp.pi，其余用整数/浮点精确值
+    import sympy as sp
+    lo_e = sp.nsimplify(left / sp.pi) * sp.pi if abs(left / (math.pi / 2) - round(left / (math.pi / 2))) < 1e-12 else left
+    hi_e = sp.nsimplify(right / sp.pi) * sp.pi if abs(right / (math.pi / 2) - round(right / (math.pi / 2))) < 1e-12 else right
+    ref = _sympy_fourier_partial(src, lo_e, hi_e, _ORDER)
+    for xv in _FPTS:
+        kv = float(got.substitute("x", Num(xv)).evaluate({}))
+        assert abs(kv - ref(xv)) < 1e-6, f"{src} @ {xv}: got {kv}, sympy {ref(xv)}"
+
+
+@pytest.mark.parametrize("src,left,right", [
+    ("abs(x)", -math.pi, math.pi),
+    ("1/x", -math.pi, math.pi),
+    ("cos(x)*x", -math.pi, math.pi),
+    ("exp(x**2)", -1.0, 1.0),
+    ("log(x)", 1.0, math.pi),
+])
+def test_fourier_series_gaps_fail_loudly(src, left, right):
+    """被积式无闭合原函数（绝对值/跨 0 分式/双频三角积/高斯/对数×三角）→ 显式失败，不数值伪造系数。"""
+    with pytest.raises(SeriesUndetermined):
+        fourier_series(symbol_expr(src), "x", left, right, 4)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  常微分方程
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -273,6 +359,42 @@ def test_solve_ode_accepts_text():
 
 @pytest.mark.parametrize("eq", ["y' = x**2 + y**2", "y' = (x+y)/x", "y' = 1/(x+y)"])
 def test_solve_ode_gaps_fail_loudly(eq):
+    with pytest.raises(OdeUnsupported):
+        solve_ode(eq, "y")
+
+
+# 二阶常系数非齐次（右端多项式/指数/正余弦，含共振）：齐次通解 + 待定系数特解。
+# 与 sympy 的**残差对拍**（比字串更硬）：把解回代 a·y''+b·y'+c·y，化简后应恰好等于右端。
+NONHOM_CASES = [
+    ("y'' - y = exp(x)", 1, 0, -1, "exp(x)"),
+    ("y'' + y = sin(x)", 1, 0, 1, "sin(x)"),
+    ("y'' + y = cos(x)", 1, 0, 1, "cos(x)"),
+    ("y'' - 3*y' + 2*y = exp(3*x)", 1, -3, 2, "exp(3*x)"),
+    ("y'' - 3*y' + 2*y = exp(2*x)", 1, -3, 2, "exp(2*x)"),
+    ("y'' - y = x**2 + 3", 1, 0, -1, "x**2 + 3"),
+    ("y'' - y = x**2", 1, 0, -1, "x**2"),
+    ("y'' + 4*y = cos(2*x)", 1, 0, 4, "cos(2*x)"),
+    ("y'' + 2*y' + y = 5", 1, 2, 1, "5"),
+    ("y'' + y = x", 1, 0, 1, "x"),
+    ("y'' + y = 2*x + 1", 1, 0, 1, "2*x + 1"),
+]
+
+
+@pytest.mark.parametrize("eq,a,b,c,rhs", NONHOM_CASES)
+def test_solve_ode_nonhom_matches_sympy(eq, a, b, c, rhs):
+    import sympy as sp
+    x = sp.symbols("x")
+    sol = sp.sympify(solve_ode(eq, "y", "x"))
+    r = sp.sympify(rhs)
+    assert sp.simplify(a * sol.diff(x, 2) + b * sol.diff(x) + c * sol - r) == 0, eq
+
+
+@pytest.mark.parametrize("eq", [
+    "y'' + y = 1/x", "y'' + y = ln(x)", "y'' + y = tan(x)",
+    "y'' + y = x**0.5", "y'' + y = sin(x)*cos(x)",
+])
+def test_solve_ode_nonhom_gaps_fail_loudly(eq):
+    """越界右端（分式/对数/正切/分式幂/三角积）→ 显式失败，绝不臆造特解。"""
     with pytest.raises(OdeUnsupported):
         solve_ode(eq, "y")
 

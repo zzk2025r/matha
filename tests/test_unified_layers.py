@@ -832,14 +832,85 @@ class TestUnifiedGrowthDeep:
         assert isinstance(result, dict)
         assert "success" in result
 
-    def test_run_inner_loop_fallback(self):
-        """run_inner_loop 降级路径。"""
-        from src.unified_growth import get_unified_growth
-        growth = get_unified_growth()
-        # inner_loop 可能不可用，应返回错误
+    def test_run_inner_loop_wired(self):
+        """run_inner_loop 已真正接入 inner_loop（阶段 6d 适配桥）：注入桩验证委派，不触发重型 init_modules。"""
+        from src.unified_growth import UnifiedGrowth
+
+        class _StubInner:
+            def __init__(self):
+                self.calls = []
+
+            def run(self, task, max_rounds=3):
+                self.calls.append((task, max_rounds))
+                return {"success": True, "task": task, "rounds_run": max_rounds,
+                        "stopped_early": True, "health_score": 100.0,
+                        "status": "healthy", "cycle_count": max_rounds, "results": []}
+
+        growth = UnifiedGrowth()
+        stub = _StubInner()
+        growth._inner_loop = stub
         result = growth.run_inner_loop("简单任务", max_rounds=1)
         assert isinstance(result, dict)
-        assert "success" in result
+        assert result["success"] is True
+        assert stub.calls == [("简单任务", 1)]
+
+    # ── 阶段 6e 修复锁：GrowthEngine 接线 / domain_formula 对象迭代 / fictionalize 诚实拒绝 ──
+    def test_get_growth_status_wired(self):
+        """6e：GrowthEngine 经 create_growth_engine 正确接线后 get_growth_status 不再抛 AttributeError。"""
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        st = ug.get_growth_status()  # 旧缺陷：Interpreter 被当 assistant → 'Interpreter' has no 'parser'
+        assert isinstance(st, dict)
+        assert "engine_defects" in st and "resources_audited" in st
+
+    def test_domain_formula_summary_real_numbers(self):
+        """6e：domain_formula_summary 改迭代 Formula 对象后返回真实统计、不再吞成 error。"""
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        s = ug.domain_formula_summary()
+        assert "error" not in s
+        assert s["loaded_domains"] > 0
+        assert s["total_formulas"] > 0
+        assert isinstance(s["summary"], str) and "领域公式注册总览" in s["summary"]
+
+    def test_domain_formula_cross_links_no_raise(self):
+        """6e：get_cross_domain_links 同修 str/对象误用后返回 dict（不再 'str' has no 'free_vars'）。"""
+        from src.domain_formula import DomainFormulaRegistry
+        reg = DomainFormulaRegistry()
+        reg.register_all_domains()
+        assert isinstance(reg.get_cross_domain_links(), dict)
+
+    def test_cross_domain_engine_analyze_links_no_raise(self):
+        """Tier 2·C0：CrossDomainFormulaEngine.analyze_links 同修 str/对象误用，
+        迭代 Formula 对象→返回真实 CrossDomainLink 列表（不再 'str' has no 'free_vars'）。"""
+        from src.domain_formula import DomainFormulaRegistry, CrossDomainFormulaEngine, CrossDomainLink
+        reg = DomainFormulaRegistry()
+        reg.register_all_domains()
+        links = CrossDomainFormulaEngine(reg).analyze_links()
+        assert isinstance(links, list) and links            # 领域公式充分互联，非空
+        l = links[0]
+        assert isinstance(l, CrossDomainLink)
+        assert isinstance(l.formula_a, str) and isinstance(l.formula_b, str)
+        assert l.shared_vars and all(isinstance(v, str) for v in l.shared_vars)
+
+    def test_cross_domain_engine_knowledge_graph_no_raise(self):
+        """Tier 2·C0：get_knowledge_graph（内部依赖 analyze_links）返回非空 dict、节点结构完整。"""
+        from src.domain_formula import DomainFormulaRegistry, CrossDomainFormulaEngine
+        reg = DomainFormulaRegistry()
+        reg.register_all_domains()
+        graph = CrossDomainFormulaEngine(reg).get_knowledge_graph()
+        assert isinstance(graph, dict) and graph
+        node = next(iter(graph.values()))
+        assert set(node) == {"domain", "links", "shared_with"}
+
+    def test_fictionalize_honest_refusal(self):
+        """6e：fictionalize 幽灵依赖清除后如实拒绝、绝不抛 ImportError。"""
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        r = ug.fictionalize("计算两个质量之间的万有引力")  # 旧缺陷：每次抛 ImportError
+        assert isinstance(r, dict)
+        assert r["success"] is False
+        assert "FormulaFictionalizer" in r["error"] and "formula_grow" in r["error"]
 
     def test_backward_compat_exports(self):
         """向后兼容的导出。"""
@@ -851,6 +922,136 @@ class TestUnifiedGrowthDeep:
         assert Sandbox is not None
         assert UpgradeResult is not None
         assert GrowthEngine is not None
+
+
+# ============================================================
+# 12b. UnifiedGrowth 包装委派契约锁（阶段 6e·补全）
+# ============================================================
+
+class TestUnifiedGrowthWrapperLocks:
+    """锁定 UnifiedGrowth 各包装方法对子系统真实委派契约。
+
+    过往 4 处 phantom（GrowthEngine 构造参数 / list_formulas 名字当对象 /
+    FormulaFictionalizer 幽灵导入 / get_current_version 的 _registry 属性错误）均潜伏在
+    **无锁包装方法**里——因为它们只测了 fallback、未跑真实路径。本类对每个包装方
+    法做**真实离线冒烟**（能像人工排查那样抓出属性/参数错配），对会写文件的
+    devour* 用桩注入只锁 record→dict 映射契约。只锁接线，不背书子系统输出正确性。
+    """
+
+    # ── 公式编译：真实走 FormulaCompiler.compile_formula 并校验 result 属性名 ──
+    def test_compile_formula_wired(self):
+        from src.unified_growth import UnifiedGrowth
+        from src.formula_system import get_formula_registry
+        reg = get_formula_registry()
+        if not list(reg.list_formulas()):
+            reg.register_geometric_defaults()
+        name = next(iter(reg.list_formulas()))
+        ug = UnifiedGrowth()
+        r = ug.compile_formula(name)  # 旧隐患：result.python_code/.optimizations 等属性名错配会被吞成 error
+        assert isinstance(r, dict)
+        assert {"success", "name", "python", "c", "optimizations", "error"} <= set(r)
+        assert r["success"] is True and r["name"] == name
+
+    # ── 公式生长：真实走 FormulaGrowthEngine.compose 并锁 schema ──
+    def test_formula_grow_compose_wired(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        r = ug.formula_grow("compose", names=[])
+        assert isinstance(r, dict)
+        assert r["success"] is True and "results" in r  # 旧隐患：DomainFormulaRegistry/registry._formulas 错配
+
+    # ── get_current_version：锁定不再走 _registry phantom 属性、取唯一版本源 ──
+    def test_get_current_version_from_single_source(self):
+        from src.unified_growth import get_current_version
+        from src.__version__ import __version__
+        assert get_current_version() == __version__  # 旧缺陷：恒回退硬编码 "1.0.0"
+
+    # ── devour/devour_file：桩注入锁 record→dict 映射（避免写文件副作用）──
+    def _stub_bridge(self, growth):
+        class _Fn:
+            name = "f"
+            generated = "func f() = 1"
+            body = "1"
+
+        class _Rec:
+            success = True
+            verified = True
+            written = False
+            steps = ["parse", "gen"]
+            error = None
+            functions = [_Fn()]
+            def summary(self):
+                return "devoured 1 fn"
+
+        class _Stub:
+            def __init__(self):
+                self.calls = []
+            def devour(self, lang, source, module_name):
+                self.calls.append(("devour", lang, source, module_name)); return _Rec()
+            def devour_file(self, path, module_name):
+                self.calls.append(("devour_file", path, module_name)); return _Rec()
+            def fuse(self, record):
+                return True
+
+        stub = _Stub()
+        growth._bridge = stub
+        return stub
+
+    def test_devour_wrapper_maps_record(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        stub = self._stub_bridge(ug)
+        r = ug.devour("python", "def f(): return 1", "m")
+        assert stub.calls == [("devour", "python", "def f(): return 1", "m")]
+        assert r["success"] is True and r["verified"] is True
+        assert r["functions"][0]["name"] == "f" and r["summary"] == "devoured 1 fn"
+
+    def test_devour_file_wrapper_maps_record(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        stub = self._stub_bridge(ug)
+        r = ug.devour_file("x.py", "m")
+        assert stub.calls == [("devour_file", "x.py", "m")]
+        assert isinstance(r, dict) and r["success"] is True
+
+    # ── 插件市场：真实离线冒烟，锁返回类型与诚实降级（不联网、remote=False）──
+    def test_market_wrappers_honest_types(self):
+        from src.unified_growth import UnifiedGrowth
+        ug = UnifiedGrowth()
+        assert isinstance(ug.search_packages("arithmetic", remote=False), list)
+        assert isinstance(ug.get_package_info("__nope__"), str)
+        assert isinstance(ug.rate_package("__nope__", 5), bool)
+        rating = ug.get_package_rating("__nope__")
+        assert isinstance(rating, dict) and "average" in rating and "count" in rating
+        assert isinstance(ug.check_updates(), list)
+        assert isinstance(ug.get_dependency_tree("__nope__"), dict)
+        assert isinstance(ug.check_conflicts(["__nope__"]), list)
+        # dry_run + 不存在包 → 不触发安装、空列表
+        assert isinstance(ug.upgrade_packages("__nope__", dry_run=True), list)
+
+    def test_dependency_tree_nested_real(self, tmp_path):
+        """Tier 2·D0：get_dependency_tree 对嵌套依赖（app→lib→core）产出真实树，
+        不再因递归误用 2 参公开方法而 TypeError；且尊重 depth、可 JSON 序列化。
+        用 tmp root 隔离，绝不写仓库。"""
+        import json
+        from src.pkg_manager_v2 import MathaPackageManager
+        from src.pkg_manager import PackageMeta, Version
+        mgr = MathaPackageManager(root_dir=str(tmp_path))
+        mgr.registry['app'] = PackageMeta(name='app', version=Version(1, 0, 0),
+                                          dependencies={'lib': '2.0.0'})
+        mgr.registry['lib'] = PackageMeta(name='lib', version=Version(2, 0, 0),
+                                          dependencies={'core': '0.1.0'})
+        mgr.registry['core'] = PackageMeta(name='core', version=Version(0, 1, 0))
+        tree = mgr.get_dependency_tree('app')
+        assert tree['name'] == 'app' and tree['version'] == '1.0.0'
+        assert tree['dependencies']['lib']['version'] == '2.0.0'
+        assert tree['dependencies']['lib']['dependencies']['core']['version'] == '0.1.0'
+        json.dumps(tree)                                   # 旧 bug：installed 为 Version → 不可序列化
+        # depth 尊重：depth=2 时不再深入 core
+        shallow = mgr.get_dependency_tree('app', depth=1)
+        assert shallow['dependencies']['lib']['dependencies'] == {}
+        # 未知包诚实空 dict
+        assert mgr.get_dependency_tree('__nope__') == {}
 
 
 # ============================================================
