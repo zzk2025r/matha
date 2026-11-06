@@ -141,6 +141,34 @@ def run_interp(source: str) -> tuple[str, str]:
     return format_outputs(list(interp.outputs)), err
 
 
+@contextlib.contextmanager
+def _no_fault_dialog():
+    """Windows：临时置上 SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX，使本窗口内
+    创建的所有子进程继承该 error mode（CreateProcess 继承），从而崩溃子进程不弹
+    WER 交互框。native golden 的负向用例（如 29_error_index_on_int）会真 AV 崩溃，
+    逐字节对拍只看退出码/stderr，不需弹窗干扰。退出时恢复旧 error mode。
+
+    非 Windows / 无 ctypes 时静默降级（不影响对拍结果）。
+    """
+    old = None
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            # 0x0001 SEM_FAILCRITICALERRORS | 0x0002 SEM_NOGPFAULTERRORBOX
+            old = ctypes.windll.kernel32.SetErrorMode(0x0003)
+        except Exception:  # noqa: BLE001 — 无 ctypes / 调用失败：不阻断测试
+            old = None
+    try:
+        yield
+    finally:
+        if old is not None:
+            try:
+                import ctypes
+                ctypes.windll.kernel32.SetErrorMode(old)
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def run_native(source: str, stem: str) -> tuple[str, str] | None:
     """原生后端：编成 exe 真跑。工具链不可用时返回 None（→ SKIPPED）。"""
     from src.mbc.native import NativeNotSupported, compile_to_exe
@@ -153,7 +181,8 @@ def run_native(source: str, stem: str) -> tuple[str, str] | None:
         return None
     except Exception as e:  # noqa: BLE001 — 语法/构造期失败：属用例本身问题，记为差异
         return "", f"{type(e).__name__}: {e}\n"
-    proc = subprocess.run([str(exe)], capture_output=True, timeout=60)
+    with _no_fault_dialog():
+        proc = subprocess.run([str(exe)], capture_output=True, timeout=60)
     out = proc.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
     err = proc.stderr.decode("utf-8", "replace").replace("\r\n", "\n")
     if proc.returncode != 0 and not err:
