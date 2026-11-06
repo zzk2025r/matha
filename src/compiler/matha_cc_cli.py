@@ -118,10 +118,13 @@ def cmd_info(args) -> int:
     print("LLVM 工具链状态:")
     for tool in ["llc", "clang", "opt", "llvm-as"]:
         try:
-            result = subprocess.run([tool, "--version"], capture_output=True, timeout=5)
+            result = subprocess.run([tool, "--version"], capture_output=True, timeout=10)
             version = result.stdout.decode().split("\n")[0] if result.returncode == 0 else "未找到"
         except FileNotFoundError:
             version = "未安装"
+        except subprocess.TimeoutExpired:
+            # 慢/负载高的机器上探测超时不应让 info 崩掉（曾致 Test executables 偶发红）。
+            version = "超时"
         print(f"  {tool:8s}: {version}")
     print("=" * 60)
     return 0
