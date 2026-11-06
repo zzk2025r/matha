@@ -136,6 +136,8 @@ src/test.bc
 release/
 offline_package/
 installed/
+# PyInstaller 中间/临时产物目录（scripts/build_exe.py 等生成，本机保留不入库，见 KNOWN_ISSUES 7a）
+dist_build/
 
 # 体检阶段 1b：Flutter 实验田与 vendored llvmlite 脱离跟踪，本地保留（零引用/零门禁）
 test_app/

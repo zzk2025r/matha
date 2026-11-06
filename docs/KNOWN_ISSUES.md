@@ -223,9 +223,10 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `build/` 且启动即缺 Python DLL）。已改为 onefile 写法并实测跑通（见 9c）。
 - `scripts/build_exe.py` 开头会**清空整个 `dist/`**（日志行 `[build] 清理: dist/`），所以只跑
   `--matha-cc` 也会把 `dist/matha.exe` 与历史离线包目录一并删掉。重建单个组件后想保留其它
-  产物，需随后补跑对应 spec（或用 `--all`）。另：它的中间目录用 `dist_build/`，而
+  产物，需随后补跑对应 spec（或用 `--all`）。另：它的中间目录用 `dist_build/`，早期
   `.gitignore` 只忽略了 `build/` 与 `dist/`，所以跑完会在 `git status` 里留下一个未跟踪的
-  `dist_build/`（本轮未动 `.gitignore`，待单独确认后再加一行）。
+  `dist_build/`；已于 2026-11-06 在 `.gitignore` 的“发行/构建产物”段补上 `dist_build/` 一行
+  消除该噪声（`git check-ignore dist_build/` 实测命中）。
 - 工作目录里残留的 `dist/*.exe` 为主线收官前的旧构建，`dist/` 本就在 `.gitignore` 内、
   不受 git 跟踪，无定位效力（2026-11-06 已被上述 `build_exe.py` 清理逻辑重生成：
   `dist/matha.exe` 与 `dist/matha-cc/matha-cc.exe` 均为当日新建）。
