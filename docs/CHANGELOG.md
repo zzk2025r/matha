@@ -231,6 +231,13 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   lint / test×2 / native ELF gate / `Offline Deployment Verify` 转绿；`Build Executables` 的
   失败点由此从「路径写错」收敛为「shell 不匹配」，已按新证据二次修复；`benchmark` job
   一旦 dispatch 必报 `No module named 'src.vm'`，故置 `if: false`。
+- 二次 dispatch（run 42198963200）确认 `Build matha.exe` 已转绿，并暴露出最后一个红：
+  `matha-cc.spec` 只有 `EXE(exclude_binaries=True)` 而无配套 `COLLECT`，产物落在
+  `build/matha-cc/` 且启动即 `Failed to load Python DLL`，`dist/` 下根本没有 matha-cc。经批准
+  扩一个文件范围修为 onefile（并入 `a.binaries` / `a.datas`，与该 spec 头部声明的
+  `--onefile` 一致）；本地实测：重建 exit 0、`dist/matha-cc.exe` 11.3 MB、
+  `matha-cc.exe info` exit 0（同时 `matha.spec` 重建 exit 0、`matha.exe --version` 报
+  `Matha v4.6.0`）。
 - 新增离线回归锁 `tests/test_ci_hygiene.py`（6 项，零第三方依赖的 YAML 结构扫描）：
   顶层键白名单、步骤不得 `uses`+`run` 共存、`run:` 不得为多行纯量、非权威门不得
   自动触发且必须带证据标记、权威门引用的仓库路径必须存在。反向对照实测：拿改动

@@ -218,8 +218,17 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `run` 源文件正常——**构建链可复现，但不进门禁**，下次重建仍须当场验证。
 - `matha-cc`：模块 `src/compiler/matha_cc_cli.py` 真实存在可用，但 pip 只注册了 `matha`
   入口点；README 已改口径为 `python -m src.compiler.matha_cc_cli` 或自建 exe。
+  2026-11 补记：旧 `matha-cc.spec` 的 `EXE(exclude_binaries=True)` 无配套 `COLLECT`，所以
+  「用 `matha-cc.spec` 自建独立可执行文件」这句 README 主张当时**做不到**（产物只落在
+  `build/` 且启动即缺 Python DLL）。已改为 onefile 写法并实测跑通（见 9c）。
+- `scripts/build_exe.py` 开头会**清空整个 `dist/`**（日志行 `[build] 清理: dist/`），所以只跑
+  `--matha-cc` 也会把 `dist/matha.exe` 与历史离线包目录一并删掉。重建单个组件后想保留其它
+  产物，需随后补跑对应 spec（或用 `--all`）。另：它的中间目录用 `dist_build/`，而
+  `.gitignore` 只忽略了 `build/` 与 `dist/`，所以跑完会在 `git status` 里留下一个未跟踪的
+  `dist_build/`（本轮未动 `.gitignore`，待单独确认后再加一行）。
 - 工作目录里残留的 `dist/*.exe` 为主线收官前的旧构建，`dist/` 本就在 `.gitignore` 内、
-  不受 git 跟踪，无定位效力。
+  不受 git 跟踪，无定位效力（2026-11-06 已被上述 `build_exe.py` 清理逻辑重生成：
+  `dist/matha.exe` 与 `dist/matha-cc/matha-cc.exe` 均为当日新建）。
 
 ### 7b. 其它交付端
 
@@ -420,7 +429,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 临时目录逐条跑这些锁，每条都精确命中上表对应的那一处（顶层 `strategy`、
 release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙齿」的锁。
 
-### 9c. 参数名 / 产物路径 / shell 直修（`matha-ci.yml`，已用 dispatch 实测）
+### 9c. 参数名 / 产物路径 / shell / spec 结构直修（`matha-ci.yml` + `matha-cc.spec`，已用 dispatch 实测）
 
 验证方式：对分支头跑 `gh workflow run matha-ci.yml --ref chore/ci-hygiene`（run 42195342421），
 因为 `build-exe` / `offline-verify` 的 `if` 只放行 main、tag 或 dispatch，PR 上永远是 skipped，
@@ -432,16 +441,29 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   `Create offline package` / `Verify offline package` / `Upload offline package` 三步均 success。
   **口径提醒**：该脚本验证的是当前环境可导入性，不校验包目录内容，步骤名「Verify offline
   package」略强于实际。
-- `build-exe`：PyInstaller 实际**构建成功**（日志有 `Building EXE from EXE-00/01.toc
-  completed successfully`、`Copying bootloader EXE to …\dist\matha.exe`），原失败行是紧随其后的
-  `ls -la dist/matha-offline/matha.exe`——目录名是照 `--onefile` 想象写的，而两份 spec 的
-  `EXE(name=...)` 分别是 `matha` / `matha-cc` 且无 `COLLECT`，产物就在 `dist/` 根下。已把
-  `ls` / 自检 / 上传 / `publish` 的 Release 附件四处统一改为 `dist/matha.exe`、
-  `dist/matha-cc.exe`。**但路径改对仍不够**：`runs-on: windows-latest` 的默认 shell 是
-  PowerShell，`ls -la` 直接报 `A parameter cannot be found that matches parameter name 'la'`
-  （这正是 run 42195342421 里 `Build matha.exe` 的失败点）。已给两个构建步骤显式加
-  `shell: bash`。产物可运行性已由 7a 在本地实测（`--version` 报 v4.6.0、`eval "21+21"` 得 42），
-  CI 侧 `Test executables`（PowerShell 下 `dist\matha.exe --version`）仍需下一轮 dispatch 确认。
+- `build-exe` 的 shell：PyInstaller 本身**构建成功**（日志有 `Building EXE from EXE-00/01.toc
+  completed successfully`、`Copying bootloader EXE to …\dist\matha.exe`），但旧写法在构建后紧跟
+  `ls -la dist/matha-offline/matha.exe`：目录名是照历史上手工 `--distpath` 留下的
+  `dist/matha-offline/` 想象写的，而仓库内 spec 并不往那里产出（见下条）。`ls` / 自检 /
+  上传 / `publish` 的 Release 附件四处已统一改为 `dist/matha.exe`、`dist/matha-cc.exe`。
+  **但路径改对仍不够**：`runs-on: windows-latest` 默认 shell 是 PowerShell，`ls -la` 直接报
+  `A parameter cannot be found that matches parameter name 'la'`（run 42195342421 里
+  `Build matha.exe` 确实挂在这一行）。已给两个构建步骤显式加 `shell: bash`；下一轮 run
+  42198963200 实测 `Build matha.exe` **已转绿**。
+- `matha-cc.spec` 不产出可运行产物（run 42198963200 里 `Build matha-cc.exe` 报
+  `ls: cannot access 'dist/matha-cc.exe': No such file or directory`）。根因**不在 CI 配置里**，
+  而在打包定义：它只有一个 `EXE(…, exclude_binaries=True, name='matha-cc')` 而**没有配套的
+  `COLLECT`**（也没有 onefile 变体），所以 EXE 只落在 `build/matha-cc/matha-cc.exe`（本地实测
+  3.9 MB），既不携带 Python DLL 也不进 `dist/`；直接跑它会报
+  `Failed to load Python DLL '…\build\matha-cc\_internal\python314.dll'`。对比 `matha.spec`：
+  它除了同样的 `exclude_binaries=True` EXE 外，还有一段标着「# 打包为单文件」、把
+  `a_onedir.binaries` / `a_onedir.datas` 直接入 EXE 的写法，所以 `dist/matha.exe` 确实存在于
+  本地（当日重建产物 29,969,600 字节≈ 30 MB，`--version` 报 `Matha v4.6.0`、exit 0）。
+  已按同一口径修正 `matha-cc.spec`
+  （并入 `a.binaries` / `a.datas`、去掉 `exclude_binaries`，与该文件头部本就声明的
+  `pyinstaller --onefile matha-cc.spec` 一致）；本地实测：重建 exit 0、
+  `dist/matha-cc.exe` 11,307,345 字节≈ 11.3 MB、`dist\matha-cc.exe info` **exit 0**（打印工具链信息）。
+  未做过的事：CI `windows-latest` + Python 3.11 下的同一次构建仍需看合并后现场（本地为 3.14）。
 - lint 里 `mypy src/deps.py` 指向 082218c 已删除的模块（靠 `|| true` 才没红），改指
   其后继 `scripts/dep_audit.py`。run 42195342421 的 `Lint & Format Check` 已实测 success。
 
@@ -476,8 +498,9 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   不是代码缺陷，也不该靠 mock 刷绿。
 - 两份 spec 里 3 处死 `hiddenimports`（`matha.spec` 的 `src.tree_sitter_backends` 与
   `src.domains.hal`、`matha-cc.spec` 的 `src.domains.hal`）仍会让 PyInstaller 打
-  `ERROR: Hidden import … not found`，但实测**不阻断构建**。本 PR 只碰 CI 配置，不顺手
-  改 `.spec`；待单独一次构建侧清理时一并处理并当场重跑产物实测（见 7a）。
+  `ERROR: Hidden import … not found`，但实测**不阻断构建**（修完 `matha-cc.spec` 后本地重跑
+  仍只有这一行 ERROR、exit 0）。这几行本身仍属登记不修：经批准修的只是 9c 里的 EXE 结构
+  缺陷，没有顺手动 `hiddenimports`，因为它们需要单独的清理与全量产物实测。
 - `matha-ci.yml` 的 `benchmark` job 主体依赖已删除的 `src/vm.py`（`git ls-files src/vm.py`
   无输出）。首版改造降为仅 dispatch，但 run 42195342421 实测：一旦 dispatch 就会以
   `ModuleNotFoundError: No module named 'src.vm'` 失败，把整个验证 run 染红，反而失去「用
