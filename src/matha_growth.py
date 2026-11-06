@@ -22,6 +22,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from src.growth_verify import is_semantically_consistent, run_outputs
+
 logger = logging.getLogger("matha.growth")
 
 # P2-1 算术恒等式正则构件（首批仅 7 条、不泛化）：
@@ -54,6 +56,8 @@ class GrowthReport:
     optimization_suggestions: list[str] = field(default_factory=list)
     improved_source: str = ""
     optimizations_applied: list[str] = field(default_factory=list)
+    # 改写前后经 Matha 主链执行的可观测输出是否等价（非「跨语言」：验证通路
+    # 与输入同为 Matha，旧名 cross_language_consistent 属误导，见 G-1）。
     semantic_consistent: bool = False
     errors: list[str] = field(default_factory=list)
 
@@ -102,6 +106,9 @@ class MathaGrowthEngine:
             current = candidate
 
         report.improved_source = current
+        # 最终报告的佐证必须描述「调用方原始输入 → 最终产物」：循环内逐步产出的
+        # report 只反映最后一次迭代，滚雪球式腐蚀会在中间步互相“一致”而溜过。
+        report.semantic_consistent = self._verify(source, current)
         return report
 
     def _single_growth_iteration(self, source: str, iteration: int) -> GrowthReport:
@@ -169,9 +176,9 @@ class MathaGrowthEngine:
         return improved, applied
 
     def _verify(self, original: str, improved: str) -> bool:
-        """改写前后语义等价佐证（G-1 真修复）：走 Matha 主链——`src.parser.parse` +
-        `src.interp.Interpreter`（即 `_exec_outputs` 的一次性解释器通路，P2-0 已拍板的
-        正交权威），分别运行原文与改写文，比对可观测 outputs。
+        """改写前后语义等价佐证（G-1 真修复）：委派给 :mod:`src.growth_verify`，
+        其内部走 Matha 主链——`src.parser.parse` + `src.interp.Interpreter`（P2-0 已
+        拍板的正交权威），分别运行原文与改写文，比对可观测 outputs。
 
         判据（保守，只收紧不放松；无同文捷径）：
           两侧都必须「运行成功」**且「有可观测输出」**，且 outputs 逐项相等 → True。
@@ -179,7 +186,7 @@ class MathaGrowthEngine:
         `[] == []` 虽在数学上成立（同文亦如此），但未观测到任何一致性证据，属
         「未验证≠一致」的假阳性（即 G-2），故不采信。不设 `original == improved` 捷径：
         同文恒等但跑不出可见输出（甚至同文垃圾）也不能被声称为「语义一致」。
-        本方法不抛异常（`_exec_outputs` 已内部收敛）。
+        本方法不抛异常（`growth_verify.run_outputs` 已内部收敛）。
 
         历史（S4 → G-1）：旧实现把源码送入 `CrossLanguageVerifier` 的 `"python"` 通道，而该
         前端（`src/mir2_frontend.py::PythonFrontend`）的 `compile` 实为 `ast.parse(source)`——
@@ -193,14 +200,10 @@ class MathaGrowthEngine:
 
         ⚠ 本字段**不是** grow 的安全闸门：grow 的「绝不出坏源码」仍**只**依赖 P1
         `_is_safe_candidate`。`_verify` 只是佐证信号，供诊断参考。
+
+        失败原因不再压成布尔：由 `SemanticVerdict.reason` 给出机器可读口径。
         """
-        o_out, o_err = self._exec_outputs(original)
-        if o_err is not None or not o_out:
-            return False
-        i_out, i_err = self._exec_outputs(improved)
-        if i_err is not None or not i_out:
-            return False
-        return o_out == i_out
+        return is_semantically_consistent(original, improved)
 
     def _is_safe_candidate(self, original: str, improved: str) -> bool:
         """正确性闸门：判定候选改写是否「绝不出坏源码」。
@@ -259,17 +262,12 @@ class MathaGrowthEngine:
     def _exec_outputs(source: str):
         """在一次性全新解释器上跑 source，返回 (outputs, error|None)。
 
-        每次新建 Interpreter，实例间不共享可变状态（杜绝用例间污染）。
-        解析或运行期异常均被捕获为 error 字符串，不裸抛。
+        实现已统一到 :func:`src.growth_verify.run_outputs`（单一真源）：每次新建
+        Interpreter、实例间不共享可变状态（杜绝用例间污染），解析/运行期异常均收敛为
+        error 字符串不裸抛，并结构性 `foreign_routing=False` 关闭外部语言路由。
+        保留本静态方法只为既有 P2-0 harness 与规则对拍锁的调用面不变。
         """
-        try:
-            from src.interp import Interpreter
-            from src.parser import parse
-            interp = Interpreter(debug=False)
-            outputs, _trace = interp.run(parse(source))
-            return outputs, None
-        except Exception as ex:
-            return None, f"{type(ex).__name__}: {ex}"
+        return run_outputs(source)
 
     # ================================================================
     # 优化规则实现

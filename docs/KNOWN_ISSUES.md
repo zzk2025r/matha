@@ -272,7 +272,8 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   **定性**：不是 phantom（异常收敛为诚实 False，不误报一致），也不影响出码安全（P1 兜底）；但该字段对真实
   Matha 程序**结构性恒 False、不携带信息**，且旧 docstring 称该通道为「python（Matha）前端」属不准确措辞。
   **已修（真修复切片）**：`_verify` 改走 `grow` 输入域真正的主链——`src.parser.parse` + `src.interp.Interpreter`
-  （即 P2-0 已拍板的 `_exec_outputs` 一次性解释器通路）：合法改写能真判等、破坏输出的改写能真判破。
+  （P2-0 已拍板的一次性解释器通路；该执行体现统一落在 `src/growth_verify.run_outputs`，
+  分支侧的 `_exec_outputs` 已薄转发至同一入口，见第八节）：合法改写能真判等、破坏输出的改写能真判破。
   同时移除已成死接线的 `self._verifier` 与模块级 `CrossLanguageVerifier` 导入（核心成长模块不再拖归档 MIR
   后端依赖），并将名不副实的 `GrowthReport.cross_language_consistent` 如实改名为 `semantic_consistent`（该判据
   比的是同语言改写前/后，不是跨语言）。已由 `tests/test_growth_cross_verify.py` + `tests/test_growth_report_fields.py`
@@ -296,3 +297,95 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 
 判据：本节的实测命令（`python scripts/build_exe.py --matha --output <临时目录>`、
 `git ls-files matha_wasm`）可随时复跑；若未来某通道要「上锁」，必须先入门禁再进 README。
+
+## 八、成长引擎验证通路（G-1 / G-2 / G-3 / G-4 已修，G-5 已坐实不修）
+
+对象：`src/matha_growth.py` 的 `MathaGrowthEngine._verify` 与 `GrowthReport` 的
+语义佐证字段。以下五条均为**实测坐实**（探针与输出留在会话工件目录，不入库）。
+
+### G-1（已修）：验证通路与输入域错配，且异常被静默吞掉
+
+- 原实现 `self._verifier.verify(original, improved)` 借 `CrossLanguageVerifier`，
+  但该方法的真实签名是 `verify(algorithm: str, sources: dict[str, str])`：把源码
+  字符串当 `sources` 传入，每次抛 `AttributeError: 'str' object has no attribute 'items'`，
+  再被 `except Exception: return False` 压平。
+- 即便修好调用形态，通道本身也不匹配：该验证器的 `"python"` 前端是
+  `src.mir2_frontend.PythonFrontend`，其 `compile` 实为 `ast.parse(source)`（Python 子集
+  前端）；已注册前端集合仅 `python / rust / go / javascript / c`，**不含 matha**。而
+  `grow()` 的输入域是 Matha 源码（`func` / `let` / 中文函数名）。
+- 实测后果：`_verify` 对**任何**输入恒为 False，连「同一份等价源码自比」也报不一致
+  ——字段不携带任何信息，且无法与真实的不一致区分。
+- 处置：新增 `src/growth_verify.py`，用 Matha 主链（`src.parser` + `src.interp`）执行
+  两份源码并比对可观测 `outputs`；`_verify` 委派给它；移除死接线 `self._verifier`；
+  误导字段 `cross_language_consistent` 如实改名 `semantic_consistent`（旧名以 kwargs
+  构造须 `TypeError`，已上锁）。异常不再被压平，改由 `SemanticVerdict.reason` 给出
+  机器可读口径。
+- 与阶段 7 分支实现的关系（合并后的单一真源）：分支曾把主链执行体落在
+  `MathaGrowthEngine._exec_outputs`，main 侧落在 `src.growth_verify.run_outputs`。合并后
+  前者退化为对后者的薄转发（只保留既有 P2-0 harness 的调用面），仓库内不再有第二套
+  解释器执行代码；由 `test_exec_outputs_is_not_a_second_implementation` 锁定。
+
+### G-2（已处置）：空对空假阳性
+
+两侧都无可观测输出时，比对 `[] == []` 会判「一致」——语义不同的两个无输出程序被
+误报等价（典型「未验证 ≠ 一致」）。处置：判据保守化，两侧须**运行成功且有可观测
+输出且逐项相等**才判一致；并且**不设「同文即一致」捷径**（同文垃圾、同文无输出一律
+不判一致）。由 `TestHonestDegradation` 锁死。
+
+### G-3（已修）：出厂优化规则在多轮迭代下滚雪球式腐蚀
+
+- 曾在 main 上实测：对两行源码 `x = 3.0 + 4.0` / `print(x)` 跑 `grow()`，产出
+  `7.7.7.7.7.7.7.7.0 = 7.7.7.7.7.7.7.7.0` 一类文本——字面量被当作左值并逐轮重复
+  展开（单轮产物即为退化赋值 `7.0 = 7.0`，输出多出 `True`）；`y = 2 + 3` 与
+  `a = 7 / b = a + 1` 同样退化为 `5 = 5` / `7 = 7`、`8 = 8`。
+- **修复机制（属优化器正确性轨道，阶段 7 P1/P2/P3）**：常量折叠保持左值绑定名
+  （`x = 3.0 + 4.0` → `x = 7.0`），常量传播位置感知，且每轮候选改写必须过 P1 闸门
+  `_is_safe_candidate`（出码可再解析 + 顶层绑定名守恒）。合并后实测读数：
+  `x = 7.0`/`print(7.0)`、`y = 5`/`print(5)`、`a = 7`/`b = 8`/`print(8)`，三者
+  `semantic_consistent` 均为 True，`7.7.7` 不再出现。
+- 已上锁：`TestG3CorruptionPrevented`（产物等于预期、退化赋值被 P1 闸门拒绝、
+  滚雪球串不出现）。同时保留「判据不因规则修好而放松」的锁：`_verify(ARITH_OUT,
+  "7.0 = 7.0\\nprint(7.0)\\n")` 仍必须判 False 且原因为 `outputs_differ`。
+
+### G-4（已修）：最终报告的佐证口径错位
+
+`grow()` 返回的是最后一次迭代的 report，故字段原只描述「上一步 → 这一步」；多轮
+滚雪球腐蚀会在中间步互相「一致」而溜过。现于出口处补
+`report.semantic_consistent = self._verify(source, current)`，使字段描述调用方关心的
+「原始输入 → 最终产物」，并由 `test_final_report_describes_original_to_final` 锁定。
+
+### G-5（已坐实，不修）：`optimizations_applied` 与 G-4 同形的漏报
+
+- 实测（`.trae/g5_probe.py`）：`grow("x = 3.0 + 4.0\\nprint(x)\\n")` 第 1 轮应用
+  「常量折叠 × 1、常量传播 × 1」，第 2 轮空转退出；返回的正是第 2 轮的 report，
+  于是 `optimizations_applied == []` 而 `improved_source` 已发生变化——三个用例全部
+  自相矛盾（`y = 2 + 3`、`a = 7 / b = a + 1` 同样如此）。
+- 与 G-4 区别：G-4 是**安全口径**错位（会把腐蚀说成一致），必须修；G-5 只使报告
+  少报已应用的规则，不会把坏码说成好码，方向偏保守，故登记不修。
+- 已上表征锁：`TestG5AppliedRulesUnderReported`——修它时该锁会先红，必须同步更新
+  本条与锁，不得静默改口径。
+
+### 安全边界（实测 + 结构兜底）
+
+本片把 `_verify` 从「编译归档」换成「解释器执行」，属新增执行面，故：
+
+- 实测：`#：{ import os; ... }` 与 `#：python：{ ... }` 均抛 `ParseError`；
+  `#：符号 P = 5.0` 退化为 `MechUnit` 并抛未定义名；哨兵文件在所有形态下**均未生成**。
+- 结构兜底：`run_outputs` 构造解释器一律传 `foreign_routing=False`（`src/interp.py` 中
+  该开关为 False 时 `#：` 走「惰性防呆，不执行」分支），使宿主执行面不依赖一次实测
+  结论。由 `test_interpreter_is_built_with_foreign_routing_off` 与哨兵锁共同固定。
+  合并后 P2-0 harness 的 `_exec_outputs` 也已转发至同一入口，因此该兜底覆盖**全部**
+  成长侧执行面（含各规则对拍锁走的那条），而非只覆盖 `_verify`。
+- 口径提醒：安全断言是「不执行宿主代码」，而非「一律报不一致」——注释形态的
+  `# import os` 同文且有输出时判一致是**正确**行为。
+- 若将来 `ForeignDecl` 路由到 ForeignRunner 真正落地，除上述结构兜底外仍须补显式
+  拒绝守卫：含外来执行的源码一律不执行、诚实 False。
+
+### 仍未背书（本片不覆盖）
+
+- 优化器输出的「有效性 / 更快」一律不背书；`_verify` 不是 `grow()` 的安全闸门。
+  出码安全只依赖 P1 `_is_safe_candidate`（已由 `test_grow_safety_is_independent_of_verify_field` 固定）。
+- 三角恒等式按政策 A 维持 P1/schema 级，不纳入逐位等价背书（见第七节）。
+- 幻影字段 `performance_before_ms` / `performance_after_ms` / `languages_analyzed` 已在
+  Tier 1·S5 从 `GrowthReport` 删除（本节旧版曾记为「待清理」，现已落实，锁在
+  `tests/test_growth_report_fields.py`）。
