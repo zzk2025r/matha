@@ -471,11 +471,25 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   `UnicodeEncodeError: 'charmap' codec can't encode characters in position 11-13`，栈顶是
   `src/compiler/matha_cc_cli.py:87`（`print("Matha LLVM 工具链 (matha-cc)")`）。这是**产品侧
   缺陷**：CLI 假定 stdout 能编码中文，而 Windows 默认控制台编码取当前 locale（英文镜像是
-  cp1252）。本仓库 `src/` 里没有任何 `sys.stdout.reconfigure` / UTF-8 兜底约定（全库仅
-  `src/codegen/system.py` 在生成的 .bat 里写 `chcp 65001`）。本轮只在 CI 步骤里把环境切成
-  UTF-8（`shell: pwsh` + `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` + `chcp 65001` +
-  `[Console]::OutputEncoding`），**不掩盖产品问题**：真正的修法（给 CLI 加输出兜底或改 ASCII
-  文案）需单独批准，并覆盖 `matha` 主入口的同类中文输出。
+  cp1252）。本仓库 `src/` 里原本没有任何 `sys.stdout.reconfigure` / 编码兜底约定（全库仅
+  `src/codegen/system.py` 在生成的 .bat 里写 `chcp 65001`；`src/matha_main.py` 的
+  `_print_utf8` 名字带 UTF-8，实现却只是 `sys.stdout.write`）。
+  **CI 侧 env 兜门已实测无效**：先试过把步骤切成 UTF-8（`shell: pwsh` + `PYTHONUTF8=1` /
+  `PYTHONIOENCODING=utf-8` + `chcp 65001` + `[Console]::OutputEncoding`），run 42208958450 里
+  这两个变量已在步骤 env 中给出，冻结 exe 仍按 cp1252 崩。本地 A/B 对照已证实机制：
+  **冻结 exe 完全无视 `PYTHONIOENCODING`**（无 harden 的 exe 在 `cp1252:strict` 与 `utf-8` 下
+  都输出相同的 UTF-8 字节、rc=0），而源码运行会尊重它（同一 env 下 rc=1 报 UnicodeEncodeError）；
+  即 stdio 编码在打包时固定，运行时 env 改不了——本地（3.14）构建恰好固定成 UTF-8，以至于
+  本地无法复现崩溃，CI（3.11）构建则落成 cp1252。**真修法已按批准落到产品侧**：
+  `src/compiler/matha_cc_cli.py` 与 `src/matha_main.py` 各自内联 `_harden_std_streams()`
+  （对 stdout/stderr 做 `reconfigure(errors="replace")`，保留原编码、只把不可编码字符降级为
+  占位符，异常静默跳过），在两个 `main()` 顶部调用。未新增 `src/` 模块，因为 `core_py_lines`
+  被 `docs/ARCHITECTURE.md` 锁定。本地双向实测：去掉兜底调用后 `python -m
+  src.compiler.matha_cc_cli info`（`PYTHONIOENCODING=cp1252:strict`）抛出的异常与 CI 日志
+  逐字相同（同为 `position 11-13`）；加回后 rc=0（中文降为 `?`）。回归锁见
+  `tests/test_cli_encoding_fallback.py`（3 例，含上述反向对照）。CI 的 UTF-8 步骤保留，
+  作为叠加保险；但按已证实的 env 无效机制，`Test executables` 转绿只能靠产品侧兜底，
+  需第五次 dispatch 现场确认。`matha` 主入口的同类中文输出已一并覆盖（同一 helper）。
 - lint 里 `mypy src/deps.py` 指向 082218c 已删除的模块（靠 `|| true` 才没红），改指
   其后继 `scripts/dep_audit.py`。run 42195342421 的 `Lint & Format Check` 已实测 success。
 

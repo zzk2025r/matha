@@ -244,6 +244,15 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   的 cp1252 控制台）。根因在产品侧 CLI 无输出兜底，本轮不动 `src/`；只在 CI 步骤里
   显式把控制台与环境切到 UTF-8（`PYTHONUTF8` / `PYTHONIOENCODING` / `chcp 65001` /
   `[Console]::OutputEncoding`），并把真修法登记到 KNOWN_ISSUES 9c。
+- 第四次 dispatch（run 42208958450）**证伪了上一条的 CI 侧方案**：`PYTHONUTF8=1` /
+  `PYTHONIOENCODING=utf-8` 已在步骤 env 中给出，冻结 exe 仍按 cp1252 崩。本地 A/B 对照给出
+  机制：冻结 exe 的 stdio 编码在**打包时**就固定，运行时的 `PYTHONIOENCODING` 对它无效（源码
+  运行则尊重）。“本轮不动 `src/`”只是当时未获批准的边界，不是真修法。经第三次批准已落产品侧：
+  `src/compiler/matha_cc_cli.py` 与 `src/matha_main.py` 各自内联 `_harden_std_streams()`
+  （`reconfigure(errors="replace")`：保留原编码，只把不可编码字符降为 `?`，不再抛异常），
+  在两个 `main()` 顶部调用；未新增 `src/` 模块（`core_py_lines` 被架构文档锁）。新增回归锁
+  `tests/test_cli_encoding_fallback.py`（3 例）：去掉兜底调用后本地报出与 CI 日志逐字相同的
+  `UnicodeEncodeError … position 11-13`，加回后 rc=0。
 - 新增离线回归锁 `tests/test_ci_hygiene.py`（6 项，零第三方依赖的 YAML 结构扫描）：
   顶层键白名单、步骤不得 `uses`+`run` 共存、`run:` 不得为多行纯量、非权威门不得
   自动触发且必须带证据标记、权威门引用的仓库路径必须存在。反向对照实测：拿改动

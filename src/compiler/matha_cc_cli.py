@@ -16,6 +16,22 @@ import sys
 import time
 
 
+def _harden_std_streams() -> None:
+    """输出编码兜底：保留当前控制台/locale 的首选编码，只把不可编码字符降级为占位符。
+
+    Windows 上 stdout 一旦不是控制台（管道、重定向，或 CI runner 捕获输出），
+    Python 会退回 locale 首选编码；英文镜像下即 cp1252，本模块的中文 print 会直接抛
+    `UnicodeEncodeError: 'charmap' codec can't encode characters`（实测见 GitHub Actions
+    dispatch run 42208252282 的 `Test executables` 步骤）。`errors="replace"` 只改变
+    不可编码字符的表现形式，不改动编码本身，因此 UTF-8 环境输出完全不受影响。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass  # 老版本 Python / 流已被替换 / 非标准 IO：静默跳过，不影响主流程
+
+
 def cmd_compile(args) -> int:
     """编译命令。"""
     from src.compiler.matha_cc import matha_compile
@@ -144,6 +160,7 @@ def cmd_test(args) -> int:
 
 def main(argv=None) -> int:
     """CLI 入口。"""
+    _harden_std_streams()
     parser = argparse.ArgumentParser(
         prog="matha-cc",
         description="Matha LLVM 编译器工具链",

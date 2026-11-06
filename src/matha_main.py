@@ -37,6 +37,22 @@ def _print_utf8(text: str) -> None:
     sys.stdout.flush()
 
 
+def _harden_std_streams() -> None:
+    """输出编码兜底：保留当前首选编码，只把不可编码字符降级为占位符。
+
+    名字里的“UTF-8”并不代表真的做了编码处理——上面 `_print_utf8` 只是
+    `sys.stdout.write`。而 stdout 一旦不是控制台（管道/重定向/CI 捕获），Python
+    在 Windows 上会退回 locale 首选编码（英文镜像 = cp1252），本模块的中文输出
+    会直接抛 `UnicodeEncodeError`（CI 实测：dispatch run 42208252282）。
+    `errors="replace"` 不改动编码本身，UTF-8 环境输出不受影响。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass  # 老版本 Python / 流已被替换 / 非标准 IO：静默跳过
+
+
 # ============================================================
 # REPL 模式
 # ============================================================
@@ -673,6 +689,7 @@ def _apply_cli_features(args) -> None:
 
 def main(argv=None) -> int:
     """统一 CLI 入口。"""
+    _harden_std_streams()
     parser = argparse.ArgumentParser(
         prog="matha",
         description="Matha 数学编程语言 — 解释器 + 编译器 + 调试工具",
