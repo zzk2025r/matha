@@ -1,15 +1,18 @@
 # Matha Multi-Language Benchmark
 # 多语言性能基准测试 — Matha vs C++ vs Rust vs Go vs Java
-# 在 push/PR 到 main 时自动运行，并生成性能报告
+#
+# DORMANT(ci-hygiene): 不再参与 push/PR 门禁（已移除 push.branches 与每周 cron），
+# 仅保留手动触发。自 run#56（2026-10-05）起每次 main 都 failure，原因不在代码里：
+#   1) test job 引用 tests/test_multilang_enhancement.py —— 仓库中不存在，
+#      unittest 报 ModuleNotFoundError；
+#   2) bench-rust job 执行 scripts/benchmark_rust.py —— 仓库中不存在（exit 2），
+#      导致 report job 拿不到 rust-benchmark-data 产物。
+# 上面的注释原来写「在 push/PR 到 main 时自动运行」，与仓库现状不符，已删除。
 
 name: MultiLang Benchmark
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * 1'  # 每周一 UTC 02:00
 
 env:
   PYTHONIOENCODING: "utf-8"

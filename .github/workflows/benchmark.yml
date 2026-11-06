@@ -1,10 +1,13 @@
+# DORMANT(ci-hygiene): 不再参与 push/PR 门禁（已移除 push.branches 与每周 cron），
+# 仅保留手动触发。原因：本工作流的失败均不可通过改代码消除——
+#   1) 原「运行性能基准测试」把 4 行 shell `echo … >> $GITHUB_OUTPUT` 写在
+#      `python -c "…"` 的双引号字符串内，Python 把它们当源码解析，报
+#      SyntaxError: invalid decimal literal（已改为在 Python 内写 GITHUB_OUTPUT）；
+#   2) 钉钉通知步骤因仓库未配置 DINGTALK_WEBHOOK / DINGTALK_SECRET（secrets 总数
+#      为 0）而拿到空参，curl 报 "option : blank argument" 并 exit 2。
 name: HAL Performance Benchmark
 
 on:
-  push:
-    branches: [main, master]
-  schedule:
-    - cron: '0 6 * * 1'  # 每周一 UTC 06:00（北京时间 14:00）
   workflow_dispatch:
 
 # ============================================================
@@ -77,11 +80,14 @@ jobs:
           print(f'批量写入速率: {rate2:,} ops/sec')
           print('=' * 50)
 
-          # 输出为 GitHub Actions 步骤输出
-          echo \"single_rate={rate1}\" >> $GITHUB_OUTPUT
-          echo \"batch_rate={rate2}\" >> $GITHUB_OUTPUT
-          echo \"single_latency_us={t1/10000:.2f}\" >> $GITHUB_OUTPUT
-          echo \"batch_latency_us={t2/10000:.2f}\" >> $GITHUB_OUTPUT
+          # 输出为 GitHub Actions 步骤输出（必须留在 Python 内：整段都是
+          # python -c 的源码，写 shell 语句会被当成 Python 语法而报错）
+          import os
+          with open(os.environ.get('GITHUB_OUTPUT', os.devnull), 'a', encoding='utf-8') as _out:
+              _out.write('single_rate=%d\n' % rate1)
+              _out.write('batch_rate=%d\n' % rate2)
+              _out.write('single_latency_us=%.2f\n' % (t1 / 10000))
+              _out.write('batch_latency_us=%.2f\n' % (t2 / 10000))
           "
 
       - name: 记录性能数据

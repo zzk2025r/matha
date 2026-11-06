@@ -1,33 +1,39 @@
+# DORMANT(ci-hygiene): 本文件此前被 GitHub 整体拒绝（Actions 列表显示名回退为
+# 文件路径、jobs=0、历史连续 failure）：多环境 matrix 写在工作流顶层的
+# `strategy:`（该键只能存在于 job 下），且 workflow 级 env 引用了只存在于
+# job 级的 matrix 上下文。现已把 strategy/env 下放到各 job、并修正
+# needs 里带连字符的 job id 引用。
+# 仍休眠的原因：步骤引用的 tests/stress_test_10khz.py、tests/test_hal_perf.py、
+# tests/test_hal_multiprocessing.py 均不在仓库中（已用 git ls-files 核实），
+# 每日 cron 只会制造无意义红报。改为仅手动触发。
 name: HAL Stress Test
 
 on:
-  push:
-    branches: [main, master, dev]
-  schedule:
-    # 每天 UTC 00:00 运行（北京时间 08:00）
-    - cron: '0 0 * * *'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:  # 仅允许手动触发（已移除 push.branches 与每日 schedule）
 
 # ============================================================
 # 钉钉通知配置（从共享配置加载）
 # 参考: .github/configs/dingtalk_notify.yml
+# 注：仓库当前未配置 DINGTALK_WEBHOOK / DINGTALK_SECRET，通知步骤只会在
+# 手动 dispatch 时走到，不会在 push/PR 上产生红灯。
 # ============================================================
 env:
   DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
   DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-  MATHA_ENV: ${{ matrix.env }}
   MATHA_WORKERS: 4  # 默认 4 Worker（根据实际 CPU 核数自动调整）
 
-# 多环境矩阵
-strategy:
-  matrix:
-    env: [dev, staging]
-    os: [ubuntu-latest]
-
 jobs:
+  # 多环境矩阵（必须挂在 job 上，不能放在工作流顶层）
   stress-test:
     name: HAL 10kHz 压力测试 (${{ matrix.env }})
     runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, staging]
+        os: [ubuntu-latest]
+    env:
+      MATHA_ENV: ${{ matrix.env }}
 
     steps:
       - name: 检出代码
@@ -116,6 +122,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: stress-test
     if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, staging]
+        os: [ubuntu-latest]
+    env:
+      MATHA_ENV: ${{ matrix.env }}
 
     steps:
       - name: 检出代码
@@ -157,7 +170,7 @@ jobs:
     name: 性能告警检测
     runs-on: ubuntu-latest
     needs: stress-test
-    if: always() && needs.stress-test.result == 'success'
+    if: always() && needs['stress-test'].result == 'success'
 
     steps:
       - name: 检出代码
