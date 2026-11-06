@@ -130,12 +130,14 @@ jobs:
   # 3. 性能基准测试
   # ============================================================
   # DORMANT(ci-hygiene): 主体依赖已在 5cce13b 删除的 src/vm.py（benchmark /
-  # CrossVerifier），保留定义仅供手动排障，不再参与 push/PR 门禁。
+  # CrossVerifier）。dispatch run 42195342421 实测该步骤报 ModuleNotFoundError:
+  # No module named 'src.vm'，故连手动触发也不能跑通，只能置 false 保留定义，
+  # 等 VM 模块复活后再打开；不再参与 push/PR 门禁。
   benchmark:
     name: Performance Benchmark
     runs-on: ubuntu-latest
     needs: test
-    if: github.event_name == 'workflow_dispatch'
+    if: false
     steps:
       - uses: actions/checkout@v4
 
@@ -196,12 +198,17 @@ jobs:
       - name: Install PyInstaller
         run: pip install pyinstaller
 
+      # windows-latest 默认 shell 是 PowerShell，`ls -la` 会报
+      # "A parameter cannot be found that matches parameter name 'la'"（见 dispatch
+      # run 42195342421），因此这两步显式指定 bash。
       - name: Build matha.exe
+        shell: bash
         run: |
           python -m PyInstaller --noconfirm matha.spec
           ls -la dist/matha.exe
 
       - name: Build matha-cc.exe
+        shell: bash
         run: |
           python -m PyInstaller --noconfirm matha-cc.spec
           ls -la dist/matha-cc.exe

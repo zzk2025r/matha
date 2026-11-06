@@ -420,21 +420,30 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 临时目录逐条跑这些锁，每条都精确命中上表对应的那一处（顶层 `strategy`、
 release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙齿」的锁。
 
-### 9c. 两处参数名 / 产物路径直修（`matha-ci.yml`）
+### 9c. 参数名 / 产物路径 / shell 直修（`matha-ci.yml`，已用 dispatch 实测）
+
+验证方式：对分支头跑 `gh workflow run matha-ci.yml --ref chore/ci-hygiene`（run 42195342421），
+因为 `build-exe` / `offline-verify` 的 `if` 只放行 main、tag 或 dispatch，PR 上永远是 skipped，
+只有 dispatch 能真正跑到这两段。
 
 - `offline-verify`：`package_offline.py` 只认 `--out`（CI 原传 `--output-dir` → argparse
   `unrecognized arguments`，exit 2，本地复现一致）；`verify_offline.py` 只认
-  `--quick/--verbose/--json`（CI 原传 `--package-dir`）。**口径提醒**：该脚本验证的是
-  当前环境可导入性，不校验包目录内容，步骤名「Verify offline package」略强于实际。
+  `--quick/--verbose/--json`（CI 原传 `--package-dir`）。**实测已转绿**：run 42195342421 的
+  `Create offline package` / `Verify offline package` / `Upload offline package` 三步均 success。
+  **口径提醒**：该脚本验证的是当前环境可导入性，不校验包目录内容，步骤名「Verify offline
+  package」略强于实际。
 - `build-exe`：PyInstaller 实际**构建成功**（日志有 `Building EXE from EXE-00/01.toc
-  completed successfully`、`Copying bootloader EXE to …\dist\matha.exe`），失败行是紧随其后的
+  completed successfully`、`Copying bootloader EXE to …\dist\matha.exe`），原失败行是紧随其后的
   `ls -la dist/matha-offline/matha.exe`——目录名是照 `--onefile` 想象写的，而两份 spec 的
   `EXE(name=...)` 分别是 `matha` / `matha-cc` 且无 `COLLECT`，产物就在 `dist/` 根下。已把
   `ls` / 自检 / 上传 / `publish` 的 Release 附件四处统一改为 `dist/matha.exe`、
-  `dist/matha-cc.exe`。产物可运行性已由 7a 在本地实测（`--version` 报 v4.6.0、
-  `eval "21+21"` 得 42），但 CI windows-latest + Python 3.11 的组合仍是首次跑，失败要看新日志。
+  `dist/matha-cc.exe`。**但路径改对仍不够**：`runs-on: windows-latest` 的默认 shell 是
+  PowerShell，`ls -la` 直接报 `A parameter cannot be found that matches parameter name 'la'`
+  （这正是 run 42195342421 里 `Build matha.exe` 的失败点）。已给两个构建步骤显式加
+  `shell: bash`。产物可运行性已由 7a 在本地实测（`--version` 报 v4.6.0、`eval "21+21"` 得 42），
+  CI 侧 `Test executables`（PowerShell 下 `dist\matha.exe --version`）仍需下一轮 dispatch 确认。
 - lint 里 `mypy src/deps.py` 指向 082218c 已删除的模块（靠 `|| true` 才没红），改指
-  其后继 `scripts/dep_audit.py`。
+  其后继 `scripts/dep_audit.py`。run 42195342421 的 `Lint & Format Check` 已实测 success。
 
 ### 9d. 休眠清单（只改触发器，不改语义；均带 `ci-hygiene` 证据头）
 
@@ -470,8 +479,10 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   `ERROR: Hidden import … not found`，但实测**不阻断构建**。本 PR 只碰 CI 配置，不顺手
   改 `.spec`；待单独一次构建侧清理时一并处理并当场重跑产物实测（见 7a）。
 - `matha-ci.yml` 的 `benchmark` job 主体依赖已删除的 `src/vm.py`（`git ls-files src/vm.py`
-  无输出），已降为仅 dispatch；它不是「能修好后打开」的开关，而是要么重建基准入口、
-  要么删除——本 PR 选择保留定义不删文件，不背书本机不能跑的那一段。
+  无输出）。首版改造降为仅 dispatch，但 run 42195342421 实测：一旦 dispatch 就会以
+  `ModuleNotFoundError: No module named 'src.vm'` 失败，把整个验证 run 染红，反而失去「用
+  dispatch 单独验 build 链路」的手段。故改为 `if: false`（保留定义、任何事件都不跑），要么
+  重建基准入口、要么删除——本 PR 不背书本机不能跑的那一段。
 - 上述休眠工作流内部仍有可能的 GH 侧拒绝原因未逐个穷举（本地只能复现 YAML/结构层）；
   真正的判据是推分支后看 Actions 现场：休眠文件不应再产生任何 run。
 

@@ -221,10 +221,16 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   `mapping values are not allowed here`）、`stress_test.yml` 把工作流顶层的
   `strategy:` 下放到 job、`release.yml` 同一步既 `uses:` 又 `run:`（并拆为两步、
   env 布尔默认值改字符串）。
-- 直修两处参数/路径错：`matha-ci.yml` 的 `package_offline.py --output-dir` → `--out`、
+- 直修参数/路径/shell 错：`matha-ci.yml` 的 `package_offline.py --output-dir` → `--out`、
   `verify_offline.py --package-dir` → 只传 `--quick`；PyInstaller 产物路径
   `dist/matha-offline/matha.exe` → `dist/matha.exe`（`matha-cc.exe` 同理，共四处），
-  `mypy src/deps.py`（已于 082218c 删除）→ `scripts/dep_audit.py`。
+  `mypy src/deps.py`（已于 082218c 删除）→ `scripts/dep_audit.py`；`build-exe` 两个构建步骤
+  补 `shell: bash`（windows runner 默认 PowerShell，`ls -la` 会报「A parameter cannot be
+  found that matches parameter name 'la'」）。
+- 以上均经 `gh workflow run matha-ci.yml --ref chore/ci-hygiene`（run 42195342421）真实跑过：
+  lint / test×2 / native ELF gate / `Offline Deployment Verify` 转绿；`Build Executables` 的
+  失败点由此从「路径写错」收敛为「shell 不匹配」，已按新证据二次修复；`benchmark` job
+  一旦 dispatch 必报 `No module named 'src.vm'`，故置 `if: false`。
 - 新增离线回归锁 `tests/test_ci_hygiene.py`（6 项，零第三方依赖的 YAML 结构扫描）：
   顶层键白名单、步骤不得 `uses`+`run` 共存、`run:` 不得为多行纯量、非权威门不得
   自动触发且必须带证据标记、权威门引用的仓库路径必须存在。反向对照实测：拿改动
