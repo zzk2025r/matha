@@ -1,3 +1,13 @@
+# ci-hygiene: 本文件此前被 GitHub 整体拒绝（Actions 列表显示名回退为文件路径、
+# jobs=0、每次 push 都留下一条 failure 记录，连 tag 分支也无法跑）：
+# create-release 的「安装 gh CLI」步骤同时写了 uses: actions/setup-node@v4 和
+# run: npm install -g @github/cli —— 一个步骤只能有 uses 或 run 中的一个，
+# GH 因此判整个文件无效。已拆为两步，并把 workflow 级 env 的 dry_run 默认值
+# 从布尔 false 改为字符串 'false'（env 值必须是字符串）。
+# 仅保留 tag + 手动触发，不参与 push.branches / pull_request 门禁。但它仍引用
+# 仓库中不存在的 check_files.py、check_git.py、tests/stress_test_10khz.py、
+# tests/test_jupyter_magic.py、tests/test_pkg_manager_dependency.py、
+# extensions/vscode-matha/package-lock.json，所以真实发布前这些仍需补齐。
 name: Matha Release
 
 on:
@@ -30,7 +40,7 @@ env:
   NODE_VERSION: '18'
   MATHA_VERSION: ${{ github.event.inputs.version || github.ref_name }}
   MATHA_ENV: ${{ github.event.inputs.environment || 'production' }}
-  MATHA_DRY_RUN: ${{ github.event.inputs.dry_run || false }}
+  MATHA_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
 
 jobs:
   # ============================================================
@@ -137,6 +147,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+
+      - name: 安装 @github/cli
         run: npm install -g @github/cli
 
       - name: 登录 GitHub

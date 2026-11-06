@@ -218,8 +218,17 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `run` 源文件正常——**构建链可复现，但不进门禁**，下次重建仍须当场验证。
 - `matha-cc`：模块 `src/compiler/matha_cc_cli.py` 真实存在可用，但 pip 只注册了 `matha`
   入口点；README 已改口径为 `python -m src.compiler.matha_cc_cli` 或自建 exe。
+  2026-11 补记：旧 `matha-cc.spec` 的 `EXE(exclude_binaries=True)` 无配套 `COLLECT`，所以
+  「用 `matha-cc.spec` 自建独立可执行文件」这句 README 主张当时**做不到**（产物只落在
+  `build/` 且启动即缺 Python DLL）。已改为 onefile 写法并实测跑通（见 9c）。
+- `scripts/build_exe.py` 开头会**清空整个 `dist/`**（日志行 `[build] 清理: dist/`），所以只跑
+  `--matha-cc` 也会把 `dist/matha.exe` 与历史离线包目录一并删掉。重建单个组件后想保留其它
+  产物，需随后补跑对应 spec（或用 `--all`）。另：它的中间目录用 `dist_build/`，而
+  `.gitignore` 只忽略了 `build/` 与 `dist/`，所以跑完会在 `git status` 里留下一个未跟踪的
+  `dist_build/`（本轮未动 `.gitignore`，待单独确认后再加一行）。
 - 工作目录里残留的 `dist/*.exe` 为主线收官前的旧构建，`dist/` 本就在 `.gitignore` 内、
-  不受 git 跟踪，无定位效力。
+  不受 git 跟踪，无定位效力（2026-11-06 已被上述 `build_exe.py` 清理逻辑重生成：
+  `dist/matha.exe` 与 `dist/matha-cc/matha-cc.exe` 均为当日新建）。
 
 ### 7b. 其它交付端
 
@@ -389,3 +398,141 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 - 幻影字段 `performance_before_ms` / `performance_after_ms` / `languages_analyzed` 已在
   Tier 1·S5 从 `GrowthReport` 删除（本节旧版曾记为「待清理」，现已落实，锁在
   `tests/test_growth_report_fields.py`）。
+
+## 九、CI 面（GitHub Actions）的实测口径与遗留
+
+本轮（2026-11）把 main 上的红逐个定性后再动手，结论先说清楚：**main 上有红不等于
+本次合并引入的回归**。判回归必须按 workflow + job + step 粒度与「上一个 main 出厂
+点」同名对比；check-run 名称集合的差异会因 `cancel-in-progress` 漂移而误导。
+
+### 9a. 权威回归门（只有这两份工作流允许自动触发）
+
+- `.github/workflows/matha-ci.yml`：`lint` + `test`（Python 3.11/3.12 矩阵，零依赖核心
+  执行链冒烟）+ `native-elf-gate`（x86-64 实跑逐字节对拍）。
+- `.github/workflows/ci.yml`：`packages/**` 的 matha-auth 冒烟（带 paths 过滤，最近一次
+  main 触发为 success）。
+- 全量通过率唯一口径仍是本地 `python scripts/check.py`（`make check`）；GH ubuntu
+  runner 环境不等价，不承载全量门禁。
+
+### 9b. 三类「整文件被 GitHub 拒绝」的形态（已修，已上锁）
+
+共同表征：Actions 列表里显示名回退成文件路径、`jobs=0`、历史连续 failure——比
+「某一步失败」更隐蔽。取证与修复：
+
+| 文件 | 根因（实测） | 处置 |
+| --- | --- | --- |
+| `cd-full.yml` | `run:` 写成多行纯量，值里 `echo "::error::…: black …"` 的 `: ` 让 YAML 报 `mapping values are not allowed here` | 改块纯量 `run: \|` |
+| `stress_test.yml` | `strategy:` 挂在工作流**顶层**（只允许在 job 下），且 workflow 级 `env` 引用了 job 级 `matrix` 上下文 | 下放到各 job；`needs['stress-test']` |
+| `release.yml` | 步骤同时写 `uses:` 与 `run:`（GH：一个步骤只能有其一）；`MATHA_DRY_RUN: \|\| false` 给 env 塞布尔值 | 拆成两步；默认值改字符串 |
+
+由 `tests/test_ci_hygiene.py` 六条锁固定。反向对照实测：把改动前的 10 份工作流放进
+临时目录逐条跑这些锁，每条都精确命中上表对应的那一处（顶层 `strategy`、
+release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙齿」的锁。
+
+### 9c. 参数名 / 产物路径 / shell / spec 结构直修（`matha-ci.yml` + `matha-cc.spec`，已用 dispatch 实测）
+
+验证方式：对分支头跑 `gh workflow run matha-ci.yml --ref chore/ci-hygiene`（本文引用三次
+实测：run 42195342421 / 42198963200 / 42208252282），因为 `build-exe` / `offline-verify` 的
+`if` 只放行 main、tag 或 dispatch，PR 上永远是 skipped，只有 dispatch 能真正跑到这两段。
+
+- `offline-verify`：`package_offline.py` 只认 `--out`（CI 原传 `--output-dir` → argparse
+  `unrecognized arguments`，exit 2，本地复现一致）；`verify_offline.py` 只认
+  `--quick/--verbose/--json`（CI 原传 `--package-dir`）。**实测已转绿**：run 42195342421 的
+  `Create offline package` / `Verify offline package` / `Upload offline package` 三步均 success。
+  **口径提醒**：该脚本验证的是当前环境可导入性，不校验包目录内容，步骤名「Verify offline
+  package」略强于实际。
+- `build-exe` 的 shell：PyInstaller 本身**构建成功**（日志有 `Building EXE from EXE-00/01.toc
+  completed successfully`、`Copying bootloader EXE to …\dist\matha.exe`），但旧写法在构建后紧跟
+  `ls -la dist/matha-offline/matha.exe`：目录名是照历史上手工 `--distpath` 留下的
+  `dist/matha-offline/` 想象写的，而仓库内 spec 并不往那里产出（见下条）。`ls` / 自检 /
+  上传 / `publish` 的 Release 附件四处已统一改为 `dist/matha.exe`、`dist/matha-cc.exe`。
+  **但路径改对仍不够**：`runs-on: windows-latest` 默认 shell 是 PowerShell，`ls -la` 直接报
+  `A parameter cannot be found that matches parameter name 'la'`（run 42195342421 里
+  `Build matha.exe` 确实挂在这一行）。已给两个构建步骤显式加 `shell: bash`；下一轮 run
+  42198963200 实测 `Build matha.exe` **已转绿**。
+- `matha-cc.spec` 不产出可运行产物（run 42198963200 里 `Build matha-cc.exe` 报
+  `ls: cannot access 'dist/matha-cc.exe': No such file or directory`）。根因**不在 CI 配置里**，
+  而在打包定义：它只有一个 `EXE(…, exclude_binaries=True, name='matha-cc')` 而**没有配套的
+  `COLLECT`**（也没有 onefile 变体），所以 EXE 只落在 `build/matha-cc/matha-cc.exe`（本地实测
+  3.9 MB），既不携带 Python DLL 也不进 `dist/`；直接跑它会报
+  `Failed to load Python DLL '…\build\matha-cc\_internal\python314.dll'`。对比 `matha.spec`：
+  它除了同样的 `exclude_binaries=True` EXE 外，还有一段标着「# 打包为单文件」、把
+  `a_onedir.binaries` / `a_onedir.datas` 直接入 EXE 的写法，所以 `dist/matha.exe` 确实存在于
+  本地（当日重建产物 29,969,600 字节≈ 30 MB，`--version` 报 `Matha v4.6.0`、exit 0）。
+  已按同一口径修正 `matha-cc.spec`
+  （并入 `a.binaries` / `a.datas`、去掉 `exclude_binaries`，与该文件头部本就声明的
+  `pyinstaller --onefile matha-cc.spec` 一致）；本地实测：重建 exit 0、
+  `dist/matha-cc.exe` 11,307,345 字节≈ 11.3 MB、`dist\matha-cc.exe info` **exit 0**（打印工具链信息）。
+  未做过的事：CI `windows-latest` + Python 3.11 下的同一次构建仍需看合并后现场（本地为 3.14）。
+  run 42208252282 实测两个构建步骤均已 success，且 `dist\matha.exe --version` 在 CI 上正常
+  输出 `Matha v4.6.0`。
+- **中文输出在非 UTF-8 控制台会裸抛**（run 42208252282 里 `Test executables` 的失败点）：
+  `dist\matha-cc.exe info` 在 CI windows runner 上报
+  `UnicodeEncodeError: 'charmap' codec can't encode characters in position 11-13`，栈顶是
+  `src/compiler/matha_cc_cli.py:87`（`print("Matha LLVM 工具链 (matha-cc)")`）。这是**产品侧
+  缺陷**：CLI 假定 stdout 能编码中文，而 Windows 默认控制台编码取当前 locale（英文镜像是
+  cp1252）。本仓库 `src/` 里原本没有任何 `sys.stdout.reconfigure` / 编码兜底约定（全库仅
+  `src/codegen/system.py` 在生成的 .bat 里写 `chcp 65001`；`src/matha_main.py` 的
+  `_print_utf8` 名字带 UTF-8，实现却只是 `sys.stdout.write`）。
+  **CI 侧 env 兜门已实测无效**：先试过把步骤切成 UTF-8（`shell: pwsh` + `PYTHONUTF8=1` /
+  `PYTHONIOENCODING=utf-8` + `chcp 65001` + `[Console]::OutputEncoding`），run 42208958450 里
+  这两个变量已在步骤 env 中给出，冻结 exe 仍按 cp1252 崩。本地 A/B 对照已证实机制：
+  **冻结 exe 完全无视 `PYTHONIOENCODING`**（无 harden 的 exe 在 `cp1252:strict` 与 `utf-8` 下
+  都输出相同的 UTF-8 字节、rc=0），而源码运行会尊重它（同一 env 下 rc=1 报 UnicodeEncodeError）；
+  即 stdio 编码在打包时固定，运行时 env 改不了——本地（3.14）构建恰好固定成 UTF-8，以至于
+  本地无法复现崩溃，CI（3.11）构建则落成 cp1252。**真修法已按批准落到产品侧**：
+  `src/compiler/matha_cc_cli.py` 与 `src/matha_main.py` 各自内联 `_harden_std_streams()`
+  （对 stdout/stderr 做 `reconfigure(errors="replace")`，保留原编码、只把不可编码字符降级为
+  占位符，异常静默跳过），在两个 `main()` 顶部调用。未新增 `src/` 模块，因为 `core_py_lines`
+  被 `docs/ARCHITECTURE.md` 锁定。本地双向实测：去掉兜底调用后 `python -m
+  src.compiler.matha_cc_cli info`（`PYTHONIOENCODING=cp1252:strict`）抛出的异常与 CI 日志
+  逐字相同（同为 `position 11-13`）；加回后 rc=0（中文降为 `?`）。回归锁见
+  `tests/test_cli_encoding_fallback.py`（3 例，含上述反向对照）。CI 的 UTF-8 步骤保留，
+  作为叠加保险；`Test executables` 转绿靠的是产品侧兜底。**已经第五次 dispatch 现场确认**：
+  run 42217545003 上 `Build Executables` job 的 `Test executables` 步骤已转 **success**（整个
+  `Matha CI` 权威门 9 个 job 全绿）。`matha` 主入口的同类中文输出已一并覆盖（同一 helper）。
+- lint 里 `mypy src/deps.py` 指向 082218c 已删除的模块（靠 `|| true` 才没红），改指
+  其后继 `scripts/dep_audit.py`。run 42195342421 的 `Lint & Format Check` 已实测 success。
+
+### 9d. 休眠清单（只改触发器，不改语义；均带 `ci-hygiene` 证据头）
+
+以下工作流不再被 push / pull_request / schedule 自动触发，只能手动 dispatch（
+`release.yml`、`publish_matha_auth.yml` 另保留 tag 触发）。休眠的理由逐条已实测：
+
+- `benchmark.yml`：钉钉通知步骤因空 webhook 让 `curl` 报 `option : blank argument`（exit 2）；
+  另已把它的 4 行 shell `echo … >> $GITHUB_OUTPUT` 写进 `python -c "…"` 字符串内的真 bug
+  改为在 Python 内写输出。
+- `multilang_benchmark.yml`：`tests/test_multilang_enhancement.py` 与 `scripts/benchmark_rust.py`
+  均不在仓库（自 run#56（2026-10-05）起每次 main 都 failure）。
+- `riscv_baremetal.yml`：`tests/test_hal_v2.py`、`tests/test_growth_engine.py`、
+  `tests/test_lisp_ffi_mixed.py`、`tests/test_v130_unit_report.py`、`scripts/baremetal_riscv_demo.py`
+  已全部在 5cce13b 删除（`git log --diff-filter=D` 逐个核实），历史 10/10 failure；它的
+  `paths` 过滤含 `src/inner_loop.py`，所以主线任何执行器改动都会把它拉起来跑红。
+- `stress_test.yml`：`tests/stress_test_10khz.py`、`tests/test_hal_perf.py`、
+  `tests/test_hal_multiprocessing.py` 均不存在；每日 cron 只会制造无意义红。
+- `docker_build_push.yml`：`docker/login-action` 报 `Username and password required`。
+- `cd-full.yml` / `release.yml` / `publish_matha_auth.yml`：除 9b 的结构修复外，仍引用
+  仓库中不存在的 `scripts/k8s_failover_drill.py`、`docs/release_report.json`、`check_files.py`、
+  `check_git.py`、`tests/test_jupyter_magic.py`、`tests/test_pkg_manager_dependency.py`、
+  `extensions/vscode-matha/package-lock.json`。
+
+### 9e. 登记但不修（诚实面，不在本 PR 范围）
+
+- **仓库 secrets / variables 均为 0**（`gh api …/actions/secrets` 实测）。被引用但不存在的
+  有 11 个：`DINGTALK_WEBHOOK`、`DINGTALK_SECRET`、`DOCKER_USERNAME`、`DOCKER_PASSWORD`、
+  `PYPI_TOKEN`、`OVSX_PAT`、`VSCE_PAT`、`PROD_KUBECONFIG`、`STAGING_KUBECONFIG`、
+  `JWT_SECRET` 等。凭据不就绪，全部通知/镜像/发布类步骤不可能成功——这是基础设施缺失，
+  不是代码缺陷，也不该靠 mock 刷绿。
+- 两份 spec 里 3 处死 `hiddenimports`（`matha.spec` 的 `src.tree_sitter_backends` 与
+  `src.domains.hal`、`matha-cc.spec` 的 `src.domains.hal`）仍会让 PyInstaller 打
+  `ERROR: Hidden import … not found`，但实测**不阻断构建**（修完 `matha-cc.spec` 后本地重跑
+  仍只有这一行 ERROR、exit 0）。这几行本身仍属登记不修：经批准修的只是 9c 里的 EXE 结构
+  缺陷，没有顺手动 `hiddenimports`，因为它们需要单独的清理与全量产物实测。
+- `matha-ci.yml` 的 `benchmark` job 主体依赖已删除的 `src/vm.py`（`git ls-files src/vm.py`
+  无输出）。首版改造降为仅 dispatch，但 run 42195342421 实测：一旦 dispatch 就会以
+  `ModuleNotFoundError: No module named 'src.vm'` 失败，把整个验证 run 染红，反而失去「用
+  dispatch 单独验 build 链路」的手段。故改为 `if: false`（保留定义、任何事件都不跑），要么
+  重建基准入口、要么删除——本 PR 不背书本机不能跑的那一段。
+- 上述休眠工作流内部仍有可能的 GH 侧拒绝原因未逐个穷举（本地只能复现 YAML/结构层）；
+  真正的判据是推分支后看 Actions 现场：休眠文件不应再产生任何 run。
+

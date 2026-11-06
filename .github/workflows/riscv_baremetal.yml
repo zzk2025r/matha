@@ -1,15 +1,12 @@
+# DORMANT(ci-hygiene): 不再参与 push 门禁（已移除 push.branches/paths），仅保留
+# 手动触发。原因：历史 10/10 连续 failure，且它调用的多个文件已在 5cce13b 删除——
+# tests/test_hal_v2.py、tests/test_growth_engine.py、tests/test_lisp_ffi_mixed.py、
+# tests/test_v130_unit_report.py、scripts/baremetal_riscv_demo.py 均不在仓库中（已用
+# git ls-files 核实），因此任何带 paths 过滤的 push 触发都只会产生红灯：只要
+# src/inner_loop.py 被修改就会被拉起来跑。保留定义仅供手动排障。
 name: Matha v2.0 HAL — RISC-V Bare-Metal CI/CD Pipeline
 
 on:
-  push:
-    branches: [main, 'release/v2.*']
-    paths:
-      - 'src/hardware/hal_v2.py'
-      - 'src/compiler/native.py'
-      - 'src/inner_loop.py'
-      - 'scripts/baremetal_riscv_demo.py'
-      - 'tests/test_hal_v2.py'
-      - '.github/workflows/riscv_baremetal.yml'
   workflow_dispatch:
 
 env:

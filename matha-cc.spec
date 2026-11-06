@@ -80,11 +80,18 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# 单文件模式（与本文件头部声明的 `pyinstaller --onefile` 以及 matha.spec 的
+# exe_onedir 写法保持一致）：旧写法只给了 `exclude_binaries=True` 而没有配套的
+# `COLLECT`，PyInstaller 会把 EXE 落在 build/matha-cc/ 且不携带 Python DLL与扩展库，
+# 产物启动即报 `Failed to load Python DLL ...\_internal\python314.dll`，`dist/` 下
+# 根根本没有 matha-cc。把 binaries/datas 直接并入 EXE 才会生成可运行的
+# dist/matha-cc.exe。
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='matha-cc',
     debug=False,
     bootloader_ignore_signals=False,

@@ -1,3 +1,7 @@
+# ci-hygiene: 仅 tag + 手动触发，不参与 push.branches / pull_request 门禁。已知
+# 未满足的前置：仓库 secrets 总数为 0，TWINE_PASSWORD 引用的 PYPI_TOKEN 为空，
+# 且 TWINE_REPOSITORY_URL 仍是占位域名 pypi.your-company.com（近 1 次 tag 触发
+# 已因此 failure）。真实发布通道建立后再启用。
 name: Publish matha-auth to PyPI
 
 on:

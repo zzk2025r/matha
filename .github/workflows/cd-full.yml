@@ -1,9 +1,15 @@
+# DORMANT(ci-hygiene): 本文件此前被 GitHub 整体拒绝（Actions 列表显示名回退为
+# 文件路径、jobs=0、历史连续 failure）：lint job 的 Black 步骤把 shell 写成
+# 多行纯量，内嵌未引号包裹的 `echo "::error::…: black …"`，YAML 报
+# "mapping values are not allowed here"。已改成块纯量修复。
+# 仍休眠的原因：本文件引用仓库中不存在的 scripts/k8s_failover_drill.py /
+# docs/release_report.json / stress_test_rbac.py，且仓库未配置任何
+# secrets/variables（DOCKER_*、PYPI_TOKEN、KUBECONFIG、JWT_SECRET 全为空），
+# 因此不得参与 push/PR 门禁，改为仅手动触发。
 name: matha-auth CI/CD Pipeline
 
 on:
-  push:
-    branches: [main, develop]
-    tags: ["v*"]
+  workflow_dispatch:
 
 env:
   PYTHONIOENCODING: "utf-8"
@@ -29,10 +35,11 @@ jobs:
         run: pip install -q black mypy ruff
 
       - name: Black format check
-        run: black --check packages/matha_auth packages/tests || (
-          echo "::error::代码格式不合规，请运行: black packages/"
-          exit 1
-        )
+        run: |
+          black --check packages/matha_auth packages/tests || (
+            echo "::error::代码格式不合规，请运行 black packages/matha_auth"
+            exit 1
+          )
 
       - name: Ruff linter
         run: ruff check packages/matha_auth packages/tests || true

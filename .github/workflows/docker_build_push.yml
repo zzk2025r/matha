@@ -1,9 +1,11 @@
+# DORMANT(ci-hygiene): 不再参与 push 门禁（已移除 push.branches/tags），仅保留
+# 手动触发。原因：仓库当前 secrets 与 variables 均为 0，DOCKER_USERNAME /
+# DOCKER_PASSWORD 永远为空，docker/login-action 直接报 "Username and password
+# required"（近 20 次 run 全部 failure，其中 19 次由 main push 触发）；REGISTRY
+# 仍为占位域名 docker.your-company.com。待真实镜像仓与凭据就绪后再恢复触发。
 name: Build & Push Docker Image
 
 on:
-  push:
-    branches: ['main']
-    tags: ['v*']
   workflow_dispatch:
 
 env:

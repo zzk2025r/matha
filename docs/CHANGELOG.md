@@ -212,6 +212,55 @@ P6e 接入原生执行器试点·RV32I 端到端语义闭环（将上方插件�
   （实测丢函数名），属未背书优化器输出正确性，仅锁其经 `self_grow` 的四属性交接契约与不裸抛，正确性修复
   另立轨道（§7c）。
 
+P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 第九节）：
+
+- 权威回归门收敛为 `matha-ci.yml`（lint + 零依赖核心执行链矩阵 + native ELF 实跑）与
+  `ci.yml`（`packages/**` 冒烟）两份；其余 8 份工作流只保留 `workflow_dispatch`
+  （`release.yml` / `publish_matha_auth.yml` 另留 tag 触发），并逐份写明休眠证据头。
+- 修三类会让 GitHub 整文件拒绝的写法：`cd-full.yml` 的 `run:` 多行纯量（YAML 报
+  `mapping values are not allowed here`）、`stress_test.yml` 把工作流顶层的
+  `strategy:` 下放到 job、`release.yml` 同一步既 `uses:` 又 `run:`（并拆为两步、
+  env 布尔默认值改字符串）。
+- 直修参数/路径/shell 错：`matha-ci.yml` 的 `package_offline.py --output-dir` → `--out`、
+  `verify_offline.py --package-dir` → 只传 `--quick`；PyInstaller 产物路径
+  `dist/matha-offline/matha.exe` → `dist/matha.exe`（`matha-cc.exe` 同理，共四处），
+  `mypy src/deps.py`（已于 082218c 删除）→ `scripts/dep_audit.py`；`build-exe` 两个构建步骤
+  补 `shell: bash`（windows runner 默认 PowerShell，`ls -la` 会报「A parameter cannot be
+  found that matches parameter name 'la'」）。
+- 以上均经 `gh workflow run matha-ci.yml --ref chore/ci-hygiene`（run 42195342421）真实跑过：
+  lint / test×2 / native ELF gate / `Offline Deployment Verify` 转绿；`Build Executables` 的
+  失败点由此从「路径写错」收敛为「shell 不匹配」，已按新证据二次修复；`benchmark` job
+  一旦 dispatch 必报 `No module named 'src.vm'`，故置 `if: false`。
+- 二次 dispatch（run 42198963200）确认 `Build matha.exe` 已转绿，并暴露出最后一个红：
+  `matha-cc.spec` 只有 `EXE(exclude_binaries=True)` 而无配套 `COLLECT`，产物落在
+  `build/matha-cc/` 且启动即 `Failed to load Python DLL`，`dist/` 下根本没有 matha-cc。经批准
+  扩一个文件范围修为 onefile（并入 `a.binaries` / `a.datas`，与该 spec 头部声明的
+  `--onefile` 一致）；本地实测：重建 exit 0、`dist/matha-cc.exe` 11.3 MB、
+  `matha-cc.exe info` exit 0（同时 `matha.spec` 重建 exit 0、`matha.exe --version` 报
+  `Matha v4.6.0`）。
+- 第三次 dispatch（run 42208252282）：两个构建步骤均 success、`matha.exe --version` 在 CI
+  上正常输出，剩下的红跳到 `Test executables`：`matha-cc.exe info` 报
+  `UnicodeEncodeError: 'charmap' codec can't encode …`（中文 print 撞上 windows runner
+  的 cp1252 控制台）。根因在产品侧 CLI 无输出兜底，本轮不动 `src/`；只在 CI 步骤里
+  显式把控制台与环境切到 UTF-8（`PYTHONUTF8` / `PYTHONIOENCODING` / `chcp 65001` /
+  `[Console]::OutputEncoding`），并把真修法登记到 KNOWN_ISSUES 9c。
+- 第四次 dispatch（run 42208958450）**证伪了上一条的 CI 侧方案**：`PYTHONUTF8=1` /
+  `PYTHONIOENCODING=utf-8` 已在步骤 env 中给出，冻结 exe 仍按 cp1252 崩。本地 A/B 对照给出
+  机制：冻结 exe 的 stdio 编码在**打包时**就固定，运行时的 `PYTHONIOENCODING` 对它无效（源码
+  运行则尊重）。“本轮不动 `src/`”只是当时未获批准的边界，不是真修法。经第三次批准已落产品侧：
+  `src/compiler/matha_cc_cli.py` 与 `src/matha_main.py` 各自内联 `_harden_std_streams()`
+  （`reconfigure(errors="replace")`：保留原编码，只把不可编码字符降为 `?`，不再抛异常），
+  在两个 `main()` 顶部调用；未新增 `src/` 模块（`core_py_lines` 被架构文档锁）。新增回归锁
+  `tests/test_cli_encoding_fallback.py`（3 例）：去掉兜底调用后本地报出与 CI 日志逐字相同的
+  `UnicodeEncodeError … position 11-13`，加回后 rc=0。
+- 第五次 dispatch（run 42217545003）确认收尾：`Build Executables` job 内 `Test executables`
+  步骤（之前唯一未转绿的环节）在 CI 的冻结 exe 上已 **success**，整个 `Matha CI` 权威门
+  9 个 job 全绿（benchmark / publish 为预期 skipped）。
+- 新增离线回归锁 `tests/test_ci_hygiene.py`（6 项，零第三方依赖的 YAML 结构扫描）：
+  顶层键白名单、步骤不得 `uses`+`run` 共存、`run:` 不得为多行纯量、非权威门不得
+  自动触发且必须带证据标记、权威门引用的仓库路径必须存在。反向对照实测：拿改动
+  前的 10 份工作流跑，6 条锁各自精确命中对应旧伤，无「无牙齿」锁。
+
 ## v4.6.0（2026-10-29，分支 `feature/kernel-plugin`）
 
 内核纯净化 + 插件化重构收官。区间提交 `f496009`（冻结主线）→ `673f983`，

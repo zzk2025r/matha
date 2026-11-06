@@ -50,8 +50,10 @@ jobs:
           ruff check src/ tests/ || true
 
       - name: Mypy type check (non-blocking for now)
+        # 旧目标 src/deps.py 已在 082218c（内核纯净化重构）删除，此处改指向
+        # 它的后继：依赖审计脚本（当前仅 1 条 mypy 告警）。
         run: |
-          mypy src/deps.py --ignore-missing-imports || true
+          mypy scripts/dep_audit.py --ignore-missing-imports || true
         # TODO: 启用完整 mypy 检查当类型注解完整后
 
   # ============================================================
@@ -79,9 +81,10 @@ jobs:
         run: |
           pip install -e ".[dev]"
 
-      # 全量 4735 项通过率由本地/权威门禁 `python scripts/check.py` 产出（含
-      # native_parity / golden 等依赖真实工具链的子套件，GH ubuntu runner
-      # 环境不等价，不作为 PR 阻断项）。这里只做零依赖核心执行链冒烟。
+      # 全量项通过率由本地/权威门禁 `python scripts/check.py` 产出（不在此处写死
+      # 总数，总数以门禁现场为准；含 native_parity / golden 等依赖真实工具链的子
+      # 套件，GH ubuntu runner 环境不等价，不作为 PR 阻断项）。这里只做零依赖核心
+      # 执行链冒烟。
       - name: Run core kernel smoke (dependency-free execution chain)
         run: |
           python -m pytest tests/test_interpreter.py tests/test_matha_compiler.py -q
@@ -126,11 +129,15 @@ jobs:
   # ============================================================
   # 3. 性能基准测试
   # ============================================================
+  # DORMANT(ci-hygiene): 主体依赖已在 5cce13b 删除的 src/vm.py（benchmark /
+  # CrossVerifier）。dispatch run 42195342421 实测该步骤报 ModuleNotFoundError:
+  # No module named 'src.vm'，故连手动触发也不能跑通，只能置 false 保留定义，
+  # 等 VM 模块复活后再打开；不再参与 push/PR 门禁。
   benchmark:
     name: Performance Benchmark
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: false
     steps:
       - uses: actions/checkout@v4
 
@@ -191,28 +198,46 @@ jobs:
       - name: Install PyInstaller
         run: pip install pyinstaller
 
+      # windows-latest 默认 shell 是 PowerShell，`ls -la` 会报
+      # "A parameter cannot be found that matches parameter name 'la'"（见 dispatch
+      # run 42195342421），因此这两步显式指定 bash。
       - name: Build matha.exe
+        shell: bash
         run: |
           python -m PyInstaller --noconfirm matha.spec
-          ls -la dist/matha-offline/matha.exe
+          ls -la dist/matha.exe
 
       - name: Build matha-cc.exe
+        shell: bash
         run: |
           python -m PyInstaller --noconfirm matha-cc.spec
-          ls -la dist/matha-cc-offline/matha-cc.exe
+          ls -la dist/matha-cc.exe
 
+      # 产物冒烟：windows runner 默认控制台编码是当前 locale（cp1252），而
+      # matha-cc 的 `info` 子命令会 print 中文（src/compiler/matha_cc_cli.py:87），
+      # 实测在 CI 上直接 `UnicodeEncodeError: 'charmap' codec can't encode characters`
+      # （dispatch run 42208252282）。这里把步骤显式切到 UTF-8；产品侧对非 UTF-8 控制台
+      # 没有兜底，已登记在 KNOWN_ISSUES 9c，不在本文件掩盖。
       - name: Test executables
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
         run: |
-          dist\matha-offline\matha.exe --version
-          dist\matha-cc-offline\matha-cc.exe info
+          chcp 65001 | Out-Null
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          & dist\matha.exe --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & dist\matha-cc.exe info
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload executables
         uses: actions/upload-artifact@v4
         with:
           name: matha-executables-${{ github.sha }}
           path: |
-            dist/matha-offline/matha.exe
-            dist/matha-cc-offline/matha-cc.exe
+            dist/matha.exe
+            dist/matha-cc.exe
           retention-days: 30
 
   # ============================================================
@@ -235,11 +260,11 @@ jobs:
       - name: Create offline package
         run: |
           pip install -e .
-          python scripts/package_offline.py --output-dir offline_pkg
+          python scripts/package_offline.py --out offline_pkg
 
       - name: Verify offline package
         run: |
-          python scripts/verify_offline.py --package-dir offline_pkg --quick
+          python scripts/verify_offline.py --quick
 
       - name: Upload offline package
         uses: actions/upload-artifact@v4
@@ -295,8 +320,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            dist/matha-offline/matha.exe
-            dist/matha-cc-offline/matha-cc.exe
+            dist/matha.exe
+            dist/matha-cc.exe
           body_path: RELEASE_NOTES_${GITHUB_REF_NAME}.md
           draft: false
           prerelease: false
