@@ -213,10 +213,23 @@ jobs:
           python -m PyInstaller --noconfirm matha-cc.spec
           ls -la dist/matha-cc.exe
 
+      # 产物冒烟：windows runner 默认控制台编码是当前 locale（cp1252），而
+      # matha-cc 的 `info` 子命令会 print 中文（src/compiler/matha_cc_cli.py:87），
+      # 实测在 CI 上直接 `UnicodeEncodeError: 'charmap' codec can't encode characters`
+      # （dispatch run 42208252282）。这里把步骤显式切到 UTF-8；产品侧对非 UTF-8 控制台
+      # 没有兜底，已登记在 KNOWN_ISSUES 9c，不在本文件掩盖。
       - name: Test executables
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
         run: |
-          dist\matha.exe --version
-          dist\matha-cc.exe info
+          chcp 65001 | Out-Null
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          & dist\matha.exe --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & dist\matha-cc.exe info
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload executables
         uses: actions/upload-artifact@v4

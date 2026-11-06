@@ -431,9 +431,9 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
 
 ### 9c. 参数名 / 产物路径 / shell / spec 结构直修（`matha-ci.yml` + `matha-cc.spec`，已用 dispatch 实测）
 
-验证方式：对分支头跑 `gh workflow run matha-ci.yml --ref chore/ci-hygiene`（run 42195342421），
-因为 `build-exe` / `offline-verify` 的 `if` 只放行 main、tag 或 dispatch，PR 上永远是 skipped，
-只有 dispatch 能真正跑到这两段。
+验证方式：对分支头跑 `gh workflow run matha-ci.yml --ref chore/ci-hygiene`（本文引用三次
+实测：run 42195342421 / 42198963200 / 42208252282），因为 `build-exe` / `offline-verify` 的
+`if` 只放行 main、tag 或 dispatch，PR 上永远是 skipped，只有 dispatch 能真正跑到这两段。
 
 - `offline-verify`：`package_offline.py` 只认 `--out`（CI 原传 `--output-dir` → argparse
   `unrecognized arguments`，exit 2，本地复现一致）；`verify_offline.py` 只认
@@ -464,6 +464,18 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   `pyinstaller --onefile matha-cc.spec` 一致）；本地实测：重建 exit 0、
   `dist/matha-cc.exe` 11,307,345 字节≈ 11.3 MB、`dist\matha-cc.exe info` **exit 0**（打印工具链信息）。
   未做过的事：CI `windows-latest` + Python 3.11 下的同一次构建仍需看合并后现场（本地为 3.14）。
+  run 42208252282 实测两个构建步骤均已 success，且 `dist\matha.exe --version` 在 CI 上正常
+  输出 `Matha v4.6.0`。
+- **中文输出在非 UTF-8 控制台会裸抛**（run 42208252282 里 `Test executables` 的失败点）：
+  `dist\matha-cc.exe info` 在 CI windows runner 上报
+  `UnicodeEncodeError: 'charmap' codec can't encode characters in position 11-13`，栈顶是
+  `src/compiler/matha_cc_cli.py:87`（`print("Matha LLVM 工具链 (matha-cc)")`）。这是**产品侧
+  缺陷**：CLI 假定 stdout 能编码中文，而 Windows 默认控制台编码取当前 locale（英文镜像是
+  cp1252）。本仓库 `src/` 里没有任何 `sys.stdout.reconfigure` / UTF-8 兜底约定（全库仅
+  `src/codegen/system.py` 在生成的 .bat 里写 `chcp 65001`）。本轮只在 CI 步骤里把环境切成
+  UTF-8（`shell: pwsh` + `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` + `chcp 65001` +
+  `[Console]::OutputEncoding`），**不掩盖产品问题**：真正的修法（给 CLI 加输出兜底或改 ASCII
+  文案）需单独批准，并覆盖 `matha` 主入口的同类中文输出。
 - lint 里 `mypy src/deps.py` 指向 082218c 已删除的模块（靠 `|| true` 才没红），改指
   其后继 `scripts/dep_audit.py`。run 42195342421 的 `Lint & Format Check` 已实测 success。
 

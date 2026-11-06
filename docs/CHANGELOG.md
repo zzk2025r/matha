@@ -238,6 +238,12 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   `--onefile` 一致）；本地实测：重建 exit 0、`dist/matha-cc.exe` 11.3 MB、
   `matha-cc.exe info` exit 0（同时 `matha.spec` 重建 exit 0、`matha.exe --version` 报
   `Matha v4.6.0`）。
+- 第三次 dispatch（run 42208252282）：两个构建步骤均 success、`matha.exe --version` 在 CI
+  上正常输出，剩下的红跳到 `Test executables`：`matha-cc.exe info` 报
+  `UnicodeEncodeError: 'charmap' codec can't encode …`（中文 print 撞上 windows runner
+  的 cp1252 控制台）。根因在产品侧 CLI 无输出兜底，本轮不动 `src/`；只在 CI 步骤里
+  显式把控制台与环境切到 UTF-8（`PYTHONUTF8` / `PYTHONIOENCODING` / `chcp 65001` /
+  `[Console]::OutputEncoding`），并把真修法登记到 KNOWN_ISSUES 9c。
 - 新增离线回归锁 `tests/test_ci_hygiene.py`（6 项，零第三方依赖的 YAML 结构扫描）：
   顶层键白名单、步骤不得 `uses`+`run` 共存、`run:` 不得为多行纯量、非权威门不得
   自动触发且必须带证据标记、权威门引用的仓库路径必须存在。反向对照实测：拿改动
