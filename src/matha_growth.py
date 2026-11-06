@@ -2,7 +2,7 @@
 Matha 自成长系统 v2 — 递归内联、循环展开、内存优化
 
 实现 Matha 源码的自动分析与优化循环：
-  源码 → 多语言前端编译 → IR 分析 → 优化建议 → 生成改进版本 → 验证
+  源码 → 解析/诊断 → 优化建议 → 生成改进版本 → Matha 主链语义等价验证
 
 优化规则集（v2）：
   1. 常量折叠：x = 3.0 + 4.0 → x = 7.0
@@ -20,7 +20,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from src.cross_language_verifier import CrossLanguageVerifier
+from src.growth_verify import is_semantically_consistent
 
 logger = logging.getLogger("matha.growth")
 
@@ -41,7 +41,9 @@ class GrowthReport:
     optimizations_applied: list[str] = field(default_factory=list)
     performance_before_ms: float = 0.0
     performance_after_ms: float = 0.0
-    cross_language_consistent: bool = False
+    # 改写前后经 Matha 主链执行的可观测输出是否等价（非「跨语言」：验证通路
+    # 与输入同为 Matha，旧名 cross_language_consistent 属误导，见 G-1）。
+    semantic_consistent: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -54,7 +56,6 @@ class MathaGrowthEngine:
 
     def __init__(self) -> None:
         self.max_iterations = 5
-        self._verifier = CrossLanguageVerifier()
 
     def grow(self, source: str) -> GrowthReport:
         """主入口：迭代优化源码。"""
@@ -68,6 +69,9 @@ class MathaGrowthEngine:
             current = report.improved_source
 
         report.improved_source = current
+        # 最终报告的佐证必须描述「调用方原始输入 → 最终产物」：循环内逐步产出的
+        # report 只反映最后一次迭代，滚雪球式腐蚀会在中间步互相“一致”而溜过。
+        report.semantic_consistent = self._verify(source, current)
         return report
 
     def _single_growth_iteration(self, source: str, iteration: int) -> GrowthReport:
@@ -86,8 +90,8 @@ class MathaGrowthEngine:
         report.optimizations_applied = applied
         report.improved_source = improved
 
-        # 交叉语言验证
-        report.cross_language_consistent = self._verify(source, improved)
+        # 改写前后语义等价佐证（Matha 主链）
+        report.semantic_consistent = self._verify(source, improved)
 
         return report
 
@@ -131,12 +135,17 @@ class MathaGrowthEngine:
         return improved, applied
 
     def _verify(self, original: str, improved: str) -> bool:
-        """交叉语言验证：对比原始与优化后的一致性。"""
-        try:
-            result = self._verifier.verify(original, improved)
-            return result.consistent
-        except Exception:
-            return False
+        """语义等价佐证：在 Matha 主链上执行两份源码并比对可观测输出。
+
+        判据由 :mod:`src.growth_verify` 统一承载（保守口径：两侧须运行成功
+        **且**有可观测输出且逐项相等；不设「同文即一致」捷径）。本方法不是
+        grow() 的安全闸门，仅为佐证字段；安全闸门属另一轨道。
+
+        历史（G-1）：此处曾借 CrossLanguageVerifier 验证，但其 "python" 前端是
+        Python 子集前端（ast.parse），且因签名错配抛异常被静默吞掉，导致该
+        字段对任何输入恒为 False、不携带信息。现改走与输入域一致的主链。
+        """
+        return is_semantically_consistent(original, improved)
 
     # ================================================================
     # 优化规则实现
