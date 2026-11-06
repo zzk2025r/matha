@@ -2,7 +2,7 @@
 Matha 自成长系统 v2 — 递归内联、循环展开、内存优化
 
 实现 Matha 源码的自动分析与优化循环：
-  源码 → 多语言前端编译 → IR 分析 → 优化建议 → 生成改进版本 → 验证
+  源码 → 解析/诊断 → 优化建议 → 生成改进版本 → P1 坏码闸门 → 主链语义等价验证
 
 优化规则集（v2）：
   1. 常量折叠：x = 3.0 + 4.0 → x = 7.0
@@ -21,8 +21,6 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-
-from src.cross_language_verifier import CrossLanguageVerifier
 
 logger = logging.getLogger("matha.growth")
 
@@ -45,6 +43,10 @@ class GrowthReport:
     S5：已移除三个幻影字段 `languages_analyzed` / `performance_before_ms` /
     `performance_after_ms`——它们仅在数据类定义中出现、`grow` 全程不写（恒默认），属误导面；
     且「性能计时」与本轨道「不承诺更快」纪律相违。无消费方，故直接删除而非伪填。
+
+    G-1 真修复：`cross_language_consistent` 改名为 `semantic_consistent`。旧名说的是
+    「跨语言」，而该判据实际比的是**同一 Matha 源码改写前/后**的可见输出是否一致（单语言），
+    旧名属误导面命名（且旧通道实为 Python 子集前端，连 Matha 都跑不到）。
     """
     iteration: int
     source: str
@@ -52,7 +54,7 @@ class GrowthReport:
     optimization_suggestions: list[str] = field(default_factory=list)
     improved_source: str = ""
     optimizations_applied: list[str] = field(default_factory=list)
-    cross_language_consistent: bool = False
+    semantic_consistent: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -65,7 +67,6 @@ class MathaGrowthEngine:
 
     def __init__(self) -> None:
         self.max_iterations = 5
-        self._verifier = CrossLanguageVerifier()
 
     def grow(self, source: str) -> GrowthReport:
         """主入口：迭代优化源码。
@@ -119,8 +120,8 @@ class MathaGrowthEngine:
         report.optimizations_applied = applied
         report.improved_source = improved
 
-        # 交叉语言验证
-        report.cross_language_consistent = self._verify(source, improved)
+        # 改写前后语义等价佐证（Matha 主链）
+        report.semantic_consistent = self._verify(source, improved)
 
         return report
 
@@ -168,43 +169,38 @@ class MathaGrowthEngine:
         return improved, applied
 
     def _verify(self, original: str, improved: str) -> bool:
-        """改写前后一致性佐证（S4）：送入 `CrossLanguageVerifier` 的 `"python"` 通道，
-        编译为 MIR 并执行，据验证器产出的可观测结果判一致。
+        """改写前后语义等价佐证（G-1 真修复）：走 Matha 主链——`src.parser.parse` +
+        `src.interp.Interpreter`（即 `_exec_outputs` 的一次性解释器通路，P2-0 已拍板的
+        正交权威），分别运行原文与改写文，比对可观测 outputs。
 
-        真实契约（见 src/cross_language_verifier.py）：`verify(algorithm: str,
-        sources: dict[str, str]) -> CrossLanguageResult`——旧实现把 `improved`(str) 当作
-        `sources` 传入，verify 内部执行 `sources.items()` → 抛异常被 except 吞 → 恒 False（phantom）。
-        现按契约以 `{'python': <源码>}` 正确调用。判据只用**真实**字段：
-          ① 改写前后两侧在该前端均编译+执行成功（`LanguageResult.success`）；
-          ② 两侧 `vm_outputs` 逐项相等。
-        二者皆真才返回 True。任一侧失败 / 缺该语言结果 / 调用抛异常 → **诚实 False**
-        （无从验证就不报一致）。不读 `CrossLanguageResult.consistent`——它默认
-        True、仅在 ≥2 语言互拍分歧时才置 False，单语言场景下是「未验证≠一致」的假阳性陷阱。
+        判据（保守，只收紧不放松；无同文捷径）：
+          两侧都必须「运行成功」**且「有可观测输出」**，且 outputs 逐项相等 → True。
+        任一侧解析/运行失败 → **诚实 False**；两侧都无可见输出也 **False**——
+        `[] == []` 虽在数学上成立（同文亦如此），但未观测到任何一致性证据，属
+        「未验证≠一致」的假阳性（即 G-2），故不采信。不设 `original == improved` 捷径：
+        同文恒等但跑不出可见输出（甚至同文垃圾）也不能被声称为「语义一致」。
+        本方法不抛异常（`_exec_outputs` 已内部收敛）。
 
-        ⚠ 已知缺口 G-1（待真修复，见 docs/KNOWN_ISSUES.md §7c）：本通道的 `"python"` 前端实为
-        `src/mir2_frontend.py::PythonFrontend`，其 `compile` 直接 `ast.parse(source)`——即 **Python 子集**
-        前端，只吃 `x = 3.0 + 4.0` 这类写法。而 `grow` 的输入域是 **Matha 源码**（P1 闸门用
-        `src.parser.parse`），真实 Matha 构造（`func` / `let` / 中文函数名）在该前端直接 SyntaxError
-        → 两侧均不可运行 → 本字段对真实 Matha 程序**结构性恒 False、不携带信息**（结论诚实，但无信息量）。
-        真修复方向：改走 Matha 主链（`src.parser` + `src.interp.Interpreter`，即本文件
-        `_exec_outputs` / `_semantic_equivalent` 已拍板的正交权威）；并需同时避免 G-2 假阳性：
-        两侧都无可见输出时 `[] == []` 会误判等价，故必须先要求两侧有可观测输出。
+        历史（S4 → G-1）：旧实现把源码送入 `CrossLanguageVerifier` 的 `"python"` 通道，而该
+        前端（`src/mir2_frontend.py::PythonFrontend`）的 `compile` 实为 `ast.parse(source)`——
+        即 **Python 子集**前端，真实 Matha 构造（`func` / `let` / 中文函数名）在其上直接
+        SyntaxError → 两侧不可运行 → 本字段对真实 Matha 程序结构性恒 False（见 KNOWN_ISSUES
+        §7c G-1）。现改走 `grow` 输入域真正的主链：同语义不同程序能真判破（输出不等），
+        合法改写能真判等。
+
+        注：`_semantic_equivalent` harness 本体不动（P2-0 各规则对拍锁依赖其口径）；本方法
+        只在其判据上追加「必须有可观测输出」的保守守卫。
 
         ⚠ 本字段**不是** grow 的安全闸门：grow 的「绝不出坏源码」仍**只**依赖 P1
         `_is_safe_candidate`。`_verify` 只是佐证信号，供诊断参考。
         """
-        try:
-            r_o = self._verifier.verify("growth-original", {"python": original})
-            r_i = self._verifier.verify("growth-improved", {"python": improved})
-            o = r_o.languages.get("python")
-            i = r_i.languages.get("python")
-            if o is None or i is None:
-                return False
-            if not (o.success and i.success):
-                return False
-            return o.vm_outputs == i.vm_outputs
-        except Exception:
+        o_out, o_err = self._exec_outputs(original)
+        if o_err is not None or not o_out:
             return False
+        i_out, i_err = self._exec_outputs(improved)
+        if i_err is not None or not i_out:
+            return False
+        return o_out == i_out
 
     def _is_safe_candidate(self, original: str, improved: str) -> bool:
         """正确性闸门：判定候选改写是否「绝不出坏源码」。

@@ -3,7 +3,10 @@
 
 坐实三个恒默认、grow 全程不写的幻影字段已从 GrowthReport **移除**（而非伪填）：
   performance_before_ms / performance_after_ms / languages_analyzed。
-并确认真实字段（含 S4 保留的 cross_language_consistent）仍在位、grow 不复活这些属性。
+并确认真实字段（含 S4 保留的 `semantic_consistent`）仍在位、grow 不复活这些属性。
+
+G-1 真修复：`cross_language_consistent` 已如实改名为 `semantic_consistent`——旧名说「跨语言」，
+而该判据实际比的是同一 Matha 源码改写前/后的可见输出（单语言），属误导面命名。
 
 全程离线、毫秒级、无文件副作用。
 """
@@ -16,9 +19,10 @@ import pytest
 from src.matha_growth import GrowthReport, MathaGrowthEngine
 
 PHANTOM = {"performance_before_ms", "performance_after_ms", "languages_analyzed"}
+MISNAMED = {"cross_language_consistent"}   # G-1 已改名，不得复活
 REAL_FIELDS = {
     "iteration", "source", "diagnostics", "optimization_suggestions",
-    "improved_source", "optimizations_applied", "cross_language_consistent", "errors",
+    "improved_source", "optimizations_applied", "semantic_consistent", "errors",
 }
 
 
@@ -40,6 +44,16 @@ class TestPhantomFieldsRemoved:
         # 传幻影字段应报错 → 杜绝旧调用点静默复活误导字段。
         with pytest.raises(TypeError):
             GrowthReport(iteration=1, source="x", performance_before_ms=0.0)
+
+    def test_misnamed_field_renamed_away(self):
+        # G-1：旧误导名已从数据类移除，新名在位。
+        names = {f.name for f in dataclasses.fields(GrowthReport)}
+        assert MISNAMED.isdisjoint(names), f"误导面字段名残留: {MISNAMED & names}"
+        assert "semantic_consistent" in names
+
+    def test_construct_with_misnamed_kwarg_rejected(self):
+        with pytest.raises(TypeError):
+            GrowthReport(iteration=1, source="x", cross_language_consistent=True)
 
 
 class TestGrowHasNoPhantomAttrs:
