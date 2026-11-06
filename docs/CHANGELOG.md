@@ -253,6 +253,9 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   在两个 `main()` 顶部调用；未新增 `src/` 模块（`core_py_lines` 被架构文档锁）。新增回归锁
   `tests/test_cli_encoding_fallback.py`（3 例）：去掉兜底调用后本地报出与 CI 日志逐字相同的
   `UnicodeEncodeError … position 11-13`，加回后 rc=0。
+- 第五次 dispatch（run 42217545003）确认收尾：`Build Executables` job 内 `Test executables`
+  步骤（之前唯一未转绿的环节）在 CI 的冻结 exe 上已 **success**，整个 `Matha CI` 权威门
+  9 个 job 全绿（benchmark / publish 为预期 skipped）。
 - 新增离线回归锁 `tests/test_ci_hygiene.py`（6 项，零第三方依赖的 YAML 结构扫描）：
   顶层键白名单、步骤不得 `uses`+`run` 共存、`run:` 不得为多行纯量、非权威门不得
   自动触发且必须带证据标记、权威门引用的仓库路径必须存在。反向对照实测：拿改动

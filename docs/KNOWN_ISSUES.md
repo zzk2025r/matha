@@ -488,8 +488,9 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   src.compiler.matha_cc_cli info`（`PYTHONIOENCODING=cp1252:strict`）抛出的异常与 CI 日志
   逐字相同（同为 `position 11-13`）；加回后 rc=0（中文降为 `?`）。回归锁见
   `tests/test_cli_encoding_fallback.py`（3 例，含上述反向对照）。CI 的 UTF-8 步骤保留，
-  作为叠加保险；但按已证实的 env 无效机制，`Test executables` 转绿只能靠产品侧兜底，
-  需第五次 dispatch 现场确认。`matha` 主入口的同类中文输出已一并覆盖（同一 helper）。
+  作为叠加保险；`Test executables` 转绿靠的是产品侧兜底。**已经第五次 dispatch 现场确认**：
+  run 42217545003 上 `Build Executables` job 的 `Test executables` 步骤已转 **success**（整个
+  `Matha CI` 权威门 9 个 job 全绿）。`matha` 主入口的同类中文输出已一并覆盖（同一 helper）。
 - lint 里 `mypy src/deps.py` 指向 082218c 已删除的模块（靠 `|| true` 才没红），改指
   其后继 `scripts/dep_audit.py`。run 42195342421 的 `Lint & Format Check` 已实测 success。
 
