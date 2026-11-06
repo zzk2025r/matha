@@ -168,8 +168,8 @@ class MathaGrowthEngine:
         return improved, applied
 
     def _verify(self, original: str, improved: str) -> bool:
-        """交叉验证（S4·真实通路）：把改写前/后各自送入 CrossLanguageVerifier 的
-        python（Matha）前端通道，编译为 MIR 并执行，据验证器自身产出的可观测结果判一致。
+        """改写前后一致性佐证（S4）：送入 `CrossLanguageVerifier` 的 `"python"` 通道，
+        编译为 MIR 并执行，据验证器产出的可观测结果判一致。
 
         真实契约（见 src/cross_language_verifier.py）：`verify(algorithm: str,
         sources: dict[str, str]) -> CrossLanguageResult`——旧实现把 `improved`(str) 当作
@@ -178,11 +178,20 @@ class MathaGrowthEngine:
           ① 改写前后两侧在该前端均编译+执行成功（`LanguageResult.success`）；
           ② 两侧 `vm_outputs` 逐项相等。
         二者皆真才返回 True。任一侧失败 / 缺该语言结果 / 调用抛异常 → **诚实 False**
-        （无法验证，绝不误报为一致）。绝不读 `CrossLanguageResult.consistent`——它默认
+        （无从验证就不报一致）。不读 `CrossLanguageResult.consistent`——它默认
         True、仅在 ≥2 语言互拍分歧时才置 False，单语言场景下是「未验证≠一致」的假阳性陷阱。
 
+        ⚠ 已知缺口 G-1（待真修复，见 docs/KNOWN_ISSUES.md §7c）：本通道的 `"python"` 前端实为
+        `src/mir2_frontend.py::PythonFrontend`，其 `compile` 直接 `ast.parse(source)`——即 **Python 子集**
+        前端，只吃 `x = 3.0 + 4.0` 这类写法。而 `grow` 的输入域是 **Matha 源码**（P1 闸门用
+        `src.parser.parse`），真实 Matha 构造（`func` / `let` / 中文函数名）在该前端直接 SyntaxError
+        → 两侧均不可运行 → 本字段对真实 Matha 程序**结构性恒 False、不携带信息**（结论诚实，但无信息量）。
+        真修复方向：改走 Matha 主链（`src.parser` + `src.interp.Interpreter`，即本文件
+        `_exec_outputs` / `_semantic_equivalent` 已拍板的正交权威）；并需同时避免 G-2 假阳性：
+        两侧都无可见输出时 `[] == []` 会误判等价，故必须先要求两侧有可观测输出。
+
         ⚠ 本字段**不是** grow 的安全闸门：grow 的「绝不出坏源码」仍**只**依赖 P1
-        `_is_safe_candidate`。`_verify` 只是经交叉工具链通道的独立佐证信号，供诊断参考。
+        `_is_safe_candidate`。`_verify` 只是佐证信号，供诊断参考。
         """
         try:
             r_o = self._verifier.verify("growth-original", {"python": original})

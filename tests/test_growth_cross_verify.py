@@ -8,6 +8,10 @@
   ④ 不读假阳性字段 `result.consistent`（其默认 True、单语言场景不可信）；
   ⑤ grow 出码的 cross_language_consistent 是真实 bool，且 grow 安全仍只靠 P1（不依赖此字段）。
 
+另附加锁（G-1/G-2 审计后补）：只锁定**与验证通道实现无关**的反假阳性不变量（见
+TestG1G2AntiFalsePositive），故无论 `_verify` 走当前 python 子集前端（G-1 未修）还是改走
+Matha 主链（真修复切片），这几条必须恒成立。
+
 全程离线、毫秒级、无文件副作用、不污染进程级单例（每个测试新建引擎 / 用局部替身）。
 """
 from __future__ import annotations
@@ -20,6 +24,12 @@ VALID_ORIG = "x = 3.0 + 4.0\n#1：[x]\n"
 VALID_IMPROVED = "x = 7.0\n#1：[x]\n"
 BROKEN_UNCLOSED = "x = (3.0 + 4.0\n"  # 括号未闭合 → python 前端 SyntaxError → success=False
 GARBAGE = "\x00 not matha @@@ ###\n"  # 含 null 字节 → 前端失败
+
+# ── 真实 Matha 构造（当前 python 子集前端吃不下：G-1）──
+MATHA_FUNC = "func f(x) -> Int = x + 1\nprint(f(2))\n"
+MATHA_FUNC_DIFF = "func f(x) -> Int = x + 99\nprint(f(2))\n"
+MATHA_FUNC_NOOUT = "func f(x) -> Int = x + 1\n"
+MATHA_FUNC_NOOUT_DIFF = "func f(x) -> Int = x + 99\n"
 
 
 class _RecordingVerifier:
@@ -109,6 +119,28 @@ class TestGrowIntegration:
         for src in [VALID_ORIG, "x = temp_a\ny = x + 1\n", BROKEN_UNCLOSED]:
             rep = e.grow(src)
             assert rep.improved_source == src or e._is_safe_candidate(src, rep.improved_source)
+
+
+class TestG1G2AntiFalsePositive:
+    """G-1/G-2 反假阳性不变量锁：与「用哪个通道验证」无关，修复前后均须成立。"""
+
+    def test_differing_matha_func_never_claimed_consistent(self):
+        # ① 语义不同的真实 Matha 程序，无论如何不得判 True。
+        #    当前通道：两侧不可运行 → False；主链修复后：输出 [3] vs [101] → 仍 False。
+        assert MathaGrowthEngine()._verify(MATHA_FUNC, MATHA_FUNC_DIFF) is False
+
+    def test_no_observed_output_is_not_vacuous_true(self):
+        # ② G-2：两侧都无可观测输出且语义不同时，不得因 `[] == []` 而误报一致。
+        assert MathaGrowthEngine()._verify(MATHA_FUNC_NOOUT, MATHA_FUNC_NOOUT_DIFF) is False
+
+    def test_python_dialect_valid_pair_still_true(self):
+        # ③ 当前通道的实际适用边界佐证：python 子集写法可得 True（缺口仅在 Matha 构造）。
+        assert MathaGrowthEngine()._verify(VALID_ORIG, VALID_IMPROVED) is True
+
+    def test_grow_on_real_matha_returns_bool_not_crash(self):
+        # ④ grow 真实 Matha 源码时，该字段必为 bool（诚实降级）且不裸抛。
+        rep = MathaGrowthEngine().grow(MATHA_FUNC)
+        assert isinstance(rep.cross_language_consistent, bool)
 
 
 if __name__ == "__main__":
