@@ -6,7 +6,8 @@
 核心主线要求「内核不 import 任何领域模块」，但语义分析（``src/semantic.py``）
 和懒加载解析器（``src/plugin_api.PluginResolver``）都需要知道「哪个符号属于哪个
 领域」。若为此去 import 领域模块，耦合又回来了。因此把答案固化成 **纯数据清单**：
-本脚本在开发期把每个领域的 ``_register_*`` 钩子跑一遍，记录其导出的符号名，
+本脚本在开发期把每个领域（含 `EXTRA_PLUGIN_MODULES` 列出的域外插件）的
+``_register_*`` 钩子跑一遍，记录其导出的符号名，
 运行时只读 JSON，不读代码。
 
 清单同时冻结 **加载顺序**：沿用旧 ``src/interp.py`` eager 注册顺序，使跨领域重名
@@ -96,6 +97,11 @@ LEGACY_REGISTER_ORDER: list[tuple[str, str]] = [
     ("src.domains.robotics", "_register_robot"),
     ("src.domains.graph", "_register_graph"),
 ]
+
+# 域外插件模块：不在 src/domains/ 下、但同样以「单参 dict `_register_*` 钩子」
+# 导出符号的模块。追加在全部 domains 模块之后，故重名符号按「后者覆盖」规则
+# 由 domains 插件持有（如 `创建神经网络` 归 neural_network，ai_framework 不得注册）。
+EXTRA_PLUGIN_MODULES: list[str] = ["src.ai_framework"]
 
 
 def _domain_modules() -> list[str]:
@@ -209,7 +215,7 @@ def build_manifest() -> dict:
         if mod_path not in seen:
             seen.add(mod_path)
             ordered.append((mod_path, [hook]))
-    all_modules = _domain_modules()
+    all_modules = _domain_modules() + list(EXTRA_PLUGIN_MODULES)
     for mod_path in all_modules:
         if mod_path not in seen:
             seen.add(mod_path)

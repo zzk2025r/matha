@@ -356,6 +356,48 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `src/unified_parser.py` 的 matha_compile 兼容假产物（"# Compiled N declarations"
   字符串）仍在；legacy matha-cc 语法不支持现代 `#1：` 输出写法（诚实拒绝，非缺陷）；
   CNN/RNN 与 ml.py 其余 6 种 ModelType 仍在显式拒绝中。
+- **2026-11 阶段 2 AI 修复：ai_framework 入主链、意图 Matha 代码生成、nl_pipeline 执行段、
+  Jupyter magic 断点修复**：
+  ① `src/ai_framework.py` 接入插件主链：`scripts/gen_domain_manifest.py` 新增
+  `EXTRA_PLUGIN_MODULES` 域外插件通道（追加在全部 domains 模块之后，重名符号按「后者覆盖」
+  规则归 domains 插件），manifest 增第 83 条目（82 域插件 + 1 域外；README「82」仍是
+  `src/domains/` 目录覆盖口径）；注册形态改柯里化 lambda 链（Matha `f(a,b)` 两侧均编译为
+  `f(a)(b)`，数值锁同步改柯里化调用），`创建神经网络` 移出 ai_framework、由 neural_network
+  插件唯一持有（`owners_of` 锁）。`tests/test_ai_framework_manifest.py` **13 条**四向一致性锁
+  （钩子 ↔ `_ai_framework_names` ↔ registry 模板 ↔ manifest，14 符号）+ 2 条干净子进程
+  exec_api 端到端（auto 懒加载零 domains 泄漏、显式 `@：【加载领域】，AI框架`）；
+  `--check` 往返回归一致。
+  ② `src/intent_parser.py` 增 Matha 代码生成轨（`target_lang="matha"`）：只映射内核 builtin
+  （sin/cos/sqrt/阶乘/素数判定/max/min/sum/平均值/最大公约数/最小公倍数等）与纯算术；
+  混合运算、范围语义（N到M）、无映射函数、整数-only 约束、参数数不合、多函数歧义一律
+  显式拒绝并留痕；`src/repl.py` 与 `src/repl_v23.py` 的 nl 模式改产 Matha 并经 exec_api
+  端到端真算；`src/enhanced_intent.py` 的 `execute_and_verify` 显式拒绝非 python 目标；
+  python 旧轨（main.py/parser_pool）不动且已锁。`tests/test_intent_parser_matha.py`
+  **59 条**（精确代码锁 + 主链数值锁 + 拒绝矩阵 + 双 REPL 子进程端到端）。
+  ③ `src/nl_pipeline.py` 补阶段 4 执行段：**纯算术等式**保守翻译为
+  `func 名(自由参数) -> Float = 右式`（`^`→`**`；func 直expr体以 `(` 开头会被解析为
+  lambda 参数列，前置乘法单位元 `1.0 *` 规避），附全参数=1.0 单位探针经
+  exec_api.run_checked 验证可执行性——**探针不是用户语义的答案**；集合运算/含函数调用/
+  仅声明/非 ASCII 符号一律跳过并记入 execution_notes；执行错误沉入 execution_error，
+  不抛穿 run()。`tests/test_nl_pipeline_execution.py` **24 条**（真算锁、诚实跳过、
+  拒绝矩阵、错误下沉、多时代稳定、注释卫生）。
+  ④ `src/jupyter/matha_magic.py` 历史断点修复：旧链把 MIRNode 对象传给只接受 str 的
+  execute_mir（必 AttributeError），回退 interpret 同样吃不下 MIRNode，%matha 从未算出过
+  结果；现改为 `intent.suggested_code` 经 `exec_api.run_checked` 真算，result 绑定且无输出
+  指令时补 `#1：[result]`；MIR 降为预览展示（`mir_generator.py` RETURN 序列化不再丢 value），
+  execute_mir 不再被消费；分解器裸 `#` 兜底标记显式拒绝（Matha 中裸 `#` 是外来声明前缀，
+  主链会静默 NOOP）；错误下沉并保留错误前已产生的输出；IPython 缺席时注册静默跳过、
+  展示降级 print。`tests/test_jupyter_magic.py` **18 条**（含 fake-IPython 干净子进程注入锁：
+  注册 + line/cell 魔法 + Markdown 展示，零 skip）。
+  本轮新增 **114 条**测试，据此重跑全量门禁 **5622/5622 通过**（`make check`：
+  tests 5519 + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，零失败零跳过；native 1 例已知未实现跳过不计入分母；tests 项 17m01s）。
+  **仍未背书/未修**：开放域自然语言理解（正则兜底仅覆盖算术/平方根等窄路径，LLM 真实 API
+  的回答正确性不背书，口径同本节）；`nl_to_formula.py` 预览源码（`let …`/`^`/裸 `#`）仍是
+  非执行形态（执行段只翻译纯算术等式）；magic 输出正确性限于分解器可映射窄路径；
+  `src/compiler/ir.py` 的 execute_mir/compile_mir 保留为 legacy IR 演示（magic 不再消费）；
+  阶段 3（ml/genetic_algo/servers 测试口径升级）与阶段 4（LLM 接 REPL/CLI、MCP 工具注册、
+  openai_compat 鉴权流式、其余 ModelType 算法、examples/ai 重写）未开工。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

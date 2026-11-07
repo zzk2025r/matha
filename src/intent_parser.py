@@ -5,6 +5,10 @@
 
 架构：
   自然语言 → 意图分类 → 参数提取 → 目标语言选择 → 代码生成
+
+目标语言：`matha` 产可直接经 `src.kernel.exec_api` 执行的源码（映射只落
+内核 builtin 与纯算术；歧义/不支持一律空代码 + errors 如实下沉）；
+`python` 为旧轨（main.py / parser_pool 的 exec 通道），形态保持历史原样。
 """
 from __future__ import annotations
 
@@ -186,6 +190,11 @@ class ParamExtractor:
 # 代码生成器
 # ============================================================
 
+def _fmt_matha_num(v: float) -> str:
+    """数字字面量：整值写 Int（阶乘/素数判定等内核 builtin 只吃整数），其余写 Float。"""
+    return str(int(v)) if float(v).is_integer() else repr(float(v))
+
+
 class CodeGenerator:
     """根据意图生成目标语言代码。"""
 
@@ -243,6 +252,8 @@ class CodeGenerator:
 
     def generate(self, intent: Intent, target_lang: str = "python") -> str:
         """根据目标语言生成代码。"""
+        if target_lang == "matha":
+            return self.generate_matha(intent)
         if target_lang == "python":
             return self.generate_python(intent)
         elif target_lang == "rust":
@@ -256,6 +267,136 @@ class CodeGenerator:
 
     def _gen_go(self, intent: Intent) -> str:
         return f"// 意图: {intent.description}\n// 目标: Go\nvar result int = 0"
+
+    # ------------------------------------------------------------
+    # Matha 代码生成（主链目标语言）
+    # ------------------------------------------------------------
+    # 映射只落内核 builtin（src/kernel/math_builtin.py）与纯算术表达式；
+    # 不支持/有歧义的意图一律返回空串并把原因沉进 intent.errors，
+    # 绝不产占位代码（诚实降级契约，口径见 docs/KNOWN_ISSUES.md §7c）。
+
+    _MATHA_BINOPS = (
+        ("加上", "+"), ("加", "+"),
+        ("减去", "-"), ("减", "-"),
+        ("乘以", "*"), ("乘", "*"),
+        ("除以", "/"), ("除", "/"),
+        ("次方", "**"), ("幂", "**"),
+    )
+    _MATHA_SUM_WORDS = ("总和", "合计", "累加", "求和")
+    _MATHA_AVG_WORDS = ("平均", "均值")
+    _MATHA_UNARY_FUNCS = {
+        "正弦": "sin", "余弦": "cos", "正切": "tan",
+        "对数": "log", "指数": "exp", "平方根": "sqrt",
+        "绝对值": "abs", "取整": "floor", "舍入": "round",
+        "阶乘": "阶乘", "素数": "素数判定", "质数": "素数判定",
+    }
+    _MATHA_BINARY_FUNCS = {"gcd": "最大公约数", "lcm": "最小公倍数"}
+    _MATHA_INT_ONLY = frozenset({"阶乘", "素数判定", "最大公约数", "最小公倍数"})
+
+    def generate_matha(self, intent: Intent) -> str:
+        """生成可直接经 `src.kernel.exec_api` 执行的 Matha 源码。
+
+        输出形态固定为 `result = 表达式` + `#1：[result]`（exec_api 只收集
+        输出指令的值，裸赋值不产输出）。拒绝时返回空串。
+        """
+        params = intent.params
+        if re.search(r"\d+\s*[到至]\s*\d+", params.get("raw_text", "")):
+            return self._matha_reject(intent, "范围语义（N 到 M）暂无背书的 Matha 代码生成")
+        it = intent.intent_type
+        if it == IntentType.ARITHMETIC:
+            expr = self._matha_arithmetic_expr(intent, params)
+        elif it == IntentType.MATH_FUNC:
+            expr = self._matha_math_func_expr(intent, params)
+        elif it == IntentType.COMPARISON:
+            expr = self._matha_comparison_expr(intent, params)
+        else:
+            return self._matha_reject(
+                intent, f"意图类型 {it.name} 暂无背书的 Matha 代码生成")
+        if not expr:
+            return ""
+        return f"result = {expr}\n#1：[result]"
+
+    def _matha_reject(self, intent: Intent, reason: str) -> str:
+        intent.errors.append(f"Matha 代码生成拒绝：{reason}")
+        return ""
+
+    def _matha_arithmetic_expr(self, intent: Intent, params: dict) -> str:
+        text = params.get("raw_text", "")
+        nums = params.get("numbers", [])
+        ops = {op for kw, op in self._MATHA_BINOPS if kw in text}
+        if "平方" in text:
+            ops.add("平方")
+        if "开方" in text:
+            ops.add("开方")
+        if any(w in text for w in self._MATHA_SUM_WORDS):
+            ops.add("求和")
+        if any(w in text for w in self._MATHA_AVG_WORDS):
+            ops.add("平均")
+        if not ops:
+            return self._matha_reject(
+                intent, "未识别到具体运算（加/减/乘/除/幂/平方/开方/求和/平均）")
+        if len(ops) > 1:
+            return self._matha_reject(
+                intent, f"含多种运算 {sorted(ops)}，无法确定唯一表达式")
+        op = ops.pop()
+        if not nums:
+            return self._matha_reject(intent, "缺少数字参数")
+        fmt = [_fmt_matha_num(v) for v in nums]
+        if op in ("平方", "开方"):
+            if len(nums) != 1:
+                return self._matha_reject(intent, f"{op}需要恰好一个数字")
+            return f"{fmt[0]} ** 2" if op == "平方" else f"sqrt({fmt[0]})"
+        if op == "求和":
+            return f"sum([{', '.join(fmt)}])"
+        if op == "平均":
+            return f"平均值([{', '.join(fmt)}])"
+        if op == "**":
+            if len(nums) != 2:
+                return self._matha_reject(intent, "幂运算需要恰好两个数字（底数与指数）")
+            return f"{fmt[0]} ** {fmt[1]}"
+        if len(nums) < 2:
+            return self._matha_reject(intent, f"运算 {op} 需要至少两个数字")
+        return f" {op} ".join(fmt)
+
+    def _matha_math_func_expr(self, intent: Intent, params: dict) -> str:
+        text = params.get("raw_text", "")
+        nums = params.get("numbers", [])
+        # 「对数」沿用分类器边界防「对数组」；其余关键词裸匹配，
+        # 使「正弦和余弦」这类多函数歧义如实暴露为拒绝而非静默选一个
+        targets = set()
+        for kw, fn in self._MATHA_UNARY_FUNCS.items():
+            pat = re.escape(kw) + (r"(?![\u4e00-\u9fff])" if kw == "对数" else "")
+            if re.search(pat, text):
+                targets.add(fn)
+        low = text.lower()
+        targets.update(fn for kw, fn in self._MATHA_BINARY_FUNCS.items() if kw in low)
+        if not targets:
+            return self._matha_reject(
+                intent, "该数学函数暂无内核 builtin 映射（如斐波那契/因数）")
+        if len(targets) > 1:
+            return self._matha_reject(
+                intent, f"含多个函数 {sorted(targets)}，无法确定唯一表达式")
+        fn = targets.pop()
+        need = 2 if fn in self._MATHA_BINARY_FUNCS.values() else 1
+        if len(nums) != need:
+            return self._matha_reject(
+                intent, f"{fn} 需要恰好 {need} 个数字，实得 {len(nums)}")
+        if fn in self._MATHA_INT_ONLY and any(not float(v).is_integer() for v in nums):
+            return self._matha_reject(intent, f"{fn} 只接受整数参数")
+        fmt = [_fmt_matha_num(v) for v in nums]
+        return f"{fn}({', '.join(fmt)})"
+
+    def _matha_comparison_expr(self, intent: Intent, params: dict) -> str:
+        text = params.get("raw_text", "")
+        nums = params.get("numbers", [])
+        wants_max = "最大" in text or "最高" in text
+        wants_min = "最小" in text or "最低" in text
+        if wants_max == wants_min:
+            return self._matha_reject(intent, "无法确定唯一比较方向（最大/最小）")
+        if len(nums) < 2:
+            return self._matha_reject(intent, "比较需要至少两个数字")
+        fn = "max" if wants_max else "min"
+        return f"{fn}([{', '.join(_fmt_matha_num(v) for v in nums)}])"
 
 
 # ============================================================
@@ -373,6 +514,13 @@ class IntentParser:
             lines.append("")
             lines.append("生成代码:")
             lines.append(intent.suggested_code)
+
+        if intent.errors:
+            lines.append("")
+            lines.append("错误/降级说明:")
+            for err in intent.errors:
+                msg = err if isinstance(err, str) else getattr(err, "message", str(err))
+                lines.append(f"  - {msg}")
 
         return "\n".join(lines)
 

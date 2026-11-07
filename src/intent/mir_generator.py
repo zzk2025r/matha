@@ -1,6 +1,11 @@
 """Matha v4.2 — MIR 代码生成器
 
-将结构化意图转换为可执行的机械语言（MIR）代码。
+将结构化意图转换为机械语言（MIR）展示代码。
+
+【定位 2026-11 · 阶段 2】MIR 是 v4.2 时代的展示/交换格式
+（【】（）√ @[] 等），不是现行可执行 Matha 语法；执行主链是经
+src.kernel.exec_api 的 Matha 源码。Jupyter magic 仅用 MIR 做预览展示，
+不再将其喂给 execute_mir（历史断点：MIRNode 对象 ≠ str，必崩）。
 
 架构：
   结构化意图 → MIR Generator → MIR AST → 代码生成
@@ -103,7 +108,10 @@ class MIRNode:
             items = ", ".join(c.to_math_code(indent + 1) for c in self.children)
             return f"{prefix}@[{items}]"
         elif self.kind == MIRNodeKind.RETURN:
-            child = self.children[0].to_math_code(indent) if self.children else "None"
+            if self.children:
+                child = self.children[0].to_math_code(indent)
+            else:
+                child = str(self.value) if self.value is not None else "None"
             return f"{prefix}#：返回 {child}"
         else:
             return f"{prefix}/* {self.kind.name} */"

@@ -166,8 +166,13 @@ class EnhancedIntentParser(IntentParserBase):
         return candidates[:5] or ["请尝试更明确的描述"]
 
     def execute_and_verify(self, intent: Intent) -> Result:
-        """执行意图并验证结果。"""
+        """执行意图并验证结果（仅 python 旧轨；Matha 代码请经 exec_api 执行）。"""
         def do_execute():
+            if intent.target_lang != "python":
+                raise codegen_error(
+                    f"execute_and_verify 仅支持 python 目标，实得 {intent.target_lang}"
+                    "（Matha 代码请经 src.kernel.exec_api 执行）",
+                    lang=intent.target_lang)
             if not intent.suggested_code:
                 raise codegen_error("无生成代码", lang=intent.target_lang)
             # 执行代码
@@ -187,9 +192,9 @@ class EnhancedIntentParser(IntentParserBase):
                 return Err(recovered)
         return result
 
-    def explain_with_errors(self, text: str) -> str:
+    def explain_with_errors(self, text: str, target_lang: str = "python") -> str:
         """解析并生成带错误信息的自然语言解释。"""
-        result = self.parse(text)
+        result = self.parse(text, target_lang)
         if result.is_ok():
             intent = result.unwrap()
             return self.explain(intent)
@@ -326,7 +331,7 @@ def parse_intent_safe(text: str, target_lang: str = "python") -> Result:
 def explain_intent_safe(text: str, target_lang: str = "python") -> str:
     """安全解释：返回自然语言报告（含错误信息）。"""
     parser = EnhancedIntentParser()
-    return parser.explain_with_errors(text)
+    return parser.explain_with_errors(text, target_lang)
 
 
 def execute_intent(text: str, target_lang: str = "python") -> Result:

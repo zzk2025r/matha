@@ -8,11 +8,18 @@ Matha 自然语言 → 公式代码 统一管线（NL Pipeline）
     ↓
   [nl_definition.py] 定义构建器 — 列明条目 + 赋予当前时代定义
     ↓
-  [nl_to_formula.py] 公式转换器 — 定义 → 公式代码
+  [nl_to_formula.py] 公式转换器 — 定义 → 公式代码（预览形态）
     ↓
-  [compiler.py]     编译器 — 公式代码 → 可执行 Matha 代码
+  [阶段4：本模块]    执行段 — 纯算术公式 → 可执行 Matha（func 定义 + 单位探针）
     ↓
-  [interp.py]       解释器 — 执行代码，返回结果
+  [kernel/exec_api]  主链执行（lexer → parser → mbc.compiler → mbc.vm）
+
+阶段4 的诚实边界：nl_to_formula 的预览源码（`let …`、`^`、`#` 注释）不是
+可执行 Matha（Matha 唯一注释形式为 `(* … *)`，`^` 是异或）；执行段只把
+**纯算术等式**保守翻译为 `func 名(自由参数) -> Float = 右式`（`^`→`**`），
+并附全参数=1.0 的探针调用验证可执行性——探针不是用户语义的答案。
+集合运算/含函数调用/仅声明/非 ASCII 符号一律跳过并如实记入 execution_notes；
+执行错误不吞，沉入 execution_error。口径见 docs/KNOWN_ISSUES.md §7c。
 
 同时提供：
   - 多时代对比（同一文本在不同时代的定义差异）
@@ -21,12 +28,15 @@ Matha 自然语言 → 公式代码 统一管线（NL Pipeline）
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
+from src.kernel import exec_api
 from src.nl_definition import DefinitionBuilder, DefinitionItem, DefinitionResult
 from src.nl_semantic import NLDictionary
 from src.nl_to_formula import (
     DefinitionToFormulaConverter,
+    FormulaCode,
     FormulaTranslation,
 )
 
@@ -50,8 +60,14 @@ class PipelineResult:
     # 阶段3：公式转换
     formula_translation: FormulaTranslation | None = None
 
-    # 阶段4：代码生成（占位，后续接入 compiler）
+    # 阶段4：执行段（纯算术公式 → 可执行 Matha；空串 = 无可执行公式）
     executable_code: str = ""
+    # 探针输出（全参数=1.0 的验证调用，非用户语义答案）
+    outputs: list = field(default_factory=list)
+    # 执行错误（不抛出，如实下沉；None = 无错误或未执行）
+    execution_error: str | None = None
+    # 跳过/降级说明
+    execution_notes: list[str] = field(default_factory=list)
 
     # 歧义报告
     ambiguities: list[dict] = field(default_factory=list)
@@ -115,6 +131,16 @@ class NLPipeline:
         # ── 歧义检测 ─────────────────────────────────────────────
         ambiguities = self._detect_ambiguities(def_result.items)
 
+        # ── 阶段4：执行段（主链 exec_api，错误不吞） ─────────────
+        executable_code, exec_notes = self._build_executable(formula_trans)
+        outputs: list = []
+        execution_error: str | None = None
+        if executable_code:
+            out, err = exec_api.run_checked(executable_code)
+            outputs = out
+            if err is not None:
+                execution_error = f"{type(err).__name__}: {err}"
+
         # ── 生成摘要 ─────────────────────────────────────────────
         summary = self._build_summary(text, era, def_result, formula_trans, ambiguities)
 
@@ -124,6 +150,10 @@ class NLPipeline:
             semantic_map=semantic_desc,
             definition_result=def_result,
             formula_translation=formula_trans,
+            executable_code=executable_code,
+            outputs=outputs,
+            execution_error=execution_error,
+            execution_notes=exec_notes,
             ambiguities=ambiguities,
             summary=summary,
         )
@@ -171,6 +201,10 @@ class NLPipeline:
           ╠══════════════════════════════════════════════════╣
           │  【阶段3：公式转换】                              │
           │    let 速度 = v = s / t                          │
+          ╠══════════════════════════════════════════════════╣
+          │  【阶段4：执行段（主链）】                        │
+          │    func 速度(s, t) -> Float = s / t              │
+          │    探针输出：[1.0]                               │
           ╠══════════════════════════════════════════════════╣
           │  【歧义报告】                                     │
           │    无歧义                                        │
@@ -220,6 +254,21 @@ class NLPipeline:
                     lines.append(f"║    注：{note:<44}║")
         lines.append("╠════════════════════════════════════════════════════════════╣")
 
+        # 阶段4：执行段
+        lines.append("║  【阶段4：执行段（主链）】                                    ║")
+        if result.executable_code:
+            for line in result.executable_code.split("\n"):
+                lines.append(f"║    {line}")
+            if result.execution_error:
+                lines.append(f"║    执行错误：{result.execution_error}")
+            else:
+                lines.append(f"║    探针输出：{result.outputs}")
+        else:
+            lines.append("║    （无可执行公式）                                          ║")
+        for note in result.execution_notes:
+            lines.append(f"║    注：{note}")
+        lines.append("╠════════════════════════════════════════════════════════════╣")
+
         # 歧义报告
         lines.append("║  【歧义报告】                                               ║")
         if result.ambiguities:
@@ -241,6 +290,59 @@ class NLPipeline:
         return "\n".join(lines)
 
     # ── 辅助方法 ──────────────────────────────────────────────────
+
+    #: 执行段只接纯算术类别；set_op/stat/prob/nn/optim/declaration 一律跳过
+    _EXEC_CATEGORIES = frozenset({"linear", "area", "perimeter", "volume", "general"})
+    _EXEC_RHS_RE = re.compile(r"[A-Za-z0-9_.+\-*/() \t]+")
+    _EXEC_CALL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\s*\(")
+    _EXEC_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    _EXEC_CONSTANTS = frozenset({"pi", "e", "tau", "phi"})
+
+    def _translate_formula(self, code: FormulaCode) -> tuple[str, str] | None:
+        """纯算术等式 → (func 定义行, 单位探针行)；不可译则 None。"""
+        if code.category not in self._EXEC_CATEGORIES:
+            return None
+        if any(c in code.name for c in " ()=+-*/^,") or not code.name:
+            return None
+        text = code.expr_text
+        if "=" not in text:
+            return None
+        lhs, rhs = (s.strip() for s in text.split("=", 1))
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", lhs):
+            return None
+        rhs = rhs.replace("^", "**")
+        if not self._EXEC_RHS_RE.fullmatch(rhs) or self._EXEC_CALL_RE.search(rhs):
+            return None
+        params = list(dict.fromkeys(
+            i for i in self._EXEC_IDENT_RE.findall(rhs)
+            if i != lhs and i not in self._EXEC_CONSTANTS))
+        if not params:
+            return None
+        # func 直expr体以 `(` 开头会被解析为 lambda 参数列（`(c) => …` 语法）；
+        # 前置乘法单位元 1.0 * 保持浮点语义逐值不变（含 -0.0/inf/NaN）
+        if rhs.startswith("("):
+            rhs = "1.0 * " + rhs
+        func_line = f"func {code.name}({', '.join(params)}) -> Float = {rhs}"
+        probe_args = ", ".join(["1.0"] * len(params))
+        probe_line = f"#1：[{code.name}({probe_args})]"
+        return func_line, probe_line
+
+    def _build_executable(self, trans: FormulaTranslation) -> tuple[str, list[str]]:
+        """阶段4：把可译公式拼成可执行源码；跳过项如实记注。"""
+        notes: list[str] = []
+        blocks: list[str] = []
+        for code in trans.formula_codes:
+            translated = self._translate_formula(code)
+            if translated is None:
+                notes.append(
+                    f"跳过 {code.name}（{code.category}）：非纯算术等式，执行段不背书")
+                continue
+            blocks.extend(translated)
+        if not blocks:
+            return "", notes
+        header = ("(* 由自然语言管线阶段4生成：func 定义 + 单位探针"
+                  "（全参数=1.0，仅验证可执行性，非用户语义答案） *)")
+        return "\n".join([header] + blocks), notes
 
     def _detect_ambiguities(self, items: list[DefinitionItem]) -> list[dict]:
         """检测定义条目中的歧义。"""

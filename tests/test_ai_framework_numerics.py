@@ -404,7 +404,7 @@ class TestAutoDiffAndIO:
         d = {}
         ai._register_ai_framework(d)
         assert "矩阵乘法" in d and "矩阵乘法" in ai._ai_framework_names()
-        assert d["矩阵乘法"]([[1, 2], [3, 4]], [[5, 6], [7, 8]]) == [[19, 22], [43, 50]]
+        assert d["矩阵乘法"]([[1, 2], [3, 4]])([[5, 6], [7, 8]]) == [[19, 22], [43, 50]]
         assert "创建Sigmoid" in d and "创建Tanh" in d
 
 # ============================================================

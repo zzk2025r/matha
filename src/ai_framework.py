@@ -1,4 +1,4 @@
-"""Matha AI 框架：矩阵乘法地基、自动微分、计算图、神经网络、深度学习。
+"""Matha AI 框架：AI框架（矩阵乘法地基、自动微分、计算图、神经网络、深度学习）。
 
 【定位标注 2026-10 / P2 降级 · 2026-11 严格测试背书】仓库内未背书前端：
 自 2026-11 起，`matmul`/`Linear`/激活/损失/反向链/优化器等**数值腿**已由
@@ -1025,30 +1025,32 @@ class NeuralNetwork:
 # ============================================================
 
 def _register_ai_framework(builtins: dict) -> None:
+    # Matha `f(a, b)` 两侧均编译为 f(a)(b)，零参 `f()` 传入常量 0：
+    # 注册形态一律柯里化 lambda 链；无参创建器接收哑参 `_`；
+    # Python 侧默认参数在此显式化为必填参。`创建神经网络` 归 neural_network 插件。
     builtins["创建张量"] = lambda shape: Tensor(
         data=[[0.0] * shape[1] for _ in range(shape[0])],
-        shape=shape)
-    builtins["矩阵乘法"] = lambda a, b: matmul(a, b)
+        shape=tuple(shape))
+    builtins["矩阵乘法"] = lambda a: lambda b: matmul(a, b)
     builtins["创建模型"] = lambda name: Sequential(name=name)
-    builtins["创建线性层"] = lambda in_f, out_f: Linear(in_f, out_f)
-    builtins["创建ReLU"] = lambda: ReLU()
-    builtins["创建Sigmoid"] = lambda: Sigmoid()
-    builtins["创建Tanh"] = lambda: Tanh()
-    builtins["创建Softmax"] = lambda dim=-1: Softmax(dim)
-    builtins["创建Dropout"] = lambda p=0.5: Dropout(p)
+    builtins["创建线性层"] = lambda in_f: lambda out_f: Linear(in_f, out_f)
+    builtins["创建ReLU"] = lambda _: ReLU()
+    builtins["创建Sigmoid"] = lambda _: Sigmoid()
+    builtins["创建Tanh"] = lambda _: Tanh()
+    builtins["创建Softmax"] = lambda dim: Softmax(dim)
+    builtins["创建Dropout"] = lambda p: Dropout(p)
     builtins["创建BatchNorm"] = lambda n: BatchNorm(n)
-    builtins["创建Adam"] = lambda params, lr=0.001: Adam(params, lr)
-    builtins["创建SGD"] = lambda params, lr=0.01: SGD(params, lr)
-    builtins["创建训练器"] = lambda model, epochs=10: Trainer(model, epochs)
-    builtins["创建神经网络"] = lambda: NeuralNetwork()
-    builtins["创建自动微分"] = lambda: AutoDiff()
+    builtins["创建Adam"] = lambda params: lambda lr: Adam(params, lr)
+    builtins["创建SGD"] = lambda params: lambda lr: SGD(params, lr)
+    builtins["创建训练器"] = lambda model: lambda epochs: Trainer(model, epochs)
+    builtins["创建自动微分"] = lambda _: AutoDiff()
 
 
 def _ai_framework_names() -> list[str]:
     return ["创建张量", "矩阵乘法", "创建模型", "创建线性层", "创建ReLU",
             "创建Sigmoid", "创建Tanh",
             "创建Softmax", "创建Dropout", "创建BatchNorm",
-            "创建Adam", "创建SGD", "创建训练器", "创建神经网络",
+            "创建Adam", "创建SGD", "创建训练器",
             "创建自动微分"]
 
 

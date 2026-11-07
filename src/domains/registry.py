@@ -1178,7 +1178,7 @@ class DomainRegistry:
                 "创建Sigmoid", "创建Tanh",
                 "创建Softmax", "创建Dropout", "创建BatchNorm",
                 "创建Adam", "创建SGD", "创建训练器",
-                "创建神经网络", "创建自动微分",
+                "创建自动微分",
             ],
             "constants": {},
             "optimization_passes": [],

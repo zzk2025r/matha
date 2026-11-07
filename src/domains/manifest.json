@@ -1,7 +1,7 @@
 {
   "_comment": "Matha 领域插件清单 —— 纯数据，由 scripts/gen_domain_manifest.py 生成，请勿手改。运行时 src/plugin_api.PluginResolver 只读此文件即可完成符号→插件的归属判定，从而不在启动时 import 任何领域模块。plugins 数组的顺序即加载顺序（沿用旧 interp eager 注册顺序），跨领域重名符号按后者覆盖。",
   "protocol_version": 1,
-  "generated_at": "2026-10-28T03:16:57",
+  "generated_at": "2026-11-07T23:40:06",
   "generator": "scripts/gen_domain_manifest.py",
   "plugins": [
     {
@@ -3444,14 +3444,14 @@
       "name": "data_science",
       "module": "src.domains.data_science",
       "display_name": "数据科学",
-      "cn_name": "数据分析、数据处理、机器学习",
+      "cn_name": "数据集/预处理/模型评估",
       "category": "science",
       "description": "数据集、特征工程、统计分析、模型评估",
       "aliases": [
         "data_science",
         "DataScience",
         "数据科学",
-        "数据分析、数据处理、机器学习"
+        "数据集/预处理/模型评估"
       ],
       "registers": [
         "_register_data_science"
@@ -4064,14 +4064,14 @@
       "name": "neural_network",
       "module": "src.domains.neural_network",
       "display_name": "神经网络",
-      "cn_name": "前馈网络、卷积、循环、训练",
+      "cn_name": "前馈网络真实现",
       "category": "frontier",
       "description": "前馈网络、卷积、循环、训练",
       "aliases": [
         "neural_network",
         "NeuralNetwork",
         "神经网络",
-        "前馈网络、卷积、循环、训练"
+        "前馈网络真实现"
       ],
       "registers": [
         "_register_nn"
@@ -4383,6 +4383,40 @@
         "添加路由",
         "渲染模板",
         "获取统计"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
+      "name": "ai_framework",
+      "module": "src.ai_framework",
+      "display_name": "AI框架",
+      "cn_name": "AI框架",
+      "category": "ai",
+      "description": "自动微分、计算图、神经网络、深度学习",
+      "aliases": [
+        "ai_framework",
+        "AIFramework",
+        "AI框架"
+      ],
+      "registers": [
+        "_register_ai_framework"
+      ],
+      "symbols": [
+        "创建Adam",
+        "创建BatchNorm",
+        "创建Dropout",
+        "创建ReLU",
+        "创建SGD",
+        "创建Sigmoid",
+        "创建Softmax",
+        "创建Tanh",
+        "创建张量",
+        "创建模型",
+        "创建线性层",
+        "创建自动微分",
+        "创建训练器",
+        "矩阵乘法"
       ],
       "declared_symbols": [],
       "legacy": false

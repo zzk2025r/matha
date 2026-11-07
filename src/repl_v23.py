@@ -28,6 +28,7 @@ from src.errors import (
     RecoveryStrategy,
 )
 from src.diag_backends import run_legacy as interpret
+from src.kernel import exec_api
 from src.parser import Parser
 
 # KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载
@@ -181,8 +182,8 @@ class MathaREPL:
         if not parser:
             print("  [WARN] 意图解析器未初始化")
             return
-        # 使用安全解析（返回 Result，不抛出）
-        result = parser.parse(line)
+        # 使用安全解析（返回 Result，不抛出）；nl 通道产 Matha 代码走主链
+        result = parser.parse(line, target_lang="matha")
         if result.is_ok():
             intent = result.unwrap()
             print()
@@ -196,7 +197,7 @@ class MathaREPL:
                     print(f"    {code_line}")
                 print()
                 try:
-                    outputs, trace = interpret(intent.suggested_code)
+                    outputs = exec_api.run(intent.suggested_code)
                     for out in outputs:
                         print(f"  → 结果: {out}")
                     self.state.success_count += 1
@@ -224,7 +225,7 @@ class MathaREPL:
         parser = self.state.intent_parser
         if not parser:
             return
-        result = parser.parse(line)
+        result = parser.parse(line, target_lang="matha")
         print()
         print("  " + "=" * 40)
         print("  意图分析结果")
@@ -247,7 +248,7 @@ class MathaREPL:
         print()
 
     def _explain_intent(self, line: str) -> None:
-        report = explain_intent_safe(line)
+        report = explain_intent_safe(line, target_lang="matha")
         print("  " + report)
 
     def _recover_last_error(self) -> None:

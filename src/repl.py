@@ -274,7 +274,7 @@ class MathaREPL:
         if not self.state.intent_parser:
             print("  [WARN] 意图解析器未初始化")
             return
-        intent = self.state.intent_parser.parse(line)
+        intent = self.state.intent_parser.parse(line, target_lang="matha")
         print()
         print("  " + "-" * 40)
         print("  " + self.state.intent_parser.explain(intent))
@@ -301,7 +301,7 @@ class MathaREPL:
         """解析意图并显示详细信息。"""
         if not self.state.intent_parser:
             return
-        intent = self.state.intent_parser.parse(line)
+        intent = self.state.intent_parser.parse(line, target_lang="matha")
         print()
         print("  " + "=" * 40)
         print("  意图分析结果")
@@ -314,7 +314,7 @@ class MathaREPL:
         """解释意图（简版）。"""
         if not self.state.intent_parser:
             return
-        intent = self.state.intent_parser.parse(line)
+        intent = self.state.intent_parser.parse(line, target_lang="matha")
         print("  " + self.state.intent_parser.explain(intent))
 
     def _set_mode(self, mode: str) -> None:

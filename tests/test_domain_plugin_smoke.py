@@ -83,8 +83,15 @@ def test_every_plugin_exports_symbols_declared_in_manifest():
 
 
 def test_plugin_count_matches_repo_facts():
-    """烟雾覆盖面随插件数量增长——漏登记某插件会让本条先红。"""
+    """烟雾覆盖面随插件数量增长——漏登记某插件会让本条先红。
+
+    口径锁定「src/domains 目录覆盖面」：manifest 可另含域外插件
+    （见 scripts/gen_domain_manifest.py 的 EXTRA_PLUGIN_MODULES），
+    但每个 domains 模块必须无一遗漏地登记在内。
+    """
     from scripts.repo_facts import facts
 
     manifest = _manifest()
-    assert len(manifest["plugins"]) == facts()["domain_plugins"]
+    domain_entries = [p for p in manifest["plugins"]
+                      if p["module"].startswith("src.domains.")]
+    assert len(domain_entries) == facts()["domain_plugins"]
