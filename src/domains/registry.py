@@ -1174,7 +1174,8 @@ class DomainRegistry:
             "description": "自动微分、计算图、神经网络、深度学习",
             "module": "src.ai_framework",
             "functions": [
-                "创建张量", "创建模型", "创建线性层", "创建ReLU",
+                "创建张量", "矩阵乘法", "创建模型", "创建线性层", "创建ReLU",
+                "创建Sigmoid", "创建Tanh",
                 "创建Softmax", "创建Dropout", "创建BatchNorm",
                 "创建Adam", "创建SGD", "创建训练器",
                 "创建神经网络", "创建自动微分",

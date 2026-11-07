@@ -1,7 +1,10 @@
 """Matha OpenAI 兼容 API 服务
 
-【定位标注 2026-10 / P2 降级】仓库内未背书前端：零测试、不入 make check 门禁，
-不作为现功能主张；口径见 docs/KNOWN_ISSUES.md 第七节 7c。
+【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随 6e 门禁锁更新】仓库内未背书前端：其复用的
+AI 编排链（MathaAIAssistant.chat「输入→解析→执行→结果→感知」）已由
+tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；本文件 HTTP 层自身不入门禁，
+自然语言→代码/答案的**结果正确性不背书**，不作为现功能主张；
+口径见 docs/KNOWN_ISSUES.md 第七节 7c。
 
 将 Matha AI 助手封装为 OpenAI 兼容的 /v1/chat/completions 接口，
 使其可作为 Trae / OpenAI 客户端的自定义模型使用。

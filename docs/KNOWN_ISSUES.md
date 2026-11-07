@@ -243,12 +243,63 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 
 ### 7c. AI 前端（`src/ai_assistant*.py`、`src/openai_compat_server.py`、`src/ai_framework.py`）
 
-- 实测零 `tests/` 引用（grep 无命中），README 亦无 AI 助手功能主张——属仓库内
-  未背书代码，保留不删；其**输出正确性不入门禁**（编排/诚实锁见下条）。
+- README 亦无 AI 助手功能主张——属仓库内未背书代码，保留不删；口径统一为
+  **编排已由 6e 门禁锁（`tests/test_ai_e2e_pipeline.py`）固定、结果正确性不背书**（详见下条）。
+  本条 2026-10 初登记的「实测零 `tests/` 引用」措辞已过时，特此更正登记；
+  `src/openai_compat_server.py`、`src/ai_assistant_server.py`、`src/ai_assistant_desktop.py`
+  三个复用 chat 编排链的文件横幅已于 2026-11 同步改为该口径；`src/ai_assistant.py` 横幅本就
+  是该口径；`src/ai_framework.py` 横幅已随 2026-11 数值地基坐实更新（见下方新条目）。
+- **2026-11 数值地基坐实（`src/ai_framework.py`）**：历史上该模块是 API 壳——`Linear.forward`
+  对 bias 标量做下标即崩（实测 TypeError）、Softmax 返均匀 1/n、损失/`train_step` 恒返 0.0、
+  `evaluate` 硬编码、`jacobian` 恒等透传。本轮以**矩阵乘法 `matmul` 为地基**重写整条数值腿
+  （Linear/激活/损失/逐层反向/优化器/训练/序列化/Conv2D 前向），三类锁已由
+  `tests/test_ai_framework_numerics.py`（39 条）入门禁：手算对拍（含与 `domains.ai_data_science`
+  跨引擎子进程互证）、收敛闭环（线性回归找回闭式解 + XOR 证明反传链真接线）、显式拒绝
+  （形状不合/未实现反向的 BatchNorm・Conv2D backward/未 compile 一律抛错，封死静默零占位回退）。
+  同日追加**严格测试背书层**（同文件扩至 57 条）：代数性质律（结合律/分配律/转置律，seeded
+  随机阵）、边界值（±1e308 饱和、零方差列、大 padding、退化/空输入拒绝、零梯度 no-op）、
+  全模型中心差分**梯度神谕**（两层 MLP 逐参数 22 元素逐个对拍，封死反传链接线级造假）、
+  **SymPy 符号对拍**（MSE/softmax-CE 梯度、matmul、sigmoid 导数，本机实跑零 skip）与训练
+  健壮性（随机目标记忆、同种子逐位确定性、save/load 推理不变）；据此背书升级经全量门禁
+  **5238/5238 通过**（基线：主工作树 `pytest tests`，23m50s，零失败零跳过）。
+- **2026-11 BN/Conv2D backward 攻坚（显式拒绝边界坐实）**：继数值地基后的剩余拒绝锁已攻下——
+  `BatchNorm.backward` 实现闭式归一化梯度（dγ=Σ dout·x̂、dβ=Σ dout、dx 含 mean/var 依赖项），
+  `Conv2D.backward` 实现与朴素前向逐路对应的 dW/db/dIn（含 stride/padding 窗位回流）；
+  旧「backward 未实现」拒绝锁替换为误用拒绝锁（未前向先反向→RuntimeError、梯度形状不合→ValueError）。
+  严格锁同文件追加至 **65 条**：闭式小整数现场手算对拍（BN 4×2 含投影不变量、Conv 3×3×k2 含
+  9 元素 dIn）、任意深度逐参数中心差分神谕（BN-MLP 全 19 元素、Conv 含输入梯度回流 9+16 元素、
+  stride2 多通道几何 10+16 元素）、训练链落地（BN 记忆线性可表示目标 loss→0、Conv 单层 train_step
+  降两个数量级）。攻坚持证：神谕侧曾因非对称扰动（+ε/−2ε 除 2ε）带 1.5× 系统误差，经导数
+  定义法（单侧小步长）仲裁坐实**实现正确**、测试构造修正为对称 ±ε；另如实登记：2 维输入经
+  Linear+BN 的特征张成空间有限，任意 Y 不可全记忆（残余 0.070025 是真约束极小非 bug）。
+  重跑全量门禁 **5246/5246 通过**（基线：主工作树 `pytest tests`，18m59s，零失败零跳过零 error）。
+- **2026-11 A1+A2：save/load 覆盖 BN・Conv 与 eval/训练态翻转坐实**：继 backward 攻坚后收掉两条
+  登记边界——`save/load` 现逐字段往返 BN（γ/β/running EMA 态/momentum/eps）与 Conv（4D 权重/
+  几何参数），并封死新发现的半截病理（未知层 save 静默写缺 spec、load 才崩→现为 save 即
+  ValueError 显式拒绝）；新增 **Model.eval()/train() 级联**（此前只有 Layer 级，模型层名实不符）。
+  严格锁同文件追加至 **71 条**：逐位往返+加载后推理不变+加载后 train_step 真接可训练环（反传
+  落梯+残差归零）、running EMA 两步手算（含 var 初值 1.0 混入项）、训后 eval 记忆不漂移
+  （全批下 running→batch，loss<1e-4）。据此重跑全量门禁：
+  **5252/5252 通过**（基线：主工作树 `pytest tests`，23m32s，零失败零跳过零 error）。
+- **2026-11 A3：Dropout 训练链实战坐实**：随机性契约明确化——`seed` 非 None → 掩码逐次
+  forward 冻结（可复现现场，梯度神谕可用）；`seed=None` → 掩码逐步推进且改由**全局
+  random.seed 控制**（旧实现实例内 `Random(None)` 不可复现，已纠）；未前向先 backward →
+  RuntimeError 误用拒绝（与 BN/Conv 并列）。严格锁追加至 **76 条**：冻结掩码下含 Dropout
+  两层链全 13 参数元素中心差分对拍、keep 率统计健康（n=40000，拦固定假掩码）、seed=None
+  逐步变掩码实战收敛锁。如实登记：训练期 loss 含掩码 forward 噪声地板（探针实测尾窗均值
+  ~1e-3 量级而权重已近优，p=0 基线可至≈0），故收敛锁口径为尾窗均值降一个数量级以上而非
+  绝对阈值。据此重跑全量门禁：**5257/5257 通过**（基线：主工作树 `pytest tests`，24m09s，
+  零失败零跳过零 error）。
+  **仍未背书**：训练有效性主张（泛化/收敛速度的现功能级宣称，收敛锁只证明链路正确性）、
+  先进深度能力（ComputationGraph 属演示级、多样本 batch Conv 未锁、
+  save/load 不覆盖 Dropout 种子）——横幅保留 P2 降级定位，
+  口径为「数值腿（含 BN/Conv 反向、Dropout 链、序列化与态翻转）已经严格测试背书、深度能力不背书」。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
-  故五个前端文件的「未背书 / P2 降级」横幅保留不变——本通道属「接线已锁、结果不背书」。
+  故五个前端文件的「未背书 / P2 降级」横幅保留（其中四个复用 chat 编排链的文件的
+  「零测试」旧措辞已于 2026-11 按本条口径更正，见上；`src/ai_framework.py` 的「零专项测试」
+  措辞已随其数值地基坐实更新，见上方新条目）——本通道属「接线已锁、结果不背书」。
 - **未达成（6f-D 如实登记）**：`src/matha_growth.py` 的 `MathaGrowthEngine.grow` 对 `func`
   定义源码做常量折叠/死代码消除时，会将源码改写到语义破损（实测 `func 加(x, y) -> Int = …`
   被改写为 `func (x + y) -> Int`，丢失函数名）。这属未背书优化器的**输出正确性**缺陷（本

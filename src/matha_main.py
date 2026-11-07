@@ -1258,7 +1258,21 @@ def _cmd_ai(args) -> int:
         ai.BatchNorm(3)
         ai.NeuralNetwork()
         ai.AutoDiff()
-        print("AI 框架模块就绪: 张量/模型/线性层/激活/自动微分")
+        # 数值腿自检：矩阵乘法手算对拍 + 迷你训练收敛演示
+        assert ai.matmul([[1, 2], [3, 4]], [[5, 6], [7, 8]]) == [[19, 22], [43, 50]]
+        import random as _random
+        _random.seed(42)
+        net = ai.Sequential(name="demo")
+        net.add(ai.Linear(1, 1))
+        net.compile(ai.MSELoss(), ai.Adam(net.parameters, lr=0.1))
+        X = ai.Tensor(data=[[0.0], [1.0], [2.0], [3.0]], shape=(4, 1))
+        Y = ai.Tensor(data=[[0.0], [2.0], [4.0], [6.0]], shape=(4, 1))
+        first = net.train_step(X, Y)
+        last = first
+        for _ in range(200):
+            last = net.train_step(X, Y)
+        print("AI 框架模块就绪: 张量/模型/线性层/激活/自动微分"
+              f"；矩阵乘法对拍通过；训练自检 loss {first:.4f} → {last:.6f}")
     except Exception as e:
         print(f"AI 框架模块加载失败: {e}", file=sys.stderr)
         return 1
