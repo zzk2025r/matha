@@ -1,4 +1,9 @@
-"""Matha 机器学习：分类、回归、聚类、神经网络训练。"""
+"""Matha 机器学习：线性回归、逻辑回归、K-Means 聚类（纯标准库 SGD/Lloyd 实现）。
+
+行为级锁见 tests/test_ml_models.py：闭式解对拍、收敛、显式拒绝。
+ModelType 中未实现的类型（decision_tree/random_forest/neural_network/knn/svm/
+naive_bayes）在 create_model 处显式抛 NotImplementedError，不静默回退。
+"""
 from __future__ import annotations
 
 import math
@@ -41,6 +46,7 @@ class ModelResult:
     predictions: list[Any] = field(default_factory=list)
     coefficients: dict[str, float] = field(default_factory=dict)
     feature_importance: dict[str, float] = field(default_factory=dict)
+    bias: float = 0.0
 
 
 @dataclass
@@ -64,8 +70,12 @@ class LinearRegression:
 
     def fit(self, X: list[list[float]], y: list[float]) -> ModelResult:
         """训练。"""
+        if not X or not y:
+            raise ValueError("训练数据为空")
+        if len(X) != len(y):
+            raise ValueError(f"样本数与标签数不一致：{len(X)} ≠ {len(y)}")
         n_samples = len(X)
-        n_features = len(X[0]) if X else 0
+        n_features = len(X[0])
         self.weights = [0.0] * n_features
 
         for epoch in range(self.epochs):
@@ -118,8 +128,12 @@ class LogisticRegression:
     def fit(self, X: list[list[float]], y: list[int]
                  ) -> ModelResult:
         """训练。"""
+        if not X or not y:
+            raise ValueError("训练数据为空")
+        if len(X) != len(y):
+            raise ValueError(f"样本数与标签数不一致：{len(X)} ≠ {len(y)}")
         n_samples = len(X)
-        n_features = len(X[0]) if X else 0
+        n_features = len(X[0])
         self.weights = [0.0] * n_features
 
         for epoch in range(self.epochs):
@@ -161,6 +175,8 @@ class KMeans:
     """K-Means 聚类。"""
 
     def __init__(self, k: int = 3, max_iters: int = 100):
+        if k < 1:
+            raise ValueError(f"簇数 k 必须 ≥ 1：{k}")
         self.k = k
         self.max_iters = max_iters
         self.centroids: list[list[float]] = []
@@ -171,11 +187,13 @@ class KMeans:
         """训练。"""
         n = len(X)
         if n == 0:
-            return ModelResult(model_type=ModelType.KMEANS, loss=0.0)
+            raise ValueError("训练数据为空")
+        if n < self.k:
+            raise ValueError(f"样本数 {n} 小于簇数 k={self.k}")
         n_features = len(X[0])
 
         # 初始化质心
-        indices = random.sample(range(n), min(self.k, n))
+        indices = random.sample(range(n), self.k)
         self.centroids = [X[i] for i in indices]
 
         for _ in range(self.max_iters):
@@ -247,7 +265,7 @@ class MathaML:
 
     def create_model(self, model_type: str,
                         **params: Any) -> Any:
-        """创建模型。"""
+        """创建模型。未实现的类型显式拒绝，绝不静默回退线性回归。"""
         mt = ModelType(model_type)
         if mt == ModelType.LINEAR_REGRESSION:
             model = LinearRegression(**params)
@@ -256,7 +274,9 @@ class MathaML:
         elif mt == ModelType.KMEANS:
             model = KMeans(**params)
         else:
-            model = LinearRegression(**params)
+            raise NotImplementedError(
+                f"模型类型 {model_type!r} 未实现"
+                "（当前支持：linear_regression / logistic_regression / kmeans）")
         self._models[model_type] = model
         return model
 
@@ -266,31 +286,32 @@ class MathaML:
         model = self._models.get(model_type)
         if model is None:
             model = self.create_model(model_type)
-        if hasattr(model, 'fit'):
-            return model.fit(X, y)
-        return ModelResult(model_type=ModelType.LINEAR_REGRESSION)
+        if isinstance(model, KMeans):
+            return model.fit(X)
+        return model.fit(X, y)
 
     def predict(self, model_type: str, X: list[list[float]]
                    ) -> list[Any]:
         """预测。"""
         model = self._models.get(model_type)
         if model is None:
-            return []
-        if hasattr(model, 'predict'):
-            return model.predict(X)
-        return []
+            raise LookupError(f"模型 {model_type!r} 尚未创建，请先 create_model/train")
+        return model.predict(X)
 
     def evaluate(self, model_type: str, X: list[list[float]],
                     y: list[Any],
                     metric: str = "accuracy") -> float:
-        """评估模型。"""
+        """评估模型。未实现的指标显式拒绝，不返回假 0.0。"""
+        if not y:
+            raise ValueError("评估数据为空")
         preds = self.predict(model_type, X)
         if metric == "accuracy":
             correct = sum(1 for p, t in zip(preds, y) if p == t)
-            return correct / len(y) if y else 0.0
+            return correct / len(y)
         elif metric == "mse":
             return sum((p - t) ** 2 for p, t in zip(preds, y)) / len(y)
-        return 0.0
+        raise NotImplementedError(
+            f"评估指标 {metric!r} 未实现（当前支持：accuracy / mse）")
 
     def get_stats(self) -> dict:
         """获取统计信息。"""

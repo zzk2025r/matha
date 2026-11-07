@@ -294,6 +294,28 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   先进深度能力（ComputationGraph 属演示级、多样本 batch Conv 未锁、
   save/load 不覆盖 Dropout 种子）——横幅保留 P2 降级定位，
   口径为「数值腿（含 BN/Conv 反向、Dropout 链、序列化与态翻转）已经严格测试背书、深度能力不背书」。
+- **2026-11 阶段 1 AI 修复：ml.py 崩溃与假神经网络插件坐实**：两处历史病理已直修——
+  ① `src/ml.py`：`ModelResult` 缺 `bias` 字段致 Linear/Logistic `fit` 必崩（实测 TypeError）；
+  `create_model` 对 6 种未实现 ModelType 静默回退线性回归、`train` 假 hasattr 回退、
+  `predict` 未创建静默返 `[]`、KMeans `k>n` 潜藏 IndexError。现补 `bias` 字段，未实现类型/
+  空数据/样本标签数不合/`k<1`/`k>n`/未知评估指标一律显式抛错；`tests/test_ml_models.py`
+  **31 条**行为锁（闭式解对拍 y=2x+1、逻辑回归可分数据全对、KMeans 手算 inertia、拒绝矩阵）。
+  ② `src/domains/neural_network.py`：历史上 forward/predict 恒等透传输入、train 恒 loss=0、
+  CNN/RNN 构建方法返回假 dict，属假实现。本轮委托已背书的 `ai_framework` 数值腿重写前馈链
+  （Linear+激活/MSE/Adam），CNN/RNN 在仓库内无背书实现、构建方法一律 `NotImplementedError`；
+  注册形态修复为**柯里化 lambda 链**（Matha `f(a,b)` 在 VM 与 interp 两侧均编译为 `f(a)(b)`，
+  平铺多参 lambda 被首参提前求值——历史「创建神经网络(2,4) 报不可调用的值」之根因）。
+  `tests/test_neural_network_plugin.py` **38 条**行为锁：前向手算对拍（1e-12）、XOR 真收敛
+  （seed 7 / lr 0.05 / 4000 轮，loss<0.02、acc=1.0）、显式拒绝矩阵、manifest 符号面不漂移、
+  干净子进程经 exec_api 懒加载端到端；manifest 符号面保持不变。
+  据此重跑全量门禁 **5404/5404 通过**（`make check`：tests 5301 + kernel_purity 14
+  + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，零失败；native 1 例
+  已知未实现跳过不计入；tests 项 18m24s）。
+  **仍未背书/未修**：训练有效性主张（泛化/收敛速度，口径同上文）；CNN/RNN 执行链与
+  ml.py 其余 6 种 ModelType 仍在显式拒绝中；阶段 1 余项未开工——
+  `src/domains/data_science.py` 仍是假实现（实测 `load_csv` 不读文件恒 True、
+  `normalize`/`one_hot_encode` 空 pass、precision/recall/f1 恒 0.0、confusion_matrix
+  恒 `[[0]]`），`llm_parser` 的 Claude/Gemini 分支缺陷本轮未触及，均不在本轮背书范围。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
