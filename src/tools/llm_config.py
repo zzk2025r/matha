@@ -5,6 +5,11 @@
   - 多密钥切换（按模型维护密钥列表）
   - 密钥轮换（rotate）
   - 环境变量回退（MATHA_LLM_API_KEY / MATHA_LLM_MODEL）
+
+【定位 2026-11 · 阶段 1 AI 修复】cryptography 历史上顶层 import 但
+任何依赖清单都未声明，缺包时 import 本模块即崩。现改懒导入（用到加密
+才检查），缺包诚实 ImportError；已声明进 pyproject optional-dependencies
+的 llm extra（核心安装仍零第三方依赖）。锁见 tests/test_llm_config.py。
 """
 
 from __future__ import annotations
@@ -13,8 +18,6 @@ import json
 import os
 import uuid
 from typing import Any
-
-from cryptography.fernet import Fernet
 
 DEFAULT_CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".matha")
 
@@ -27,6 +30,17 @@ def _key_path() -> str:
     return os.path.join(_config_dir(), "llm_master.key")
 
 
+def _fernet_class():
+    """懒导入 cryptography（可选依赖）；缺包诚实报错，不在 import 期崩。"""
+    try:
+        from cryptography.fernet import Fernet
+    except ImportError:
+        raise ImportError(
+            "密钥加密存储需要 cryptography：pip install cryptography"
+            "（或 pip install matha[llm]）") from None
+    return Fernet
+
+
 def _load_or_create_master_key() -> bytes:
     """加载或创建主密钥"""
     path = _key_path()
@@ -34,14 +48,14 @@ def _load_or_create_master_key() -> bytes:
         with open(path, "rb") as f:
             return f.read()
     os.makedirs(_config_dir(), exist_ok=True)
-    key = Fernet.generate_key()
+    key = _fernet_class().generate_key()
     with open(path, "wb") as f:
         f.write(key)
     return key
 
 
-def _fernet() -> Fernet:
-    return Fernet(_load_or_create_master_key())
+def _fernet():
+    return _fernet_class()(_load_or_create_master_key())
 
 
 class LLMKeyConfig:

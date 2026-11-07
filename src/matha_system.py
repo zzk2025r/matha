@@ -1406,18 +1406,28 @@ class MathaSystem:
     def ai_eval(self, natural_text: str) -> str:
         """AI 自然语言计算。"""
         if self.ai_assistant:
-            return self.ai_assistant.eval(natural_text)
+            # 历史死接线：ai_assistant.eval() 不存在（AttributeError）；
+            # 真实入口是 chat() -> dict，取 reply 字段
+            return self.ai_assistant.chat(natural_text).get("reply", "")
         return self.eval(natural_text)
 
     def lsp_start(self):
-        """启动 LSP 服务器。"""
-        if self.lsp_server:
-            self.lsp_server.start()
+        """启动 LSP 服务器。仓库无协议线服务实现，显式拒绝。"""
+        # 历史死接线：MathaLSP 只有进程内分析 API（complete/hover/diagnostics），
+        # 从无 start()；不伪装已启动
+        raise NotImplementedError(
+            "LSP 协议线服务未实现（仓库仅有进程内分析 API："
+            "MathaLSP.complete/hover/diagnostics）")
 
     def mcp_start(self):
-        """启动 MCP 服务器。"""
-        if self.mcp_server:
-            self.mcp_server.start()
+        """启动 MCP stdio 协议服务（阻塞，直至对端断开）。"""
+        # 历史死接线：mcp_server.start() 不存在；真实入口是
+        # create_server() + run_stdio_async()（缺 SDK 显式 ImportError）
+        import asyncio
+
+        from src.mcp_server import create_server
+        server = create_server()
+        asyncio.run(server.run_stdio_async())
 
     # ============================================================
     # 性能优化接口

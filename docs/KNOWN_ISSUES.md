@@ -312,10 +312,50 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，零失败；native 1 例
   已知未实现跳过不计入；tests 项 18m24s）。
   **仍未背书/未修**：训练有效性主张（泛化/收敛速度，口径同上文）；CNN/RNN 执行链与
-  ml.py 其余 6 种 ModelType 仍在显式拒绝中；阶段 1 余项未开工——
-  `src/domains/data_science.py` 仍是假实现（实测 `load_csv` 不读文件恒 True、
-  `normalize`/`one_hot_encode` 空 pass、precision/recall/f1 恒 0.0、confusion_matrix
-  恒 `[[0]]`），`llm_parser` 的 Claude/Gemini 分支缺陷本轮未触及，均不在本轮背书范围。
+  ml.py 其余 6 种 ModelType 仍在显式拒绝中。（本条原记「阶段 1 余项未开工——
+  data_science 仍是假实现、llm_parser 的 Claude/Gemini 分支缺陷未触及」，措辞已过时，
+  特此更正登记：余项已修复并入门禁，见下条。）
+- **2026-11 阶段 1 余项收官：data_science 真实现、llm_parser 双链修复、可选依赖诚实面、
+  死接线清理**：
+  ① `src/domains/data_science.py` 假实现全部重写为手算可验证的真实现：`load_csv` 真读
+  CSV（等宽校验、坏单元格带行列号抛错、标签列保留字符串、文件不存在如实抛错）；
+  `split_train_test` 校验比例与切分点、返回拷贝切片的两个新数据集；`normalize` 逐列
+  min-max（常量列显式抛错）；`one_hot_encode` 按标签首现顺序编码；precision/recall/f1/
+  confusion_matrix 按二分类 {0,1} 真计数（零除约定 0.0，口径同 sklearn zero_division=0；
+  accuracy 保持多分类通用）；`select_k_best` 无背书算法、显式 `NotImplementedError`。
+  注册形态为柯里化 lambda 链，manifest 8 符号面不漂移。
+  `tests/test_data_science_plugin.py` **59 条**锁（手算对拍、拒绝矩阵、注册契约、
+  2 条干净子进程 exec_api 端到端）。
+  ② `src/intent/llm_parser.py`：Claude 分支去除 Anthropic SDK 不支持的
+  `response_format`（原必降级）；Gemini 分支先 `_get_client()` 再取 `_gemini_client`
+  （原 AttributeError 必崩）。`tests/test_llm_parser_backends.py` **16 条**离线 mock 锁：
+  各后端请求形状、response_format 按模型分发与不兼容重试、可重试错误重试后成功、
+  不可重试/坏 JSON 降级正则兜底、缓存与空输入短路（零网络、零真实 SDK 依赖、密钥全假）。
+  ③ `src/mcp_server.py`：mcp SDK 懒导入——缺包时 import 不崩、`create_server()` 诚实
+  `ImportError`；`MathaMCPServer` 改纯同步门面（真委托 `_safe_*` 助手），删除
+  `_register_matha_tools` pass 占位；版本号改 `src.__version__` 单源（去硬编码 "4.4"）。
+  `src/tools/llm_config.py`：cryptography 改 `_fernet_class()` 懒导入（缺包诚实报错），
+  `pyproject.toml` 新增 `llm` extra 正式声明。`tests/test_mcp_server_facade.py` **10 条**
+  + `tests/test_llm_config.py` **12 条**（缺包干净子进程 Blocker 锁、加密往返磁盘无明文、
+  密钥管理、env 优先、假 SDK 注入锁六工具名）。
+  ④ 顺带坐实并修复 `src/compiler/matha_cc.py` 词法死循环：id-start 谓词
+  （`ord>0x2E00` 兜底接受 ：【， 等全角标点）与续符谓词（isalnum/"_─"）不一致 →
+  零宽 token 使 tokenize 永不前进（实测 `#1：[1+1]` 挂死 >300s）。首字符无条件消费后
+  全角标点不再挂死；legacy 语法不支持的现代 `#1：` 写法诚实报「编译失败」而非挂死。
+  ⑤ `src/matha_system.py` 三处死接线（审计原记两处，实测三处）：`ai_eval` 改调真实
+  `chat(text)["reply"]`（原调用不存在的 `eval()`）；`lsp_start` 显式
+  `NotImplementedError`（仓库仅有进程内分析 API，无 LSP 协议线服务，原调用不存在的
+  `start()`）；`mcp_start` 接真 `create_server().run_stdio_async()`。
+  `tests/test_matha_system_ai_wiring.py` **7 条**锁。
+  本轮新增 **104 条**测试，据此重跑全量门禁 **5508/5508 通过**（`make check`：
+  tests 5405 + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，零失败零跳过；native 1 例已知未实现跳过不计入；tests 项 19m54s）。
+  **仍未背书/未修**：LLM 后端只锁请求形状与降级路径，真实 API 的回答正确性不背书
+  （口径同本节）；`matha_system.py` 其余假门面（create_convnet/create_rnn 假 dict、
+  load_csv 恒 True、normalize_data 透传、quantum grover/shor 假实现等）本轮未触及；
+  `src/unified_parser.py` 的 matha_compile 兼容假产物（"# Compiled N declarations"
+  字符串）仍在；legacy matha-cc 语法不支持现代 `#1：` 输出写法（诚实拒绝，非缺陷）；
+  CNN/RNN 与 ml.py 其余 6 种 ModelType 仍在显式拒绝中。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

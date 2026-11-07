@@ -50,6 +50,12 @@ performance = [
     "numba>=0.57.0",
 ]
 
+# LLM 密钥加密存储（src/tools/llm_config.py，懒导入：缺包 import 不崩，
+# 用到加密才诚实报错）。核心安装仍零第三方依赖。
+llm = [
+    "cryptography>=41.0.0",
+]
+
 # 开发依赖
 dev = [
     "pytest>=7.0.0",
@@ -62,7 +68,7 @@ dev = [
 
 # 完整安装
 all = [
-    "matha[accelerated,performance,dev]",
+    "matha[accelerated,performance,llm,dev]",
 ]
 
 [project.urls]

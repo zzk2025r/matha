@@ -1,6 +1,13 @@
-"""Matha v4.2 — LLM 意图解析器
+"""Matha — LLM 意图解析器
 
-集成 Claude/DeepSeek/GPT 等 LLM API，将自然语言转换为结构化意图。
+集成 Claude/DeepSeek/GPT/Gemini/GLM 等 LLM API，将自然语言转换为结构化意图。
+
+【定位 2026-11 · 阶段 1 AI 修复】Claude 分支曾向 Anthropic SDK 传不支持的
+response_format（必 TypeError 降级）、Gemini 分支直读未初始化的
+_gemini_client（必 AttributeError 降级），两链从未真通过；本轮已直修，
+离线 mock 契约锁见 tests/test_llm_parser_backends.py（请求形状/重试/
+降级路径，不触网）。口径遵 docs/KNOWN_ISSUES.md §7c：编排与降级契约
+已锁，自然语言→代码的输出正确性不背书。
 
 架构：
   自然语言 → LLM 解析 → 结构化意图 → MIR 代码生成
@@ -397,12 +404,13 @@ class LLMIntentParser:
             try:
                 if "claude" in model_lower:
                     client = self._get_client()
+                    # Anthropic SDK 无 response_format 参数（传入即 TypeError，
+                    # 历史缺陷：三次重试全崩后静默降级正则）；JSON 形状由提示词约束
                     response = client.messages.create(
                         model=self.model,
                         max_tokens=1024,
                         system=self.SYSTEM_PROMPT,
                         messages=[{"role": "user", "content": user_prompt}],
-                        response_format={"type": "json_object"},
                         timeout=self.timeout,
                     )
                     raw_json = response.content[0].text
@@ -468,6 +476,9 @@ class LLMIntentParser:
 
     def _call_gemini(self, user_prompt: str) -> str:
         """调用 Gemini API 解析意图。"""
+        # 先走懒初始化：历史直读未初始化的 _gemini_client 即 AttributeError，
+        # 被重试环吞掉后静默降级正则，Gemini 链从未真通过
+        self._get_client()
         genai = self._gemini_client
         model = genai.GenerativeModel(self.model)
         response = model.generate_content(

@@ -149,6 +149,9 @@ class MathaLexer:
 
     def _read_identifier(self) -> MathaToken:
         start = self._pos
+        # 首字符由调用方按 id-start 判定（含 ord>0x2E00 兜底），必须消费：
+        # 它与下方续符谓词不一致时（如全角冒号：），零宽 token 会死循环
+        self._pos += 1
         while self._pos < len(self._source) and (self._source[self._pos].isalnum() or self._source[self._pos] in "_─"):
             self._pos += 1
         word = self._source[start:self._pos]

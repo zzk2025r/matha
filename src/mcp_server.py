@@ -1,5 +1,11 @@
 """Matha MCP Server — 通过 Model Context Protocol 暴露 Matha 工具
 用法: python -m src.mcp_server
+
+【定位 2026-11 · 阶段 1 AI 修复】mcp SDK 为可选依赖：缺包时 import 本模块
+不再 NameError（MathaMCPServer 历史上继承 MCPServer，类定义即崩），
+进程内门面 MathaMCPServer 不依赖 SDK 可直接用；create_server() 缺 SDK 时
+显式 ImportError。契约锁见 tests/test_mcp_server_facade.py。
+版本取自唯一版本源 src.__version__（原硬编 "4.4" 已漂移）。
 """
 from __future__ import annotations
 
@@ -11,6 +17,8 @@ from pathlib import Path
 # 确保 src 在 PATH
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.__version__ import VERSION
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -68,7 +76,9 @@ def _safe_parse(text: str) -> dict:
 
 
 def create_server() -> MCPServer:
-    server = MCPServer(name="matha", version="4.4")
+    if not MCP_AVAILABLE:
+        raise ImportError("请安装 mcp: pip install mcp")
+    server = MCPServer(name="matha", version=VERSION)
 
     @server.tool()
     async def eval_expression(expr: str) -> list[TextContent]:
@@ -120,7 +130,6 @@ def create_server() -> MCPServer:
     @server.tool()
     async def get_info() -> list[TextContent]:
         """获取 Matha 系统信息（版本、工具链、配置）。"""
-        from src.matha_main import VERSION
         info = {
             "name": "Matha",
             "version": VERSION,
@@ -134,16 +143,14 @@ def create_server() -> MCPServer:
     return server
 
 
-class MathaMCPServer(MCPServer):
-    """Matha MCP Server 增强类，提供完整工具链接口。"""
+class MathaMCPServer:
+    """Matha 工具的进程内同步门面（不依赖 mcp SDK）。
 
-    def __init__(self):
-        super().__init__(name="matha", version="4.4")
-        self._register_matha_tools()
-
-    def _register_matha_tools(self):
-        """注册所有 Matha 工具。"""
-        pass
+    历史上继承 MCPServer：缺 SDK 时类定义即 NameError，且
+    _register_matha_tools 是 pass 占位（从未注册任何工具）。现改为
+    纯门面——五个方法全部直调真实 _safe_* 实现；对外协议服务由
+    create_server()/main() 承担（缺 SDK 显式 ImportError）。
+    """
 
     def eval_expr(self, expr: str) -> str:
         return _safe_eval(expr)
@@ -158,7 +165,6 @@ class MathaMCPServer(MCPServer):
         return _safe_diagnose(source)
 
     def get_info(self) -> dict:
-        from src.matha_main import VERSION
         return {"name": "Matha", "version": VERSION, "python": sys.version.split()[0]}
 
 
