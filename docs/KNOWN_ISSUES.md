@@ -396,8 +396,46 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   的回答正确性不背书，口径同本节）；`nl_to_formula.py` 预览源码（`let …`/`^`/裸 `#`）仍是
   非执行形态（执行段只翻译纯算术等式）；magic 输出正确性限于分解器可映射窄路径；
   `src/compiler/ir.py` 的 execute_mir/compile_mir 保留为 legacy IR 演示（magic 不再消费）；
-  阶段 3（ml/genetic_algo/servers 测试口径升级）与阶段 4（LLM 接 REPL/CLI、MCP 工具注册、
-  openai_compat 鉴权流式、其余 ModelType 算法、examples/ai 重写）未开工。
+  阶段 3（ml/genetic_algo/servers 测试口径升级）已于 2026-11 完成（见下条）；阶段 4
+  （LLM 接 REPL/CLI、密钥统一 llm_config、MCP 工具注册、openai_compat 鉴权流式、
+  其余 ModelType 算法、examples/ai 重写）已批准未开工。
+- **2026-11 阶段 3 AI 修复：ml/genetic_algo/data_science 行为级三锁、三 server 冒烟、
+  LLM 降级契约**：
+  ① `src/domains/genetic_algo.py` 全入口参数校验（正整数/概率区间/适应度须 Python 可调用
+  且返回值非负有限/种群非空齐宽 0-1 位串，bool 一律拒绝）；两处真实缺陷修复——全零适应度
+  原静默偏向末位个体改均匀选择，len≤1 染色体交叉原 `randint(1,0)` 必崩改诚实无操作；
+  注册改柯里化 lambda 链（Matha `f(a,b)` 两侧均编译为 `f(a)(b)`），符号面不变（7 符号，
+  manifest `--check` 往返一致）；Matha 闭包（VM Closure / interp 元组均非 Python 可调用）
+  作适应度回调显式拒绝并留痕，不假装支持跨语言回调。`tests/test_genetic_algo_plugin.py`
+  **105 条**：手算对拍（退化轮盘/早停/单点交叉语义/变异边界抽签/精英排序与平局/NESMA
+  数值/代码生成替换与未匹配留痕/超参最优）、收敛闭环（seed 42 全 ones、seed 123 全 zeros
+  出发、神经进化、超参搜索）、显式拒绝矩阵、注册契约（manifest 对拍/柯里化形状/偏应用
+  可调用/回调拒绝）+ 3 条干净子进程 exec_api 端到端。
+  ② `src/ml.py` 三锁口径升级：训练参数与矩阵形状入口校验（ragged/空特征/宽度漂移拒绝），
+  未训练 predict 显式拒绝（三模型 + 管理器层）；逻辑回归改稳定 sigmoid（原 `exp(5000)`
+  溢出必崩，±1000 饱和与极端特征拟合锁）、标签 0/1 校验、阈值 [0,1] 校验；KMeans trained
+  生命周期；evaluate 样本数不一致显式拒绝；注册改柯里化（legacy registry 通道，符号面
+  不变）。`tests/test_ml_models.py` 31→**96 条**（+65：未训练拒绝/维度边界/sigmoid 饱和/
+  超参与逻辑回归边界矩阵/收敛闭环——多特征 `y=3x1-2x2+0.5` 权重 1e-6 对拍、loss<1e-10、
+  k=1 手算质心与 inertia）。
+  ③ `src/domains/data_science.py` 管线闭环：`tests/test_data_science_plugin.py` 59→**62 条**
+  （+3：CSV→split→normalize→one_hot→训练评估全链手算对拍——accuracy 2/3、precision 1.0、
+  recall 0.5、f1 2/3、混淆矩阵 [[1,0],[1,1]]；split 切片独立副本锁；管理器管线链）。
+  ④ 三 server 冒烟 + LLM 降级契约：`tests/test_ai_servers_smoke.py` **25 条**
+  （ai_assistant_server 13：health/concepts/help/404/CORS/空消息与坏 JSON 400/正常契约
+  与感知计数/异常 500 诚实下沉；openai_compat 11：models/health/404 形状/CORS/缺 messages
+  400/chat.completion 形状与 usage/最后一条用户消息/SSE 形状与 [DONE]/text_completion/
+  异常 200 诚实降级；desktop 启动接线 1：FakeServer 锁监听地址/Handler/浏览器打开）；
+  `tests/test_llm_parser_backends.py` 16→**19 条**（+3 降级契约：外层 catchall 兜底留痕、
+  重试耗尽恰好 3 次后兜底、降级意图类型来自分解器非 UNKNOWN）。五个前端横幅口径同步
+  （HTTP 层/启动接线冒烟已入门禁，「未背书 / P2 降级」标记保留，结果正确性仍不背书）。
+  本轮新增 **201 条**测试，据此重跑全量门禁 **5823/5823 通过**（`make check`：
+  tests 5720 + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，零失败零跳过；native 1 例已知未实现跳过不计入分母；tests 项 17m46s）。
+  **仍未背书/未修**：LLM 真实 API 的回答正确性不背书（口径同本节）；三 server 的结果
+  正确性不背书（冒烟只锁 HTTP 层/启动接线/降级形状）；阶段 4（LLM 接 REPL/CLI、密钥统一
+  llm_config、MCP 门面 parse_intent 缺口、openai_compat 鉴权与真流式、其余 6 种 ModelType、
+  examples/ai 重写）已批准未开工。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

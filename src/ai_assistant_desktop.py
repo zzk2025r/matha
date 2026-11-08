@@ -1,10 +1,11 @@
 """
 Electron 主进程 — Matha AI Assistant 桌面应用
 
-【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随 6e 门禁锁更新】仓库内未背书前端：本入口复用
+【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随阶段 3 门禁锁更新】仓库内未背书前端：本入口复用
 ai_assistant_server 同一条 AI 编排链（MathaAIAssistant.chat「输入→解析→执行→结果→感知」），
-其编排契约已由 tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；桌面/启动层自身
-不入门禁，自然语言→代码/答案的**结果正确性不背书**，不作为现功能主张；
+其编排契约已由 tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；桌面/启动接线
+（假 HTTPServer/webbrowser 注入，不开浏览器不占端口）已由 tests/test_ai_servers_smoke.py
+入门禁（阶段 3），自然语言→代码/答案的**结果正确性不背书**，不作为现功能主张；
 口径见 docs/KNOWN_ISSUES.md 第七节 7c。
 
 打包命令：

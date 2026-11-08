@@ -1,8 +1,10 @@
 """Matha OpenAI 兼容 API 服务
 
-【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随 6e 门禁锁更新】仓库内未背书前端：其复用的
+【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随阶段 3 门禁锁更新】仓库内未背书前端：其复用的
 AI 编排链（MathaAIAssistant.chat「输入→解析→执行→结果→感知」）已由
-tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；本文件 HTTP 层自身不入门禁，
+tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；本文件 HTTP 层冒烟契约
+（OpenAI 兼容形状/SSE 伪流式 + [DONE]/chat 异常诚实透出）已由
+tests/test_ai_servers_smoke.py 入门禁（阶段 3）；鉴权与真流式未实现（阶段 4 未开工），
 自然语言→代码/答案的**结果正确性不背书**，不作为现功能主张；
 口径见 docs/KNOWN_ISSUES.md 第七节 7c。
 

@@ -14,7 +14,9 @@ precision/recall/f1 恒 0.0、confusion_matrix 恒 [[0]]、注册层「准确率
      f(a,b) 两侧均为 f(a)(b)，零参 f() 传 0）。
 
 另有主执行链端到端锁（干净子进程经 exec_api 懒加载真算/拒绝，
-遵「sys.modules 断言起子进程」纪律）。
+遵「sys.modules 断言起子进程」纪律）。阶段 3 补管线闭环锁（第 5 节）：
+load→split→normalize→one_hot→metrics 链式手算，标签随切分走、
+独热列序按各自首次出现、切片互为独立拷贝。
 """
 from __future__ import annotations
 
@@ -328,3 +330,66 @@ def test_main_chain_surfaces_honest_rejection():
                           timeout=180)
     assert proc.returncode == 0, proc.stderr[-800:]
     assert "REJECTED" in proc.stdout
+
+
+# ============================================================
+# 5. 阶段 3 · 管线闭环（load→split→normalize→one_hot→metrics 链式手算）
+# ============================================================
+
+class TestPipelineClosedLoop:
+    """单步手算已由第 1 节锁定；本节锁「链路数据流」：标签随切分走、
+    归一化不动标签、独热列序按各自首次出现、指标消费派生标签闭环。"""
+
+    def test_full_pipeline_hand_computed(self, tmp_path):
+        ds = Dataset("d", 2, 6)
+        assert ds.load_csv(_csv(tmp_path,
+                                "1,10,cat\n2,20,dog\n3,30,cat\n"
+                                "4,40,dog\n5,50,cat\n6,60,dog\n"),
+                           label_column=2) is True
+        assert ds._labels == ["cat", "dog", "cat", "dog", "cat", "dog"]
+        train, test = ds.split_train_test(0.5)
+        assert train._data == [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]]
+        assert test._data == [[4.0, 40.0], [5.0, 50.0], [6.0, 60.0]]
+        assert train._labels == ["cat", "dog", "cat"]
+        assert test._labels == ["dog", "cat", "dog"]
+        train.normalize()
+        test.normalize()
+        assert train._data == [[0.0, 0.0], [0.5, 0.5], [1.0, 1.0]]
+        assert test._data == [[0.0, 0.0], [0.5, 0.5], [1.0, 1.0]]
+        # 归一化原地动特征、不动标签
+        assert train._labels == ["cat", "dog", "cat"]
+        train.one_hot_encode()
+        test.one_hot_encode()
+        assert train.encoded_labels == [[1, 0], [0, 1], [1, 0]]
+        # 独热列序按各自首次出现：test 首标签是 dog → 列序 [dog, cat]
+        assert test.encoded_labels == [[1, 0], [0, 1], [1, 0]]
+        # 指标闭环：y_true 由 test 标签派生（cat=0, dog=1），模拟模型输出 [1,0,0]
+        y_true = [1 if v == "dog" else 0 for v in test._labels]
+        assert y_true == [1, 0, 1]
+        y_pred = [1, 0, 0]
+        me = ModelEvaluation()
+        assert me.accuracy(y_true, y_pred) == pytest.approx(2 / 3)
+        assert me.precision(y_true, y_pred) == 1.0
+        assert me.recall(y_true, y_pred) == 0.5
+        assert me.f1_score(y_true, y_pred) == pytest.approx(2 / 3)
+        assert me.confusion_matrix(y_true, y_pred) == [[1, 0], [1, 1]]
+
+    def test_split_slices_are_independent_copies(self, tmp_path):
+        ds = Dataset("d", 1, 4)
+        ds.load_csv(_csv(tmp_path, "1\n2\n3\n4\n"))
+        train, test = ds.split_train_test(0.5)
+        train.normalize()
+        assert train._data == [[0.0], [1.0]]
+        assert test._data == [[3.0], [4.0]]
+        assert ds._data == [[1.0], [2.0], [3.0], [4.0]]
+
+    def test_manager_pipeline_chain(self, tmp_path):
+        m = create_data_science()
+        ds = m.create_dataset("d", 2, 4)
+        ds.load_csv(_csv(tmp_path, "1,a\n2,b\n3,a\n4,b\n"), label_column=1)
+        train, _test = ds.split_train_test(0.5)
+        train.one_hot_encode()
+        assert train.encoded_labels == [[1, 0], [0, 1]]
+        me = m.evaluate_model()
+        assert me.accuracy([0, 1], [0, 1]) == 1.0
+        assert m._datasets == [ds] and m._evaluations == [me]

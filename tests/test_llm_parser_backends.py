@@ -16,6 +16,8 @@
   - **降级契约**（不可重试错误 → 正则兜底，永不裸抛，follow_up 如实标注）；
   - **缓存**（高置信度结果二次调用不再触客户端）。
 口径：输出正确性不背书（KNOWN_ISSUES §7c），本锁只固定编排/请求契约。
+阶段 3 补锁（第 5 节）：parse() 外层 catch-all 兜底、可重试错误耗尽降级、
+兜底意图类型来自分解器映射。
 """
 from __future__ import annotations
 
@@ -267,3 +269,45 @@ class TestCacheAndInput:
         intent = p.parse(["计算", "1+2"])
         assert isinstance(intent, Intent)
         assert "计算 1+2" in record[0]["messages"][1]["content"]
+
+
+# ============================================================
+# 5. 阶段 3 · 降级路径契约补锁（外层兜底 + 重试耗尽）
+# ============================================================
+
+class TestDegradationContract:
+    """第 3 节已锁不可重试错误/无效 JSON 降级；本节补两条未覆盖路径：
+    parse() 外层 catch-all（_call_llm 整体意外爆炸）与可重试错误耗尽。
+    契约：永不裸抛、兜底标记如实、suggested_code 来自分解器。"""
+
+    def test_outer_catchall_falls_back(self, tmp_path, monkeypatch):
+        p = _parser(tmp_path, "gpt-4o")
+
+        def boom(text):
+            raise RuntimeError("意外爆炸")
+        monkeypatch.setattr(p, "_call_llm", boom)
+        intent = p.parse("计算 1加2")  # 外层 catch-all 兜底，永不裸抛
+        assert isinstance(intent, Intent)
+        assert "LLM 解析失败，使用正则兜底" in intent.follow_up_questions
+        assert intent.description == "计算 1加2"
+        assert isinstance(intent.suggested_code, str)
+
+    def test_retry_exhaustion_falls_back(self, tmp_path):
+        p = _parser(tmp_path, "gpt-4o")
+        record = []
+        p._api_client = _openai_client(
+            record, fail_first=(99, ConnectionError("connection reset")))
+        intent = p.parse("计算 1加2")
+        assert len(record) == 3  # 可重试错误打满 MATHA_LLM_MAX_RETRIES=3
+        assert "LLM 解析失败，使用正则兜底" in intent.follow_up_questions
+        assert isinstance(intent.suggested_code, str)
+
+    def test_degraded_intent_type_maps_from_decomposer(self, tmp_path, monkeypatch):
+        # 兜底意图类型来自 IntentDecomposer 节点映射，而非恒 UNKNOWN
+        p = _parser(tmp_path, "gpt-4o")
+
+        def down(text):
+            raise RuntimeError("down")
+        monkeypatch.setattr(p, "_call_llm", down)
+        intent = p.parse("计算 1加2")
+        assert intent.intent_type == IntentType.ARITHMETIC

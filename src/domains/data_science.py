@@ -6,7 +6,8 @@ split 返回 (self, self)、normalize/one_hot 空 pass、precision/recall/f1
 恒 0.0、confusion_matrix 恒 [[0]]、注册层「准确率」恒 0.0，属假实现。
 本轮全部重写为可手算对拍的真实现；无背书实现的能力（select_k_best
 特征选择）显式拒绝，不返回假特征名。行为级锁见
-tests/test_data_science_plugin.py（手算对拍/显式拒绝/注册契约/主链 e2e）。
+tests/test_data_science_plugin.py（手算对拍/显式拒绝/注册契约/主链 e2e；
+阶段 3 补管线闭环：load→split→normalize→one_hot→metrics 链式手算）。
 
 口径：二分类指标仅支持 {0,1} 标签，零分母按 sklearn zero_division=0
 约定返 0.0（定义行为，非占位）；训练有效性主张不背书

@@ -3,6 +3,10 @@
 行为级锁见 tests/test_ml_models.py：闭式解对拍、收敛、显式拒绝。
 ModelType 中未实现的类型（decision_tree/random_forest/neural_network/knn/svm/
 naive_bayes）在 create_model 处显式抛 NotImplementedError，不静默回退。
+
+阶段 3 边界口径：未训练 predict 显式拒绝（不再静默返回偏置假值/min([]) 崩溃）；
+特征维度不合显式拒绝；sigmoid 双向数值稳定（|z| 极大饱和不溢出）；
+学习率/epochs/k/max_iters 构造期校验；逻辑回归标签限 0/1、阈值限 [0,1]。
 """
 from __future__ import annotations
 
@@ -57,11 +61,30 @@ class DatasetML:
     test_split: float = 0.2
 
 
+def _validate_train_params(lr, epochs) -> None:
+    if (isinstance(lr, bool) or not isinstance(lr, (int, float))
+            or lr <= 0 or (isinstance(lr, float) and not math.isfinite(lr))):
+        raise ValueError(f"学习率须为正有限数值：{lr!r}")
+    if isinstance(epochs, bool) or not isinstance(epochs, int) or epochs < 1:
+        raise ValueError(f"epochs 须为正整数：{epochs!r}")
+
+
+def _validate_matrix(X: list[list[float]]) -> int:
+    """校验样本矩阵（调用方已查空）：行非空、等宽，返回特征数。"""
+    n_features = len(X[0])
+    if n_features == 0:
+        raise ValueError("样本特征为空")
+    if any(len(row) != n_features for row in X):
+        raise ValueError("样本特征维度不一致")
+    return n_features
+
+
 class LinearRegression:
     """线性回归。"""
 
     def __init__(self, learning_rate: float = 0.01,
                     epochs: int = 100):
+        _validate_train_params(learning_rate, epochs)
         self.lr = learning_rate
         self.epochs = epochs
         self.weights: list[float] = []
@@ -75,7 +98,7 @@ class LinearRegression:
         if len(X) != len(y):
             raise ValueError(f"样本数与标签数不一致：{len(X)} ≠ {len(y)}")
         n_samples = len(X)
-        n_features = len(X[0])
+        n_features = _validate_matrix(X)
         self.weights = [0.0] * n_features
 
         for epoch in range(self.epochs):
@@ -99,7 +122,11 @@ class LinearRegression:
         )
 
     def predict(self, X: list[list[float]]) -> list[float]:
-        """预测。"""
+        """预测。未训练/维度不合显式拒绝，不静默返回偏置假值。"""
+        if not self.trained:
+            raise ValueError("模型未训练，请先 fit")
+        if any(len(row) != len(self.weights) for row in X):
+            raise ValueError("样本特征维度不一致")
         return [sum(x[j] * self.weights[j]
                      for j in range(len(self.weights))) + self.bias
                 for x in X]
@@ -115,6 +142,7 @@ class LogisticRegression:
 
     def __init__(self, learning_rate: float = 0.01,
                     epochs: int = 100):
+        _validate_train_params(learning_rate, epochs)
         self.lr = learning_rate
         self.epochs = epochs
         self.weights: list[float] = []
@@ -122,8 +150,11 @@ class LogisticRegression:
         self.trained = False
 
     def _sigmoid(self, z: float) -> float:
-        """Sigmoid 函数。"""
-        return 1.0 / (1.0 + math.exp(-z))
+        """Sigmoid（双向数值稳定：|z| 极大时饱和，不 exp 溢出）。"""
+        if z >= 0:
+            return 1.0 / (1.0 + math.exp(-z))
+        ez = math.exp(z)
+        return ez / (1.0 + ez)
 
     def fit(self, X: list[list[float]], y: list[int]
                  ) -> ModelResult:
@@ -132,8 +163,10 @@ class LogisticRegression:
             raise ValueError("训练数据为空")
         if len(X) != len(y):
             raise ValueError(f"样本数与标签数不一致：{len(X)} ≠ {len(y)}")
+        if any(t not in (0, 1) for t in y):
+            raise ValueError("逻辑回归标签须为 0/1")
         n_samples = len(X)
-        n_features = len(X[0])
+        n_features = _validate_matrix(X)
         self.weights = [0.0] * n_features
 
         for epoch in range(self.epochs):
@@ -158,7 +191,14 @@ class LogisticRegression:
 
     def predict(self, X: list[list[float]],
                    threshold: float = 0.5) -> list[int]:
-        """预测。"""
+        """预测。未训练/维度不合/阈值越界显式拒绝。"""
+        if not self.trained:
+            raise ValueError("模型未训练，请先 fit")
+        if any(len(row) != len(self.weights) for row in X):
+            raise ValueError("样本特征维度不一致")
+        if (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+                or not 0 <= threshold <= 1):
+            raise ValueError(f"阈值须在 [0, 1] 内：{threshold!r}")
         preds = []
         for x in X:
             z = sum(x[j] * self.weights[j]
@@ -175,13 +215,16 @@ class KMeans:
     """K-Means 聚类。"""
 
     def __init__(self, k: int = 3, max_iters: int = 100):
-        if k < 1:
+        if isinstance(k, bool) or not isinstance(k, int) or k < 1:
             raise ValueError(f"簇数 k 必须 ≥ 1：{k}")
+        if isinstance(max_iters, bool) or not isinstance(max_iters, int) or max_iters < 1:
+            raise ValueError(f"max_iters 须为正整数：{max_iters!r}")
         self.k = k
         self.max_iters = max_iters
         self.centroids: list[list[float]] = []
         self.labels: list[int] = []
         self.inertia = 0.0
+        self.trained = False
 
     def fit(self, X: list[list[float]]) -> ModelResult:
         """训练。"""
@@ -190,7 +233,7 @@ class KMeans:
             raise ValueError("训练数据为空")
         if n < self.k:
             raise ValueError(f"样本数 {n} 小于簇数 k={self.k}")
-        n_features = len(X[0])
+        n_features = _validate_matrix(X)
 
         # 初始化质心
         indices = random.sample(range(n), self.k)
@@ -205,6 +248,7 @@ class KMeans:
                 break
             self.centroids = new_centroids
 
+        self.trained = True
         self.inertia = self._compute_inertia(X)
         return ModelResult(
             model_type=ModelType.KMEANS,
@@ -214,7 +258,12 @@ class KMeans:
         )
 
     def predict(self, X: list[list[float]]) -> list[int]:
-        """预测簇。"""
+        """预测簇。未训练/维度不合显式拒绝（不再 min([]) 裸抛）。"""
+        if not self.trained:
+            raise ValueError("模型未训练，请先 fit")
+        width = len(self.centroids[0])
+        if any(len(row) != width for row in X):
+            raise ValueError("样本特征维度不一致")
         return self._assign_clusters(X)
 
     def _assign_clusters(self, X: list[list[float]]) -> list[int]:
@@ -304,6 +353,8 @@ class MathaML:
         """评估模型。未实现的指标显式拒绝，不返回假 0.0。"""
         if not y:
             raise ValueError("评估数据为空")
+        if len(X) != len(y):
+            raise ValueError(f"样本数与标签数不一致：{len(X)} ≠ {len(y)}")
         preds = self.predict(model_type, X)
         if metric == "accuracy":
             correct = sum(1 for p, t in zip(preds, y) if p == t)
@@ -343,10 +394,15 @@ def create_kmeans(k: int = 3) -> KMeans:
 
 
 def _register_ml(builtins: dict) -> None:
-    """注册 ML 内置函数。"""
-    builtins["创建线性回归"] = create_linear_regression
-    builtins["创建逻辑回归"] = create_logistic_regression
-    builtins["创建KMeans"] = create_kmeans
+    """注册 ML 内置函数。
+
+    Matha f(a, b) 两侧均为柯里化单参应用 f(a)(b)，故注册形态为逐参
+    lambda 链（与 ai_framework / data_science 同口径）；Python 侧默认
+    参数在此显式化为必填参。
+    """
+    builtins["创建线性回归"] = lambda lr: lambda ep: create_linear_regression(lr, ep)
+    builtins["创建逻辑回归"] = lambda lr: lambda ep: create_logistic_regression(lr, ep)
+    builtins["创建KMeans"] = lambda k: create_kmeans(k)
 
 
 def _ml_symtab_names() -> list[str]:

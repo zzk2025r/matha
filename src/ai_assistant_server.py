@@ -2,9 +2,10 @@
 Matha AI Assistant — Web 后端 API 服务
 提供 RESTful API 供前端调用，零依赖轻量服务
 
-【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随 6e 门禁锁更新】仓库内未背书前端：本服务承载的
+【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随阶段 3 门禁锁更新】仓库内未背书前端：本服务承载的
 AI 编排链（MathaAIAssistant.chat「输入→解析→执行→结果→感知」）已由
-tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；HTTP 层自身不入门禁，
+tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；HTTP 层冒烟契约
+（状态码/schema/CORS/错误下沉/感知接线）已由 tests/test_ai_servers_smoke.py 入门禁（阶段 3），
 自然语言→代码/答案的**结果正确性不背书**，不作为现功能主张；
 口径见 docs/KNOWN_ISSUES.md 第七节 7c。
 """
