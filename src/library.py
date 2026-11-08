@@ -24,7 +24,7 @@
 
 自主成长扩展：
   - 子文件请求资源不存在时
-  - 资源库通过 SelfGrower 生成新公式代码
+  - 资源库通过关键词模板生成新公式代码（未匹配诚实失败，不生成占位）
   - 沙箱验证后写入资源库对应分支目录
   - 更新索引
 """
@@ -208,14 +208,14 @@ class Library:
         """资源库自主成长：当子文件资源不足时，主动生成新公式代码。
 
         流程：
-          1. 根据需求描述生成候选 Matha 公式代码
+          1. 根据需求描述生成候选 Matha 公式代码（未匹配模板 → 成功=False）
           2. 沙箱试运行验证
           3. 验证通过 → 写入资源库对应分支目录
           4. 更新索引缓存
 
         Args:
             interp: 解释器实例（用于沙箱验证）
-            requirement: 需求描述（如 "计算圆环面积"）
+            requirement: 需求描述（如 "计算圆面积"）
             discipline: 目标学科分支
             name: 资源名（None 则从需求生成）
 
@@ -268,11 +268,11 @@ class Library:
 
     def _generate_candidate(self, requirement: str,
                             discipline: str, name: str) -> str | None:
-        """根据需求描述生成候选 Matha 公式代码。
+        """根据需求描述生成候选 Matha 公式代码（关键词模板）。
 
-        基于学科模板生成基础公式框架。
+        仅覆盖圆/矩形面积、球/圆柱体积、牛顿力、动能六个精确场景；
+        未匹配返回 None（grow 诚实失败），不生成占位函数。
         """
-        # 简单的模板化生成（实际可扩展为更智能的生成）
         header = f"(* 资源库：{discipline} — {requirement} *)\n"
         header += "(* 自主成长生成：保护隔离 *)\n\n"
 
@@ -305,10 +305,8 @@ class Library:
                 "func 动能(m: Float, v: Float) -> Float = (m, v) => "
                 "0.5 * m * v ^ 2\n"
             )
-        # 默认：生成占位函数（恒零）
-        return header + (
-            f"func {name}(x: Float) -> Float = (x) => 0\n"
-        )
+        # 未匹配任何模板：返回 None，由 grow 走诚实失败路径（不生成恒零占位）
+        return None
 
     # ---------- 保护隔离检查 ----------
 

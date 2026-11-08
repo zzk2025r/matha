@@ -245,6 +245,7 @@ class MathaSystem:
         self._init_neural_network()
         self._init_concurrent()
         self._init_data_science()
+        self._init_ml()
         self._init_blockchain()
         self._init_quantum()
         self._init_audio_video()
@@ -415,6 +416,7 @@ class MathaSystem:
 
     def _init_data_science(self):
         """初始化数据科学模块。"""
+        self.dataset: Any = None
         try:
             from src.domains.data_science import DataScienceManager
             self.data_science_class = DataScienceManager
@@ -1276,18 +1278,24 @@ class MathaSystem:
 
     def create_neural_network(self, layers: int = 3,
                                     hidden_size: int = 64) -> Any:
-        """创建神经网络。"""
+        """创建前馈神经网络（结构经 add_layer 指定，与神经网络插件同契约）。"""
         if self.neural_network_class:
-            return self.neural_network_class(layers=layers, hidden_size=hidden_size)
-        return {"type": "neural_network", "layers": layers}
+            from src.domains.neural_network import ModelConfig
+            return self.neural_network_class(
+                ModelConfig(layers=layers, hidden_size=hidden_size))
+        raise RuntimeError("神经网络模块初始化失败，不可用")
 
     def create_convnet(self) -> Any:
-        """创建CNN。"""
-        return {"type": "convnet", "layers": []}
+        """创建CNN。仓库无背书执行链，显式拒绝（与神经网络插件同口径）。"""
+        raise NotImplementedError(
+            "CNN 执行链未实现（池化/展平无背书实现）；"
+            "前馈网络请用 create_neural_network")
 
     def create_rnn(self) -> Any:
-        """创建RNN。"""
-        return {"type": "rnn", "layers": []}
+        """创建RNN。仓库无背书实现，显式拒绝（与神经网络插件同口径）。"""
+        raise NotImplementedError(
+            "RNN 未实现（LSTM/GRU 无背书实现）；"
+            "前馈网络请用 create_neural_network")
 
     # ─── 并发编程方法 ───
 
@@ -1325,15 +1333,51 @@ class MathaSystem:
         """创建数据科学管理器。"""
         if self.data_science_class:
             return self.data_science_class()
-        return {"type": "data_science"}
+        raise RuntimeError("数据科学模块初始化失败，不可用")
 
     def load_csv(self, path: str) -> bool:
-        """加载CSV数据。"""
-        return True
+        """加载数值 CSV 到 self.dataset（委托数据科学域 Dataset，真读真校验）。
+
+        文件不存在/空文件/不齐宽/坏单元格如实抛错；成功返回 True。
+        """
+        from src.domains.data_science import Dataset
+        ds = Dataset()
+        ok = ds.load_csv(path)
+        self.dataset = ds
+        return ok
 
     def normalize_data(self, data: list) -> list:
-        """归一化数据。"""
-        return data
+        """逐列 min-max 归一化到 [0,1]，返回新矩阵（不改输入）。
+
+        契约同数据科学域 Dataset.normalize：常量列显式拒绝；
+        空/不齐宽/含非数值（bool 一律拒绝）显式拒绝。
+        """
+        if not isinstance(data, (list, tuple)) or not data:
+            raise ValueError("数据须为非空二维列表")
+        width = len(data[0]) if isinstance(data[0], (list, tuple)) else 0
+        rows: list[list[float]] = []
+        for i, row in enumerate(data):
+            if not isinstance(row, (list, tuple)) or not row:
+                raise ValueError(f"第 {i + 1} 行须为非空数值列表")
+            if len(row) != width:
+                raise ValueError(
+                    f"第 {i + 1} 行宽度 {len(row)} ≠ 首行 {width}")
+            vals = []
+            for v in row:
+                if not isinstance(v, (int, float)) or isinstance(v, bool):
+                    raise ValueError(f"第 {i + 1} 行含非数值元素：{v!r}")
+                vals.append(float(v))
+            rows.append(vals)
+        out = [list(r) for r in rows]
+        for j in range(width):
+            col = [r[j] for r in rows]
+            lo, hi = min(col), max(col)
+            if hi == lo:
+                raise ValueError(
+                    f"第 {j + 1} 列为常量 {lo}，min-max 范围无定义")
+            for r in out:
+                r[j] = (r[j] - lo) / (hi - lo)
+        return out
 
     # ─── 区块链方法 ───
 
@@ -1837,7 +1881,7 @@ class MathaSystem:
         """创建 ML 管理器。"""
         if self.ml_class:
             return self.ml_class()
-        return {"type": "ml_manager"}
+        raise RuntimeError("机器学习模块初始化失败，不可用")
 
     def create_linear_regression(self,
                                      learning_rate: float = 0.01,
@@ -1845,7 +1889,7 @@ class MathaSystem:
         """创建线性回归。"""
         if self.linear_regression_class:
             return self.linear_regression_class(learning_rate, epochs)
-        return {"type": "linear_regression"}
+        raise RuntimeError("机器学习模块初始化失败，不可用")
 
     def create_logistic_regression(self,
                                        learning_rate: float = 0.01,
@@ -1853,20 +1897,25 @@ class MathaSystem:
         """创建逻辑回归。"""
         if self.logistic_regression_class:
             return self.logistic_regression_class(learning_rate, epochs)
-        return {"type": "logistic_regression"}
+        raise RuntimeError("机器学习模块初始化失败，不可用")
 
     def create_kmeans(self, k: int = 3) -> Any:
         """创建 K-Means。"""
         if self.kmeans_class:
             return self.kmeans_class(k)
-        return {"type": "kmeans"}
+        raise RuntimeError("机器学习模块初始化失败，不可用")
 
     def train_model(self, model: Any, X: list,
-                        y: list) -> dict:
-        """训练模型。"""
-        if hasattr(model, 'fit'):
-            return model.fit(X, y)
-        return {"model_type": str(type(model))}
+                        y: list) -> Any:
+        """训练模型（委托 model.fit，返回其真实训练结果）。
+
+        无 fit 方法显式拒绝，不返回假 dict。
+        """
+        fit = getattr(model, "fit", None)
+        if not callable(fit):
+            raise TypeError(
+                f"模型 {type(model).__name__} 无 fit 方法，不可训练")
+        return fit(X, y)
 
     # ─── 安全增强方法 ───
 

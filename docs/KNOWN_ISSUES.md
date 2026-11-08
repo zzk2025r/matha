@@ -352,10 +352,12 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   + native_parity 38，零失败零跳过；native 1 例已知未实现跳过不计入；tests 项 19m54s）。
   **仍未背书/未修**：LLM 后端只锁请求形状与降级路径，真实 API 的回答正确性不背书
   （口径同本节）；`matha_system.py` 其余假门面（create_convnet/create_rnn 假 dict、
-  load_csv 恒 True、normalize_data 透传、quantum grover/shor 假实现等）本轮未触及；
-  `src/unified_parser.py` 的 matha_compile 兼容假产物（"# Compiled N declarations"
-  字符串）仍在；legacy matha-cc 语法不支持现代 `#1：` 输出写法（诚实拒绝，非缺陷）；
-  CNN/RNN 与 ml.py 其余 6 种 ModelType 仍在显式拒绝中。
+  load_csv 恒 True、normalize_data 透传、quantum grover/shor 假实现等）本轮未触及
+  （**2026-11 更正**：其中 AI/ML/数据门面已于阶段 5 修复，见上方阶段 5 条目；
+  quantum grover/shor 非 AI，仍未修）；`src/unified_parser.py` 的 matha_compile 兼容假产物
+  （"# Compiled N declarations" 字符串）仍在；legacy matha-cc 语法不支持现代 `#1：`
+  输出写法（诚实拒绝，非缺陷）；CNN/RNN 仍在显式拒绝中（ml.py 其余 6 种 ModelType
+  已于阶段 4 真实现，见上方阶段 4 条目）。
 - **2026-11 阶段 2 AI 修复：ai_framework 入主链、意图 Matha 代码生成、nl_pipeline 执行段、
   Jupyter magic 断点修复**：
   ① `src/ai_framework.py` 接入插件主链：`scripts/gen_domain_manifest.py` 新增
@@ -481,6 +483,38 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   SSE 非 token 级流式；六算法变体限制如上（RF 非逐节点采样、MLP 仅二分类、SVM 仅线性）；
   neural_network 示例默认 100 epochs 是演示配置、XOR 未收敛（loss≈0.25，示例内已注释）；
   Matha 闭包跨语言回调不支持；examples 的 game/web 虚构示例未重写（不在本阶段范围）。
+- **2026-11 阶段 5 收官（完成度核查清缺口：matha_system 假门面、资源_成长恒零占位）**：
+  阶段 4 后全面核查（AI 测试子集 861/861 实跑复绿）发现两类残留，经批准本轮清除——
+  ① **`src/matha_system.py` AI/ML/数据门面**（阶段 1 余项登记「未修」在案）：
+  `create_convnet`/`create_rnn` 假 dict → 显式 `NotImplementedError`（与 neural_network
+  插件同口径）；`create_neural_network` 真接路径坐实必崩（layers/hidden_size kwargs 与
+  `NeuralNetwork(config)` 签名不合）→ 改 `ModelConfig` 构造（与插件工厂逐字段对拍）；
+  `load_csv` 恒 True → 真委托数据科学域 `Dataset.load_csv`（真读真校验、失败如实抛错、
+  成功留置 `self.dataset`，失败不换数据集）；`normalize_data` 透传 → 真逐列 min-max
+  返回新矩阵（契约同 `Dataset.normalize`：常量列/空/不齐宽/非数值/bool 显式拒绝，
+  seeded 随机阵与已背书实现逐值对拍）；`train_model` 无 fit 假 dict 兜底 → 显式
+  `TypeError`（fit 非可调用同拒），真路径委托 fit 返回真实 `ModelResult`；
+  **顺带坐实 `_init_ml` 从未被调用**（四个 ML 工厂在已初始化系统上 AttributeError
+  死接线）→ 接入 `_init_domains`；四个 ML 工厂与 `create_data_science` 的模块缺席
+  假 dict 兜底一律改 `RuntimeError` 显式拒绝。
+  新 `tests/test_matha_system_facades.py` **38 条**（真接手算/闭环/插件对拍、
+  缺席与误用拒绝矩阵、_init_ml 接线锁）。
+  ② **`src/library.py` 资源_成长恒零占位**（本轮核查新发现，原未登记）：
+  `_generate_candidate` 对未匹配需求静默生成 `(x) => 0` 且 grow 返回 成功=True
+  （探针实测「计算黑洞熵」成功入库恒零函数）→ 删除默认分支，未匹配返回 None
+  走既有诚实失败路径（成功=False、不落盘、不注册、解释器零污染）；
+  活内建 `资源_成长`（柯里化三应用）与 `资源_加载`（两应用）同步锁。
+  新 `tests/test_library_grow.py` **19 条**（六关键词模板公式手算对拍——圆/矩形面积、
+  球/圆柱体积、牛顿力、动能；grow→加载→新解释器调用闭环；保护隔离不覆盖；
+  未匹配拒绝矩阵；内建接线锁，monkeypatch 库根到 tmp 零仓库副作用）。
+  本轮新增测试 **57 条**，全量门禁 **6113/6113 通过**（基线：`python scripts/check.py`，
+  tests 项 6010 过 19m23s + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
+  **仍未背书/未修**：资源_成长关键词模板为窄路径，近缘需求会误匹配（如「圆环面积」
+  匹配圆面积模板产出 πr²）——语义级需求理解不背书，未匹配才诚实失败；
+  `matha_system.py` 的 `_init_science`/`_init_visualization` 同样从未被调用
+  （create_dataset 等科学/可视化门面 AttributeError 死接线，非 AI 范围，未触及）；
+  quantum grover/shor 假实现与 `unified_parser.py` 假编译产物仍在（非 AI，登记同前）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
