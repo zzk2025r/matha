@@ -412,7 +412,10 @@ class MathaSymbolic:
                      vars_dict: dict[str, float]) -> float:
         """求值。"""
         if expr.operator == 'number':
-            return expr.operands[0].value if expr.operands else 0
+            if not expr.operands:
+                return 0
+            v = expr.operands[0]
+            return v.value if isinstance(v, Symbol) else v
         if expr.operator == 'symbol':
             sym = expr.operands[0] if expr.operands else Symbol("")
             return vars_dict.get(sym.name, 0)

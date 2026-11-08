@@ -254,6 +254,16 @@ class MathaSystem:
         self._init_astronomy()
         self._init_music()
         self._init_robotics()
+        self._init_package()
+        self._init_type_checker()
+        self._init_test()
+        self._init_formatter()
+        self._init_doc()
+        self._init_async()
+        self._init_science()
+        self._init_visualization()
+        self._init_symbolic()
+        self._init_security2()
 
     def _init_graphics(self):
         """初始化图形引擎。"""
@@ -527,12 +537,14 @@ class MathaSystem:
     def _init_package(self):
         """初始化包管理模块。"""
         try:
-            from src.package_manager import PackageManager
+            from src.package_manager import DependencyResolver, PackageManager
             self.package_manager_class = PackageManager
+            self.dependency_resolver_class = DependencyResolver
             if self.debug:
                 print("[MathaSystem] 包管理模块初始化")
         except Exception:
             self.package_manager_class = None
+            self.dependency_resolver_class = None
             if self.debug:
                 print("[MathaSystem] 包管理模块初始化失败")
 
@@ -607,6 +619,8 @@ class MathaSystem:
                 print("[MathaSystem] 科学计算模块初始化")
         except Exception:
             self.array_class = None
+            self.matrix_class = None
+            self.dataset_class = None
             if self.debug:
                 print("[MathaSystem] 科学计算模块初始化失败")
 
@@ -661,6 +675,9 @@ class MathaSystem:
                 print("[MathaSystem] 安全增强模块初始化")
         except Exception:
             self.security_class = None
+            self.certificate_class = None
+            self.ssl_context_class = None
+            self.oauth2_client_class = None
             if self.debug:
                 print("[MathaSystem] 安全增强模块初始化失败")
 
@@ -1715,15 +1732,26 @@ class MathaSystem:
         """创建包管理器。"""
         if self.package_manager_class:
             return self.package_manager_class()
-        return {"type": "package_manager"}
+        raise RuntimeError("包管理模块初始化失败，不可用")
 
     def install_package(self, pm: Any, name: str) -> dict:
-        """安装包。"""
-        return {"success": True, "package": name}
+        """安装包（委托 pm.install，返回真实安装结果）。
+
+        无 install 方法显式拒绝，不返回假成功。
+        """
+        install = getattr(pm, "install", None)
+        if not callable(install):
+            raise TypeError(
+                f"包管理器 {type(pm).__name__} 无 install 方法，不可安装")
+        result = install(name)
+        return {"success": result.success, "message": result.message,
+                "package": result.package}
 
     def resolve_dependencies(self, packages: dict) -> tuple:
-        """解析依赖。"""
-        return (True, list(packages.keys()), [])
+        """解析依赖（委托 DependencyResolver 真拓扑排序）。"""
+        if self.dependency_resolver_class:
+            return self.dependency_resolver_class.resolve(packages)
+        raise RuntimeError("包管理模块初始化失败，不可用")
 
     # ─── 类型检查方法 ───
 
@@ -1731,21 +1759,19 @@ class MathaSystem:
         """创建类型检查器。"""
         if self.type_checker_class:
             return self.type_checker_class()
-        return {"type": "type_checker"}
+        raise RuntimeError("类型检查模块初始化失败，不可用")
 
     def check_type(self, value: Any, expected: str) -> bool:
         """检查类型。"""
-        tc = self.type_checker_class() if self.type_checker_class else None
-        if tc:
-            return tc.check_type(value, expected)
-        return isinstance(value, type)
+        if self.type_checker_class:
+            return self.type_checker_class().check_type(value, expected)
+        raise RuntimeError("类型检查模块初始化失败，不可用")
 
     def infer_type(self, value: Any) -> str:
         """推断类型。"""
-        tc = self.type_checker_class() if self.type_checker_class else None
-        if tc:
-            return tc.infer_type(value)
-        return type(value).__name__
+        if self.type_checker_class:
+            return self.type_checker_class().infer_type(value)
+        raise RuntimeError("类型检查模块初始化失败，不可用")
 
     # ─── 测试方法 ───
 
@@ -1753,11 +1779,25 @@ class MathaSystem:
         """创建测试运行器。"""
         if self.test_runner_class:
             return self.test_runner_class()
-        return {"type": "test_runner"}
+        raise RuntimeError("测试框架模块初始化失败，不可用")
 
     def run_test(self, runner: Any, name: str, func: callable) -> dict:
-        """运行测试。"""
-        return {"name": name, "passed": True}
+        """运行单个测试（委托测试框架真跑，返回真实通过/失败）。
+
+        缺少 suite/test/run 方法显式拒绝，不返回假通过。
+        """
+        for meth in ("suite", "test", "run"):
+            if not callable(getattr(runner, meth, None)):
+                raise TypeError(
+                    f"测试运行器 {type(runner).__name__} 无 {meth} 方法，"
+                    "不可运行测试")
+        suite = runner.suite(name)
+        runner.test(name, func)
+        runner.run(suite.name)
+        error = suite.results[-1].error if suite.results else None
+        return {"name": name,
+                "passed": suite.passed == 1 and suite.failed == 0,
+                "error": error}
 
     # ─── 代码格式化方法 ───
 
@@ -1765,14 +1805,13 @@ class MathaSystem:
         """创建格式化器。"""
         if self.formatter_class:
             return self.formatter_class()
-        return {"type": "formatter"}
+        raise RuntimeError("格式化模块初始化失败，不可用")
 
     def format_code(self, code: str) -> str:
         """格式化代码。"""
-        fm = self.formatter_class() if self.formatter_class else None
-        if fm:
-            return fm.format(code).formatted_code
-        return code
+        if self.formatter_class:
+            return self.formatter_class().format(code).formatted_code
+        raise RuntimeError("格式化模块初始化失败，不可用")
 
     # ─── 文档生成方法 ───
 
@@ -1780,11 +1819,21 @@ class MathaSystem:
         """创建文档生成器。"""
         if self.doc_generator_class:
             return self.doc_generator_class()
-        return {"type": "doc_generator"}
+        raise RuntimeError("文档生成模块初始化失败，不可用")
 
-    def generate_docs(self, dg: Any, module: str) -> str:
-        """生成文档。"""
-        return f"Documentation for {module}"
+    def generate_docs(self, dg: Any, module: Any) -> str:
+        """生成文档（委托 dg.scan_module + generate_markdown，真扫描真出文）。
+
+        缺少 scan_module/generate_markdown 方法显式拒绝，不返回假文档。
+        """
+        scan = getattr(dg, "scan_module", None)
+        gen = getattr(dg, "generate_markdown", None)
+        if not callable(scan) or not callable(gen):
+            raise TypeError(
+                f"文档生成器 {type(dg).__name__} 缺少 "
+                "scan_module/generate_markdown 方法，不可生成文档")
+        scan(module)
+        return gen()
 
     # ─── 异步编程方法 ───
 
@@ -1792,14 +1841,13 @@ class MathaSystem:
         """创建异步管理器。"""
         if self.async_manager_class:
             return self.async_manager_class()
-        return {"type": "async_manager"}
+        raise RuntimeError("异步编程模块初始化失败，不可用")
 
     async def run_async(self, coro: Any) -> Any:
         """运行异步任务。"""
-        am = self.async_manager_class() if self.async_manager_class else None
-        if am:
-            return await am.run_async(coro)
-        return None
+        if self.async_manager_class:
+            return await self.async_manager_class().run_async(coro)
+        raise RuntimeError("异步编程模块初始化失败，不可用")
 
     # ─── 科学计算方法 ───
 
@@ -1807,19 +1855,19 @@ class MathaSystem:
         """创建数组。"""
         if self.array_class:
             return self.array_class(data=data)
-        return {"type": "array", "data": data}
+        raise RuntimeError("科学计算模块初始化失败，不可用")
 
     def create_matrix(self, data: list) -> Any:
         """创建矩阵。"""
         if self.matrix_class:
             return self.matrix_class(data)
-        return {"type": "matrix", "data": data}
+        raise RuntimeError("科学计算模块初始化失败，不可用")
 
     def create_dataset(self, columns: list, data: list) -> Any:
         """创建数据集。"""
         if self.dataset_class:
             return self.dataset_class(columns=columns, data=data)
-        return {"type": "dataset", "columns": columns}
+        raise RuntimeError("科学计算模块初始化失败，不可用")
 
     # ─── 数据可视化方法 ───
 
@@ -1827,31 +1875,28 @@ class MathaSystem:
         """创建绘图器。"""
         if self.plotter_class:
             return self.plotter_class()
-        return {"type": "plotter"}
+        raise RuntimeError("数据可视化模块初始化失败，不可用")
 
     def plot_line(self, x: list, y: list,
                       title: str = "") -> Any:
         """绘制折线图。"""
-        p = self.plotter_class() if self.plotter_class else None
-        if p:
-            return p.line(x, y, title)
-        return {"type": "line", "title": title}
+        if self.plotter_class:
+            return self.plotter_class().line(x, y, title)
+        raise RuntimeError("数据可视化模块初始化失败，不可用")
 
     def plot_bar(self, x: list, y: list,
                     title: str = "") -> Any:
         """绘制柱状图。"""
-        p = self.plotter_class() if self.plotter_class else None
-        if p:
-            return p.bar(x, y, title)
-        return {"type": "bar", "title": title}
+        if self.plotter_class:
+            return self.plotter_class().bar(x, y, title)
+        raise RuntimeError("数据可视化模块初始化失败，不可用")
 
     def plot_scatter(self, x: list, y: list,
                          title: str = "") -> Any:
         """绘制散点图。"""
-        p = self.plotter_class() if self.plotter_class else None
-        if p:
-            return p.scatter(x, y, title)
-        return {"type": "scatter", "title": title}
+        if self.plotter_class:
+            return self.plotter_class().scatter(x, y, title)
+        raise RuntimeError("数据可视化模块初始化失败，不可用")
 
     # ─── 符号计算方法 ───
 
@@ -1859,21 +1904,19 @@ class MathaSystem:
         """创建符号计算引擎。"""
         if self.symbolic_class:
             return self.symbolic_class()
-        return {"type": "symbolic"}
+        raise RuntimeError("符号计算模块初始化失败，不可用")
 
     def differentiate(self, expr: Any, var: str = "x") -> Any:
         """求导。"""
-        s = self.symbolic_class() if self.symbolic_class else None
-        if s:
-            return s.diff(expr, var)
-        return {"type": "derivative", "var": var}
+        if self.symbolic_class:
+            return self.symbolic_class().diff(expr, var)
+        raise RuntimeError("符号计算模块初始化失败，不可用")
 
     def solve_equation(self, eq: Any) -> list:
         """求解方程。"""
-        s = self.symbolic_class() if self.symbolic_class else None
-        if s:
-            return s.solve(eq)
-        return []
+        if self.symbolic_class:
+            return self.symbolic_class().solve(eq)
+        raise RuntimeError("符号计算模块初始化失败，不可用")
 
     # ─── 机器学习方法 ───
 
@@ -1923,39 +1966,36 @@ class MathaSystem:
         """创建安全管理器。"""
         if self.security_class:
             return self.security_class()
-        return {"type": "security"}
+        raise RuntimeError("安全增强模块初始化失败，不可用")
 
     def generate_certificate(self, subject: str,
                                  issuer: str) -> Any:
         """生成证书。"""
-        s = self.security_class() if self.security_class else None
-        if s:
-            return s.generate_certificate(subject, issuer)
-        return {"type": "certificate", "subject": subject}
+        if self.security_class:
+            return self.security_class().generate_certificate(subject, issuer)
+        raise RuntimeError("安全增强模块初始化失败，不可用")
 
     def hash_password(self, password: str) -> str:
         """哈希密码。"""
-        s = self.security_class() if self.security_class else None
-        if s:
-            return s.hash_password(password)
-        return password
+        if self.security_class:
+            return self.security_class().hash_password(password)
+        raise RuntimeError("安全增强模块初始化失败，不可用")
 
     def create_oauth2_client(self, client_id: str,
                                  client_secret: str,
                                  redirect_uri: str) -> Any:
         """创建 OAuth2 客户端。"""
-        s = self.security_class() if self.security_class else None
-        if s:
-            return s.create_oauth2_client(client_id, client_secret, redirect_uri)
-        return {"type": "oauth2_client", "client_id": client_id}
+        if self.security_class:
+            return self.security_class().create_oauth2_client(
+                client_id, client_secret, redirect_uri)
+        raise RuntimeError("安全增强模块初始化失败，不可用")
 
     def generate_jwt(self, payload: dict,
                          secret: str) -> str:
         """生成 JWT。"""
-        s = self.security_class() if self.security_class else None
-        if s:
-            return s.generate_jwt(payload, secret)
-        return "jwt_token"
+        if self.security_class:
+            return self.security_class().generate_jwt(payload, secret)
+        raise RuntimeError("安全增强模块初始化失败，不可用")
 
     # ============================================================
     # 状态查询

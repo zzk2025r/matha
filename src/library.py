@@ -24,7 +24,7 @@
 
 自主成长扩展：
   - 子文件请求资源不存在时
-  - 资源库通过关键词模板生成新公式代码（未匹配诚实失败，不生成占位）
+  - 资源库通过精确场景模板生成新公式代码（未匹配诚实失败，不生成占位）
   - 沙箱验证后写入资源库对应分支目录
   - 更新索引
 """
@@ -266,47 +266,43 @@ class Library:
         return GrowResult(成功=True, 新资源=rel_path,
                           学科=discipline, 内容=candidate)
 
+    # 六个精确场景模板：规范名 → 公式体（仅此一一路径，近缘名一律不匹配）
+    _TEMPLATES = {
+        '圆面积': "func 圆面积(r: Float) -> Float = (r) => 3.14159 * r * r\n",
+        '矩形面积': "func 矩形面积(w: Float, h: Float) -> Float = (w, h) => w * h\n",
+        '球体积': ("func 球体积(r: Float) -> Float = (r) => "
+                   "4 * 3.14159 * r ^ 3 / 3\n"),
+        '圆柱体积': ("func 圆柱体积(r: Float, h: Float) -> Float = (r, h) => "
+                     "3.14159 * r * r * h\n"),
+        '牛顿力': "func 牛顿力(m: Float, a: Float) -> Float = (m, a) => m * a\n",
+        '动能': ("func 动能(m: Float, v: Float) -> Float = (m, v) => "
+                 "0.5 * m * v ^ 2\n"),
+    }
+
     def _generate_candidate(self, requirement: str,
                             discipline: str, name: str) -> str | None:
-        """根据需求描述生成候选 Matha 公式代码（关键词模板）。
+        """根据需求描述生成候选 Matha 公式代码（精确场景模板）。
 
-        仅覆盖圆/矩形面积、球/圆柱体积、牛顿力、动能六个精确场景；
-        未匹配返回 None（grow 诚实失败），不生成占位函数。
+        仅覆盖圆/矩形面积、球/圆柱体积、牛顿力、动能六个规范名
+        （可带「请/帮我/计算/求」前缀与空白）；近缘名（圆环面积、
+        圆柱面积、势能等）与其余需求一律返回 None（grow 诚实失败），
+        不生成占位函数，也不误套他式。
         """
         header = f"(* 资源库：{discipline} — {requirement} *)\n"
         header += "(* 自主成长生成：保护隔离 *)\n\n"
 
-        # 根据需求关键词匹配公式模板
-        req = requirement.lower()
-        if '面积' in req and '圆' in req:
-            return header + (
-                "func 圆面积(r: Float) -> Float = (r) => 3.14159 * r * r\n"
-            )
-        if '面积' in req and '矩形' in req:
-            return header + (
-                "func 矩形面积(w: Float, h: Float) -> Float = (w, h) => w * h\n"
-            )
-        if '体积' in req and '球' in req:
-            return header + (
-                "func 球体积(r: Float) -> Float = (r) => "
-                "4 * 3.14159 * r ^ 3 / 3\n"
-            )
-        if '体积' in req and '圆柱' in req:
-            return header + (
-                "func 圆柱体积(r: Float, h: Float) -> Float = (r, h) => "
-                "3.14159 * r * r * h\n"
-            )
-        if '力' in req and ('牛顿' in req or '第二' in req):
-            return header + (
-                "func 牛顿力(m: Float, a: Float) -> Float = (m, a) => m * a\n"
-            )
-        if '能量' in req or '动能' in req:
-            return header + (
-                "func 动能(m: Float, v: Float) -> Float = (m, v) => "
-                "0.5 * m * v ^ 2\n"
-            )
-        # 未匹配任何模板：返回 None，由 grow 走诚实失败路径（不生成恒零占位）
-        return None
+        req = ''.join(requirement.split())
+        while True:
+            for prefix in ('请', '帮我', '计算', '求'):
+                if req.startswith(prefix):
+                    req = req[len(prefix):]
+                    break
+            else:
+                break
+        body = self._TEMPLATES.get(req)
+        if body is None:
+            return None
+        return header + body
 
     # ---------- 保护隔离检查 ----------
 

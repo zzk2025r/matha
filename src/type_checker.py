@@ -84,7 +84,7 @@ class TypeChecker:
     def check_type(self, value: Any, expected_type: str) -> bool:
         """检查值是否符合类型。"""
         self._checked_count += 1
-        actual = self._infer_type(value)
+        actual = self.infer_type(value)
         if actual == expected_type or expected_type == "any":
             return True
         if expected_type == "int" and actual == "float":

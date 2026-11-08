@@ -511,10 +511,46 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   tests 项 6010 过 19m23s + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
   + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
   **仍未背书/未修**：资源_成长关键词模板为窄路径，近缘需求会误匹配（如「圆环面积」
-  匹配圆面积模板产出 πr²）——语义级需求理解不背书，未匹配才诚实失败；
+  匹配圆面积模板产出 πr²）——语义级需求理解不背书，未匹配才诚实失败
+  （**已于阶段 6 精确场景化清除**，见下方阶段 6 条目）；
   `matha_system.py` 的 `_init_science`/`_init_visualization` 同样从未被调用
-  （create_dataset 等科学/可视化门面 AttributeError 死接线，非 AI 范围，未触及）；
+  （create_dataset 等科学/可视化门面 AttributeError 死接线，非 AI 范围，未触及）
+  （**已于阶段 6 连同同类共十处全部接入主链**，见下方阶段 6 条目）；
   quantum grover/shor 假实现与 `unified_parser.py` 假编译产物仍在（非 AI，登记同前）。
+- **2026-11 阶段 6 收官（模板关键词误匹配清除 + 死接线全量修复）**：
+  阶段 5 登记的两项边界经批准本轮清除——
+  ① **`src/library.py` 模板精确场景化**：旧关键词子串匹配把「圆环面积/圆柱面积」
+  误套圆面积 πr²、「势能/能量」误套动能（阶段 5 登记在案）→ 改六个规范名精确匹配
+  （圆/矩形面积、球/圆柱体积、牛顿力、动能，可带「请/帮我/计算/求」前缀与任意空白），
+  近缘名与其余需求一律 None → grow 诚实失败（成功=False、不落盘不注册）；
+  「牛顿第二定律」这类真别名也不再宽匹配（窄路径精确化，语义理解仍不背书）。
+  ② **`src/matha_system.py` 十处死接线**：`_init_package`/`_init_type_checker`/
+  `_init_test`/`_init_formatter`/`_init_doc`/`_init_async`/`_init_science`/
+  `_init_visualization`/`_init_symbolic`/`_init_security2` 从未被 `_init_domains`
+  调用——类属性从未赋值，门面方法 AttributeError（假 dict 回退不可达）；其中
+  `install_package`/`run_test`/`generate_docs` 为纯假返回，`hash_password` 回退
+  明文密码（安全隐患）。本轮十处 init 全部接入主链（复枚举 0 处未调用），
+  门面真委托（install→pm.install 真实结果、resolve→DependencyResolver 真拓扑、
+  run_test→测试框架真跑（失败用例 passed=False 带 traceback）、generate_docs→
+  scan_module+generate_markdown 真扫描出文、run_async→AsyncManager.run_async 真跑），
+  全部假回退改 `RuntimeError` 显式拒绝，假对象误用显式 `TypeError`；
+  `_init_science`/`_init_security2`/`_init_package` 失败分支属性全置 None。
+  **顺带根治两个被真接线暴露的目标模块崩溃**：`type_checker.check_type` 调
+  不存在的 `_infer_type` → `infer_type`；`symbolic._evaluate` 对 parse 产出的
+  裸数节点取 `.value` → 兼容裸数与 Symbol 值节点（solve x-2=0 手算 [2.0] 坐实）。
+  新 `tests/test_matha_system_wiring.py` **107 条**（十处接线防漂移 + 16 类属性身份
+  对拍 + init 失败分支、包/类型/测试/格式化/文档/异步/科学/可视化/符号/安全手算
+  对拍与真委托对拍、25 例缺席拒绝矩阵）；`tests/test_library_grow.py` 增
+  **16 条**（10 近缘名误匹配清除锁 + 6 前缀/空白容忍锁）。
+  本轮新增测试 **123 条**，全量门禁 **6236/6236 通过**（基线：`python scripts/check.py`，
+  tests 项 6133 过 18m54s + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
+  **仍未背书/未修**：资源_成长仅背书六规范名精确场景，语义级需求理解不背书；
+  `security_enhanced.verify_password` 恒真（len(hashed)>0）假验证仍在（探针实测
+  错误密码也通过；非门面消费，本轮未触及）；`symbolic.simplify` 对裸数节点取
+  `.value` 的同类崩溃仍在（探针实测 simplify(parse('1+2')) AttributeError；
+  非门面消费，本轮未触及）；quantum grover/shor 假实现与 `unified_parser.py`
+  假编译产物仍在（非 AI，登记同前）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

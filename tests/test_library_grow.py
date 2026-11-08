@@ -13,8 +13,9 @@
   3. 显式拒绝：未匹配需求 成功=False、不落盘、不注册、解释器不受污染；
   4. 活内建接线：资源_成长 柯里化三应用与 资源_加载 两应用（monkeypatch
      资源库根到 tmp_path，零仓库副作用）。
-边界登记：关键词模板为窄路径（如「圆环面积」会误匹配圆面积模板），
-语义级需求理解不背书——见 docs/KNOWN_ISSUES.md 阶段 5 条目。
+边界登记：阶段 6 起模板为精确场景匹配（六个规范名，可带请/帮我/计算/求
+前缀与空白），近缘名（圆环面积、圆柱面积、势能等）一律诚实失败，
+语义级需求理解不背书——见 docs/KNOWN_ISSUES.md 阶段 5/6 条目。
 """
 from __future__ import annotations
 
@@ -161,3 +162,41 @@ class TestBuiltinWiring:
         r = ip2.builtins["资源_加载"]("core/计算球体积")(0)
         assert r["成功"] is True
         assert _call(ip2, "球体积(3)")[-1] == pytest.approx(113.09724)
+
+
+# ============================================================
+# 5. 阶段 6：精确场景匹配——近缘名误匹配清除
+# ============================================================
+
+class TestExactScenarioMatching:
+    """旧关键词子串匹配会把「圆环面积/圆柱面积」误套圆面积 πr²、
+    「势能/能量」误套动能。阶段 6 改为规范名精确匹配：近缘名一律
+    诚实失败；规范名可带请/帮我/计算/求前缀与任意空白。"""
+
+    @pytest.mark.parametrize("requirement", [
+        "计算圆环面积", "计算圆柱面积", "计算势能", "计算能量", "求势能",
+        "牛顿第二定律", "圆面积半径", "面积圆", "球体积公式", "计算圆的面积",
+    ])
+    def test_near_miss_fails_honestly(self, lib, tmp_path, requirement):
+        ip = Interpreter()
+        r = lib.grow(ip, requirement, discipline="core")
+        assert r.成功 is False
+        assert r.新资源 is None
+        assert "无法" in r.错误
+        assert list(tmp_path.rglob("*.matha")) == []
+        assert lib._generate_candidate(requirement, "core", "x") is None
+
+    @pytest.mark.parametrize("requirement,call,expected", [
+        ("请计算圆面积", "圆面积(2)", 3.14159 * 2 * 2),
+        ("帮我求球体积", "球体积(3)", 4 * 3.14159 * 27 / 3),
+        ("求动能", "动能(2, 3)", 0.5 * 2 * 3 ** 2),
+        (" 计算 圆面积 ", "圆面积(2)", 3.14159 * 2 * 2),
+        ("请帮我计算矩形面积", "矩形面积(3, 4)", 12.0),
+        ("圆面积", "圆面积(2)", 3.14159 * 2 * 2),
+    ])
+    def test_prefix_and_whitespace_tolerance(self, lib, requirement,
+                                             call, expected):
+        ip = Interpreter()
+        r = lib.grow(ip, requirement, discipline="core")
+        assert r.成功 is True and r.错误 is None
+        assert _call(ip, call)[-1] == pytest.approx(expected)
