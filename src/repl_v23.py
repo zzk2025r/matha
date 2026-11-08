@@ -30,6 +30,7 @@ from src.errors import (
 from src.diag_backends import run_legacy as interpret
 from src.kernel import exec_api
 from src.parser import Parser
+from src.result import Ok
 
 # KNP-PYTHON-NONDEFAULT: stdlib/core 改为按需懒加载
 # from src.stdlib.core import register_core_builtins  ← 已移除，按需调用
@@ -182,8 +183,13 @@ class MathaREPL:
         if not parser:
             print("  [WARN] 意图解析器未初始化")
             return
-        # 使用安全解析（返回 Result，不抛出）；nl 通道产 Matha 代码走主链
-        result = parser.parse(line, target_lang="matha")
+        # 使用安全解析（返回 Result，不抛出）；nl 通道产 Matha 代码走主链。
+        # MATHA_REPL_LLM=1 时走 LLM 链（内部降级正则 Matha 轨），默认正则轨。
+        from src.intent.llm_parser import llm_nl_enabled, parse_nl_matha
+        if llm_nl_enabled():
+            result = Ok(parse_nl_matha(line))
+        else:
+            result = parser.parse(line, target_lang="matha")
         if result.is_ok():
             intent = result.unwrap()
             print()

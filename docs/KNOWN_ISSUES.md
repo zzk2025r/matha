@@ -398,7 +398,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `src/compiler/ir.py` 的 execute_mir/compile_mir 保留为 legacy IR 演示（magic 不再消费）；
   阶段 3（ml/genetic_algo/servers 测试口径升级）已于 2026-11 完成（见下条）；阶段 4
   （LLM 接 REPL/CLI、密钥统一 llm_config、MCP 工具注册、openai_compat 鉴权流式、
-  其余 ModelType 算法、examples/ai 重写）已批准未开工。
+  其余 ModelType 算法、examples/ai 重写）已于 2026-11 完成（见下下条）。
 - **2026-11 阶段 3 AI 修复：ml/genetic_algo/data_science 行为级三锁、三 server 冒烟、
   LLM 降级契约**：
   ① `src/domains/genetic_algo.py` 全入口参数校验（正整数/概率区间/适应度须 Python 可调用
@@ -435,7 +435,52 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   **仍未背书/未修**：LLM 真实 API 的回答正确性不背书（口径同本节）；三 server 的结果
   正确性不背书（冒烟只锁 HTTP 层/启动接线/降级形状）；阶段 4（LLM 接 REPL/CLI、密钥统一
   llm_config、MCP 门面 parse_intent 缺口、openai_compat 鉴权与真流式、其余 6 种 ModelType、
-  examples/ai 重写）已批准未开工。
+  examples/ai 重写）已于 2026-11 完成（见下条）。
+- **2026-11 阶段 4 收官（AI 链最后一公里：LLM 进 REPL/CLI、密钥统一、MCP 补全、openai 兼容加固、ml.py 九算法齐、examples/ai 真可跑）**：
+  ① **LLM 链落地两个活 REPL/CLI**：`LLMIntentParser` 新增 `target_lang="matha"` 可执行轨
+  （生成 `result = 表达式\n#1：[result]`），默认仍为 "mir"（旧行为不变）；`src/repl.py`
+  （matha_main 入口）与 `src/repl_v23.py`（根 main.py 入口）接入，`MATHA_REPL_LLM ∈ {1,on,true,yes}`
+  显式开启、默认关闭，LLM 不可用时诚实降级回正则解析器（打印降级原因，不静默）；
+  新 `tests/test_repl_llm_link.py` **35 条**（fake 后端驱动，含降级契约与开关语义）。
+  ② **密钥管理统一**：llm_parser 四处 env 读取改为统一优先级链 **显式参数 > 环境变量 >
+  llm_config 加密 store > None**（env 优先不变，store 读取失败诚实返回 None 不抛）；
+  CLI 新增 `llm-config` 子命令（set/get/list/delete，密钥不回显）；
+  新 `tests/test_llm_key_unification.py` **17 条**（仅用假密钥）。
+  ③ **MCP 门面补齐**：`parse_intent` 注册为第六工具，五方法 vs 六工具缺口关闭，
+  `tests/test_mcp_server_facade.py` 10→**12 条**。
+  ④ **openai_compat_server 加固**：可选 Bearer 鉴权（`MATHA_OPENAI_API_KEY` 设置即启用，
+  `hmac.compare_digest` 恒定时间比较，/health 恒开放，401 形状
+  `{"error":{"message","type":"authentication_error","code":"invalid_api_key"}}`）；
+  SSE 改协议正确增量（首帧 role delta + 8 字符增量 + `{}`+finish_reason=stop + `[DONE]`；
+  **传输层增量、引擎原子**——横幅如实声明非 token 级）；`tests/test_ai_servers_smoke.py`
+  25→**39 条**。
+  ⑤ **ml.py 其余六算法纯 Python 真实现**：decision_tree（CART gini、零增益诚实停分——
+  **XOR 首刀零增益故根叶 acc=0.5 是标准 CART 行为**，深度闭环改用交错标签：stump 0.75
+  vs 深树 1.0）、random_forest（bootstrap+每树特征子空间，**非每节点采样变体**）、
+  neural_network（单隐层 tanh+sigmoid 输出，**仅 0/1 二分类**，MSE+SGD，XOR 收敛
+  loss<0.01）、knn（平方欧氏、票数平手取最近类）、svm（线性 hinge+L2，标签 0/1→±1）、
+  naive_bayes（总体方差/n+var_smoothing）；分类平手一律**先见标签序**；
+  `MathaML.create_model` 九类型全部分派，旧「未实现」拒绝锁改为分派正确锁；旧注册表
+  ML 域符号 3→**9**（`src/domains/registry.py` 同步，eager 路径实跑验证）；
+  新 `tests/test_ml_models_phase4.py` **160 条**三锁（手算对拍/收敛闭环/显式拒绝矩阵+
+  管理器九分派+注册契约）。
+  ⑥ **examples/ai 重写为真可运行**：旧 README 六个虚构 API 示例块全废，新 4 个 `.matha`
+  （neural_network/data_pipeline/genetic_algo/ai_framework）+ data.csv，逐一经真实 CLI
+  `python -m src.matha_main run` 跑通；新 `tests/test_examples_ai.py` **5 条**（干净子进程
+  exec_api 端到端+手算期望输出+文件漂移锁）；examples/README 与 examples/ai/README 同步重写
+  （game/web 虚构块如实标注未重写）；新增示例使 `used_in` 计数漂移，`docs/ast_vm_gap.json/md`
+  按断言指示以 `scripts/ast_vm_matrix.py --write` 重生成，ast_vm_gap **11/11** 复绿。
+  **如实登记的 Matha 语言边界**（示例与测试均绕开并注释）：Python 对象点访问编译为下标
+  （`tensor.shape` 不可用）、Matha 闭包不是 Python 可调用对象（GA 适应度回调显式
+  ValueError 拒绝）。
+  本轮新增测试 **233 条**（35+17+2+14+160+5），全量门禁 **6056/6056 通过**
+  （基线：`python scripts/check.py`，tests 项 5953 过 17m19s + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现
+  不计入分母；零失败零跳过）。
+  **仍未背书/未修**：LLM 真实 API 的回答正确性（fake 后端锁只证编排与降级契约）；
+  SSE 非 token 级流式；六算法变体限制如上（RF 非逐节点采样、MLP 仅二分类、SVM 仅线性）；
+  neural_network 示例默认 100 epochs 是演示配置、XOR 未收敛（loss≈0.25，示例内已注释）；
+  Matha 闭包跨语言回调不支持；examples 的 game/web 虚构示例未重写（不在本阶段范围）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

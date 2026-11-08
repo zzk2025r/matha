@@ -270,11 +270,15 @@ class MathaREPL:
                 print(f"  [ERROR] {e}")
 
     def _process_natural_language(self, line: str) -> None:
-        """处理自然语言输入。"""
+        """处理自然语言输入（MATHA_REPL_LLM=1 时走 LLM 链，默认正则轨）。"""
         if not self.state.intent_parser:
             print("  [WARN] 意图解析器未初始化")
             return
-        intent = self.state.intent_parser.parse(line, target_lang="matha")
+        from src.intent.llm_parser import llm_nl_enabled, parse_nl_matha
+        if llm_nl_enabled():
+            intent = parse_nl_matha(line)
+        else:
+            intent = self.state.intent_parser.parse(line, target_lang="matha")
         print()
         print("  " + "-" * 40)
         print("  " + self.state.intent_parser.explain(intent))

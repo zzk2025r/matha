@@ -1,0 +1,8 @@
+(* 遗传算法与AI编写代码示例（阶段 4 重写，真实现） *)
+(* 运行：matha run examples/ai/genetic_algo.matha *)
+(* 口径：Matha 闭包暂不支持跨语言回调，适应度函数类 API *)
+(*       （遗传算法进化/精英保留/超参数搜索）在 Matha 侧显式拒绝 *)
+@：【加载领域】，genetic_algo
+#1：[NESMA估算(100)]
+#1：[代码优化("a  b")]
+#1：[代码生成("func {name}(x) = x + {k}", {"name": "f", "k": 3})]

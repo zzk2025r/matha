@@ -8,7 +8,8 @@
 
 本文件锁：
   1. 缺 SDK 子进程内 import 不崩、门面可用、create_server 诚实拒绝；
-  2. 门面五方法真算（eval/run_file/compile/diagnose/get_info）；
+  2. 门面六方法真算（eval/run_file/compile/diagnose/parse_intent/get_info，
+     阶段 4-3 补齐 parse_intent 缺口，门面与注册工具一一对应）；
   3. create_server 工具注册形状（假 SDK 模块注入子进程，六工具名锁定，
      零环境依赖、零跳过）。
 
@@ -68,7 +69,7 @@ def test_import_and_facade_work_without_sdk():
 
 
 # ============================================================
-# 2. 门面五方法真算（进程内，零 SDK 依赖）
+# 2. 门面六方法真算（进程内，零 SDK 依赖）
 # ============================================================
 
 class TestFacadeRealMethods:
@@ -123,6 +124,30 @@ class TestFacadeRealMethods:
         info = MathaMCPServer().get_info()
         assert info["name"] == "Matha"
         assert info["version"] == VERSION  # 反硬编 "4.4" 漂移
+
+    def test_parse_intent_real_decomposition(self):
+        # 阶段 4-3：门面补齐 parse_intent（历史上六工具只有五方法）
+        out = MathaMCPServer().parse_intent("计算 3 加 5")
+        assert out["type"] == "arithmetic"
+        assert out["confidence"] == 1.0
+        assert out["total_steps"] == 1
+        assert out["steps"] == ["计算 3.0 + 5.0"]
+
+    def test_facade_six_methods_match_registered_tools(self):
+        # 门面 ↔ 协议工具一一对应（命名映射固定，防再漂移）
+        facade_to_tool = {
+            "eval_expr": "eval_expression",
+            "run_file": "run_file",
+            "compile_source": "compile_source",
+            "diagnose": "diagnose_source",
+            "parse_intent": "parse_intent",
+            "get_info": "get_info",
+        }
+        for method in facade_to_tool:
+            assert callable(getattr(MathaMCPServer(), method)), method
+        registered = {"eval_expression", "run_file", "compile_source",
+                      "diagnose_source", "parse_intent", "get_info"}
+        assert set(facade_to_tool.values()) == registered
 
 
 # ============================================================

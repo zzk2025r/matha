@@ -1,0 +1,13 @@
+(* 数据科学管线示例：加载CSV → 划分训练测试 → 归一化 → 准确率（阶段 4 重写） *)
+(* 运行：matha run examples/ai/data_pipeline.matha（自仓库根目录，CSV 相对路径） *)
+(* 手算：准确率 4/5=0.8；两半均为等差列，归一化后皆 [[0,0],[1,1]] *)
+@：【加载领域】，数据科学
+ds = 创建数据集("示例数据", 2, 4)
+加载CSV(ds, "examples/ai/data.csv")
+parts = 划分训练测试(ds, 0.5)
+train = parts[0]
+test = parts[1]
+归一化(train)
+归一化(test)
+#1：[准确率([1, 1, 0, 0, 1], [1, 0, 0, 0, 1])]
+#1：[parts]

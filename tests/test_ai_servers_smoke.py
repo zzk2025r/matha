@@ -6,8 +6,9 @@
     chat 走离线正则 FriendlyIntentParser，感知腿用轻量 MathaInnerLoop
     （init_modules 置空——重型模块初始化不属本冒烟锁范围）。
   - src/openai_compat_server.py：OpenAI 兼容形状（models/completions/
-    chat.completion/SSE 伪流式 + [DONE]）、chat 异常 → 200 错误透出的
-    诚实降级契约。真流式/鉴权属阶段 4，不在本锁主张。
+    chat.completion/SSE + [DONE]）、chat 异常 → 200 错误透出的
+    诚实降级契约；阶段 4-4 补锁：可选 Bearer 鉴权（401 形状/health 开放）
+    与协议化增量 SSE（role 首 chunk/增量拼回/text_completion 流式）。
   - src/ai_assistant_desktop.py：launch_desktop 接线（假 HTTPServer/
     webbrowser/睡眠注入，不开浏览器不占 8080）。
 
@@ -31,12 +32,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def _request(server, method, path, body=None, raw_body=None):
+def _request(server, method, path, body=None, raw_body=None, headers=None):
     url = f"http://127.0.0.1:{server.server_address[1]}{path}"
     data = raw_body if raw_body is not None else (
         json.dumps(body).encode("utf-8") if body is not None else None)
     req = urllib.request.Request(url, data=data, method=method,
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json",
+                                          **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.status, dict(resp.headers), resp.read().decode("utf-8")
@@ -59,8 +61,9 @@ def assistant_server(monkeypatch):
 
 
 @pytest.fixture()
-def compat_server():
+def compat_server(monkeypatch):
     from src.openai_compat_server import OpenAICompatHandler
+    monkeypatch.delenv("MATHA_OPENAI_API_KEY", raising=False)
     server = ThreadingHTTPServer(("127.0.0.1", 0), OpenAICompatHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
@@ -243,9 +246,10 @@ class TestOpenAICompatSmoke:
         assert lines[-1] == "data: [DONE]"
         chunks = [json.loads(l[len("data: "):]) for l in lines[:-1]]
         assert all(c["object"] == "chat.completion.chunk" for c in chunks)
+        assert chunks[0]["choices"][0]["delta"] == {"role": "assistant"}
         assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
         content = "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
-        assert content  # 伪流式拼回完整回复（真流式属阶段 4，不在本锁主张）
+        assert content  # 传输层增量拼回完整回复（本地引擎原子生成，口径见横幅）
 
     def test_completions_shape(self, compat_server):
         status, _, body = _request(compat_server, "POST", "/v1/completions",
@@ -277,6 +281,140 @@ class TestOpenAICompatSmoke:
         assert status == 200
         content = json.loads(body)["choices"][0]["message"]["content"]
         assert "Matha 错误" in content and "boom" in content
+
+
+# ============================================================
+# 2b. openai_compat 鉴权与协议化流式（阶段 4-4）
+# ============================================================
+
+class TestOpenAIAuthStream:
+
+    LONG_REPLY = "abcdefghij" * 5  # 50 字符 → 多个增量 chunk
+
+    def _fake_assistant(self, monkeypatch, reply):
+        from src.openai_compat_server import OpenAICompatHandler
+        monkeypatch.setattr(OpenAICompatHandler, "assistant",
+                            types.SimpleNamespace(
+                                chat=lambda text, interp: {"reply": reply, "type": "answer"}))
+
+    def _sse_chunks(self, body):
+        lines = [l for l in body.split("\n") if l.startswith("data: ")]
+        assert lines[-1] == "data: [DONE]"
+        return [json.loads(l[len("data: "):]) for l in lines[:-1]]
+
+    # ── 鉴权 ────────────────────────────────────────────────
+
+    def test_auth_unset_open(self, compat_server):
+        status, _, _ = _request(compat_server, "GET", "/v1/models")
+        assert status == 200
+
+    @pytest.mark.parametrize("method,path,body", [
+        ("POST", "/v1/chat/completions", {"messages": [{"role": "user", "content": "x"}]}),
+        ("POST", "/v1/completions", {"prompt": "x"}),
+        ("GET", "/v1/models", None),
+    ])
+    def test_auth_missing_header_401(self, compat_server, monkeypatch, method, path, body):
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, _, out = _request(compat_server, method, path, body)
+        assert status == 401
+        err = json.loads(out)["error"]
+        assert err["type"] == "authentication_error"
+        assert err["code"] == "invalid_api_key"
+
+    def test_auth_wrong_key_401(self, compat_server, monkeypatch):
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, _, _ = _request(compat_server, "GET", "/v1/models",
+                                headers={"Authorization": "Bearer wrong-key"})
+        assert status == 401
+
+    def test_auth_wrong_scheme_401(self, compat_server, monkeypatch):
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, _, _ = _request(compat_server, "GET", "/v1/models",
+                                headers={"Authorization": "Basic test-key"})
+        assert status == 401
+
+    def test_auth_correct_key_200(self, compat_server, monkeypatch):
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, _, body = _request(compat_server, "POST", "/v1/chat/completions",
+                                   {"messages": [{"role": "user", "content": "计算 3 加 5"}]},
+                                   headers={"Authorization": "Bearer test-key"})
+        assert status == 200
+        assert json.loads(body)["object"] == "chat.completion"
+
+    def test_auth_scheme_case_insensitive(self, compat_server, monkeypatch):
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, _, _ = _request(compat_server, "GET", "/v1/models",
+                                headers={"Authorization": "bearer test-key"})
+        assert status == 200
+
+    def test_health_stays_open_with_auth(self, compat_server, monkeypatch):
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, _, _ = _request(compat_server, "GET", "/health")
+        assert status == 200
+
+    def test_auth_stream_without_key_401_json_not_sse(self, compat_server, monkeypatch):
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, headers, out = _request(compat_server, "POST", "/v1/chat/completions",
+                                        {"messages": [{"role": "user", "content": "x"}],
+                                         "stream": True})
+        assert status == 401
+        assert "application/json" in headers.get("Content-Type", "")
+        assert json.loads(out)["error"]["code"] == "invalid_api_key"
+
+    # ── 协议化流式 ──────────────────────────────────────────
+
+    def test_stream_role_first_and_incremental_reassembly(self, compat_server, monkeypatch):
+        self._fake_assistant(monkeypatch, self.LONG_REPLY)
+        status, headers, body = _request(compat_server, "POST", "/v1/chat/completions",
+                                         {"messages": [{"role": "user", "content": "x"}],
+                                          "stream": True})
+        assert status == 200
+        assert "text/event-stream" in headers.get("Content-Type", "")
+        chunks = self._sse_chunks(body)
+        assert all(c["object"] == "chat.completion.chunk" for c in chunks)
+        assert chunks[0]["choices"][0]["delta"] == {"role": "assistant"}
+        content_chunks = [c for c in chunks if "content" in c["choices"][0]["delta"]]
+        assert len(content_chunks) > 1
+        reassembled = "".join(c["choices"][0]["delta"]["content"] for c in content_chunks)
+        assert reassembled == self.LONG_REPLY
+        assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+        assert chunks[-1]["choices"][0]["delta"] == {}
+
+    def test_stream_empty_reply(self, compat_server, monkeypatch):
+        self._fake_assistant(monkeypatch, "")
+        status, _, body = _request(compat_server, "POST", "/v1/chat/completions",
+                                   {"messages": [{"role": "user", "content": "x"}],
+                                    "stream": True})
+        assert status == 200
+        chunks = self._sse_chunks(body)
+        assert chunks[0]["choices"][0]["delta"] == {"role": "assistant"}
+        assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+        assert "".join(c["choices"][0]["delta"].get("content", "") for c in chunks) == ""
+
+    def test_completions_stream_shape(self, compat_server, monkeypatch):
+        self._fake_assistant(monkeypatch, self.LONG_REPLY)
+        status, headers, body = _request(compat_server, "POST", "/v1/completions",
+                                         {"prompt": "x", "stream": True})
+        assert status == 200
+        assert "text/event-stream" in headers.get("Content-Type", "")
+        chunks = self._sse_chunks(body)
+        assert all(c["object"] == "text_completion" for c in chunks)
+        assert all(c["id"].startswith("cmpl-") for c in chunks)
+        reassembled = "".join(c["choices"][0]["text"] for c in chunks)
+        assert reassembled == self.LONG_REPLY
+        assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+
+    def test_stream_with_auth(self, compat_server, monkeypatch):
+        self._fake_assistant(monkeypatch, self.LONG_REPLY)
+        monkeypatch.setenv("MATHA_OPENAI_API_KEY", "test-key")
+        status, _, body = _request(compat_server, "POST", "/v1/chat/completions",
+                                   {"messages": [{"role": "user", "content": "x"}],
+                                    "stream": True},
+                                   headers={"Authorization": "Bearer test-key"})
+        assert status == 200
+        chunks = self._sse_chunks(body)
+        reassembled = "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
+        assert reassembled == self.LONG_REPLY
 
 
 # ============================================================

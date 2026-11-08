@@ -15,6 +15,7 @@ Matha 统一命令行工具 — REPL + 编译器 + 调试 一体化
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -58,12 +59,72 @@ def _harden_std_streams() -> None:
 # ============================================================
 
 def _cmd_repl(args) -> int:
-    """启动交互式 REPL。"""
+    """启动交互式 REPL。--llm 启用 nl 模式 LLM 链（等价 MATHA_REPL_LLM=1）。"""
+    if getattr(args, 'llm', False):
+        os.environ["MATHA_REPL_LLM"] = "1"
     from src.repl import MathaREPL
     repl = MathaREPL(debug=getattr(args, 'debug', False),
                      backend=getattr(args, 'backend', 'vm'))
     repl.run()
     return 0
+
+
+# ============================================================
+# llm-config — LLM 密钥管理（阶段 4-2：统一走 llm_config 加密存储）
+# ============================================================
+
+def _cmd_llm_config(args) -> int:
+    """LLM 密钥管理：加密存储于 ~/.matha（MATHA_CONFIG_DIR 可覆盖）。
+
+    任何输出都不含明文密钥；add-key 默认 getpass 隐藏输入（--key 供脚本化，
+    但会留在 shell 历史，help 中如实警告）。
+    """
+    try:
+        from src.tools.llm_config import get_llm_config
+        cfg = get_llm_config()
+        action = args.action
+        if action == "add-key":
+            if args.key:
+                key = args.key
+            else:
+                import getpass
+                key = getpass.getpass("API 密钥（输入不回显）: ")
+            entry_id = cfg.add_key(args.model, key, label=args.label,
+                                   make_active=args.active)
+            print(f"已添加密钥 {entry_id}（模型 {args.model}，加密存储）")
+        elif action == "list":
+            models = [args.model] if args.model else cfg.models
+            if not models:
+                print("（未存储任何密钥）")
+            for m in models:
+                entries = cfg.list_keys(m)
+                if not entries:
+                    print(f"{m}: （无密钥）")
+                    continue
+                for e in entries:
+                    mark = " [生效]" if e["active"] else ""
+                    print(f"{m}: {e['id']}  {e['label']}{mark}")
+        elif action == "remove":
+            ok = cfg.remove_key(args.model, args.id)
+            print("已移除" if ok else "未找到该密钥")
+            return 0 if ok else 1
+        elif action == "rotate":
+            new_id = cfg.rotate(args.model)
+            if new_id is None:
+                print("该模型无密钥可轮换")
+                return 1
+            print(f"已轮换到 {new_id}")
+        elif action == "set-active":
+            ok = cfg.set_active(args.model, args.id)
+            print("已切换" if ok else "未找到该密钥")
+            return 0 if ok else 1
+        return 0
+    except ImportError as e:
+        print(f"密钥加密存储不可用: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"输入错误: {e}", file=sys.stderr)
+        return 1
 
 
 # ============================================================
@@ -723,6 +784,8 @@ def main(argv=None) -> int:
         """,
     )
     parser.add_argument("--debug", action="store_true", help="启用调试模式")
+    parser.add_argument("--llm", action="store_true",
+                        help="REPL nl 模式启用 LLM 链（等价 MATHA_REPL_LLM=1；默认正则轨）")
     parser.add_argument("--version", action="version", version=f"Matha v{VERSION}")
     parser.add_argument("--feature", action="append", default=[], metavar="NAME[=on|off]",
                         help="开关特性（如 SCOPED_BLOCKS）；可重复，NAME=off 强制关闭")
@@ -736,6 +799,26 @@ def main(argv=None) -> int:
 
     # REPL（无命令）
     sub.add_parser("repl", help="启动交互式 REPL")
+
+    # llm-config — LLM 密钥管理（加密存储）
+    p_llm = sub.add_parser("llm-config", help="LLM 密钥管理（加密存储于 ~/.matha）")
+    llm_sub = p_llm.add_subparsers(dest="action", required=True)
+    p_add = llm_sub.add_parser("add-key", help="添加密钥（默认隐藏输入）")
+    p_add.add_argument("--model", required=True, help="模型名（如 claude-3-5-sonnet）")
+    p_add.add_argument("--key", help="密钥明文（慎用：会留在 shell 历史；省略则隐藏输入）")
+    p_add.add_argument("--label", help="密钥标签")
+    p_add.add_argument("--active", action="store_true", help="添加后立即生效")
+    p_list = llm_sub.add_parser("list", help="列出密钥（不含明文）")
+    p_list.add_argument("--model", help="只列指定模型")
+    p_rm = llm_sub.add_parser("remove", help="移除密钥")
+    p_rm.add_argument("--model", required=True)
+    p_rm.add_argument("--id", required=True, help="密钥 entry_id")
+    p_rot = llm_sub.add_parser("rotate", help="轮换到下一个密钥")
+    p_rot.add_argument("--model", required=True)
+    p_act = llm_sub.add_parser("set-active", help="切换生效密钥")
+    p_act.add_argument("--model", required=True)
+    p_act.add_argument("--id", required=True, help="密钥 entry_id")
+    p_llm.set_defaults(func=_cmd_llm_config)
 
     # features — 特性开关状态
     p_feat = sub.add_parser("features", help="列出特性开关状态")

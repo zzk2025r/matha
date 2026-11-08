@@ -14,12 +14,15 @@
   3. **显式拒绝**：未实现模型/指标、空数据、形状不合、未创建即预测一律
      如实抛错——严禁静默回退/假值。
 
-纪律：本锁背书的是三个已实现模型的行为语义；ModelType 其余 6 种仍属
-未实现（显式拒绝即其当前口径），不背书任何「9 种算法齐全」主张。
+纪律：本锁背书线性/逻辑/KMeans 三模型与管理器的行为语义。
 
 阶段 3 补锁（第 5–8 节）：未训练 predict/维度不合/构造期超参数/标签/
 阈值显式拒绝，sigmoid 双向饱和不溢出，多特征闭式解与 k=1 手算闭环，
 legacy registry 柯里化注册形态。
+
+阶段 4 更新：ModelType 其余 6 种已纯标准库真实现（决策树/随机森林/
+MLP/KNN/SVM/朴素贝叶斯），三锁见 tests/test_ml_models_phase4.py；
+原「六类显式拒绝」回归锁随之改为 dispatch 正确类锁。
 """
 from __future__ import annotations
 
@@ -33,12 +36,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.ml import (  # noqa: E402
+    DecisionTreeClassifier,
+    GaussianNB,
     KMeans,
+    KNN,
     LinearRegression,
+    LinearSVM,
     LogisticRegression,
     MathaML,
     ModelResult,
     ModelType,
+    NeuralNetworkMLP,
+    RandomForestClassifier,
 )
 
 
@@ -174,15 +183,18 @@ class TestMathaMLManager:
     def test_implemented_types_create_correct_class(self, model_type, cls):
         assert isinstance(MathaML().create_model(model_type), cls)
 
-    @pytest.mark.parametrize("model_type", [
-        "decision_tree", "random_forest", "neural_network",
-        "knn", "svm", "naive_bayes",
+    @pytest.mark.parametrize("model_type,cls", [
+        ("decision_tree", DecisionTreeClassifier),
+        ("random_forest", RandomForestClassifier),
+        ("neural_network", NeuralNetworkMLP),
+        ("knn", KNN),
+        ("svm", LinearSVM),
+        ("naive_bayes", GaussianNB),
     ])
-    def test_unimplemented_types_explicitly_rejected(self, model_type):
-        """回归锁：旧实现静默回退 LinearRegression，拿假模型冒充成功。"""
-        with pytest.raises(NotImplementedError) as excinfo:
-            MathaML().create_model(model_type)
-        assert model_type in str(excinfo.value)
+    def test_phase4_types_dispatch_correct_class(self, model_type, cls):
+        """阶段 4：六种已真实现，dispatch 正确类（原显式拒绝锁随之收缩；
+        行为三锁见 tests/test_ml_models_phase4.py）。"""
+        assert isinstance(MathaML().create_model(model_type), cls)
 
     def test_unknown_type_rejected(self):
         with pytest.raises(ValueError):

@@ -148,8 +148,9 @@ class MathaMCPServer:
 
     历史上继承 MCPServer：缺 SDK 时类定义即 NameError，且
     _register_matha_tools 是 pass 占位（从未注册任何工具）。现改为
-    纯门面——五个方法全部直调真实 _safe_* 实现；对外协议服务由
-    create_server()/main() 承担（缺 SDK 显式 ImportError）。
+    纯门面——六个方法全部直调真实 _safe_* 实现，与 create_server()
+    注册的六工具一一对应（阶段 4-3 补齐 parse_intent 缺口）；
+    对外协议服务由 create_server()/main() 承担（缺 SDK 显式 ImportError）。
     """
 
     def eval_expr(self, expr: str) -> str:
@@ -163,6 +164,9 @@ class MathaMCPServer:
 
     def diagnose(self, source: str) -> list[dict]:
         return _safe_diagnose(source)
+
+    def parse_intent(self, text: str) -> dict:
+        return _safe_parse(text)
 
     def get_info(self) -> dict:
         return {"name": "Matha", "version": VERSION, "python": sys.version.split()[0]}

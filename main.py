@@ -115,6 +115,8 @@ def main() -> None:
     parser.add_argument("--test", action="store_true", help="运行全量测试")
     parser.add_argument("--demo", action="store_true", help="运行功能演示")
     parser.add_argument("--debug", action="store_true", help="调试模式（详细日志）")
+    parser.add_argument("--llm", action="store_true",
+                        help="REPL nl 模式启用 LLM 链（等价 MATHA_REPL_LLM=1；默认正则轨）")
     args = parser.parse_args()
 
     if args.test:
@@ -122,6 +124,8 @@ def main() -> None:
     elif args.demo:
         run_demo()
     else:
+        if args.llm:
+            os.environ["MATHA_REPL_LLM"] = "1"
         run_repl(debug=args.debug)
 
 

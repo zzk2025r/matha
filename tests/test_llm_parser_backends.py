@@ -48,13 +48,17 @@ VALID_JSON = json.dumps({
 
 @pytest.fixture(autouse=True)
 def _hermetic(monkeypatch, tmp_path):
-    """屏蔽 .env 读取（防真实密钥渗入）、重试零等待。"""
+    """屏蔽 .env 读取（防真实密钥渗入）、重试零等待、密钥仓库隔离。"""
     monkeypatch.setattr(LLMIntentParser, "_load_dotenv", staticmethod(lambda: None))
     monkeypatch.setenv("MATHA_LLM_RETRY_DELAY", "0")
     monkeypatch.setenv("MATHA_LLM_MAX_RETRIES", "3")
     for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
                 "GEMINI_API_KEY", "ZHIPUAI_API_KEY", "MATHA_LLM_API_KEY"):
         monkeypatch.delenv(key, raising=False)
+    # 阶段 4-2：构造期会回退 llm_config 加密存储，隔离防真实 ~/.matha 渗入
+    from src.tools import llm_config as lc
+    monkeypatch.setenv("MATHA_CONFIG_DIR", str(tmp_path / "matha-config"))
+    monkeypatch.setattr(lc, "_LLM_CONFIG", None)
 
 
 def _parser(tmp_path, model):

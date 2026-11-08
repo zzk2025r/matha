@@ -1,6 +1,6 @@
 {
   "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
-  "generated_at": "2026-10-29T19:57:52",
+  "generated_at": "2026-11-08T12:12:25",
   "generator": "scripts/ast_vm_matrix.py",
   "corpus_dirs": [
     "matha",
@@ -16,7 +16,7 @@
     "noop": 19,
     "missing": 0,
     "blocking": 0,
-    "corpus_files": 202,
+    "corpus_files": 206,
     "opcodes": 33,
     "opcode_vm": 33,
     "opcode_native": 33,
@@ -27,19 +27,19 @@
       "node": "Program",
       "vm": "emits",
       "interp": "no",
-      "used_in": 202
+      "used_in": 206
     },
     {
       "node": "Variable",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 199
+      "used_in": 203
     },
     {
       "node": "IntegerLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 177
+      "used_in": 181
     },
     {
       "node": "BinaryOp",
@@ -51,7 +51,7 @@
       "node": "FuncApp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 155
+      "used_in": 159
     },
     {
       "node": "Lambda",
@@ -84,13 +84,13 @@
       "used_in": 118
     },
     {
-      "node": "ModuleDecl",
+      "node": "StringLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 105
+      "used_in": 109
     },
     {
-      "node": "StringLit",
+      "node": "ModuleDecl",
       "vm": "emits",
       "interp": "yes",
       "used_in": 105
@@ -99,7 +99,7 @@
       "node": "FloatLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 85
+      "used_in": 87
     },
     {
       "node": "LetBinding",
@@ -114,28 +114,40 @@
       "used_in": 77
     },
     {
+      "node": "Output",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 64
+    },
+    {
       "node": "CodeBlock",
       "vm": "emits",
       "interp": "yes",
       "used_in": 62
     },
     {
-      "node": "Output",
+      "node": "ListLiteral",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 60
+      "used_in": 59
     },
     {
       "node": "IndexExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 56
+      "used_in": 57
     },
     {
-      "node": "ListLiteral",
+      "node": "Generate",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 55
+    },
+    {
+      "node": "MechUnit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 56
+      "used_in": 55
     },
     {
       "node": "UnaryOp",
@@ -144,28 +156,16 @@
       "used_in": 53
     },
     {
-      "node": "Generate",
-      "vm": "noop",
-      "interp": "no",
-      "used_in": 51
-    },
-    {
-      "node": "MechUnit",
-      "vm": "emits",
-      "interp": "yes",
-      "used_in": 51
-    },
-    {
       "node": "Binding",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 45
+      "used_in": 48
     },
     {
       "node": "OutputTrail",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 41
+      "used_in": 45
     },
     {
       "node": "BoolLit",
@@ -177,25 +177,25 @@
       "node": "GenStmt",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 31
+      "used_in": 35
+    },
+    {
+      "node": "SetUp",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 29
+    },
+    {
+      "node": "SetUpItem",
+      "vm": "noop",
+      "interp": "no",
+      "used_in": 29
     },
     {
       "node": "CommandLiteral",
       "vm": "noop",
       "interp": "yes",
       "used_in": 28
-    },
-    {
-      "node": "SetUp",
-      "vm": "emits",
-      "interp": "yes",
-      "used_in": 25
-    },
-    {
-      "node": "SetUpItem",
-      "vm": "noop",
-      "interp": "no",
-      "used_in": 25
     },
     {
       "node": "ReadBlock",
@@ -246,16 +246,16 @@
       "used_in": 13
     },
     {
-      "node": "ForeignDecl",
-      "vm": "noop",
+      "node": "DictLiteral",
+      "vm": "emits",
       "interp": "yes",
       "used_in": 12
     },
     {
-      "node": "DictLiteral",
-      "vm": "emits",
+      "node": "ForeignDecl",
+      "vm": "noop",
       "interp": "yes",
-      "used_in": 11
+      "used_in": 12
     },
     {
       "node": "ImportDecl",

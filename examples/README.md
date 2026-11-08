@@ -4,11 +4,15 @@
 
 ```
 examples/
-├── basic_examples.matha    # 基础示例
-├── game_example.matha      # 游戏开发示例
-├── web_example.matha       # Web 开发示例
-├── ai_example.matha        # AI 示例
-└── data_example.matha      # 数据科学示例
+├── basic_examples.matha    # 基础示例（可运行）
+├── ai/                     # AI 示例（阶段 4 重写，四个可运行 .matha + 门禁锁）
+│   ├── neural_network.matha
+│   ├── data_pipeline.matha
+│   ├── data.csv
+│   ├── genetic_algo.matha
+│   └── ai_framework.matha
+├── game/                   # 游戏开发文档示例（仅 README，代码块未重写不可运行）
+└── web/                    # Web 开发文档示例（仅 README，代码块未重写不可运行）
 ```
 
 ## 运行示例
@@ -17,8 +21,8 @@ examples/
 # 运行 Matha 示例
 matha run examples/basic_examples.matha
 
-# 计算表达式
-matha eval "从 examples/basic_examples.matha"
+# AI 示例（自仓库根目录）
+matha run examples/ai/neural_network.matha
 ```
 
 ## 示例说明
@@ -27,22 +31,17 @@ matha eval "从 examples/basic_examples.matha"
 
 包含基础计算、函数定义、列表操作、字符串处理、JSON处理、随机数、领域模块等示例。
 
-### game_example.matha
+### ai/
 
-使用游戏引擎创建简单的游戏场景。
+神经网络训练演示、数据科学管线、遗传算法代码工具、AI 框架矩阵乘法，
+全部经主执行链真跑并挂门禁锁（`tests/test_examples_ai.py`），
+详见 [ai/README.md](ai/README.md)。
 
-### web_example.matha
+### game/ 与 web/
 
-创建 Web 服务器和 Web 应用。
-
-### ai_example.matha
-
-使用神经网络和深度学习示例。
-
-### data_example.matha
-
-使用数据科学工具处理数据。
+历史文档示例：README 中的代码块为 Python 风格伪代码，不是合法 Matha，
+尚未重写（不在阶段 4 范围）。
 
 ---
 
-*Matha v4.5 | 示例*
+*Matha v4.6 | 示例*

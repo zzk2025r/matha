@@ -1,10 +1,11 @@
 """Matha OpenAI 兼容 API 服务
 
-【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随阶段 3 门禁锁更新】仓库内未背书前端：其复用的
+【定位标注 2026-10 / P2 降级 · 措辞 2026-11 随阶段 4 更新】仓库内未背书前端：其复用的
 AI 编排链（MathaAIAssistant.chat「输入→解析→执行→结果→感知」）已由
 tests/test_ai_e2e_pipeline.py 入门禁锁固定（阶段 6e）；本文件 HTTP 层冒烟契约
-（OpenAI 兼容形状/SSE 伪流式 + [DONE]/chat 异常诚实透出）已由
-tests/test_ai_servers_smoke.py 入门禁（阶段 3）；鉴权与真流式未实现（阶段 4 未开工），
+（OpenAI 兼容形状/SSE + [DONE]/chat 异常诚实透出）已由
+tests/test_ai_servers_smoke.py 入门禁（阶段 3）；可选 Bearer 鉴权与协议化增量 SSE
+（阶段 4-4）同文件入门禁——本地引擎原子生成，流式为传输层增量而非模型逐 token；
 自然语言→代码/答案的**结果正确性不背书**，不作为现功能主张；
 口径见 docs/KNOWN_ISSUES.md 第七节 7c。
 
@@ -17,10 +18,12 @@ tests/test_ai_servers_smoke.py 入门禁（阶段 3）；鉴权与真流式未�
 Trae 自定义模型配置：
     接口地址: http://localhost:8787/v1
     模型名:   matha
-    API Key:  任意非空字符串（matha 本地无需鉴权）
+    API Key:  默认无需鉴权（任意非空字符串）；服务端设 MATHA_OPENAI_API_KEY
+              环境变量后须填该值（Authorization: Bearer <key>）
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import socket
@@ -82,11 +85,35 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
+    def _auth_ok(self) -> bool:
+        """可选 Bearer 鉴权（阶段 4-4）：MATHA_OPENAI_API_KEY 未设则开放。
+
+        设置后 /v1/* 须携带 Authorization: Bearer <key>；health 保持开放。
+        比较用 hmac.compare_digest 防时序侧信道。
+        """
+        expected = os.environ.get("MATHA_OPENAI_API_KEY", "").strip()
+        if not expected:
+            return True
+        header = self.headers.get("Authorization", "")
+        scheme, _, token = header.partition(" ")
+        return (scheme.lower() == "bearer"
+                and hmac.compare_digest(token.strip(), expected))
+
+    def _send_auth_error(self):
+        self._send_json({"error": {
+            "message": "Incorrect API key provided. Expected 'Authorization: Bearer <key>'.",
+            "type": "authentication_error",
+            "code": "invalid_api_key",
+        }}, 401)
+
     def do_OPTIONS(self):
         self._send_json({}, 200)
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/v1/models" and not self._auth_ok():
+            self._send_auth_error()
+            return
         if parsed.path in ("/", "/health", "/v1/models"):
             self._send_json({
                 "object": "list",
@@ -102,6 +129,9 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/v1/") and not self._auth_ok():
+            self._send_auth_error()
+            return
         try:
             if parsed.path == "/v1/chat/completions":
                 self._handle_chat_completions()
@@ -165,6 +195,7 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         data = self._read_body()
         prompt = data.get("prompt", "")
         model = data.get("model", "matha")
+        stream = data.get("stream", False)
 
         if isinstance(prompt, list):
             prompt = prompt[-1] if prompt else ""
@@ -178,6 +209,10 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         reply = result.get("reply", "")
         completion_id = f"cmpl-{uuid.uuid4().hex[:24]}"
         created = int(time.time())
+
+        if stream:
+            self._send_text_stream(reply, model, completion_id, created)
+            return
 
         self._send_json({
             "id": completion_id,
@@ -193,7 +228,7 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         })
 
     # ---------- 流式响应 ----------
-    def _send_stream(self, content: str, model: str, completion_id: str, created: int):
+    def _sse_headers(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -201,7 +236,13 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
-        def _chunk(delta: str, finish_reason=None):
+    def _send_stream(self, content: str, model: str, completion_id: str, created: int):
+        # 本地引擎原子生成完整回复；以下为传输层增量切分（非模型逐 token
+        # 生成），协议形状对齐 OpenAI：首个 delta 带 role，随后 content 增量，
+        # 末尾 finish_reason=stop + [DONE]。口径见文件头横幅。
+        self._sse_headers()
+
+        def _chunk(delta: dict, finish_reason=None):
             obj = {
                 "id": completion_id,
                 "object": "chat.completion.chunk",
@@ -209,23 +250,48 @@ class OpenAICompatHandler(BaseHTTPRequestHandler):
                 "model": model,
                 "choices": [{
                     "index": 0,
-                    "delta": {"content": delta} if delta else {},
+                    "delta": delta,
                     "finish_reason": finish_reason,
                 }],
             }
             return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
-        # 按片段发送（模拟流式）
-        chunk_size = max(1, len(content) // 10) if content else 1
-        for i in range(0, len(content), chunk_size):
-            chunk = content[i:i + chunk_size]
-            self.wfile.write(_chunk(chunk).encode("utf-8"))
+        self.wfile.write(_chunk({"role": "assistant"}).encode("utf-8"))
+        self.wfile.flush()
+        for i in range(0, len(content), 8):
+            self.wfile.write(_chunk({"content": content[i:i + 8]}).encode("utf-8"))
+            self.wfile.flush()
+
+        self.wfile.write(_chunk({}, finish_reason="stop").encode("utf-8"))
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+        self.close_connection = True
+
+    def _send_text_stream(self, content: str, model: str, completion_id: str, created: int):
+        """/v1/completions 的流式形态（text_completion chunk，阶段 4-4 补齐）。"""
+        self._sse_headers()
+
+        def _chunk(text: str, finish_reason=None):
+            obj = {
+                "id": completion_id,
+                "object": "text_completion",
+                "created": created,
+                "model": model,
+                "choices": [{
+                    "text": text,
+                    "index": 0,
+                    "finish_reason": finish_reason,
+                }],
+            }
+            return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+        for i in range(0, len(content), 8):
+            self.wfile.write(_chunk(content[i:i + 8]).encode("utf-8"))
             self.wfile.flush()
 
         self.wfile.write(_chunk("", finish_reason="stop").encode("utf-8"))
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
-        # 标记连接关闭
         self.close_connection = True
 
 

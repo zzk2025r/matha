@@ -1101,6 +1101,8 @@ class DomainRegistry:
             "module": "src.ml",
             "functions": [
                 "创建线性回归", "创建逻辑回归", "创建KMeans",
+                "创建决策树", "创建随机森林", "创建MLP",
+                "创建KNN", "创建SVM", "创建朴素贝叶斯",
             ],
             "constants": {},
             "optimization_passes": [],
