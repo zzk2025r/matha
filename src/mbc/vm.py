@@ -405,6 +405,8 @@ def _builtin_type_of(v) -> str:
         return "List"
     if isinstance(v, dict):
         return "Dict"
+    if isinstance(v, tuple):
+        return "Tuple"
     if _is_matha_function(v):
         return "Function"
     if v is None:
@@ -444,6 +446,13 @@ def _builtin_dict_values(d):
     if not isinstance(d, dict):
         raise RuntimeError(f"dict_values() 需要字典，实际 {type(d).__name__}")
     return list(d.values())
+
+
+def _builtin_to_tuple(xs):
+    """_to_tuple(xs)：列表 → 元组（自举解释器元组字面量求值的构造原语）。"""
+    if not isinstance(xs, (list, tuple)):
+        raise RuntimeError(f"_to_tuple() 需要列表，实际 {type(xs).__name__}")
+    return tuple(xs)
 
 
 # ---------- 文本编码原语（二进制/三进制/十进制） ----------
@@ -536,6 +545,8 @@ def _default_builtins() -> dict:
     b.setdefault("_dict_has", _curry2(lambda d, k: k in d))
     b.setdefault("_dict_put", _curry3(lambda d, k, v: {**d, k: v}))
     b.setdefault("_dict_remove", _curry2(lambda d, k: {kk: vv for kk, vv in d.items() if kk != k}))
+    # 元组构造原语（自举解释器元组字面量求值用；与宿主 BUILTINS 对齐）
+    b.setdefault("_to_tuple", _builtin_to_tuple)
     # 位运算原语（供自举 vm.matha 的 应用运算/应用一元 使用）：自举源码不宜书写
     # `&`/`|`/`⊕`/`~` 运算符（会与「解释自身字节码」形成自引用，并阻碍 vm.matha
     # 自解析），故以宿主原语暴露；语义逐条复用 _BINOPS / _UNARYOPS（含非整数操作数

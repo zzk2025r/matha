@@ -526,6 +526,8 @@ def builtin_type_of(v) -> str:
         return "List"
     if isinstance(v, dict):
         return "Dict"
+    if isinstance(v, tuple):
+        return "Tuple"
     if _is_matha_function(v):
         return "Function"
     return "Unknown"
@@ -827,6 +829,40 @@ def builtin_safe_attr(obj, name):
     return getattr(obj, str(name), None)
 
 
+# ---------- dict 原语（与 VM _default_builtins 对齐；纯 Matha 无对应操作码） ----------
+
+def builtin_dict_keys(d):
+    if not isinstance(d, dict):
+        raise MathaRuntimeError(f"dict_keys() 需要字典，实际 {type(d).__name__}")
+    return list(d.keys())
+
+
+def builtin_dict_values(d):
+    if not isinstance(d, dict):
+        raise MathaRuntimeError(f"dict_values() 需要字典，实际 {type(d).__name__}")
+    return list(d.values())
+
+
+def builtin_dict_has(d, k):
+    return k in d
+
+
+def builtin_dict_put(d, k, v):
+    return {**d, k: v}
+
+
+def builtin_dict_remove(d, k):
+    return {kk: vv for kk, vv in d.items() if kk != k}
+
+
+def builtin_to_tuple(xs):
+    """_to_tuple(xs)：列表 → 元组（自举解释器求值元组字面量的构造原语；
+    纯 Matha 无构造元组的操作码，与 _dict_put 等原语同例）。"""
+    if not isinstance(xs, (list, tuple)):
+        raise MathaRuntimeError(f"_to_tuple() 需要列表，实际 {type(xs).__name__}")
+    return tuple(xs)
+
+
 def builtin_make_set(form, variables, elements):
     """构造集合(form, variables, elements) → 去重保序的 list。
 
@@ -898,6 +934,14 @@ BUILTINS: dict[str, object] = {
     # ---------- 与 VM 后端对齐的原语（src/mbc/vm.py::_default_builtins） ----------
     # 空字典常量：{} 在 Matha 语法中是空集合构造，故空字典须由宿主提供。
     "_empty_dict": {},
+    # dict 原语（与 VM/原生后端对齐；纯 Matha 无 keys/values/不可变更新操作码）
+    "_dict_keys": builtin_dict_keys,
+    "_dict_values": builtin_dict_values,
+    "_dict_has": _curry_module(2, builtin_dict_has),
+    "_dict_put": _curry_module(3, builtin_dict_put),
+    "_dict_remove": _curry_module(2, builtin_dict_remove),
+    # 元组构造原语（自举解释器元组字面量求值用；与 VM 后端对齐）
+    "_to_tuple": builtin_to_tuple,
     # IO 错误构造：["MathaIOError", msg]（与 VM / 原生 / 自举 vm.matha 统一为列表）。
     "MathaIOError": lambda m: ["MathaIOError", m],
     # 注意：typeof 不在此处注册——它是关键字（tokens.py: KW_TYPEOF），

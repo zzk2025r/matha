@@ -603,7 +603,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   本轮新增测试 **46 条**，全量门禁 **6311/6311 通过**（基线：`python scripts/check.py`，
   tests 项 6208 过 17m55s + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
   + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
-  **预先存在缺口（本轮探针取证登记，未修，超出 8a 范围）**：
+  **预先存在缺口（本轮探针取证登记；已于缺口修复轮全部清除，见下方条目）**：
   ① interp_matha 顶层 let 绑定 env 丢失——mb 链 `let n = 5` 换行 `n + 1` 抛
   「未定义变量 'n'」（执行声明 else 分支丢弃 求值let绑定 返回的新 env）；
   fresh 链（interp.matha）同源码正常得 6。
@@ -614,7 +614,47 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   "Tuple" 判别）——代码注释登记。
   ⑤ 守卫真值口径：自举 if 约定（非 0.0 且非 假）vs 宿主 Python truthiness——
   代码注释登记。
-  **仍未背书/未修**：上述五缺口；阶段 8b（Matha 写的 NL 词法器+句法器）、
+  **仍未背书/未修**：阶段 8b（Matha 写的 NL 词法器+句法器）、
+  8c（语义转换+混合执行引擎零冲突集成）、8d（英语子集+用户词典+LLM 可选路径）
+  未开工（上述五缺口已于缺口修复轮清除，见下方条目）。
+- **2026-11 缺口修复轮收官（阶段 8a 登记五缺口清除，8b 前置）**：
+  按「先修复已登记缺口，再进行 8b」批准口径，上条五项预先存在缺口逐一根治：
+  ① **顶层 let env 丢失**：interp_matha.matha 增 绑定求值let（返回 (值, 新环境)，
+  递归路径占位→求值→更新绑定值），执行语句/执行声明 的 let绑定 分支改走它
+  （原 else 丢弃新 env）；顶层多 let 链与 let-in 两形态均对拍宿主。
+  ② **列表/字典字面量求值**：两链 求值 dispatch 补 列表/元组/字典 三类；
+  求值列表 纯 Matha 累加器保序构建，求值字典 逐对求值后经 stdlib dict_from_pairs
+  （折叠 _dict_put/_empty_dict 原语）产真实 dict（非键值对列表占位）；
+  元组经新增 _to_tuple 原语构造。宿主 BUILTINS 补齐 _dict_keys/_dict_values/
+  _dict_has/_dict_put/_dict_remove（原仅 VM 端有）与 _to_tuple；宿主/VM type_of
+  增 "Tuple" 判别。
+  ③ **mb 内建元组分发**：注册内建 绑 ("__builtin__", 名) 元组而 应用函数/
+  应用多参数函数 只认 Dict 形态 → 补元组形态分支；ord/str/strip/int/parse_JSON
+  独立调用真实可用。
+  ④ **元组构造子**：两链 匹配构造子 的 scrutinee 与字典参数位均接受 List/Tuple
+  （对齐宿主 isinstance(value, (tuple, list))）。
+  ⑤ **守卫真值**：两链新增 真值 辅助（null/假/0/""/空容器皆假），守卫单独走它
+  对齐宿主 Python truthiness（自举 if 约定不变，只改 match 守卫口径）。
+  **同源缺陷一并修复（验证中发现）**：fresh 链 func 定义参数为字符串而 应用函数
+  只认 Variable.名 → 用户 func 全崩，改双形态口径（fact(5)=120 两链坐实）；
+  mb 链闭包统一为列表形态（与 fresh 链对齐，柯里化 f(3)(4)=7 两链坐实）；
+  两链 注册内建 显式绑定 null/None/Null（宿主 parser 以 null 为关键字，
+  自举 parser 解析为变量，守卫真值/缺省判定依赖其可求值）。
+  新 `tests/test_bootstrap_gapfix_phase8pre.py` **86 条**三锁（手算对拍/闭环/
+  显式拒绝，mb/fresh/M3V VM 三链）：let 4 例×三链+未定义拒绝、字面量 6 例×三链
+  +真实 dict 判别+VM 构造、内建分发 6 例+非法 JSON/不可调用拒绝、元组构造子
+  3 例×三链+type_of Tuple/_to_tuple 拒绝矩阵、守卫 6 例×三链+VM 空容器守卫、
+  func 4 例×两链+func×match 端到端闭环（unwrap(("Some",41))=42）。
+  本轮新增测试 **86 条**，全量门禁 **6397/6397 通过**（基线：`python scripts/check.py`，
+  tests 项 6294 过 20m22s + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
+  **剩余边界（如实登记，未修）**：两自举链无下标表达式求值（用户源码 `xs[0]`
+  抛「未知表达式类型: 下标」；解释器内部经宿主/VM 层下标不受影响）；内建部分应用
+  （get/slice 柯里化二次调用）两链均未支持（本轮只修单参直调分发）；自举 parser
+  语义 `[]`=空输出、`{}`=集合构造（空字典走 _empty_dict 原语）；stdlib parse_JSON
+  紧凑口径（冒号后不跳空白）；原生端无元组类型（自举解释器不以原生为目标，
+  native 对拍仅黄金用例口径）。
+  **仍未背书/未修**：上述边界；阶段 8b（Matha 写的 NL 词法器+句法器）、
   8c（语义转换+混合执行引擎零冲突集成）、8d（英语子集+用户词典+LLM 可选路径）
   未开工。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
