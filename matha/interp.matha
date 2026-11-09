@@ -90,6 +90,7 @@ module 解释器 {
     expr.类型 = "let绑定" ?
       let (r, new_env_after) = 绑定求值let(expr, env) in
       r :
+    expr.类型 = "match" ? 求值match(expr, env) :
     错误("未知表达式类型: " + expr.类型)
 
   (* let [rec] 名 = 值 [in 体] —— 返回 (结果值, 新环境)
@@ -369,6 +370,55 @@ module 解释器 {
       (v, env) :
       let (忽略, env2) = 执行语句列表(stmt.finally体, env) in
       (v, env2)
+
+  (* ===== match 模式匹配 =====
+     语义与 interp_matha.matha 同节一致（对齐宿主 _eval_match / _match_pattern）：
+     守卫先于模式求值；通配符 _ 兜底；变量绑定经新 env 不泄漏；
+     构造子支持列表/字典两种形态（元组形态登记为已知差异）。 *)
+
+  func 求值match(expr: Dict, env: List) -> Value =
+    求值match分支(expr.分支, 求值(expr.scrutinee, env), null, env)
+
+  func 求值match分支(branches: List, value, 兜底: Dict, env: List) -> Value =
+    branches = [] ?
+      (兜底 = null ? 错误("match 无匹配分支: " + str(value)) : 求值(兜底, env)) :
+    let b = branches[0] in
+    let guard = b[1] in
+    let gv = guard = null ? 真 : 求值(guard, env) in
+    let guard_ok = guard = null ? 真 : (gv != 0.0 and gv != 假) in
+    if not guard_ok then 求值match分支(branches[1:], value, 兜底, env)
+    else if b[0].类型 = "变量" and b[0].名 = "_" then
+      求值match分支(branches[1:], value, (兜底 = null ? b[2] : 兜底), env)
+    else
+      let (matched, env2) = 匹配模式(b[0], value, env) in
+      matched ? 求值(b[2], env2) : 求值match分支(branches[1:], value, 兜底, env)
+
+  func 匹配模式(pattern: Dict, value, env: List) -> (Bool, List) =
+    pattern.类型 = "整数" or pattern.类型 = "浮点" or pattern.类型 = "字符串" or pattern.类型 = "布尔" ?
+      (pattern.值 = value, env) :
+    pattern.类型 = "构造子模式" ? 匹配构造子(pattern, value, env) :
+    pattern.类型 = "变量" ?
+      (pattern.名 = "_" ? (假, env) : (真, 绑定环境(env, pattern.名, value))) :
+    (假, env)
+
+  func 匹配构造子(pattern: Dict, value, env: List) -> (Bool, List) =
+    let fields = pattern.字段 in
+    if matha_type_of(value) = "List" and len(value) = len(fields) + 1 and matha_type_of(value[0]) = "String" and value[0] = pattern.名 then
+      匹配字段列表(fields, value[1:], env)
+    else if matha_type_of(value) = "Dict" then
+      (* 安全索引：缺键返回 null → 下方 List 校验拒绝，语义等价成员测试。
+         不用 in 成员运算符——自举 parser 无 in 二元层（仅 let 终止符），
+         用了会破坏 test_m7 自编译（期望 then）。安全索引三端内建均有。 *)
+      let args = 安全索引(value, pattern.名) in
+      if matha_type_of(args) = "List" and len(args) = len(fields) then
+        匹配字段列表(fields, args, env)
+      else (假, env)
+    else (假, env)
+
+  func 匹配字段列表(fields: List, values: List, env: List) -> (Bool, List) =
+    fields = [] ? (真, env) :
+    let (ok, env2) = 匹配模式(fields[0], values[0], env) in
+    ok ? 匹配字段列表(fields[1:], values[1:], env2) : (假, env)
 
   (* ===== 标准库内建 ===== *)
   func 注册内建(env: List) -> List =

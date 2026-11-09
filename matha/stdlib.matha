@@ -18,40 +18,17 @@ module 标准库 {
 
   (* ===== 字符串操作 ===== *)
 
-  (* 字符串长度 len：基础原语，由宿主/VM 内建提供。
-     不可用 Matha 重定义——函数体内的 len(s) 会自引同名定义造成无限递归；
-     需待 VM/原生底层提供「长度」原语后再以纯 Matha 实现替换。 *)
+  (* 字符串长度 len：基础原语，宿主/VM/原生三端内建均为真实 Unicode 长度。
+     不可用 Matha 重定义——函数体内的 len(s) 会自引同名定义造成无限递归。 *)
 
-  (* 取字符码点（Unicode）——纯 Matha 查表占位实现。
-     注意：VM/宿主已提供真实 ord 内建（ASCII/Unicode 码点），
-     本占位实现仅用于无宿主原语的自举场景，故命名 ord_matha 以免遮蔽内建。
-     互递归辅助提升为模块顶层 func（自举 parser 不支持 let rec ... and ...）。 *)
-  func ord_char_matha(c: String) -> Int =
-    let base = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" in
-    let rec _find(i: Int) -> Int =
-      if i >= len(base) then -1
-      else if c = base[i] then i
-      else _find(i + 1)
-    in _find(0)
+  (* Unicode 码点 ↔ 字符：110 万码点无法纯 Matha 查表实现，
+     委托宿主/VM/原生三端共有的 ord/chr 原语（与 _dict_keys 等 VM 原语同例）。
+     命名 ord_matha/chr_matha 保持既有接口（interp.matha / interp_matha.matha 消费）；
+     单字符校验与码点越界拒绝由原语承担（三端均真实拒绝）。
+     旧 ASCII 查表占位已清除：ord_matha 对非 ASCII 曾静默返回 -1（探针实测）。 *)
+  func ord_matha(c: String) -> Int = ord(c)
 
-  func ord_matha(c: String) -> Int =
-    if len(c) != 1 then 错误("ord() 需要单字符，实际: " + c)
-    else
-      let rec _encode(i: Int, code: Int) -> Int =
-        if i >= len(c) then code
-        else _encode(i + 1, (code * 128) + ord_char_matha(c[i]))
-      in _encode(0, 0)
-
-  (* 由码点生成字符（仅支持 ASCII 0-127）——纯 Matha 占位，同上命名 chr_matha *)
-  func chr_matha(n: Int) -> String =
-    let chars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~" in
-    if n < 0 or n >= len(chars) then
-      错误("chr() 超出范围: " + str(n))
-    else
-      let rec _build(i: Int, acc: String) -> String =
-        if i < 0 then acc
-        else _build(i - 1, acc + chars[i])
-      in _build(0, chars[n])
+  func chr_matha(n: Int) -> String = chr(n)
 
   (* 字符串截取：截取(s, start, end) → 子串 *)
   func 截取(s: String, start: Int, end: Int) -> String =
@@ -254,6 +231,22 @@ module 标准库 {
       if i >= len(lst) then acc
       else _sum(i + 1, acc + lst[i])
     in _sum(0, 0.0)
+
+  (* 列表映射：list_map(lst, f) → [f(x0), f(x1), ...]——纯 Matha，
+     不委托宿主 映射 内建（自举链可用）。f 为单参函数值；空列表返回 []。 *)
+  func list_map(lst: List, f) -> List =
+    let rec _map(i: Int, acc: List) -> List =
+      if i >= len(lst) then acc
+      else _map(i + 1, acc + [f(lst[i])])
+    in _map(0, [])
+
+  (* 左折叠：list_fold(lst, init, f) → f(...f(f(init, x0), x1)...)——纯 Matha。
+     f 为二元函数值（柯里化 f(acc)(x)）；空列表返回 init。 *)
+  func list_fold(lst: List, init, f) -> Value =
+    let rec _fold(i: Int, acc: Value) -> Value =
+      if i >= len(lst) then acc
+      else _fold(i + 1, f(acc, lst[i]))
+    in _fold(0, init)
 
   (* ===== 字典操作 =====
 
@@ -627,6 +620,8 @@ module 标准库 {
     "chr": chr,
     "len": len,
     "list_len": list_len,
+    "list_map": list_map,
+    "list_fold": list_fold,
     "get": func_get,
     "slice": func_slice,
     "append": func_append,

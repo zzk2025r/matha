@@ -576,6 +576,47 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   **仍未背书/未修**：simplify 仅 '+' 数字折叠与消零两条规则（其余运算不简化，
   规则覆盖不背书）；quantum grover/shor 假实现与 `unified_parser.py`
   假编译产物仍在（非 AI，登记同前）。
+- **2026-11 阶段 8a 收官（自然语言编译器前置：Matha 自举能力真实升级）**：
+  阶段 8（AI 自然语言编译器/解释器 + 混合执行引擎，全部以 Matha 自身构建）的
+  第一子阶段——先把自举链的三项能力缺口真实补齐：
+  ① **stdlib ord/chr Unicode 占位清除**：`matha/stdlib.matha` 的 ord_matha/chr_matha
+  原为 ASCII 查表占位（探针实测 ord_matha("中") 静默返回 -1）→ 删除查表，委托
+  宿主/VM/原生三端共有的真实 ord/chr 原语（110 万码点无法纯 Matha 查表，
+  与 _dict_keys 等 VM 原语同例）；len 本为三端真实 Unicode 长度原语，注释明示
+  不可 Matha 重定义（函数体内 len(s) 自引同名定义造成无限递归）。
+  ② **纯 Matha list_map/list_fold**：let rec 累加器实现，不委托宿主 映射 内建
+  （自举链可用），入 内建 导出表；空表边界 []/init 原样返回。
+  ③ **两条自举解释器链 match 求值补齐**：自举 parser 早已完整解析 match
+  （做Match/做构造子模式），但 interp.matha 与 interp_matha.matha 的求值 dispatch
+  均落「未知表达式类型」；mb.interpret 的静默 Python 回退
+  （src/matha_bootstrap.py:126-129）曾掩盖此缺口。本轮两链同补
+  求值match/求值match分支/匹配模式/匹配构造子/匹配字段列表：守卫先于模式在
+  外层 env 求值（模式绑定对守卫不可见）、通配符 _ 延迟兜底、变量绑定经新 env
+  不泄漏、构造子列表 [名, 字段...] 与字典 {名: 字段列表} 两形态、无匹配显式抛错。
+  字典形态以 安全索引（三端内建）做缺键拒绝——自举 parser 无 in 二元运算符层
+  （仅 let 终止符），用 in 会破坏 test_m7 自编译（期望 then）。
+  新 `tests/test_bootstrap_upgrade_phase8a.py` **46 条**三锁（手算对拍/闭环/显式拒绝，
+  mb/fresh/M3V VM 三链）：ord/chr 中文与 emoji 往返、多字符/越界拒绝、
+  map/fold 对拍与组合闭环（平方和 14）及左折叠顺序锁（123）、match 源码级 8 例
+  （字面量/兜底/绑定/守卫/假守卫跳过/Unicode 串/浮点/布尔）×两链、构造子 AST 级
+  7 例×两链、无匹配拒绝与绑定不泄漏×两链、VM 字面量/绑定/列表与字典构造子/拒绝。
+  本轮新增测试 **46 条**，全量门禁 **6311/6311 通过**（基线：`python scripts/check.py`，
+  tests 项 6208 过 17m55s + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
+  **预先存在缺口（本轮探针取证登记，未修，超出 8a 范围）**：
+  ① interp_matha 顶层 let 绑定 env 丢失——mb 链 `let n = 5` 换行 `n + 1` 抛
+  「未定义变量 'n'」（执行声明 else 分支丢弃 求值let绑定 返回的新 env）；
+  fresh 链（interp.matha）同源码正常得 6。
+  ② 两自举解释器均不支持列表/字典字面量求值（`[1,2,3]` / `{"a":1}` 均抛
+  「未知表达式类型: 列表/字典」）——match 构造子源码级用例因此走 AST 级预绑定 env。
+  ③ mb 链 parse_JSON 独立调用抛「不可调用的值: <?>」（与 match 无关，探针复现）。
+  ④ 自举构造子匹配不支持元组形态 scrutinee（宿主支持；type_of 三端均无
+  "Tuple" 判别）——代码注释登记。
+  ⑤ 守卫真值口径：自举 if 约定（非 0.0 且非 假）vs 宿主 Python truthiness——
+  代码注释登记。
+  **仍未背书/未修**：上述五缺口；阶段 8b（Matha 写的 NL 词法器+句法器）、
+  8c（语义转换+混合执行引擎零冲突集成）、8d（英语子集+用户词典+LLM 可选路径）
+  未开工。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

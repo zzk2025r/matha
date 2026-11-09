@@ -61,6 +61,7 @@ module 解释器 {
     expr["类型"] = "输出" ? (求值(expr["expr"], env), env) :
     expr["类型"] = "绑定" ? 求值绑定(expr, env) :
     expr["类型"] = "let绑定" ? 求值let绑定(expr, env) :
+    expr["类型"] = "match" ? 求值match(expr, env) :
     错误("未知表达式类型: " + expr["类型"])
 
   (* 绑定表达式：let x = expr in body *)
@@ -270,6 +271,8 @@ module 解释器 {
       (求值(stmt["expr"], env), env) :
     stmt["类型"] = "程序" ?
       执行语句列表(stmt, env) :
+    stmt["类型"] = "match" ?
+      (求值match(stmt, env), env) :
     (错误("未知语句类型: " + stmt["类型"]), env)
 
   func 执行语句列表(stmts: Dict, env: List) -> (Value, List) = (stmts, env) =>
@@ -324,6 +327,60 @@ module 解释器 {
       let (result3, env2) = 执行语句(body, 绑定环境(env, var_name, items[0])) in
       let (result4, env3) = 执行for循环(var_name, list_slice(items, 1, 标准库.len(items)), body, env2) in
       (None, env3)
+
+  (* ===== match 模式匹配 =====
+     语义对齐宿主 _eval_match / _match_pattern：
+     守卫先于模式求值（外层 env，模式绑定对守卫不可见）；
+     通配符 _ 为兜底分支（记录首个，后续通配符不可达）；
+     变量绑定经 绑定环境 产生新 env，天然不泄漏（宿主为绑定后恢复，意图一致）；
+     构造子支持列表 [名, 字段...] 与字典 {名: 字段列表} 两种形态；
+     元组形态宿主支持而自举 type_of 无 Tuple 判别——登记为已知差异。
+     守卫真值沿用自举 if 约定（非 0.0 且非 假）。 *)
+
+  func 求值match(expr: Dict, env: List) -> Value = (expr, env) =>
+    求值match分支(expr["分支"], 求值(expr["scrutinee"], env), null, env)
+
+  func 求值match分支(branches: List, value, 兜底: Dict, env: List) -> Value =
+    (branches, value, 兜底, env) =>
+    branches = [] ?
+      (兜底 = null ? 错误("match 无匹配分支: " + 标准库.str(value)) : 求值(兜底, env)) :
+    let b = branches[0] in
+    let guard = b[1] in
+    let gv = guard = null ? 真 : 求值(guard, env) in
+    let guard_ok = guard = null ? 真 : (gv != 0.0 and gv != 假) in
+    if not guard_ok then 求值match分支(branches[1:], value, 兜底, env)
+    else if b[0]["类型"] = "变量" and b[0]["名"] = "_" then
+      求值match分支(branches[1:], value, (兜底 = null ? b[2] : 兜底), env)
+    else
+      let (matched, env2) = 匹配模式(b[0], value, env) in
+      matched ? 求值(b[2], env2) : 求值match分支(branches[1:], value, 兜底, env)
+
+  func 匹配模式(pattern: Dict, value, env: List) -> (Bool, List) = (pattern, value, env) =>
+    pattern["类型"] = "整数" or pattern["类型"] = "浮点" or pattern["类型"] = "字符串" or pattern["类型"] = "布尔" ?
+      (pattern["值"] = value, env) :
+    pattern["类型"] = "构造子模式" ? 匹配构造子(pattern, value, env) :
+    pattern["类型"] = "变量" ?
+      (pattern["名"] = "_" ? (假, env) : (真, 绑定环境(env, pattern["名"], value))) :
+    (假, env)
+
+  func 匹配构造子(pattern: Dict, value, env: List) -> (Bool, List) = (pattern, value, env) =>
+    let fields = pattern["字段"] in
+    if type_of(value) = "List" and 标准库.len(value) = 标准库.len(fields) + 1 and type_of(value[0]) = "String" and value[0] = pattern["名"] then
+      匹配字段列表(fields, value[1:], env)
+    else if type_of(value) = "Dict" then
+      (* 安全索引：缺键返回 null → 下方 List 校验拒绝，语义等价成员测试。
+         不用 in 成员运算符——自举 parser 无 in 二元层（仅 let 终止符）。
+         安全索引宿主/VM/原生三端内建均有。 *)
+      let args = 安全索引(value, pattern["名"]) in
+      if type_of(args) = "List" and 标准库.len(args) = 标准库.len(fields) then
+        匹配字段列表(fields, args, env)
+      else (假, env)
+    else (假, env)
+
+  func 匹配字段列表(fields: List, values: List, env: List) -> (Bool, List) = (fields, values, env) =>
+    fields = [] ? (真, env) :
+    let (ok, env2) = 匹配模式(fields[0], values[0], env) in
+    ok ? 匹配字段列表(fields[1:], values[1:], env2) : (假, env)
 
   (* ===== 标准库内建注册 ===== *)
   func 注册内建(env: List) -> List = (env) =>
