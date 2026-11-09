@@ -380,8 +380,10 @@ class TestSecurityFacade:
     def test_hash_password_not_plaintext(self, sys6):
         h = sys6.hash_password("fake-key-abc")
         assert h != "fake-key-abc"
-        assert len(h) == 64
-        int(h, 16)  # 真 pbkdf2 hex
+        salt, sep, dk = h.partition("$")
+        assert sep and len(salt) == 32 and len(dk) == 64
+        int(salt, 16)  # 真 pbkdf2 hex（阶段 7 起盐嵌入格式）
+        int(dk, 16)
 
     def test_hash_password_salted(self, sys6):
         assert sys6.hash_password("fake-key-abc") != \

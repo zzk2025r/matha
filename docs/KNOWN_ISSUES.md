@@ -547,9 +547,34 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
   **仍未背书/未修**：资源_成长仅背书六规范名精确场景，语义级需求理解不背书；
   `security_enhanced.verify_password` 恒真（len(hashed)>0）假验证仍在（探针实测
-  错误密码也通过；非门面消费，本轮未触及）；`symbolic.simplify` 对裸数节点取
+  错误密码也通过；非门面消费，本轮未触及）（**已于阶段 7 真验证清除**，见下方阶段 7 条目）；
+  `symbolic.simplify` 对裸数节点取
   `.value` 的同类崩溃仍在（探针实测 simplify(parse('1+2')) AttributeError；
-  非门面消费，本轮未触及）；quantum grover/shor 假实现与 `unified_parser.py`
+  非门面消费，本轮未触及）（**已于阶段 7 根治**，见下方阶段 7 条目）；
+  quantum grover/shor 假实现与 `unified_parser.py`
+  假编译产物仍在（非 AI，登记同前）。
+- **2026-11 阶段 7 收官（两项新登记缺口清除：verify_password 假验证、simplify 崩溃）**：
+  阶段 6 登记的两项「未触及」经批准本轮清除——
+  ① **`src/security_enhanced.py` 密码验证**：`verify_password` 恒真
+  （len(hashed)>0，探针实测错误密码通过），且 `hash_password` 随机盐不嵌入输出
+  （盐被丢弃，真验证无从重算）→ 哈希格式改 `hex(salt)$hex(pbkdf2_dk)`（盐嵌入），
+  `verify_password` 重算 PBKDF2-HMAC-SHA256（100000 轮）+ `hmac.compare_digest`
+  恒定时间比较；格式非法（无分隔/非 hex/长度不符/多段）一律 False 不裸抛，
+  口径同 `src/auth/password.py` 既有真实现。哈希格式属有意行为变更：旧裸摘要
+  格式本就无法验证（盐已丢弃），阶段 6 的 64 位裸摘要锁已同步升级为嵌盐格式锁。
+  ② **`src/symbolic.py` simplify 崩溃**：数字折叠与 `_is_zero` 对 parse 产出的
+  裸数节点取 `.value`（探针实测 simplify(parse('1+2')) AttributeError）→
+  新增 `_number_value` 兼容裸数与 Symbol 值节点，两处取值统一走它；
+  只修崩溃不扩简化规则（仍仅 '+' 折叠与消零）。
+  新 `tests/test_verify_password_simplify.py` **29 条**（摘要与独立 hashlib
+  重算逐值对拍、hash→verify 闭环（正确/错误/空密码/跨实例/双盐）、篡改盐/摘要
+  拒绝、9 例非法格式矩阵不裸抛、内建 `哈希密码` 注册接线与 matha_system 门面闭环；
+  simplify 折叠/消零手算、Symbol 值节点兼容、非 '+' 透传不过度简化、幂等再入）。
+  本轮新增测试 **29 条**，全量门禁 **6265/6265 通过**（基线：`python scripts/check.py`，
+  tests 项 6162 过 17m26s + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1
+  + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
+  **仍未背书/未修**：simplify 仅 '+' 数字折叠与消零两条规则（其余运算不简化，
+  规则覆盖不背书）；quantum grover/shor 假实现与 `unified_parser.py`
   假编译产物仍在（非 AI，登记同前）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`

@@ -319,7 +319,7 @@ class MathaSymbolic:
             # 数字相加
             if self._is_number(left) and self._is_number(right):
                 return Expression(operator='number',
-                                    operands=[left.operands[0].value + right.operands[0].value])
+                                    operands=[self._number_value(left) + self._number_value(right)])
             # 0 + x = x
             if self._is_zero(left):
                 return right
@@ -327,11 +327,18 @@ class MathaSymbolic:
                 return left
         return expr
 
+    @staticmethod
+    def _number_value(expr: Expression) -> float:
+        """取数节点的值（parse/diff 产裸数，旧路径产 Symbol 值节点）。"""
+        v = expr.operands[0]
+        return v.value if isinstance(v, Symbol) else v
+
     def _is_number(self, expr: Expression) -> bool:
         return expr.operator == 'number'
 
     def _is_zero(self, expr: Expression) -> bool:
-        return expr.operator == 'number' and expr.operands and expr.operands[0].value == 0
+        return (expr.operator == 'number' and bool(expr.operands)
+                and self._number_value(expr) == 0)
 
     def diff(self, expr: Expression, var: str = "x"
                  ) -> Expression:

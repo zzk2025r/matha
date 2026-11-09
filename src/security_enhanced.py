@@ -173,16 +173,28 @@ class MathaSecurity:
         return cert
 
     def hash_password(self, password: str) -> str:
-        """哈希密码。"""
+        """哈希密码。格式: hex(salt)$hex(pbkdf2_dk)，盐嵌入输出以供验证。"""
         salt = secrets.token_hex(16)
-        return hashlib.pbkdf2_hmac('sha256', password.encode(),
-                                    salt.encode(), 100000).hex()
+        dk = hashlib.pbkdf2_hmac('sha256', password.encode(),
+                                 salt.encode(), 100000).hex()
+        return f"{salt}${dk}"
 
     def verify_password(self, password: str,
                            hashed: str) -> bool:
-        """验证密码。"""
-        # 简单验证
-        return len(hashed) > 0
+        """验证密码（重算 PBKDF2 恒定时间比较；格式非法一律 False）。"""
+        salt, sep, dk = hashed.partition('$')
+        if not sep:
+            return False
+        try:
+            salt_bytes = bytes.fromhex(salt)
+            expected = bytes.fromhex(dk)
+        except ValueError:
+            return False
+        if len(salt_bytes) != 16 or len(expected) != 32:
+            return False
+        actual = hashlib.pbkdf2_hmac('sha256', password.encode(),
+                                     salt.encode(), 100000)
+        return hmac.compare_digest(actual, expected)
 
     def create_oauth2_client(self, client_id: str,
                                 client_secret: str,
