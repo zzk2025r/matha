@@ -779,6 +779,8 @@ def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
         "虚拟机": "vm/matha_vm.matha",
         "自举加载器": "bootstrap_matha.matha",
         "编译器": "compiler_matha.matha",
+        "自然语言词法器": "nl_lexer.matha",
+        "自然语言句法器": "nl_parser.matha",
     }
     if module_name == "运行时引擎":
         path = d / "runtime" / "matha_runtime.matha"

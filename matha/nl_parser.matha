@@ -1,0 +1,97 @@
+module 自然语言句法器 {
+  use 自然语言词法器 { NL词法分析 | 中文数字转阿拉伯数字 }
+  use 语法器 { 做BinaryOp | 做IntLit | 做Output | 做Program }
+  use 标准库 { len | int }
+
+  (* ===== 运算符映射 ===== *)
+  (* 控制子集动词 → 二元运算符；非运算动词返回 ""。 *)
+  func _运算符(文本: String) -> String =
+    if 文本 = "加" or 文本 = "加上" then "+"
+    else if 文本 = "减" or 文本 = "减去" then "-"
+    else if 文本 = "乘" or 文本 = "乘以" then "*"
+    else if 文本 = "除" or 文本 = "除以" then "/"
+    else ""
+
+  (* ===== 跳过前导 ===== *)
+  (* 命令动词（计算/算/求）或把字介词（把）作为前导跳过。 *)
+  func _skip前导(tokens: List, i: Int) -> Int =
+    if i >= len(tokens) then i
+    else
+      let tok = tokens[i] in
+      let kind = tok[0] in
+      let 文本 = tok[1] in
+      if kind = "词" and (文本 = "计算" or 文本 = "算" or 文本 = "求" or 文本 = "把") then
+        _skip前导(tokens, i + 1)
+      else
+        i
+
+  (* ===== 数词后尾部解析 ===== *)
+  (* 三种合法尾部：二元运算（OP NUM）/ 量词名词短语（量词 名词）/ 纯数词结束。
+     其余形态（连续数词、多运算符链、未知词类）一律显式拒绝。 *)
+  func _parse尾部(tokens: List, i: Int, a: Int) -> Dict =
+    if i >= len(tokens) then 做IntLit(a)
+    else
+      let tok = tokens[i] in
+      let kind = tok[0] in
+      let 文本 = tok[1] in
+      let 词类 = tok[2] in
+      if kind = "数字" then
+        错误("句式歧义：连续数词缺少运算符")
+      else if 词类 = "动词" then
+        let op = _运算符(文本) in
+        if op = "" then
+          错误("超出控制子集的动词: " + 文本)
+        else if i + 1 >= len(tokens) then
+          错误("句式不完整：运算符缺少数词")
+        else
+          let tok2 = tokens[i + 1] in
+          if tok2[0] != "数字" then
+            错误("句式歧义：运算符后期望数词")
+          else
+            let b = int(tok2[1]) in
+            if i + 2 < len(tokens) then
+              错误("超出控制子集的句式（仅支持单一二元运算）")
+            else
+              做BinaryOp(op, 做IntLit(a), 做IntLit(b))
+      else if 词类 = "量词" then
+        if i + 1 >= len(tokens) then
+          错误("句式不完整：量词缺少名词")
+        else
+          let tok2 = tokens[i + 1] in
+          if tok2[2] != "名词" then
+            错误("句式歧义：量词后期望名词")
+          else if i + 2 < len(tokens) then
+            错误("超出控制子集的句式")
+          else
+            做IntLit(a)
+      else
+        错误("超出控制子集的句式")
+
+  (* ===== 主入口：NL 句法分析 ===== *)
+  (* 输入：NL词法分析 产出的 token 列表（每个 token 是 [词类型, 词文本, 词类]）。
+     输出：语义框架（Matha 表达式 AST Dict，经 语法器 构造子构建）。
+     控制子集：单一二元算术运算 / 数量短语 / 纯数词；歧义与超子集显式拒绝。 *)
+  func NL句法分析(tokens: List) -> Dict =
+    if len(tokens) = 0 then
+      错误("空 token 序列，无法解析")
+    else
+      let i0 = _skip前导(tokens, 0) in
+      if i0 >= len(tokens) then
+        错误("句式不完整：缺少数词")
+      else
+        let tok = tokens[i0] in
+        if tok[0] != "数字" then
+          错误("句式歧义：期望数词")
+        else
+          let a = int(tok[1]) in
+          _parse尾部(tokens, i0 + 1, a)
+
+  (* ===== 端到端：句子 → 语义框架 ===== *)
+  func NL编译(句子: String) -> Dict =
+    NL句法分析(NL词法分析(句子))
+
+  (* ===== 句子 → 可执行程序 AST ===== *)
+  (* 把语义框架包成 程序[输出(表达式)]，供混合执行引擎求值。 *)
+  func NL程序(句子: String) -> Dict =
+    做Program([做Output(NL编译(句子))])
+}

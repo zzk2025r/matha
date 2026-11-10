@@ -1,0 +1,158 @@
+module 自然语言词法器 {
+  use 词法器 { Token | 类型 | 扫描 | 做Token | tokenize }
+  use 语法器 { parse | 做BinaryOp | 做IntLit | 做StringLit | 做Variable | 做Lambda | 做FuncApp }
+  use 标准库 { len | find | 截取 | split | strip | to_lower | 拼接 | str | int | float }
+
+  (* ===== 词类标注 ===== *)
+  (* 控制子集词类：数词/量词/动词/名词/助词/介词 *)
+  func 词类标注(词: String) -> String =
+    let 词_lower = to_lower(词) in
+    if 词_lower = "计算" or 词_lower = "算" or 词_lower = "求" or
+       词_lower = "加" or 词_lower = "减" or 词_lower = "乘" or 词_lower = "除" or
+       词_lower = "加上" or 词_lower = "减去" or 词_lower = "乘以" or 词_lower = "除以" or
+       词_lower = "等于" then
+      "动词"
+    else if 词_lower = "把" then
+      "介词"
+    else if 词_lower = "的" then
+      "助词"
+    else if 词_lower = "个" or 词_lower = "次" then
+      "量词"
+    else if 词_lower = "结果" or 词_lower = "数" or 词_lower = "苹果" then
+      "名词"
+    else
+      "未知"
+
+  (* ===== 分词 ===== *)
+  (* 改进分词：优先识别常见双词短语，再按空白切分。 *)
+  (* 控制子集常见短语：加上/减去/乘以/除以/把字句/量词短语等 *)
+  func 分词(句子: String) -> List =
+    let 分割后 = _split_with_phrases(句子) in
+    let rec _annotate(i: Int, acc: List) -> List =
+      if i >= len(分割后) then acc
+      else
+        let 词 = 分割后[i] in
+        let 标注后 = ["词", 词, 词类标注(词)] in
+        _annotate(i + 1, acc + [标注后])
+    in _annotate(0, [])
+
+  (* 辅助函数：带短语识别的分词 *)
+  func _split_with_phrases(s: String) -> List =
+    if s = "" then []
+    else
+      let (next_i, phrase, rest) = _match_phrase(0, s) in
+      拼接(rest, if phrase = "" then [] else 拼接([phrase], _split_with_phrases(截取(s, next_i, len(s)))))
+
+  (* 辅助函数：匹配双词短语 *)
+  func _match_phrase(i: Int, s: String) -> (Int, String, List) =
+    if i >= len(s) then (len(s), "", [])
+    else if i + 1 < len(s) then
+      let 候选 = 截取(s, i, i + 2) in
+      if 候选 = "加上" or 候选 = "减去" or 候选 = "乘以" or 候选 = "除以" then
+        (i + 2, 候选, [候选])
+      else
+        _match_phrase(i + 1, s)
+    else
+      (i + 1, 截取(s, i, i + 1), [截取(s, i, i + 1)])
+
+  (* ===== 检查是否为数字码 ===== *)
+  func 是数字码(c: String) -> Bool =
+    let c_lower = to_lower(c) in
+    c_lower = "0" or c_lower = "1" or c_lower = "2" or c_lower = "3" or c_lower = "4" or
+    c_lower = "5" or c_lower = "6" or c_lower = "7" or c_lower = "8" or c_lower = "9"
+
+  (* ===== 检查是否为字母码 ===== *)
+  func 是字母码(c: String) -> Bool =
+    let c_lower = to_lower(c) in
+    (c_lower >= "a" and c_lower <= "z") or (c_lower >= "A" and c_lower <= "Z")
+
+  (* ===== 主入口：NL 词法分析 ===== *)
+  (* 输入：自然语言句子（中文控制子集，如 "计算 三 加 五"）。
+     输出：NL token 列表（每个 token 是 [词类型, 词文本, 词类]）。
+     如果句子超出控制子集（如包含未知词、歧义），显式拒绝。 *)
+  func NL词法分析(句子: String) -> List =
+    let 分割后 = split(句子, " ") in
+    let rec _go(i: Int, acc: List) -> List =
+      if i >= len(分割后) then
+        if len(acc) = 0 then
+          错误("句子为空或仅含空白")
+        else
+          acc
+      else
+        let 词 = 分割后[i] in
+        if 词 = "" then
+          _go(i + 1, acc)
+        else
+          let 词_lower = to_lower(词) in
+          (* 检查是否为控制子集词 *)
+          if 词_lower = "计算" or 词_lower = "算" or 词_lower = "求" or
+             词_lower = "加" or 词_lower = "减" or 词_lower = "乘" or 词_lower = "除" or
+             词_lower = "加上" or 词_lower = "减去" or 词_lower = "乘以" or 词_lower = "除以" or
+             词_lower = "等于" or
+             词_lower = "把" or 词_lower = "的" or 词_lower = "个" or 词_lower = "次" or
+             词_lower = "结果" or 词_lower = "数" or 词_lower = "苹果" then
+            let 标注后 = ["词", 词, 词类标注(词)] in
+            _go(i + 1, acc + [标注后])
+          else if (词[0] = "个" or 词[0] = "次") and len(词) > 1 then
+            (* 量词+名词粘连（如 "个苹果"）：拆成量词与名词两个 token *)
+            let 量 = 词[0] in
+            let 名 = 截取(词, 1, len(词)) in
+            if 名 = "苹果" or 名 = "结果" or 名 = "数" then
+              _go(i + 1, acc + [["词", 量, "量词"], ["词", 名, "名词"]])
+            else
+              错误("超出控制子集的词: " + 词)
+          else if find("零", 词) >= 0 or find("一", 词) >= 0 or find("二", 词) >= 0 or
+                 find("三", 词) >= 0 or find("四", 词) >= 0 or find("五", 词) >= 0 or
+                 find("六", 词) >= 0 or find("七", 词) >= 0 or find("八", 词) >= 0 or
+                 find("九", 词) >= 0 or find("十", 词) >= 0 or
+                 find("百", 词) >= 0 or find("千", 词) >= 0 or find("万", 词) >= 0 then
+            (* 中文数字：转换并标注 *)
+            let 阿拉伯数字 = 中文数字转阿拉伯数字(词) in
+            let 标注后 = ["数字", str(阿拉伯数字), "数词"] in
+            _go(i + 1, acc + [标注后])
+          else
+            (* 未知词：拒绝 *)
+            错误("超出控制子集的词: " + 词)
+    in _go(0, [])
+
+  (* ===== 中文数字转换 ===== *)
+  (* 控制子集：个/十/百/千/万 位组合（如 十五→15, 二百→200, 三十五→35）。
+     算法：total 累计万级，section 累计万以下节，num 为当前 digit；
+     遇单位把 num×单位 并入 section（十 前省略 digit 时按 1），遇 万 把整节×10000 并入 total。 *)
+  func 中文数字转阿拉伯数字(中文: String) -> Int =
+    let rec _go(s: String, total: Int, section: Int, num: Int) -> Int =
+      if s = "" then total + section + num
+      else
+        let c = s[0] in
+        let rest = 截取(s, 1, len(s)) in
+        let d = 单字值(c) in
+        if d >= 0 then
+          _go(rest, total, section, d)
+        else if c = "十" then
+          let 十值 = if num = 0 then 1 else num in
+          _go(rest, total, section + 十值 * 10, 0)
+        else if c = "百" then
+          _go(rest, total, section + num * 100, 0)
+        else if c = "千" then
+          _go(rest, total, section + num * 1000, 0)
+        else if c = "万" then
+          _go(rest, total + (section + num) * 10000, 0, 0)
+        else if c = "零" or c = "〇" then
+          _go(rest, total, section, 0)
+        else
+          错误("中文数字超出控制子集: " + 中文)
+    in _go(strip(中文), 0, 0, 0)
+
+  (* 单个中文数字字符的值；非 digit 返回 -1 *)
+  func 单字值(c: String) -> Int =
+    if c = "一" then 1
+    else if c = "二" or c = "两" then 2
+    else if c = "三" then 3
+    else if c = "四" then 4
+    else if c = "五" then 5
+    else if c = "六" then 6
+    else if c = "七" then 7
+    else if c = "八" then 8
+    else if c = "九" then 9
+    else -1
+}

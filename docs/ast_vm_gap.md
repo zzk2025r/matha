@@ -27,7 +27,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
 | 指令码总数 / VM 已分派 / native 已发射 | 33 / 33 / 33 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
-| 语料文件（解析成功） | 206 |
+| 语料文件（解析成功） | 208 |
 | 无法解析的语料文件 | 0 |
 
 ## 三、阻塞缺口（必须先补）
@@ -46,9 +46,9 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `AngleExpr` | emits | no | 0 |
 | `AnnotatedType` | noop | no | 0 |
 | `Annotation` | noop | no | 0 |
-| `BasicType` | noop | no | 147 |
+| `BasicType` | noop | no | 149 |
 | `Belongs` | emits | yes | 1 |
-| `BinaryOp` | emits | yes | 161 |
+| `BinaryOp` | emits | yes | 163 |
 | `Binding` | emits | yes | 48 |
 | `BoolLit` | emits | yes | 35 |
 | `BreakStmt` | emits | yes | 1 |
@@ -65,38 +65,38 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `FloatLit` | emits | yes | 87 |
 | `ForStmt` | emits | yes | 2 |
 | `ForeignDecl` | noop | yes | 12 |
-| `FuncApp` | emits | yes | 159 |
-| `FuncDef` | emits | yes | 147 |
-| `FuncType` | noop | no | 147 |
+| `FuncApp` | emits | yes | 161 |
+| `FuncDef` | emits | yes | 149 |
+| `FuncType` | noop | no | 149 |
 | `GenStmt` | emits | yes | 35 |
 | `Generate` | noop | no | 55 |
 | `GlobalIdStmt` | noop | yes | 15 |
 | `GlobalLoopSuffix` | noop | no | 1 |
 | `GoStmt` | emits | yes | 0 |
 | `IfElseStmt` | emits | yes | 0 |
-| `IfExpr` | emits | yes | 77 |
+| `IfExpr` | emits | yes | 79 |
 | `IfStmt` | emits | yes | 14 |
-| `ImportDecl` | emits | yes | 11 |
-| `IndexExpr` | emits | yes | 57 |
-| `IntegerLit` | emits | yes | 181 |
+| `ImportDecl` | emits | yes | 13 |
+| `IndexExpr` | emits | yes | 59 |
+| `IntegerLit` | emits | yes | 183 |
 | `IsExpr` | emits | yes | 1 |
 | `Iteration` | emits | no | 0 |
-| `Lambda` | emits | yes | 150 |
-| `LetBinding` | emits | yes | 80 |
-| `LetTupleBinding` | emits | yes | 10 |
+| `Lambda` | emits | yes | 152 |
+| `LetBinding` | emits | yes | 82 |
+| `LetTupleBinding` | emits | yes | 11 |
 | `ListComp` | emits | yes | 1 |
-| `ListLiteral` | emits | yes | 59 |
+| `ListLiteral` | emits | yes | 61 |
 | `LoopFraction` | noop | no | 10 |
 | `LoopStep` | emits | no | 0 |
 | `LoopWhile` | emits | no | 0 |
 | `MatchStmt` | emits | yes | 13 |
 | `MechUnit` | emits | yes | 55 |
-| `ModuleDecl` | emits | yes | 105 |
+| `ModuleDecl` | emits | yes | 107 |
 | `NLBlock` | noop | no | 0 |
 | `Output` | emits | yes | 64 |
 | `OutputTrail` | emits | yes | 45 |
 | `PathExpr` | emits | yes | 16 |
-| `Program` | emits | no | 206 |
+| `Program` | emits | no | 208 |
 | `RaiseExpr` | emits | yes | 6 |
 | `ReadBlock` | noop | yes | 23 |
 | `ReturnStmt` | emits | yes | 8 |
@@ -109,16 +109,16 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `SetUp` | emits | yes | 29 |
 | `SetUpItem` | noop | no | 29 |
 | `SliceExpr` | emits | yes | 19 |
-| `StringLit` | emits | yes | 109 |
+| `StringLit` | emits | yes | 111 |
 | `StructDef` | emits | yes | 3 |
 | `SwitchStmt` | emits | yes | 0 |
 | `ThrowStmt` | emits | yes | 0 |
 | `TryStmt` | emits | yes | 4 |
-| `TupleExpr` | emits | yes | 22 |
-| `TupleType` | noop | no | 118 |
+| `TupleExpr` | emits | yes | 23 |
+| `TupleType` | noop | no | 120 |
 | `TypeOfExpr` | emits | yes | 2 |
-| `UnaryOp` | emits | yes | 53 |
-| `Variable` | emits | yes | 203 |
+| `UnaryOp` | emits | yes | 54 |
+| `Variable` | emits | yes | 205 |
 | `WhileStmt` | emits | yes | 8 |
 
 ## 六、指令码 × VM / native
