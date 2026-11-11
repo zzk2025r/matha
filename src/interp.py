@@ -782,6 +782,10 @@ def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
         "自然语言词法器": "nl_lexer.matha",
         "自然语言句法器": "nl_parser.matha",
         "自然语言执行器": "nl_engine.matha",
+        "用户词典": "nl_dict.matha",
+        "自然语言英语词法器": "nl_lexer_en.matha",
+        "自然语言英语句法器": "nl_parser_en.matha",
+        "自然语言英语执行器": "nl_engine_en.matha",
     }
     if module_name == "运行时引擎":
         path = d / "runtime" / "matha_runtime.matha"
@@ -3508,6 +3512,15 @@ class Interpreter:
             raise RuntimeError("自然语言执行：加载 自然语言执行器 模块失败")
         return self._call_func_or_closure(self.funcs["NL执行"], [sentence])
 
+    def _b_nl_run_en(self, sentence: str):
+        """内建 自然语言执行英语(句子)。阶段 8d：委托纯 Matha 英语 NL 执行链
+        （自然语言英语执行器：句子→英语词法→英语句法→语义框架→自举求值）。
+        独立命名，与中文链 自然语言执行 及既有混合接口零冲突；
+        歧义/超子集句子经 Matha 层 错误 显式拒绝，永不静默回退。"""
+        if not self.load_matha_module("自然语言英语执行器"):
+            raise RuntimeError("自然语言执行英语：加载 自然语言英语执行器 模块失败")
+        return self._call_func_or_closure(self.funcs["NL英语执行"], [sentence])
+
     def _b_hybrid_translate(self, source: str, target_lang: str) -> list:
         """内建 转译语言(源码, 目标语言名)。双向语言转译。"""
         from src.hybrid_compiler import HybridCompiler
@@ -3782,6 +3795,8 @@ class Interpreter:
         # 自然语言执行内建（阶段 8c：独立命名，委托纯 Matha NL 执行链；
         # 与上方混合语言内建及 Python 侧 intent/nl_pipeline 零冲突）
         b["自然语言执行"] = self._curry(1, self._b_nl_run)
+        # 自然语言执行英语内建（阶段 8d：独立命名，委托纯 Matha 英语 NL 执行链）
+        b["自然语言执行英语"] = self._curry(1, self._b_nl_run_en)
         b["转译语言"] = self._curry(2, self._b_hybrid_translate)
         b["重构_matha"] = self._curry(2, self._b_hybrid_refactor)
         # 自主能力内建（调试 / 优化 / 成长）

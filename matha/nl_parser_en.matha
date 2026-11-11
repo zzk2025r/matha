@@ -1,0 +1,84 @@
+(* ============================================================
+   Matha 自然语言英语句法器（阶段 8d：token 序列 → 语义框架）
+   ------------------------------------------------------------
+   镜像自然语言句法器结构：跳过英语前导（compute/calculate/what/is），
+   期望 数词 [运算 数词] 单一二元形态，经 语法器 构造子产 Matha 表达式
+   AST Dict。连续数词（含空格分隔复合 "twenty five"）/缺数词/多运算符链/
+   未知词类一律显式拒绝（永不静默回退）。
+   ============================================================ *)
+
+module 自然语言英语句法器 {
+  use 自然语言英语词法器 { NL英语词法分析 }
+  use 语法器 { 做BinaryOp | 做IntLit | 做Output | 做Program }
+  use 标准库 { len | int }
+
+  (* ===== 运算符映射 ===== *)
+  func _运算符英语(文本: String) -> String =
+    if 文本 = "plus" or 文本 = "add" then "+"
+    else if 文本 = "minus" or 文本 = "subtract" then "-"
+    else if 文本 = "times" then "*"
+    else if 文本 = "divided-by" then "/"
+    else ""
+
+  (* ===== 跳过英语前导 ===== *)
+  func _skip前导英语(tokens: List, i: Int) -> Int =
+    if i >= len(tokens) then i
+    else
+      let tok = tokens[i] in
+      if tok[0] = "词" and
+         (tok[1] = "compute" or tok[1] = "calculate" or tok[1] = "what" or tok[1] = "is") then
+        _skip前导英语(tokens, i + 1)
+      else
+        i
+
+  (* ===== 数词后尾部解析 ===== *)
+  (* 两种合法尾部：二元运算（OP NUM）/ 纯数词结束。其余形态显式拒绝。 *)
+  func _parse尾部英语(tokens: List, i: Int, a: Int) -> Dict =
+    if i >= len(tokens) then 做IntLit(a)
+    else
+      let tok = tokens[i] in
+      if tok[0] = "数字" then
+        错误("句式歧义：连续数词缺少运算符")
+      else if tok[2] = "动词" then
+        let op = _运算符英语(tok[1]) in
+        if op = "" then
+          错误("超出控制子集的动词: " + tok[1])
+        else if i + 1 >= len(tokens) then
+          错误("句式不完整：运算符缺少数词")
+        else
+          let tok2 = tokens[i + 1] in
+          if tok2[0] != "数字" then
+            错误("句式歧义：运算符后期望数词")
+          else
+            let b = int(tok2[1]) in
+            if i + 2 < len(tokens) then
+              错误("超出控制子集的句式（仅支持单一二元运算）")
+            else
+              做BinaryOp(op, 做IntLit(a), 做IntLit(b))
+      else
+        错误("超出控制子集的句式")
+
+  (* ===== 主入口：英语 NL 句法分析 ===== *)
+  func NL英语句法分析(tokens: List) -> Dict =
+    if len(tokens) = 0 then
+      错误("空 token 序列，无法解析")
+    else
+      let i0 = _skip前导英语(tokens, 0) in
+      if i0 >= len(tokens) then
+        错误("句式不完整：缺少数词")
+      else
+        let tok = tokens[i0] in
+        if tok[0] != "数字" then
+          错误("句式歧义：期望数词")
+        else
+          let a = int(tok[1]) in
+          _parse尾部英语(tokens, i0 + 1, a)
+
+  (* ===== 端到端：句子 → 语义框架 ===== *)
+  func NL英语编译(句子: String) -> Dict =
+    NL英语句法分析(NL英语词法分析(句子))
+
+  (* ===== 句子 → 可执行程序 AST ===== *)
+  func NL英语程序(句子: String) -> Dict =
+    做Program([做Output(NL英语编译(句子))])
+}

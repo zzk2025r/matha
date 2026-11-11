@@ -2,6 +2,7 @@ module 自然语言词法器 {
   use 词法器 { Token | 类型 | 扫描 | 做Token | tokenize }
   use 语法器 { parse | 做BinaryOp | 做IntLit | 做StringLit | 做Variable | 做Lambda | 做FuncApp }
   use 标准库 { len | find | 截取 | split | strip | to_lower | 拼接 | str | int | float }
+  use 用户词典 { 默认词典 | 替换词表 }
 
   (* ===== 词类标注 ===== *)
   (* 控制子集词类：数词/量词/动词/名词/助词/介词 *)
@@ -69,9 +70,14 @@ module 自然语言词法器 {
   (* ===== 主入口：NL 词法分析 ===== *)
   (* 输入：自然语言句子（中文控制子集，如 "计算 三 加 五"）。
      输出：NL token 列表（每个 token 是 [词类型, 词文本, 词类]）。
-     如果句子超出控制子集（如包含未知词、歧义），显式拒绝。 *)
+     如果句子超出控制子集（如包含未知词、歧义），显式拒绝。
+     阶段 8d：先经用户词典单层替换（默认空词典 = 行为不变），再分类。 *)
   func NL词法分析(句子: String) -> List =
-    let 分割后 = split(句子, " ") in
+    NL词法分析带词典(句子, 默认词典())
+
+  (* 显式词典入口：测试/下游可注入自定义词典。 *)
+  func NL词法分析带词典(句子: String, 词典: Dict) -> List =
+    let 分割后 = 替换词表(split(句子, " "), 词典) in
     let rec _go(i: Int, acc: List) -> List =
       if i >= len(分割后) then
         if len(acc) = 0 then

@@ -35,8 +35,8 @@ import src.ast_nodes as ast
 ROOT = Path(__file__).resolve().parents[1]
 
 _BOOT_FILES = ["matha/lexer.matha", "matha/stdlib.matha", "matha/parser.matha",
-               "matha/interp.matha", "matha/nl_lexer.matha", "matha/nl_parser.matha",
-               "matha/nl_engine.matha"]
+               "matha/interp.matha", "matha/nl_dict.matha", "matha/nl_lexer.matha",
+               "matha/nl_parser.matha", "matha/nl_engine.matha"]
 
 
 def _read(rel):
