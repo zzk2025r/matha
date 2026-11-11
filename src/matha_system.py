@@ -451,6 +451,7 @@ class MathaSystem:
 
     def _init_quantum(self):
         """初始化量子计算模块。"""
+        self._quantum_machines: list = []
         try:
             from src.domains.quantum import QuantumComputer
             self.quantum_class = QuantumComputer
@@ -1424,41 +1425,63 @@ class MathaSystem:
         """创建钱包。"""
         return {"type": "wallet", "balance": 0.0}
 
-    # ─── 量子计算方法 ───
+    # ─── 量子计算方法（真委托 src.domains.quantum，无机器显式拒绝） ───
+
+    def _require_quantum_machine(self):
+        machines = getattr(self, "_quantum_machines", None)
+        if machines is None:
+            raise RuntimeError("量子模块未初始化：请先调用 initialize()")
+        if not machines:
+            raise RuntimeError("尚无量子计算机：请先调用 create_quantum_computer")
+        return machines[-1]
 
     def create_quantum_computer(self,
                                     num_qubits: int = 2) -> Any:
-        """创建量子计算机。"""
-        if self.quantum_class:
-            return self.quantum_class(num_qubits)
-        return {"type": "quantum_computer", "qubits": num_qubits}
+        """创建量子计算机（真实状态向量模拟器，登记跟踪）。"""
+        if not getattr(self, "quantum_class", None):
+            raise RuntimeError("量子计算模块初始化失败，无法创建量子计算机")
+        if not hasattr(self, "_quantum_machines"):
+            self._quantum_machines = []
+        machine = self.quantum_class(num_qubits)
+        self._quantum_machines.append(machine)
+        return machine
 
     def apply_quantum_gate(self, gate: str,
-                                qubit: int) -> bool:
-        """应用量子门。"""
-        return True
+                                qubit: int,
+                                target: int | None = None) -> bool:
+        """应用量子门（真矩阵作用到最近创建的量子计算机）。"""
+        return self._require_quantum_machine().apply_gate(gate, qubit, target)
 
     def create_quantum_circuit(self,
                                    num_qubits: int = 2) -> Any:
-        """创建量子电路。"""
-        return {"type": "circuit", "qubits": num_qubits}
+        """创建量子电路（真容器，挂在最近创建的量子计算机上）。"""
+        return self._require_quantum_machine().create_circuit(num_qubits)
 
     def run_quantum_algorithm(self, name: str,
                                     qubits: int = 2) -> Any:
-        """运行量子算法。"""
-        return {"type": "algorithm", "name": name}
+        """运行量子算法（bell/ghz 真制备、qft 真变换，其余显式拒绝）。"""
+        return self._require_quantum_machine().run_algorithm(name, qubits)
 
     def quantum_measure(self, qubit: int) -> int:
-        """量子测量。"""
-        return 0
+        """量子测量（按 |振幅|² 采样并坍缩，非恒 0）。"""
+        return self._require_quantum_machine().measure(qubit)
 
-    def grover_search(self, database_size: int = 8) -> int:
-        """Grover搜索。"""
-        return 0
+    def grover_search(self, database_size: int = 8,
+                          marked: int | None = None) -> int:
+        """Grover 搜索（真实现；标记项必须显式给出，不再默认恒 0）。"""
+        if marked is None:
+            raise ValueError(
+                "Grover 搜索必须显式提供 marked（标记项），"
+                "此前假实现无标记概念恒返回 0")
+        return self._require_quantum_machine().grover_search(database_size,
+                                                             marked)
 
     def shor_factor(self, n: int = 15) -> list:
-        """Shor分解。"""
-        return [1, n]
+        """Shor 分解（经典部分真实现，无机器也可用）。"""
+        klass = getattr(self, "quantum_class", None)
+        if not klass:
+            raise RuntimeError("量子计算模块初始化失败，无法分解")
+        return klass(0).shor_factor(n)
 
     # ============================================================
     # AI/LSP/MCP 接口

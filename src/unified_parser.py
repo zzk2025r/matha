@@ -69,7 +69,7 @@ class MathaFrontend:
 
 
 class MathaLLVMGenerator:
-    """matha_cc 兼容 LLVM 生成器（占位）。"""
+    """matha_cc 兼容 LLVM 生成器（LLVM 后端未实现，显式拒绝而非假产物）。"""
 
     def __init__(self):
         self._modules: list[Any] = []
@@ -78,13 +78,20 @@ class MathaLLVMGenerator:
         self._llvm_available = False
 
     def generate(self, ast):
-        return "# LLVM generation not yet integrated"
+        raise NotImplementedError(
+            "LLVM 生成器未实现（此前返回假 IR 字符串，现显式拒绝）")
 
 
 def matha_compile(source: str, output_name: str = "out") -> str:
-    """matha_cc 兼容：编译入口。"""
+    """matha_cc 兼容：编译入口（真编译：parse + mbc compile_program）。
+
+    返回携带真实计数的摘要：声明数 / 函数数 / 主代码 ops 数。
+    """
+    from src.mbc.compiler import compile_program
     prog = parse(source)
-    return f"# Compiled {len(prog.decls)} declarations to {output_name}"
+    mod = compile_program(prog)
+    return (f"# Compiled {len(prog.decls)} declarations to {output_name}: "
+            f"{len(mod.functions)} functions, {len(mod.main_code)} ops")
 
 
 def matha_run(source: str) -> tuple:
@@ -96,8 +103,9 @@ def matha_run(source: str) -> tuple:
 
 
 def matha_to_llvm(source: str) -> str:
-    """matha_cc 兼容：Matha → LLVM IR。"""
-    return "; LLVM IR not yet available"
+    """matha_cc 兼容：Matha → LLVM IR（未实现，显式拒绝）。"""
+    raise NotImplementedError(
+        "Matha → LLVM IR 未实现（此前返回假 IR 字符串，现显式拒绝）")
 
 
 # ── 统一导出 ────────────────────────────────────────────────────────────────

@@ -103,19 +103,37 @@ def qubit_state(theta: float, phi: float):
 # ============================================================
 
 def grover_iterate(state, oracle: Callable, n_iterations: int = 1):
-    """Grover 迭代（简化版）。"""
+    """Grover 迭代：相位 oracle + 扩散算符 D = 2|s><s| − I（真实现）。
+
+    oracle(state) 返回 oracle 作用后的态（标记项符号翻转由 oracle 负责）；
+    每次迭代后重新归一化。oracle 输出长度必须与输入一致，否则显式拒绝。
+    """
     n = len(state)
+    if n == 0:
+        raise ValueError("state 不能为空")
+    if n_iterations < 0:
+        raise ValueError(f"迭代次数须非负，收到 {n_iterations}")
     for _ in range(n_iterations):
         state = list(oracle(state))
+        if len(state) != n:
+            raise ValueError(
+                f"oracle 输出长度 {len(state)} 与输入长度 {n} 不一致")
+        norm = math.sqrt(sum(abs(s) ** 2 for s in state))
+        if norm <= 0.0:
+            raise ValueError("oracle 输出为零向量，无法归一化")
+        state = [s / norm for s in state]
         mean = sum(state) / n
         state = [2 * mean - s for s in state]
+        norm2 = math.sqrt(sum(abs(s) ** 2 for s in state))
+        if norm2 > 0.0:
+            state = [s / norm2 for s in state]
     return state
 
 def shor_period_finding(a: int, N: int, max_period: int = 100):
-    """Shor 算法周期寻找（简化版经典部分）。"""
+    """Shor 算法周期寻找（乘法阶 ord_a(N)，经典部分真实现）。"""
     if math.gcd(a, N) != 1:
         return None
-    for r in range(2, max_period):
+    for r in range(1, max_period):
         if pow(a, r, N) == 1:
             return r
     return None
@@ -147,9 +165,25 @@ def circuit_depth(gates: list, n_qubits: int) -> int:
             depth += 3
     return depth
 
+# Toffoli → Clifford+T 精确分解（矩阵级数值验证）：
+# 门序（角色 c1=最高位控制、c2=控制、t=目标）
+#   H(t), Tdg(c1), Tdg(c2), Tdg(t), CNOT(c2,t), T(t),
+#   CNOT(c1,t), Tdg(t), CNOT(c2,t), T(t), CNOT(c1,t),
+#   CNOT(c1,c2), T(c2), CNOT(c1,c2), H(t)
+# 恰好 6 个 CNOT、7 个 T/Tdg；乘积矩阵等于 Toffoli 真值矩阵。
+_TOFFOLI_DECOMP = ["H", "Tdg", "Tdg", "Tdg", "CNOT", "T", "CNOT", "Tdg",
+                   "CNOT", "T", "CNOT", "CNOT", "T", "CNOT", "H"]
+
 def gate_decompose(cnot_count: int) -> list:
-    """门分解（CNOT → 基础门）。"""
-    return ["H", "CNOT", "T", "CNOT", "Tdg", "H", "CNOT"]
+    """Toffoli 门 → Clifford+T 基础门分解（已验证的精确分解）。
+
+    该分解恰好使用 6 个 CNOT；cnot_count 必须为 6，否则显式拒绝
+    （不存在使用其他 CNOT 数的同一分解）。
+    """
+    if cnot_count != 6:
+        raise ValueError(
+            f"Toffoli 精确分解恰好需要 6 个 CNOT，收到 {cnot_count}")
+    return list(_TOFFOLI_DECOMP)
 
 
 # ============================================================

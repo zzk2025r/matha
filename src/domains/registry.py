@@ -543,11 +543,10 @@ class DomainRegistry:
             "module": "src.domains.quantum_compute",
             "functions": [
                 "hadamard", "pauli_x", "pauli_y", "pauli_z",
-                "cnot", "toffoli", "swap",
-                "quantum_fourier", "grover_iter",
-                "shor_period", "quantum_teleport",
-                "bell_state", "ghz_state",
-                "gate_decompose", "circuit_depth",
+                "cnot", "swap", "toffoli",
+                "bell_state", "ghz_state", "qubit_state",
+                "grover_iterate", "shor_period",
+                "量子傅里叶变换", "电路深度", "门分解",
             ],
             "constants": {
                 "QUBITS_MAX": 30,

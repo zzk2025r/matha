@@ -354,8 +354,10 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   （口径同本节）；`matha_system.py` 其余假门面（create_convnet/create_rnn 假 dict、
   load_csv 恒 True、normalize_data 透传、quantum grover/shor 假实现等）本轮未触及
   （**2026-11 更正**：其中 AI/ML/数据门面已于阶段 5 修复，见上方阶段 5 条目；
-  quantum grover/shor 非 AI，仍未修）；`src/unified_parser.py` 的 matha_compile 兼容假产物
-  （"# Compiled N declarations" 字符串）仍在；legacy matha-cc 语法不支持现代 `#1：`
+  quantum grover/shor 非 AI，仍未修（**已于阶段 9 真化清除**，见下方阶段 9 条目））；
+  `src/unified_parser.py` 的 matha_compile 兼容假产物
+  （"# Compiled N declarations" 字符串）仍在（**已于阶段 9 清除**：真编译计数摘要 +
+  LLVM 假产物显式拒绝，见下方阶段 9 条目）；legacy matha-cc 语法不支持现代 `#1：`
   输出写法（诚实拒绝，非缺陷）；CNN/RNN 仍在显式拒绝中（ml.py 其余 6 种 ModelType
   已于阶段 4 真实现，见上方阶段 4 条目）。
 - **2026-11 阶段 2 AI 修复：ai_framework 入主链、意图 Matha 代码生成、nl_pipeline 执行段、
@@ -516,7 +518,8 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `matha_system.py` 的 `_init_science`/`_init_visualization` 同样从未被调用
   （create_dataset 等科学/可视化门面 AttributeError 死接线，非 AI 范围，未触及）
   （**已于阶段 6 连同同类共十处全部接入主链**，见下方阶段 6 条目）；
-  quantum grover/shor 假实现与 `unified_parser.py` 假编译产物仍在（非 AI，登记同前）。
+  quantum grover/shor 假实现与 `unified_parser.py` 假编译产物仍在（非 AI，登记同前）
+  （**已于阶段 9 真化清除**，见下方阶段 9 条目）。
 - **2026-11 阶段 6 收官（模板关键词误匹配清除 + 死接线全量修复）**：
   阶段 5 登记的两项边界经批准本轮清除——
   ① **`src/library.py` 模板精确场景化**：旧关键词子串匹配把「圆环面积/圆柱面积」
@@ -552,7 +555,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `.value` 的同类崩溃仍在（探针实测 simplify(parse('1+2')) AttributeError；
   非门面消费，本轮未触及）（**已于阶段 7 根治**，见下方阶段 7 条目）；
   quantum grover/shor 假实现与 `unified_parser.py`
-  假编译产物仍在（非 AI，登记同前）。
+  假编译产物仍在（非 AI，登记同前）（**已于阶段 9 真化清除**，见下方阶段 9 条目）。
 - **2026-11 阶段 7 收官（两项新登记缺口清除：verify_password 假验证、simplify 崩溃）**：
   阶段 6 登记的两项「未触及」经批准本轮清除——
   ① **`src/security_enhanced.py` 密码验证**：`verify_password` 恒真
@@ -575,7 +578,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
   **仍未背书/未修**：simplify 仅 '+' 数字折叠与消零两条规则（其余运算不简化，
   规则覆盖不背书）；quantum grover/shor 假实现与 `unified_parser.py`
-  假编译产物仍在（非 AI，登记同前）。
+  假编译产物仍在（非 AI，登记同前）（**已于阶段 9 真化清除**，见下方阶段 9 条目）。
 - **2026-11 阶段 8a 收官（自然语言编译器前置：Matha 自举能力真实升级）**：
   阶段 8（AI 自然语言编译器/解释器 + 混合执行引擎，全部以 Matha 自身构建）的
   第一子阶段——先把自举链的三项能力缺口真实补齐：
@@ -750,6 +753,54 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   入口、词典各自注入）；引擎执行表达式框架（NL英语程序 包装的输出语句求值未接线，
   同 8c 口径）。
   **仍未背书/未修**：阶段 8 计划内四子阶段（8a/8b/8c/8d）均已收官背书；后续无已批准阶段。
+- **2026-11 阶段 9 收官（假实现清算：quantum / quantum_compute / unified_parser / matha_system 量子门面）**：
+  阶段 3-7 反复登记的「quantum grover/shor 假实现与 unified_parser.py 假编译产物仍在」经批准本轮全部清除：
+  ① **`src/domains/quantum.py` 真化**：apply_gate/measure/entanglement/grover_search/shor_factor/
+  run_algorithm 从「恒 True/恒 0/恒 [3,5]/只记账」真化为纯 Python 状态向量模拟器（上限 20 比特，
+  2^n 振幅）：H/X/Y/Z/S/T 单比特矩阵 + CNOT/CZ/SWAP 两比特真置换作用于态向量、测量按 |振幅|²
+  采样并坍缩归一化、纠缠 = H+CNOT 真制备 Bell 对、bell/ghz 真制备（GHZ 任意 2..20 比特）、
+  qft 委托 quantum_compute（算法比特数与机器比特数不一致显式拒绝）、Grover 真迭代（均匀叠加 →
+  相位 oracle → 扩散 D=2|s><s|−I，迭代 floor(π/(4θ))，d=4 精确命中，d<2/标记越界显式拒绝）、
+  Shor 经典部分真实现（偶数/试除/乘法阶 gcd 提取，素数与 <4 显式拒绝）；RX/RY/RZ/TOFFOLI 与
+  未知门从假占位改显式拒绝；注册层改柯里化 lambda 链（旧平面多参签名对 Matha f(a,b)→f(a)(b)
+  编译约定必碎，9 符号面不变）；Matha 四参链中单比特门占位目标只验界不参与运算。
+  ② **`src/domains/quantum_compute.py` 补真**：gate_decompose 从无视输入的固定 7 门假产物真化为
+  矩阵级数值验证的 Toffoli→Clifford+T 15 门精确分解（1×H + 7×T/Tdg + 6×CNOT，乘积逐位等于
+  Toffoli 真值矩阵；恰好 6 CNOT，其余计数显式拒绝）；grover_iterate 补 oracle 输出长度/零向量/
+  负迭代/空态校验 + 迭代后归一化；shor_period_finding 周期起点 2→1（ord_a(N)=1 不再漏判
+  None）；`registry.py` QuantumComputing 模板清除 3 个幻影符号（quantum_fourier/grover_iter/
+  quantum_teleport 模块中根本不存在），functions 面与模块 15 符号对齐。
+  ③ **`src/unified_parser.py` 假编译产物清除**：matha_compile 从「# Compiled N declarations」
+  假摘要真化为 parse + mbc compile_program 真编译（摘要携带真实 声明数/函数数/主代码 ops 数，
+  测试以独立复算对拍）；matha_to_llvm 与 MathaLLVMGenerator.generate 从假 IR 字符串改
+  NotImplementedError 显式拒绝（`src/compiler/matha_cc.py` 的同名独立管线不在本轮范围，未动）。
+  ④ **`src/matha_system.py` 量子门面 6 处假值清除**（阶段 4 登记「quantum grover/shor 假实现」
+  的另一半）：apply_quantum_gate 恒 True / quantum_measure 恒 0 / grover_search 恒 0 /
+  shor_factor 恒 [1,n] / create_quantum_circuit·run_quantum_algorithm 假 dict → 全部真委托
+  domains.quantum（创建的机器登记跟踪，最近创建者优先），无机器/未初始化 RuntimeError 显式
+  拒绝（不再假 dict 兜底），grover_search 标记项必须显式给出（缺省 None 拒绝，不再默认假 0）。
+  新 `tests/test_quantum_fake_purge_phase9.py` **74 条**三锁：
+  手算对拍（Bell 振幅精确、X/H/Z/S/T 相位、CNOT/SWAP/CZ 真置换、GHZ3、QFT δ↔均匀、Grover d=4
+  逐标记精确 + 填充位恒零、Shor 九数因子表、乘法阶表、Toffoli 15 门矩阵乘积逐位验证、
+  circuit_depth 约定）；闭环（种子化 Bell 20 次关联 + 坍缩归一 + 复测不变、Grover d=8 命中率
+  >0.85（理论 sin²(5θ)≈0.945）、N=2 理论恰 50% 对拍、比特生长振幅连续性、matha_compile 独立
+  复算对拍、matha_run 真值、Matha 干净子进程 exec_api 端到端真算 + TOFFOLI/素数 Shor 真拒绝）；
+  显式拒绝（RX/RY/RZ/TOFFOLI/未知门/缺 target/同索引两比特门/越界与非法占位/连续索引破坏/
+  20 比特上限/Grover 与 Shor 与 GHZ 与 QFT 边界/grover·shor 独立入口重定向/bool 索引/oracle
+  长度不符/零向量/负迭代/空态/非 6 CNOT/LLVM 假产物/门面无机器与未初始化与缺 marked）；
+  符号面（quantum 9 / quantum_compute 15：manifest↔symtab↔registry↔注册字典四方一致 +
+  幻影符号防回潮 + 柯里化逐级 arity 对拍 + 零参 f() 传 0 约定）。
+  `tests/test_unified_layers.py` 同步升级 3 条（matha_compile 真计数精确断言、LLVM 两入口改
+  NotImplementedError）。本轮新增测试 **74 条**，全量门禁 **6718/6718 通过**（基线：
+  `python scripts/check.py`，tests 项 6615 过 39m51s + kernel_purity 14 + ast_vm_gap 11 +
+  golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母；零失败零跳过）。
+  **边界（如实登记）**：状态向量模拟是经典模拟器，不背书量子加速；20 比特上限（2^20 振幅）；
+  Grover/Shor 为教科书式实现（Shor 直接经典乘法阶，无量子周期寻找）；仅 d=4 的 Grover 精确
+  （d=2 理论恰 50%，d=8 理论 sin²(5θ)≈0.945，按种子化统计对拍不按精确值）；`matha_cc.py` 同名
+  matha_to_llvm/MathaLLVMGenerator 独立管线未动（其真伪属另一轨道）；顶层旧模块 `src/quantum.py`
+  不在本轮范围。
+  **仍未背书/未修**：阶段 3-7 登记的 quantum grover/shor 假实现与 unified_parser 假编译产物
+  已全部清除；本阶段无新增未修项。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

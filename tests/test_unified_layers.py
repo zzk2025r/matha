@@ -398,10 +398,13 @@ class TestUnifiedParser:
         assert ast is not None
 
     def test_matha_compile(self):
-        """matha_compile 兼容性。"""
+        """matha_compile 兼容性（真编译：摘要携带真实计数）。"""
         from src.unified_parser import matha_compile
         result = matha_compile("func 加倍(x) -> Int = (x) => x * 2", "test")
         assert isinstance(result, str)
+        assert result == "# Compiled 1 declarations to test: 1 functions, 1 ops"
+        multi = matha_compile("let a = 5\nlet b = a + 1\nb", "multi")
+        assert multi == "# Compiled 3 declarations to multi: 0 functions, 9 ops"
 
     def test_matha_run(self):
         """matha_run 兼容性。"""
@@ -1218,18 +1221,18 @@ class TestUnifiedParserDeep:
     """解析器深入测试。"""
 
     def test_matha_llvm_generator(self):
-        """MathaLLVMGenerator 兼容。"""
+        """MathaLLVMGenerator：未实现 → 显式拒绝（不再返回假 IR）。"""
         from src.unified_parser import MathaLLVMGenerator
 
         gen = MathaLLVMGenerator()
-        result = gen.generate(None)
-        assert isinstance(result, str)
+        with pytest.raises(NotImplementedError):
+            gen.generate(None)
 
     def test_matha_to_llvm(self):
-        """matha_to_llvm 兼容。"""
+        """matha_to_llvm：未实现 → 显式拒绝（不再返回假 IR）。"""
         from src.unified_parser import matha_to_llvm
-        result = matha_to_llvm("func 测试(x) -> Int = (x) => x + 1")
-        assert isinstance(result, str)
+        with pytest.raises(NotImplementedError):
+            matha_to_llvm("func 测试(x) -> Int = (x) => x + 1")
 
     def test_parse_error_raised(self):
         """解析错误被正确抛出。"""
