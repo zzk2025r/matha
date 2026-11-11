@@ -619,6 +619,19 @@ def _make_guarded_call(vm):
     return guarded
 
 
+def _make_nl_run(vm: "VM"):
+    """`自然语言执行(句子)` 内建（阶段 8c）：委托编译入本 VM 的纯 Matha
+    NL 执行链（matha/nl_engine.matha 的 NL执行）。独立命名，与既有
+    混合编译/混合执行 接口零冲突；链未编译时显式拒绝，永不静默回退。"""
+    def run(sentence):
+        if "NL执行" not in vm.globals:
+            raise RuntimeError(
+                "自然语言执行：NL 执行链未编译入本 VM"
+                "（需 matha/nl_engine.matha 及其依赖）")
+        return vm.invoke_value(vm.globals["NL执行"], [sentence])
+    return run
+
+
 def _builtin_typeof(value):
     """typeof(v) → Matha 类型名。"""
     if value is None:
@@ -748,6 +761,7 @@ class VM:
         self.globals.setdefault("调用捕获", _make_guarded_call(self))
         self.globals.setdefault("输出", _make_output(self))
         self.globals.setdefault("print", _make_output(self))
+        self.globals.setdefault("自然语言执行", _make_nl_run(self))
         self.globals.setdefault("typeof", _builtin_typeof)
         self.globals.setdefault("安全索引", _curry2(_builtin_safe_index))
         self.globals.setdefault("安全取属性", _curry2(_builtin_safe_attr))
