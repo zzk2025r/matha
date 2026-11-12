@@ -4,8 +4,10 @@
 三锁纪律：
   ① 对拍：同一命令行，宿主执行器 = M3V VM 执行器（结果帧逐值一致，含透传）。
   ② 闭环：编写→加载→运行 全链、换目录→列目录 进程级真状态、调试 轨迹+快照全链。
-  ③ 拒绝：管道/重定向（解析预留特性）双端同文本显式拒绝；参数个数逐命令校验；
-     非空目录递归删除显式拒绝且目录原样保留；VM 调试Matha 拒绝穿透引擎如实上抛。
+  ③ 拒绝：参数个数逐命令校验双端同文本；管道已于阶段 13a 真化（锁见
+     test_matha_term_13a.py）；重定向已于阶段 13b 真化（锁见
+     test_matha_term_13b.py）；非空目录递归删除显式拒绝且目录原样保留；
+     VM 调试Matha 拒绝穿透引擎如实上抛。
 
 零跳过，零失败。
 """
@@ -106,7 +108,7 @@ def test_parity_help_shape(host_term, vm_term):
     h = _host_line(host_term, "帮助")["输出"]
     v = _vm_line(vm_term, "帮助")["输出"]
     assert h == v and h[0].startswith("Matha 终端") and len(h) >= 15
-    assert any("透传" in ln for ln in h) and any("解析预留" in ln for ln in h)
+    assert any("透传" in ln for ln in h) and any("重定向" in ln for ln in h)
 
 
 @pytest.mark.parametrize("value,expect", [
@@ -271,13 +273,9 @@ def test_loop_debug_error_section(host_term):
     assert any("ZeroDivision" in ln or "除" in ln for ln in r["输出"])
 
 
-# ---------- ③ 拒绝：管道/重定向（解析预留）/ 参数个数 / 安全边界 ----------
+# ---------- ③ 拒绝：参数个数 / 安全边界（重定向/管道真化锁各归 13b/13a） ----------
 
 _REJECT_LINES = [
-    ("回显 hi | 大写", "管道"),
-    ("回显 hi | 大写 | 显示", "管道"),
-    ("回显 hi > out.txt", "重定向"),
-    ("回显 hi >> log.txt", "重定向"),
     ("目录 a b", "目录: 至多"),
     ("换目录", "换目录: 需要"),
     ("换目录 a b", "换目录: 需要"),

@@ -371,21 +371,41 @@ def shell_run_script(path: str) -> dict:
     return shell_exec(f"python {path}")
 
 
-def check_package_updates(_=None) -> list:
-    """检查包更新() → pkg_manager_v2 真本地检查（registry vs 已安装，无网络）。
+def shell_exec_with_input(command: str, input_text: str = "", timeout: float = 30.0) -> dict:
+    """带 stdin 输入执行系统命令（终端管道右段透传用，阶段 13a）。
 
-    已安装集合从当前目录 .matha_packages/*/manifest.json 还原（install() 的
-    落盘形态——mgr.installed 本身只存进程内存，不还原则检查恒空）；目录缺
-    manifest 视为非安装产物跳过，manifest 损坏/缺字段如实上抛不静默跳过。
-    返回 [[包名, 当前版本, 最新版本, 更新类型], ...]（版本已转 str，供纯
-    Matha 终端引擎直接渲染）。本域函数只做本地检查，不下载不安装。
+    与 shell_exec 同一返回形状（stdout/stderr/returncode 捕获），差别仅在
+    stdin 由调用方注入（CMD 管道语义：左段输出 → 右段 stdin）。失败形状
+    与 shell_exec 一致（不抛错，returncode -1 + error 字段如实）。
     """
+    try:
+        result = subprocess.run(
+            str(command), shell=True, input=str(input_text),
+            capture_output=True, text=True, timeout=timeout
+        )
+        return {
+            "command": command,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "success": result.returncode == 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {"command": command, "returncode": -1,
+                "error": "超时", "success": False}
+    except Exception as e:
+        return {"command": command, "returncode": -1,
+                "error": str(e), "success": False}
+
+
+def _restore_installed(mgr) -> None:
+    """从当前目录 .matha_packages/*/manifest.json 还原已安装集合（install 的
+    落盘形态——mgr.installed 本身只存进程内存，不还原则检查恒空）。目录缺
+    manifest 视为非安装产物跳过，manifest 损坏/缺字段如实上抛不静默跳过。"""
     import json
 
     from src.pkg_manager import Version
-    from src.pkg_manager_v2 import MathaPackageManager
 
-    mgr = MathaPackageManager()
     for entry in mgr.packages_dir.iterdir():
         manifest = entry / "manifest.json"
         if not entry.is_dir() or not manifest.exists():
@@ -394,10 +414,53 @@ def check_package_updates(_=None) -> list:
         name = data.get("name")
         ver = data.get("version")
         if not name or not ver:
-            raise RuntimeError(f"检查包更新失败: manifest 缺 name/version: {manifest}")
+            raise RuntimeError(f"包管理失败: manifest 缺 name/version: {manifest}")
         mgr.installed[name] = Version.parse(str(ver))
+
+
+def check_package_updates(_=None) -> list:
+    """检查包更新() → pkg_manager_v2 真本地检查（registry vs 已安装，无网络）。
+
+    返回 [[包名, 当前版本, 最新版本, 更新类型], ...]（版本已转 str，供纯
+    Matha 终端引擎直接渲染）。本域函数只做本地检查，不下载不安装。
+    """
+    from src.pkg_manager_v2 import MathaPackageManager
+
+    mgr = MathaPackageManager()
+    _restore_installed(mgr)
     return [[u["package"], str(u["current"]), str(u["latest"]), u["type"]]
             for u in mgr.check_updates()]
+
+
+def upgrade_package_named(pkg_name) -> list:
+    """升级包(包名) → 带名真安装（阶段 13c）。
+
+    还原已安装集合 → pkg_manager_v2.upgrade_package 真盘安装（install 重写
+    .matha_packages/<包>/manifest.json）→ 复核盘上 manifest 版本与预期一致。
+    返回 [包名, 旧版本, 新版本]。无命中（未安装/已最新）→ RuntimeError 如实
+    拒绝（升级 ≠ 全新安装，全新安装不走终端升级面）；边界 = 本地目录升级，
+    不联网下载（RemotePackageClient 目标为虚构端点）。
+    """
+    import json
+
+    from src.pkg_manager_v2 import MathaPackageManager
+
+    mgr = MathaPackageManager()
+    _restore_installed(mgr)
+    result = mgr.upgrade_package(str(pkg_name))
+    if not result:
+        raise RuntimeError(
+            f"升级包: 无可用更新: {pkg_name}（未安装或已最新；本地目录不下载）")
+    # "pkg 0.0.1 -> 0.1.0" → [pkg, 0.0.1, 0.1.0]
+    parts = result[0].split(" ")
+    if len(parts) != 4 or parts[2] != "->":
+        raise RuntimeError(f"升级包: 升级器返回异常格式: {result[0]!r}")
+    manifest = mgr.packages_dir / parts[0] / "manifest.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    if str(data.get("version")) != parts[3]:
+        raise RuntimeError(
+            f"升级包复核失败: 盘上版本 {data.get('version')} ≠ 预期 {parts[3]}")
+    return [parts[0], parts[1], parts[3]]
 
 
 # ============================================================
@@ -432,8 +495,10 @@ def _register_os(builtins: dict) -> None:
     builtins["获取环境变量"] = get_environment_variable
     builtins["设置环境变量"] = set_environment_variable
     builtins["执行命令"] = shell_exec
+    builtins["执行命令输入"] = lambda cmd: lambda inp: shell_exec_with_input(cmd, inp)
     builtins["运行脚本"] = shell_run_script
     builtins["检查包更新"] = check_package_updates
+    builtins["升级包"] = upgrade_package_named
 
 
 def _os_symtab_names() -> list[str]:
@@ -445,7 +510,7 @@ def _os_symtab_names() -> list[str]:
         "创建事件", "事件设置", "事件等待",
         "创建互斥锁", "互斥加锁", "互斥解锁",
         "获取系统信息", "获取CPU信息", "获取内存信息",
-        "获取环境变量", "设置环境变量", "执行命令", "运行脚本", "检查包更新",
+        "获取环境变量", "设置环境变量", "执行命令", "执行命令输入", "运行脚本", "检查包更新", "升级包",
     ]
 
 
@@ -456,6 +521,7 @@ __all__ = [
     "Semaphore", "Event", "Mutex",
     "get_system_info", "get_cpu_info", "get_memory_info",
     "get_environment_variable", "set_environment_variable",
-    "shell_exec", "shell_run_script", "check_package_updates",
+    "shell_exec", "shell_exec_with_input", "shell_run_script",
+    "check_package_updates", "upgrade_package_named",
     "_register_os", "_os_symtab_names",
 ]

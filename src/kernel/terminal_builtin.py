@@ -19,9 +19,36 @@ from __future__ import annotations
 import os
 import shutil
 
+# 管道输入态（阶段 13a）：None = 交互模式（真 stdin）；List = 管道模式，
+# 输入行() 逐行弹出缓存，耗尽即 EOF 空串——**不回落交互 stdin**（管道语义）。
+# 管道结束() 恢复交互模式；终端执行器入口每次调用先清除，防上一条出错行泄漏。
+_pipe_lines: list | None = None
+
+
+def pipe_feed(lines) -> bool:
+    """管道输入(行们) → 注入管道输入缓存（进入管道模式）。"""
+    global _pipe_lines
+    if not isinstance(lines, list):
+        raise RuntimeError(f"管道输入: 需要 List 参数（行列表），实得 {type(lines).__name__}")
+    _pipe_lines = [str(x) for x in lines]
+    return True
+
+
+def pipe_end(_=None) -> bool:
+    """管道结束() → 清除管道态，恢复交互 stdin 模式。"""
+    global _pipe_lines
+    _pipe_lines = None
+    return True
+
 
 def read_line(_prompt=None) -> str:
-    """输入行() → 从 stdin 读取一行（不含行尾换行符）；EOF 返回空串。"""
+    """输入行() → 读一行（不含行尾换行符）。
+
+    管道模式：从管道缓存逐行弹出，耗尽返回空串（EOF 语义），不触碰
+    交互 stdin；交互模式：真 stdin，EOF 返回空串。
+    """
+    if _pipe_lines is not None:
+        return _pipe_lines.pop(0) if _pipe_lines else ""
     try:
         return input()
     except EOFError:

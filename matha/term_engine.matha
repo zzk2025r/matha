@@ -1,6 +1,6 @@
 module 终端执行器 {
   use 终端句法器 { 终端解析 }
-  use 标准库 { len | str | split | to_lower | list_slice | dict_from_pairs | dict_has | dict_get | dict_to_list | matha_type_of | read_file | write_file | find }
+  use 标准库 { len | str | split | to_lower | list_slice | dict_from_pairs | dict_has | dict_get | dict_to_list | matha_type_of | read_file | write_file | append_file | find }
 
   (* ============================================================
      终端执行器 —— 纯 Matha 实现（阶段 12c）
@@ -10,8 +10,10 @@ module 终端执行器 {
      设计（经用户审批的三项决策）：
        ① 未知命令 = CMD 式透传：整行交系统 shell 真执行（内建 执行命令），
           失败如实追加 "命令退出码: N" 行——不伪装成功、不静默吞错。
-       ② 管道(|)与重定向(> >>) 为 12a 解析预留特性：本执行器**显式拒绝**
-          （错误如实上抛），真实现另立阶段。
+       ② 管道(|)与重定向(> >>) 为 12a 解析预留特性。管道已真化（阶段 13a，
+          CMD 式 stdin 注入——左段显示行 → 右段 输入行()/透传 stdin）；
+          重定向已真化（阶段 13b：末段显示行落盘，> 截断 / >> 追加，CMD 式
+          静默不回显；退出标志跳过落盘，段内错误不落盘）。
        ③ 命令注册表为纯 Matha 字典（闭包注册），CMD 模板命令集：
             目录/换目录/显示文件/复制/删除/建目录/改名/回显/清屏/帮助/退出
           英文别名同表（大小写不敏感），Matha 代码命令：
@@ -26,7 +28,9 @@ module 终端执行器 {
        ⑤（12e）升级：内建 检查包更新()（pkg_manager_v2 真本地检查——从当前目录
           .matha_packages/*/manifest.json 还原已安装集合再本地比对，无网络）+
           纯 Matha 渲染；`升级 解释器` 显式拒绝（自举核心不可终端自升级）；
-          本片只检查不安装（真安装另立片）。
+          无参升级只检查不安装；带名升级真安装（13c：os 域 升级包 真盘重写
+          .matha_packages/<包>/manifest.json + 盘上版本复核；本地目录升级
+          不联网下载）。
      文件 I/O 走 stdlib read_file/write_file（委托 _read_file/_write_file
      原语，两端同名可用）。OS 级能力（进程/文件系统）由 12b 胶水内建提供，
      本模块的全部命令逻辑为纯 Matha。 *)
@@ -153,13 +157,16 @@ module 终端执行器 {
       "  调试 \"源码\"          逐节点轨迹+变量快照（别名 debug；仅宿主后端）",
       "  注册命令 名字 路径    注册扩展命令（处理器导出 处理(参数们) 并自行 输出；别名 regcmd）",
       "  注销命令 名字         注销扩展命令（别名 unregcmd；注册表 matha_term_registry.txt）",
-      "  升级 [包名]           包更新本地检查（真本地不下载不安装；升级 解释器 显式拒绝，别名 upgrade）",
+      "  升级 [包名]           无参=本地检查；带名=真安装（盘上 manifest 重写+复核；升级 解释器 显式拒绝，别名 upgrade）",
       "  扩展命令              注册名派发优先于透传、不可覆盖内建",
       "  启动自动加载          REPL 启动时自动执行当前目录 matha_term_extensions.msh（其中 退出 不结束会话）",
       "  帮助                 本帮助（别名 help）",
       "  退出                 退出终端（别名 exit/quit）",
       "  其他输入             CMD 式透传系统执行（失败显示退出码）",
-      "  管道 | 与重定向 > >> 为解析预留特性，执行时显式拒绝",
+      "  查找 子串             管道消费者：过滤含子串的行（别名 findstr/find；stdin 读至 EOF，空行终止）",
+      "  排序                 管道消费者：码点序稳定排序 stdin 行（别名 sort；纯 Matha 插入排序）",
+      "  管道 段1 | 段2        左段输出行 → 右段 stdin（阶段 13a 真化；透传段经 执行命令输入）",
+      "  重定向 > / >>         末段显示行落盘（> 截断 / >> 追加；CMD 式静默，阶段 13b 真化）",
     ], 假)
 
   func _退出(参数们: List) -> Dict =
@@ -207,15 +214,19 @@ module 终端执行器 {
     if i = len(变量们) then []
     else [变量们[i][0] + " = " + 变量们[i][1]] + _变量行(变量们, i + 1)
 
-  (* ---- ⑥ CMD 式透传（未知命令） ---- *)
+  (* ---- ⑥ CMD 式透传（未知命令） ----
+
+     管入文本 = "" 走 执行命令（无输入）；非空走 执行命令输入（CMD 管道右段，
+     os 域内建，stdin 注入）。管道段命令行按段帧重建（12a 词法已剥引号，引号
+     分组不保留——如实边界）；首段透传仍优先原行保真。 *)
 
   func _重建行(帧: Dict) -> String =
     if 帧["参数"] = [] then 帧["命令"]
     else 帧["命令"] + " " + _拼接(帧["参数"])
 
-  func _透传(原行: String, 帧: Dict) -> Dict =
+  func _透传(原行: String, 帧: Dict, 管入文本: String) -> Dict =
     let 行 = if 原行 != "" then 原行 else _重建行(帧) in
-    let 结果 = 执行命令(行) in
+    let 结果 = if 管入文本 = "" then 执行命令(行) else 执行命令输入(行)(管入文本) in
     let 出 = if 结果["stdout"] = "" then [] else _去尾空行(split(结果["stdout"], "\n")) in
     let 误 = if 结果["stderr"] = "" then [] else _去尾空行(split(结果["stderr"], "\n")) in
     let 尾 = if 结果["returncode"] = 0 then [] else ["命令退出码: " + str(结果["returncode"])] in
@@ -267,6 +278,11 @@ module 终端执行器 {
       ["unregcmd", (a) => _注销命令(a)],
       ["升级", (a) => _升级(a)],
       ["upgrade", (a) => _升级(a)],
+      ["查找", (a) => _管道查找(a)],
+      ["findstr", (a) => _管道查找(a)],
+      ["find", (a) => _管道查找(a)],
+      ["排序", (a) => _管道排序(a)],
+      ["sort", (a) => _管道排序(a)],
     ])
 
   (* ---- ⑦b 扩展命令注册表（阶段 12e） ---- *)
@@ -379,31 +395,114 @@ module 终端执行器 {
         if 命中们 = [] then
           _结果(["无该包可用更新: " + 参数们[0] + "（本地检查，不下载不安装）"], 假)
         else
-          _结果(_升级行(命中们, 0), 假)
+          let 已升 = 升级包(命中们[0][0]) in
+          _结果([已升[0] + ": " + 已升[1] + " -> " + 已升[2] + " (已真安装)"], 假)
       else if 更新们 = [] then
         _结果(["无可用更新（本地检查，不下载不安装）"], 假)
       else
         _结果(["可用更新（本地检查，不下载不安装）"] + _升级行(更新们, 0), 假)
 
+  (* ---- ⑦d 管道编排（阶段 13a：CMD 式 stdin 注入） ----
+
+     管道载荷 = 左段输出行（显示行语义：左段终端所见即右段所得；透传段输出帧
+     合并 stdout/stderr/退出码行——与 CMD 仅管道 stdout 有差异，如实登记）。
+     右段消费：内建/扩展/Matha 代码经 输入行()（管道模式耗尽即 EOF，不回落
+     交互 stdin）；透传段经 执行命令输入 stdin 注入。段前注入段后清除；段内
+     出错时清除步不执行、管道态泄漏至下一条 终端执行——入口每次先清除兜底。
+     查找 逐行读 stdin 至 EOF 空串（管道行中的空行与 EOF 不可区分，同 CMD
+     stdin 语义，空行终止读取）。 *)
+
+  func _派发段(段: Dict, 原行: String, 管入文本: String) -> Dict =
+    let 命令 = to_lower(段["命令"]) in
+    let 表 = 命令表() in
+    if dict_has(表, 命令) then
+      let 处理 = dict_get(表, 命令, null) in
+      处理(段["参数"])
+    else
+      let 注册表 = 读注册表() in
+      if dict_has(注册表, 命令) then
+        _调用扩展(命令, 段["参数"])
+      else
+        _透传(原行, 段, 管入文本)
+
+  (* 管入 = null（首段，无管道输入）或 List（管道段：注入行列表缓存，
+     透传段另拼接文本作 stdin） *)
+  func _执行段(段: Dict, 原行: String, 管入) -> Dict =
+    if 管入 = null then _派发段(段, 原行, "")
+    else
+      let 已注 = 管道输入(管入) in
+      let r = _派发段(段, "", _拼换行(管入, 0)) in
+      let 已清 = 管道结束() in
+      r
+
+  func _执行链(段们: List, i: Int, 行们: List, 退出: Bool, 原行: String) -> (List, Bool) =
+    if 退出 or i = len(段们) then (行们, 退出)
+    else
+      let 管入 = if i = 0 then null else 行们 in
+      let r = _执行段(段们[i], 原行, 管入) in
+      _执行链(段们, i + 1, r["输出"], r["退出"], 原行)
+
+  func _读管道行(acc: List) -> List =
+    let 行 = 输入行() in
+    if 行 = "" then acc else _读管道行(acc + [行])
+
+  func _含行(子串: String, i: Int, 行们: List, 命中们: List) -> List =
+    if i = len(行们) then 命中们
+    else if find(子串, 行们[i]) != -1 then _含行(子串, i + 1, 行们, 命中们 + [行们[i]])
+    else _含行(子串, i + 1, 行们, 命中们)
+
+  func _管道查找(参数们: List) -> Dict =
+    if len(参数们) != 1 then
+      错误("查找: 需要 1 个参数（子串）, 实得 " + str(len(参数们)))
+    else
+      _结果(_含行(参数们[0], 0, _读管道行([]), []), 假)
+
+  (* 排序：码点序（宿主与 VM 字符串比较语义一致），稳定插入排序 *)
+  func _插一行(行: String, 已排: List, i: Int) -> List =
+    if i = len(已排) then 已排 + [行]
+    else if 已排[i] > 行 then
+      list_slice(已排, 0, i) + [行] + list_slice(已排, i, len(已排))
+    else _插一行(行, 已排, i + 1)
+
+  func _插排(行们: List, i: Int, 已排: List) -> List =
+    if i = len(行们) then 已排
+    else _插排(行们, i + 1, _插一行(行们[i], 已排, 0))
+
+  func _管道排序(参数们: List) -> Dict =
+    if len(参数们) != 0 then
+      错误("排序: 不需要参数, 实得 " + str(len(参数们)))
+    else
+      _结果(_插排(_读管道行([]), 0, []), 假)
+
   (* ---- ⑧ 主入口：命令帧 → 执行 ---- *)
 
-  func 终端执行(帧: Dict, 原行: String) -> Dict =
-    if 帧["重定向"] != "" then
-      错误("终端尚未实现重定向 > / >> ：解析预留特性，显式拒绝（真实现另立阶段）")
-    else if 帧["管道链"] != [] then
-      错误("终端尚未实现管道 | ：解析预留特性，显式拒绝（真实现另立阶段）")
+  (* ---- ⑧ 重定向落盘（阶段 13b 真化）----
+     末段显示行 → 文件：> 截断（write_file 覆盖）/ >> 追加（已有内容读出拼接）。
+     每行以 \n 结尾（CMD echo x>f 文件末行带换行语义）；空输出写空文件。
+     CMD 式静默：落盘不回显（输出 []）。
+     边界（与 CMD 差异，登记）：接管的是末段**显示行**——透传段的 stderr/
+     退出码行同样落盘（同管道载荷口径）；退出标志跳过落盘；段内错误不落盘
+     （执行链先于写盘求值）。 *)
+  func _重定向写(目标: String, 行们: List, 追加: Bool) -> Bool =
+    let 正文 = if len(行们) = 0 then "" else _拼换行(行们, 0) + "\n" in
+    if 追加 then
+      let 已写 = append_file(目标, 正文) in
+      真
     else
-      let 命令 = to_lower(帧["命令"]) in
-      let 表 = 命令表() in
-      if dict_has(表, 命令) then
-        let 处理 = dict_get(表, 命令, null) in
-        处理(帧["参数"])
-      else
-        let 注册表 = 读注册表() in
-        if dict_has(注册表, 命令) then
-          _调用扩展(命令, 帧["参数"])
-        else
-          _透传(原行, 帧)
+      let 已写 = write_file(目标, 正文) in
+      真
+
+  func 终端执行(帧: Dict, 原行: String) -> Dict =
+    let 已清 = 管道结束() in
+    let 段们 = [帧] + 帧["管道链"] in
+    let (行们, 退出) = _执行链(段们, 0, [], 假, 原行) in
+    if 退出 then
+      _结果([], 真)
+    else if 帧["重定向"] != "" then
+      let 已写 = _重定向写(帧["重定向目标"], 行们, 帧["重定向"] = ">>") in
+      _结果([], 假)
+    else
+      _结果(行们, 退出)
 
   (* 便捷入口：命令行文本 → 词法 → 句法 → 执行 一步到位 *)
   func 终端运行一行(行: String) -> Dict =

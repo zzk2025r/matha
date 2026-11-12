@@ -977,6 +977,8 @@ BUILTINS: dict[str, object] = {
     "写JSON文件": _curry_module(2, lambda path, data: builtin_write_json_file(path, data)),
     # 终端 I/O 原语（阶段 12b；实现下沉 src/kernel/terminal_builtin.py，VM 同批注册）
     "输入行": _tb.read_line,
+    "管道输入": _tb.pipe_feed,
+    "管道结束": _tb.pipe_end,
     "列目录": _tb.list_dir,
     "建目录": _tb.make_dir,
     "删除路径": _tb.delete_path,

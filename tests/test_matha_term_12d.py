@@ -7,7 +7,9 @@
   ① 对拍：单命令/批处理/REPL 三形态的输出与退出码（0/1 如实）。
   ② 闭环：编写→加载→运行全链经 -c；REPL 错误后继续、退出 标志终止、EOF 退出。
   ③ 拒绝：错误命令如实打印「错误: ...」且退出码 1；缺失脚本/缺 -c 参数如实拒绝；
-     未知命令 CMD 式透传真执行、失败显示退出码；管道/重定向经入口同样显式拒绝。
+     未知命令 CMD 式透传真执行、失败显示退出码；重定向经入口真落盘
+     （13b 真化，e2e 锁升级：CMD 式静默 + 文件内容核实）；管道经入口真执行
+     （13a 真化，e2e 锁升级）。
 
 零跳过，零失败。
 """
@@ -80,13 +82,14 @@ def test_e2e_c_mode_debug_host_backend():
     assert "6" in r.stdout
 
 
-def test_e2e_c_mode_pipe_redirect_rejected():
-    r = _run(["src.matha_term", "-c", "回显 hi > out.txt"])
-    assert r.returncode == 1
-    assert "重定向" in r.stdout
-    r = _run(["src.matha_term", "-c", "回显 hi | 大写"])
-    assert r.returncode == 1
-    assert "管道" in r.stdout
+def test_e2e_c_mode_redirect_real_pipe(tmp_path):
+    r = _run(["src.matha_term", "-c", "回显 hi > out.txt"], cwd=tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.strip() == "", "CMD 式静默：落盘不回显"
+    assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "hi\n"
+    r = _run(["src.matha_term", "-c", "回显 hi | 查找 h"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "hi" in r.stdout
 
 
 # ---------- ② 闭环：.msh 批处理 ----------

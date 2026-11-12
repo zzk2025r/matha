@@ -9,7 +9,8 @@
 
 诚实边界（本片登记，不粉饰）：
   - 升级 = pkg_manager_v2 真本地检查（.matha_packages/*/manifest.json 还原已安装集合，
-    无网络），只检查不下载不安装（真安装另立片）。
+    无网络），只检查不下载不安装；带名升级已于阶段 13c 真安装（真盘重写 manifest +
+    盘上复核，锁见 test_matha_term_13c.py 与本片 test_parity_upgrade_with_real_manifest）。
   - 扩展参数安全嵌入限制：含引号/反斜杠/换行显式拒绝（防拼接改写为任意代码）。
   - 启动自动加载仅 REPL；自启动中的 退出 不结束会话。
 
@@ -176,20 +177,44 @@ def test_parity_upgrade_no_such_package(tmp_path, monkeypatch, host_term, vm_ter
 
 
 def test_parity_upgrade_with_real_manifest(tmp_path, monkeypatch, host_term, vm_term):
-    """真本地检查：.matha_packages/intent/manifest.json 0.0.1 < 本地 registry 0.1.0 → 真更新。"""
-    monkeypatch.chdir(tmp_path)
-    pkg = tmp_path / ".matha_packages" / "intent"
-    pkg.mkdir(parents=True)
-    (pkg / "manifest.json").write_text(
-        '{"name": "intent", "version": "0.0.1", "dependencies": [], "installed_at": 0}',
-        encoding="utf-8")
+    """真本地检查 + 带名真安装（13c 合同升级）：0.0.1 < 本地 registry 0.1.0 →
+    无参检查列出；带名 = 真盘安装（manifest.json 重写 0.1.0 + 复核）→ 再检查无更新。
+    盘上 manifest 为共享事实，两端各用独立目录跑同一合同（与 13b 追加同纪律）。"""
+    import json
+
+    def _seed(d):
+        pkg = d / ".matha_packages" / "intent"
+        pkg.mkdir(parents=True)
+        (pkg / "manifest.json").write_text(
+            '{"name": "intent", "version": "0.0.1", "dependencies": [], "installed_at": 0}',
+            encoding="utf-8")
+        return pkg
+
+    dh = tmp_path / "H"
+    dh.mkdir()
+    pkg_h = _seed(dh)
+    monkeypatch.chdir(dh)
     h = _host_line(host_term, "升级")
-    v = _vm_line(vm_term, "升级")
-    assert h == v == {"输出": ["可用更新（本地检查，不下载不安装）",
-                              "intent: 0.0.1 -> 0.1.0 (minor/patch)"], "退出": False}
+    assert h == {"输出": ["可用更新（本地检查，不下载不安装）",
+                          "intent: 0.0.1 -> 0.1.0 (minor/patch)"], "退出": False}
     h2 = _host_line(host_term, "升级 INTENT")
+    assert h2 == {"输出": ["intent: 0.0.1 -> 0.1.0 (已真安装)"], "退出": False}
+    assert json.loads((pkg_h / "manifest.json").read_text(encoding="utf-8"))["version"] == "0.1.0"
+    h3 = _host_line(host_term, "升级")
+    assert h3 == {"输出": ["无可用更新（本地检查，不下载不安装）"], "退出": False}
+
+    dv = tmp_path / "V"
+    dv.mkdir()
+    pkg_v = _seed(dv)
+    monkeypatch.chdir(dv)
+    v = _vm_line(vm_term, "升级")
+    assert v == {"输出": ["可用更新（本地检查，不下载不安装）",
+                          "intent: 0.0.1 -> 0.1.0 (minor/patch)"], "退出": False}
     v2 = _vm_line(vm_term, "升级 INTENT")
-    assert h2 == v2 == {"输出": ["intent: 0.0.1 -> 0.1.0 (minor/patch)"], "退出": False}
+    assert v2 == {"输出": ["intent: 0.0.1 -> 0.1.0 (已真安装)"], "退出": False}
+    assert json.loads((pkg_v / "manifest.json").read_text(encoding="utf-8"))["version"] == "0.1.0"
+    v3 = _vm_line(vm_term, "升级")
+    assert v3 == {"输出": ["无可用更新（本地检查，不下载不安装）"], "退出": False}
 
 
 def test_parity_help_lists_12e_commands(host_term, vm_term):

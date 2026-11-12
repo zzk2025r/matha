@@ -524,6 +524,8 @@ def _default_builtins() -> dict:
     # 终端 I/O 原语（阶段 12b；与宿主 src.interp.BUILTINS 同批同名注册。
     # 调试Matha 需宿主解释器内部轨迹/环境快照——VM 侧显式拒绝，非静默降级）
     b.setdefault("输入行", _tb.read_line)
+    b.setdefault("管道输入", _tb.pipe_feed)
+    b.setdefault("管道结束", _tb.pipe_end)
     b.setdefault("列目录", _tb.list_dir)
     b.setdefault("建目录", _tb.make_dir)
     b.setdefault("删除路径", _tb.delete_path)
