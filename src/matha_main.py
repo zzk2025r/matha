@@ -69,6 +69,20 @@ def _cmd_repl(args) -> int:
     return 0
 
 
+def _cmd_term(args) -> int:
+    """Matha 终端（CMD 模板子集）：REPL / 单命令 / .msh 批处理。
+
+    薄壳委托 src.matha_term —— 全部命令逻辑在纯 Matha 终端引擎
+    （matha/term_lexer / term_parser / term_engine，见阶段 12a-12d）。
+    """
+    from src import matha_term
+    if getattr(args, "command", None):
+        return matha_term.run_command(args.command)
+    if getattr(args, "script", None):
+        return matha_term.run_script(args.script)
+    return matha_term.repl()
+
+
 # ============================================================
 # llm-config — LLM 密钥管理（阶段 4-2：统一走 llm_config 加密存储）
 # ============================================================
@@ -780,6 +794,7 @@ def main(argv=None) -> int:
         epilog="""
 命令:
   matha                    启动交互式 REPL
+  matha 终端               Matha 终端（CMD 模板子集；别名 term，-c/脚本两形态）
   matha eval "expr"        计算表达式
   matha run file.matha     运行 Matha 源文件
   matha compile file -o c  编译到 C
@@ -821,6 +836,15 @@ def main(argv=None) -> int:
 
     # REPL（无命令）
     sub.add_parser("repl", help="启动交互式 REPL")
+
+    # 终端 —— Matha 显示型终端（CMD 模板子集，阶段 12d）
+    p_term = sub.add_parser("终端", aliases=["term"],
+                            help="Matha 终端（CMD 模板子集）：REPL / -c 单命令 / .msh 批处理")
+    p_term.add_argument("-c", dest="command", default=None, metavar="命令",
+                        help="执行单条命令后退出（退出码 0/1 如实）")
+    p_term.add_argument("script", nargs="?", default=None,
+                        help=".msh 批处理脚本路径（与 -c 二选一）")
+    p_term.set_defaults(func=_cmd_term)
 
     # llm-config — LLM 密钥管理（加密存储）
     p_llm = sub.add_parser("llm-config", help="LLM 密钥管理（加密存储于 ~/.matha）")

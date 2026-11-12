@@ -35,8 +35,10 @@ class Version:
         self.patch = patch
 
     @classmethod
-    def parse(cls, version_str: str) -> Version:
-        """解析版本字符串。"""
+    def parse(cls, version_str) -> Version:
+        """解析版本字符串；Version 实例原样返回（与 __eq__/__lt__ 的双容忍一致）。"""
+        if isinstance(version_str, Version):
+            return version_str
         # 移除前缀 v/V
         version_str = re.sub(r'^[vV]', '', version_str)
         # 处理预发布版本（如 1.2.3-alpha.1）

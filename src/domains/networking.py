@@ -169,6 +169,39 @@ def http_request(method: str, url: str, **kwargs) -> dict:
 
 
 # ============================================================
+# 终端下载原语（阶段 12b：Matha 终端 取网址/下载文件 —— 失败显式抛错，
+# 不返回 status:0 伪 dict；HTTP_GET/HTTP_POST 的 status-dict 契约保持不变）
+# ============================================================
+
+def fetch_url(url: str, timeout: float = 10.0) -> str:
+    """取网址(url) → 响应体文本；失败显式抛 RuntimeError。"""
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Matha-Terminal/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        raise RuntimeError(f"取网址失败: {e}")
+
+
+def download_url(url: str, path: str, timeout: float = 30.0) -> bool:
+    """下载文件(url, 路径) → 响应体写入本地文件，成功 True；失败显式抛错。"""
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Matha-Terminal/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read()
+    except Exception as e:
+        raise RuntimeError(f"下载文件失败: {e}")
+    try:
+        with open(str(path), "wb") as f:
+            f.write(data)
+        return True
+    except Exception as e:
+        raise RuntimeError(f"下载文件失败（写入 {path} 时）: {e}")
+
+
+# ============================================================
 # URL解析
 # ============================================================
 
@@ -269,6 +302,8 @@ def _register_networking(builtins: dict) -> None:
     builtins["HTTP_GET"] = http_get
     builtins["HTTP_POST"] = http_post
     builtins["HTTP请求"] = http_request
+    builtins["取网址"] = fetch_url
+    builtins["下载文件"] = lambda url: lambda path: download_url(url, path)
     builtins["URL解析"] = url_parse
     builtins["URL构建"] = url_build
     builtins["URL编码"] = url_encode
@@ -282,6 +317,7 @@ def _register_networking(builtins: dict) -> None:
 def _networking_symtab_names() -> list[str]:
     return [
         "网络连接", "网络绑定", "HTTP_GET", "HTTP_POST", "HTTP请求",
+        "取网址", "下载文件",
         "URL解析", "URL构建", "URL编码", "URL解码",
         "DNS解析", "DNS查询", "网络状态", "Ping检测",
     ]

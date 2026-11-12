@@ -953,6 +953,141 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   optimization/ 一并移除（tools/ 保留其余 4 个活文件、hardware/ 保留 hal_v2、jupyter/
   保留 matha_magic）。doc 面同步：README 内核外工具插件 14→9、ARCHITECTURE
   core_py_lines 34,260→31,608（repo_facts 实测一致）。
+- **2026-11 阶段 12a 收官（Matha 终端 · 纯 Matha 词法/句法层；12b-12e 未开工）**：用户指令
+  「为 Matha 制作真实专属诚实化/显示型终端，完全由 Matha 自身编译器/解释器构建…以 CMD 为模板」，
+  三项设计决策经 AskUserQuestion 审批（①未知命令=CMD 式透传系统执行；②管道/重定向=解析预留+
+  显式拒绝；③调试=轨迹+快照，交互式单步另立片）。本片落地**终端核心前两层（纯 Matha）**：
+  `matha/term_lexer.matha`（终端词法器，119 行：字符级扫描状态机——CMD 兼容引号合并
+  `a"b c"d`→一词、引号内管道/重定向不分隔、`>`/`>>` 相邻字符区分、空行返 `[]` 终端无操作、
+  引号未闭合显式拒绝；递归深度随行长线性增长，调用方须随行长抬高递归上限——与
+  `matha/lexer.matha` 扫描 同先例）+ `matha/term_parser.matha`（终端句法器，105 行：命令帧
+  `{命令, 参数, 管道链, 重定向, 重定向目标}`，文法 `命令行 := 段 (管道 段)* [重定向 目标]`，
+  缺命令名/管道残缺/重定向残缺·重复·不在末尾全部显式拒绝）+ 宿主 `_CN2FILE` 两行接线。
+  管道与重定向本层只**忠实成帧**，真执行属 12c 执行器（未实现时执行器显式拒绝）。
+  三锁 50 条（`tests/test_matha_term_12a.py`：token/帧对拍 vm=host 30 + 帧结构语义 4 +
+  双端同文本拒绝矩阵 16），0.91s 全绿。doc 同步：README 语料 166→168、测试文件 128→129；
+  ast_vm_gap 快照重生成（阻塞缺口 0）。
+  全量门禁 **6865/6865 通过**（基线：`python scripts/check.py`，tests 项 6762 过 46m47s +
+  kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知
+  未实现不计入分母；零失败零跳过；增量 +50 = 本片三锁条数，6815+50 算术闭合）。
+  **诚实边界（登记，不粉饰）**：终端的 OS 级能力（stdin/子进程/网络）纯 Matha 无法实现，
+  12b 起以最小内建胶水提供（stdlib.matha 既有先例注释「OS 级能力，纯 Matha 无法实现」）；
+  Matha 宿主实现本身是 Python 自举，终端进程入口（12d）为薄壳——「完全由 Matha 构建」的
+  口径 = **终端全部命令逻辑（词法/句法/分发/执行）为纯 Matha 模块，跑在 Matha 自身
+  解释器/VM 上**，Python 层只保留 IO 原语与进程入口，不做任何命令逻辑。
+- **2026-11 阶段 12b 收官（终端 OS 胶水内建：stdin/文件系统/执行Matha/调试Matha/网络；12c-12e 未开工）**：
+  终端的 OS 级能力以最小内建胶水落位（12a 已登记的口径）。`src/kernel/terminal_builtin.py`（内核终端
+  原语，~150 行，纯 stdlib os/shutil，无 rmtree——**递归删除永不支持**为安全边界，非空目录删除显式拒绝
+  且目录原样保留）：输入行(EOF→空串)/列目录(排序，[名,是目录,字节数])/建目录/删除路径/复制文件/改名/
+  当前目录/换目录/路径存在/执行Matha(经 exec_api 进程内真执行，错误如实上抛)。宿主 `src/interp.py`
+  接线 11 名（复制文件/改名经 _curry_module 柯里化），VM `src/mbc/vm.py` 同名注册（_curry2 柯里化）；
+  **调试Matha 仅宿主**（逐节点轨迹捕获 "matha.interp" DEBUG 流 + 运行后变量快照 + 错误如实入账不裸抛），
+  VM 注册同名实现但**显式拒绝**（无逐节点轨迹能力，非静默降级）。网络侧 `src/domains/networking.py`
+  增 取网址( urllib 真 GET→字符串)/下载文件(柯里化，字节落盘)，manifest 重生成。三锁 19 条
+  （`tests/test_matha_term_12b.py`：fs/执行Matha/输入行/网络 对拍 vm=host + 调试Matha 轨迹快照闭环 +
+  安全边界拒绝矩阵；网络用 file:// 走真 urllib 零外网零 mock）。doc 同步：README 测试文件 129→130、
+  ARCHITECTURE core_py_lines 31,608→31,749（+141 = terminal_builtin.py + vm.py 内建注册；interp.py
+  不计入 core_py_lines）。
+  全量门禁 **6885/6885 通过**（基线 `python scripts/check.py`：tests 6782 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：6815（阶段11）+ 50（12a）+ 19（12b 三锁）+ 1（`test_core_never_imports_plugin_contracts`
+  对新增 `src/kernel/terminal_builtin.py` 的参数化用例，经临时 worktree 节点级 diff 定位核实）= 6885。
+  **首轮门禁如实记录（已修）**：v1 唯一失败 `test_debug_matha_trace_and_snapshot` 为**确定性顺序依赖**
+  而非环境抖动——两个既有测试文件在 pytest 收集期执行模块级 `logging.disable(logging.CRITICAL)`
+  抑制全进程日志，令轨迹捕获收不到记录；修复为 `builtin_debug_matha` 捕获期间临时解除全局
+  `logging.disable` 并在 finally 原样恢复（复现组合「抑制文件+12b 同进程」24/24 绿验证），v2 全绿。
+- **2026-11 阶段 12c 收官（纯 Matha 终端执行器：命令注册表/CMD 命令集/CMD 式透传/显式拒绝；12d-12e 未开工）**：
+  `matha/term_engine.matha`（终端执行器，纯 Matha，~300 行）：命令帧 → 结果帧 `{"输出": [行], "退出": Bool}`。
+  **命令注册表** = 纯 Matha 字典 + 闭包注册（`命令表()`），CMD 模板命令集中英别名（dir/ls/cd/type/cat/copy/
+  del/rm/mkdir/md/ren/rename/echo/cls/run/load/write/debug/help/exit/quit），英文别名大小写不敏感；
+  **CMD 命令集**：目录（列目录渲染 `名\t<目录>|\t字节数`）/换目录（进程级真 cwd）/显示文件（去尾空行）/
+  复制/删除/建目录/改名/回显/清屏（ANSI `\x1b[2J\x1b[H`）/帮助/退出；**Matha 代码命令**：运行（引号包裹
+  源码 → 执行Matha）/加载（读 .matha → 执行Matha）/编写（手写代码块落盘）/调试（轨迹+快照全链渲染，
+  VM 显式拒绝如实穿透）；自写 `显示值` 递归渲染任意 Matha 值（null/List/Dict/元组/函数分别如实呈现，
+  stdlib str 只覆盖数字/布尔）。**未知命令 = CMD 式透传**（经领域内建 执行命令 真 subprocess，原行保真
+  传参，失败如实追加 `命令退出码: N` 行不伪装成功）；**管道/重定向 = 12a 解析预留特性，执行器显式拒绝**
+  （错误如实上抛，真实现另立阶段）；文件 I/O 走 stdlib read_file/write_file（两端同名）。语法面踩界如实
+  登记：Matha 解析器不支持 行首运算符续行/`then` 独立成行/调用参数跨行（`[` 字典/列表括号内跨行除外），
+  引擎已按此约束改写为 let 分段。三锁 72 条（`tests/test_matha_term_12c.py`：命令行对拍 vm=host 15 +
+  显示值渲染对拍 9 + 文件系统镜像对拍 3 + 透传对拍/退出码/帧重建 3 + 编写→加载→运行/换目录→列目录/
+  调试全链闭环 4 + 管道/重定向/参数个数 19 例×双端 + 非空目录删除保留/文件缺失/VM 调试穿透 3），
+  7.3s 全绿。doc 同步：README 语料 168→169、测试文件 130→131；ast_vm_gap 快照重生成（阻塞缺口 0；
+  interp.py 仅 _CN2FILE +1 行不计 core_py_lines）。
+  全量门禁 **6957/6957 通过**（基线 `python scripts/check.py`：tests 6854 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：6885（12b）+ 72（12c 三锁）= 6957。
+- **2026-11 阶段 12d 收官（独立入口 matha_term.py + .msh 批处理 + matha_main 集成 + 端到端；12e 未开工）**：
+  `src/matha_term.py`（终端进程入口，**薄壳**——零命令逻辑，符合 12a 拍板口径「Python 层只保留 IO 原语
+  与进程入口」）：横幅 + `Matha>` 提示符；三种形态 ①无参 REPL（逐行 runner，RuntimeError → `错误: ...`
+  继续不退出、KeyboardInterrupt 继续、EOF 退出 0、`退出` 标志结束 0）②`-c "命令"` 单命令（退出码 0/1
+  如实：成功 0、命令错误/透传失败 1，不伪装成功）③位置参数 .msh 批处理（`#` 注释与空行跳过、单行错误
+  `错误(第 N 行): ...` 打印后**继续执行**（CMD 批处理语义）、有错退出 1、`退出` 标志提前结束 0）；
+  `python -m src.matha_term` 与 `python -m src.matha_main 终端/term` 同一入口（matha_main 仅 subparser
+  + `set_defaults(func=_cmd_term)` 三行委托）；`sys.setrecursionlimit(max(30000, 行长))` 随行长抬高
+  （12a 词法器递归扫描同先例）。`src/matha_main.py` epilog 补终端行；`src/interp.py` `_CN2FILE` +1 行
+  接线（不计 core_py_lines）。三锁 20 条（`tests/test_matha_term_12d.py`：subprocess 端到端——
+  `-c` 成功/退出/错误退出码/透传/透传退出码 5 + 运行/调试/管道拒绝经入口 3 + 批处理 干净/错误继续/
+  退出提前/编写→加载循环 4 + 缺脚本拒绝/-c 缺参 2 + REPL 会话（横幅/提示符/错误继续/退出停止/不可达
+  行断言）/REPL EOF 2 + matha_main 终端与 term 别名/批处理/--help 4），14.6s 全绿。doc 同步：
+  README 测试文件 131→132（matha_term.py 不计入 core_py_lines——只统计 kernel/mbc 内核面）。
+  全量门禁 **6977/6977 通过**（基线 `python scripts/check.py`：tests 6874 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：6957（12c）+ 20（12d 三锁）= 6977。
+- **2026-11 阶段 12e 收官（扩展命令注册 + 启动自动加载 + 升级命令；阶段 12 五片全落）**：
+  **① 扩展命令注册（纯 Matha，term_engine.matha ⑦b 段）**：`注册命令 名字 路径`（别名 regcmd）/
+  `注销命令 名字`（unregcmd）；注册表 = 当前目录 `matha_term_registry.txt` 行式文本（行格式
+  `名字 路径` 单空格——名字/路径含空格或换行注册时显式拒绝；手改坏行在派发时显式拒绝，不静默跳过
+  用户数据）；派发顺序 **内建命令表 → 注册表 → CMD 透传**，注册名 to_lower 存储（与内建英文别名
+  大小写不敏感同口径），**不可覆盖内建**（注册时显式拒绝冲突名，含英文别名 dir/help/升级 等）；重注册
+  = 幂等更新路径（不产生重复行）；注销未注册显式拒绝；**注册表 = 共享磁盘事实**（宿主注销对 VM
+  同样生效——跨后端再注销显式拒绝，已入锁）。调用扩展 = 处理器源码 + 拼接 `处理([参数们])` 经
+  执行Matha 进程内执行；处理器契约：导出 `处理(参数们)` 并自行 输出 结果行（注册只校验路径存在；
+  缺 处理 导出在调用时如实上抛）。**参数安全嵌入限制**：含引号/反斜杠/换行显式拒绝（防拼接改写为
+  任意代码）——注：含引号参数在 12a 终端词法层已被剥除/拒绝（引号未闭合显式拒绝），引擎防线属纵深
+  防御，经 `_安全参` 双端直锁。
+  **② 启动自动加载（CMD AutoRun 同族）**：`src/matha_term.py` repl() 横幅后自动执行当前目录
+  `matha_term_extensions.msh`（`#` 注释/空行跳过；行错误如实打印 `自启动(第 N 行) 错误: ...` 后继续；
+  其中的 `退出` 标志**不**结束会话——自启动用于注册命令等准备，不允许隐式杀掉用户会话）；仅 REPL
+  触发，`-c` 与 .msh 批处理不触发。
+  **③ 升级命令**：域内建 `检查包更新()`（`src/domains/os_module.py` `_register_os` 注册 +
+  `manifest.json` os_module 符号声明 + `_os_symtab_names`/`__all__` 同步）——**内核纯度约束实录**：
+  初版误放 `src/kernel/terminal_builtin.py` 被 kernel_purity ratchet 拒绝（pkg_manager 系属 legacy
+  面，内核不得依赖），按 `执行命令` 先例迁移至 os 域后 14/14 恢复绿；`检查包更新` 从当前目录
+  `.matha_packages/*/manifest.json`（install() 的落盘形态）真实还原已安装集合（pkg_manager_v2 的
+  `installed` 只存进程内存，不还原则检查恒空），manifest 缺 name/version 如实上抛不静默跳过；版本
+  统一转 str 供纯 Matha 引擎直接渲染。**顺手修复 pkg_manager_v2 既有 bug**：`check_updates` 对
+  `installed`（install() 填充的是 Version 实例）调 `Version.parse` 直接 TypeError——即 upgrade_all/
+  upgrade_package 对真实已安装集合恒崩的潜伏缺陷；`Version.parse` 加 isinstance 守卫（与该类
+  `__eq__`/`__lt__` 既有 str|Version 双容忍一致），pkg 面既有测试 165 条回归全绿。纯 Matha `_升级`
+  （term_engine ⑦c 段）：无参 → 渲染 `可用更新（本地检查，不下载不安装）` + 逐行
+  `包名: 当前 -> 最新 (类型)` 或 `无可用更新`；`升级 <包名>` 过滤（大小写不敏感）；`升级 解释器`
+  （matha/interpreter 同拒）→ **显式拒绝**（自举核心不可终端自升级）；诚实边界：本片只检查不安装
+  （真安装另立片）。
+  三锁 39 条（`tests/test_matha_term_12e.py`：对拍 注册/调用/注销+跨后端共享/重注册/升级四形态×双端/
+  帮助 12e 行 + 闭环 全链落盘逐步断言/注册表跨解释器实例/宿主写 VM 读 + 拒绝矩阵 内建冲突×4×双端/
+  8 行拒绝×双端/注入参数/`_安全参` 直锁/坏注册表行/缺导出/坏 manifest + 端到端 自启动注册并调用/
+  错误继续/退出标志忽略/缺席静默/-c 不触发），25.7s 全绿。doc 同步：README 测试文件 132→133 +
+  **命令行工具节新增 `matha 终端` 小节（阶段 12 首次入 README 功能面）**；core_py_lines 31749 不变
+  （检查包更新 内建落 os 域不计、matha_term.py 自启动不计——只统计 kernel/mbc）；语料 169 不变
+  （term_engine.matha 增段不改文件数）。
+  全量门禁 **7016/7016 通过**（基线 `python scripts/check.py`：tests 6913 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：6977（12d）+ 39（12e 三锁）= 7016。
+- **阶段 12 总收官（诚实化/显示型终端五片 12a–12e 全落，口径与边界汇总）**：用户指令「为 Matha
+  制作真实专属诚实化/显示型终端，完全由 Matha 自身编译器/解释器构建，可以独立运行，也可以在其它
+  系统终端中运行，整个终端必须可以运行/调试/编写/手写代码与运行/加载/下载/使用网址/文件，以 CMD
+  为模板，必须可扩展与升级，集成至 Matha 中」——三项设计决策经 AskUserQuestion 审批（①未知命令=
+  CMD 式透传系统执行；②管道/重定向=解析预留+显式拒绝；③调试=轨迹+快照）。**落地口径**：终端全部
+  命令逻辑（词法/句法/分发/执行/扩展/升级渲染/透传决策）为纯 Matha 模块（matha/term_lexer 119 行 +
+  term_parser 105 行 + term_engine ~430 行），跑在 Matha 自身解释器/VM 上；Python 层只保留 IO 原语
+  （12b 内核胶水：stdin/文件系统/进程内 Matha 执行/调试快照）与进程入口（12d 薄壳 matha_term.py），
+  不做任何命令逻辑；领域内建 执行命令/检查包更新 走 os 域插件（内核纯度 ratchet 全程绿）。
+  **能力覆盖**：CMD 模板命令集 + Matha 代码命令（运行/加载/编写/调试）+ CMD 式透传（退出码如实）+
+  扩展注册（注册表持久化/跨后端共享）+ REPL 自启动 + 包更新本地检查；下载/使用网址 经 12b 胶水
+  下载内建与透传覆盖。**如实边界（不粉饰）**：管道 | 与重定向 > >> = 12a 解析预留特性，执行时显式
+  拒绝（真实现另立片）；升级只检查不安装；OS 级能力（stdin/子进程/网络）纯 Matha 无法实现，以最小
+  胶水内建提供；`完全由 Matha 构建` 的口径 = 命令逻辑纯 Matha + 跑在自身解释器上，Python 层无命令
+  逻辑。累计三锁 50+19+1+72+20+39 = **201 条终端专项**，全量门禁 7016/7016。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

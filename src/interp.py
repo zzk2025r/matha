@@ -60,6 +60,7 @@ from src import features
 from src import formula_schema as _fs
 from src import text_encoding as _te
 from src.interp_ic import InlineCache
+from src.kernel import terminal_builtin as _tb
 from src.kernel.errors import MathaRuntimeError, MathaUndefinedNameError  # noqa: F401  （再导出，保持旧 import 路径可用）
 
 logger = logging.getLogger("matha.interp")
@@ -576,6 +577,67 @@ def builtin_read_file(path: str) -> str:
         raise MathaRuntimeError(f"读文件失败: {e}")
 
 
+def builtin_debug_matha(source: str) -> dict:
+    """调试Matha(源码) → 宿主解释器轨迹+输出+变量快照（阶段 12b）。
+
+    返回 {模式, 轨迹, 输出, 变量, 错误}；轨迹捕获 debug=True 的逐节点
+    进出日志（matha.interp DEBUG 流），变量为运行后顶层绑定（名→repr）。
+    VM 后端无此能力——VM 侧注册同名实现但显式拒绝（见 src/mbc/vm.py），
+    不静默降级。
+    """
+    from src.parser import parse as _parse
+
+    class _Capture(logging.Handler):
+        def __init__(self):
+            super().__init__(level=logging.DEBUG)
+            self.lines: list[str] = []
+
+        def emit(self, record):
+            try:
+                self.lines.append(record.getMessage())
+            except Exception:
+                pass
+
+    cap = _Capture()
+    _logger = logging.getLogger("matha.interp")
+    prev_level = _logger.level
+    prev_disabled = _logger.disabled
+    # 全量测试收集期可能存在模块级 logging.disable(CRITICAL) 全局抑制，
+    # 会盖过一切 handler——捕获期间临时解除，结束后原样恢复。
+    prev_disable = logging.root.manager.disable
+    _logger.addHandler(cap)
+    _logger.setLevel(logging.DEBUG)
+    _logger.disabled = False
+    logging.disable(logging.NOTSET)
+    dbg = Interpreter(debug=True)
+    变量: list = []
+    错误文本 = ""
+    输出: list = []
+    try:
+        outputs, _trace = dbg.run(_parse(str(source)))
+        输出 = list(outputs)
+    except Exception as e:
+        错误文本 = f"{type(e).__name__}: {e}"
+        输出 = list(dbg.outputs)
+    finally:
+        _logger.removeHandler(cap)
+        _logger.setLevel(prev_level)
+        _logger.disabled = prev_disabled
+        logging.disable(prev_disable)
+    轨迹 = cap.lines
+    try:
+        变量 = sorted([名, repr(值)] for 名, 值 in dbg.env.items())
+    except Exception as e:
+        变量 = [["<环境快照失败>", repr(e)]]
+    return {
+        "模式": "轨迹+快照",
+        "轨迹": 轨迹,
+        "输出": 输出,
+        "变量": 变量,
+        "错误": 错误文本,
+    }
+
+
 def builtin_write_file(path: str, content: str) -> None:
     """写文件(path, 内容) → 无返回值。"""
     try:
@@ -786,6 +848,9 @@ def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
         "自然语言英语词法器": "nl_lexer_en.matha",
         "自然语言英语句法器": "nl_parser_en.matha",
         "自然语言英语执行器": "nl_engine_en.matha",
+        "终端词法器": "term_lexer.matha",
+        "终端句法器": "term_parser.matha",
+        "终端执行器": "term_engine.matha",
     }
     if module_name == "运行时引擎":
         path = d / "runtime" / "matha_runtime.matha"
@@ -910,6 +975,18 @@ BUILTINS: dict[str, object] = {
     "追加文件": _curry_module(2, lambda path, content: builtin_append_file(path, content)),
     "读JSON文件": builtin_parse_json_file,
     "写JSON文件": _curry_module(2, lambda path, data: builtin_write_json_file(path, data)),
+    # 终端 I/O 原语（阶段 12b；实现下沉 src/kernel/terminal_builtin.py，VM 同批注册）
+    "输入行": _tb.read_line,
+    "列目录": _tb.list_dir,
+    "建目录": _tb.make_dir,
+    "删除路径": _tb.delete_path,
+    "复制文件": _curry_module(2, _tb.copy_file),
+    "改名": _curry_module(2, _tb.rename_path),
+    "当前目录": _tb.get_cwd,
+    "换目录": _tb.change_dir,
+    "路径存在": _tb.path_exists,
+    "执行Matha": _tb.run_matha,
+    "调试Matha": builtin_debug_matha,
     # 字符串操作
     "截取": builtin_字符串截取,
     "替换": builtin_字符串替换,

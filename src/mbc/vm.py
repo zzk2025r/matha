@@ -503,15 +503,37 @@ from src.kernel.file_builtin import (  # noqa: E402
 )
 
 
+def _debug_matha_unavailable(_source=None) -> None:
+    """调试Matha 在 VM 后端显式拒绝：逐节点轨迹与环境快照是宿主解释器内部能力，
+    VM 帧式执行无此表示。诚实报错，不静默降级、不伪造轨迹。"""
+    raise RuntimeError(
+        "调试Matha 需要宿主解释器后端：VM 编译链无逐节点轨迹与环境快照能力"
+        "（显式拒绝，非静默降级）。请改用宿主解释器（如 matha 终端默认后端）。")
+
+
 def _default_builtins() -> dict:
     """VM 内建：复用宿主 mathlib 注册的同一套数学/工具函数。"""
     from src.kernel.math_builtin import _register_math_builtins
     from src.kernel.regex_builtin import _register_regex_builtins
     from src.kernel.time_builtin import _register_time
+    from src.kernel import terminal_builtin as _tb
     b: dict = {}
     _register_math_builtins(b)
     _register_regex_builtins(b)
     _register_time(b)
+    # 终端 I/O 原语（阶段 12b；与宿主 src.interp.BUILTINS 同批同名注册。
+    # 调试Matha 需宿主解释器内部轨迹/环境快照——VM 侧显式拒绝，非静默降级）
+    b.setdefault("输入行", _tb.read_line)
+    b.setdefault("列目录", _tb.list_dir)
+    b.setdefault("建目录", _tb.make_dir)
+    b.setdefault("删除路径", _tb.delete_path)
+    b.setdefault("复制文件", _curry2(_tb.copy_file))
+    b.setdefault("改名", _curry2(_tb.rename_path))
+    b.setdefault("当前目录", _tb.get_cwd)
+    b.setdefault("换目录", _tb.change_dir)
+    b.setdefault("路径存在", _tb.path_exists)
+    b.setdefault("执行Matha", _tb.run_matha)
+    b.setdefault("调试Matha", _debug_matha_unavailable)
     # 正则内建 `匹配` 与引导文件 matha/parser.matha 的顶层 `func 匹配` 同名：二者
     # 合入同一模块时后者会遮蔽前者。故额外暴露一个不冲突的别名，供 matha/vm.matha
     # 委托正则匹配（其余内建名无此冲突，可直接按名委托）。

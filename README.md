@@ -11,8 +11,8 @@
 - **领域插件：** 82（`src/domains/` 共 84 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 9（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
-- **`.matha` 语料：** 166（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 128（`tests/`）
+- **`.matha` 语料：** 169（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
+- **测试文件：** 133（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -118,6 +118,25 @@ matha-cc llvm demo.matha -o out.ll     # 生成 LLVM IR
 matha-cc optimize demo.matha -O2       # 优化编译
 matha-cc info                          # 工具链信息
 ```
+
+### matha 终端（CMD 模板子集；别名 `term`）
+```bash
+matha 终端                              # 交互式 REPL（提示符 Matha>）
+matha 终端 -c "回显 hi"                 # 单命令执行后退出（退出码 0/1 如实）
+matha 终端 script.msh                   # 批处理：逐行执行，单行错误继续（CMD 风格）
+python -m src.matha_term                # 独立入口（同一三种形态）
+```
+
+终端的全部命令逻辑（词法/句法/分发/执行/透传决策）为纯 Matha 模块
+（`matha/term_lexer` / `term_parser` / `term_engine`），跑在 Matha 自身解释器/VM
+上；Python 层只保留 IO 原语与进程入口。CMD 模板命令集（目录/换目录/显示文件/
+复制/删除/建目录/改名/回显/清屏/帮助/退出，英文别名大小写不敏感）+ Matha 代码
+命令（运行/加载/编写/调试）+ CMD 式透传（未知命令交系统 shell 真执行，失败如实
+显示退出码）。扩展与升级（阶段 12e）：`注册命令/注销命令` 持久化当前目录
+`matha_term_registry.txt`（注册名不可覆盖内建；参数含引号/反斜杠显式拒绝）；
+REPL 启动自动执行当前目录 `matha_term_extensions.msh`（其中 `退出` 不结束会话）；
+`升级 [包名]` 为 pkg 本地检查（真本地、无网络，只检查不安装；`升级 解释器` 显式
+拒绝）。管道 `|` 与重定向 `> >>` 为解析预留特性，执行时显式拒绝（真实现另立片）。
 
 ---
 
