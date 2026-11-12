@@ -326,17 +326,19 @@ class MathaEngine:
         return out[0] if out else None
 
     def _eval_with_compiler(self, expr: str) -> Any:
-        """通过编译器计算表达式。"""
+        """通过编译链计算（真实 mbc 编译 + 主解释器执行）。
+
+        旧实现对 matha_compile 的返回值起子进程——legacy 时代它从未成功过
+        （解析即炸），委托主实现后是真实编译+真实执行。
+        """
+        from src.compiler.matha_cc import matha_run as _run
         source = f"result = {expr}\n#1：[result]"
         try:
-            exe_path = self.matha_compile(source, optimize=self.optimize)
-            if exe_path:
-                import subprocess
-                result = subprocess.run([exe_path], capture_output=True, text=True, timeout=5)
-                return result.stdout.strip()
+            proc = _run(source)
         except Exception:
-            pass
-        return None
+            return None
+        lines = proc.stdout.splitlines()
+        return lines[0] if lines else None
 
     def run(self, file_path: str) -> Any:
         """运行 Matha 源文件（通过解释器或编译器）。"""
@@ -365,7 +367,7 @@ class MathaEngine:
         return result
 
     def compile(self, source: str, output_name: str = "out") -> str:
-        """编译 Matha 源码到目标语言。"""
+        """编译 Matha 源码（mbc 真实编译，返回计数摘要）。"""
         t0 = time.perf_counter()
         self.stats["compile_count"] += 1
 

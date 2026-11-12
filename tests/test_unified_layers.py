@@ -382,13 +382,19 @@ class TestUnifiedParser:
         assert len(tokens) > 0
 
     def test_matha_parser_compat(self):
-        """MathaParser 兼容性。"""
+        """MathaParser 兼容性（注入的 token 必须真实参与解析）。
+
+        历史写法误设 _tokens/_pos（主 Parser 的真实字段是 tokens/pos），
+        注入静默失效、parse 返回空 Program——本锁封死该回退。
+        """
         from src.unified_parser import MathaParser
         from src.lexer import Lexer
         tokens = list(Lexer("func f(x) -> Int = (x) => x").tokenize())
         parser = MathaParser(tokens)
         prog = parser.parse()
         assert prog is not None
+        assert len(prog.decls) == 1
+        assert type(prog.decls[0]).__name__ == "FuncDef"
 
     def test_matha_frontend(self):
         """MathaFrontend 兼容性。"""

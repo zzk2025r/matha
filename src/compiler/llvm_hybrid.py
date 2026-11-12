@@ -65,17 +65,13 @@ class HybridLLVMBackend:
 
 
 def matha_to_llvm(source: str) -> str:
-    """将 Matha 源码转换为 LLVM IR 文本（纯文本生成，不起子进程）。"""
-    from src.compiler.matha_cc import (MathaFrontend, MathaLexer,
-                                       MathaLLVMGenerator, MathaParser)
-    lexer = MathaLexer(source)
-    tokens = lexer.tokenize()
-    parser = MathaParser(tokens)
-    ast = parser.parse()
-    frontend = MathaFrontend()
-    matha_ir = frontend.compile(ast)
-    generator = MathaLLVMGenerator("matha_module")
-    return generator.generate(matha_ir)
+    """将 Matha 源码转换为 LLVM IR 文本。
+
+    未实现——此前经 matha_cc 把三地址码贴进 LLVM 模板产出无效 IR 文本
+    （llc 直接拒绝）；现显式拒绝，不再返回假产物。
+    """
+    from src.compiler.matha_cc import matha_to_llvm as _reject
+    return _reject(source)
 
 
 # ============================================================
@@ -83,31 +79,19 @@ def matha_to_llvm(source: str) -> str:
 # ============================================================
 
 def benchmark_compiler() -> dict:
-    """编译性能基准：只测**真实**可测的环节（IR 生成、解释器执行）。
+    """编译性能基准：只测真实存在的链路（字节码 VM）。
 
-    旧版会把「模拟编译耗时」与伪造的执行结果一起报成基准数据，制造不存在的
-    加速比。现 LLVM 段在未安装工具链时如实标注 ``skipped``。
+    LLVM IR 生成未实现（matha_to_llvm 显式拒绝）——旧版对无效文本计时的
+    「IR 生成基准」与依赖该文本的「LLVM 编译+执行基准」一并如实标注 skipped。
     """
     import time
 
-    from src.compiler.matha_cc import matha_to_llvm as _to_llvm
     from src.kernel import exec_api
 
     results: dict = {}
-    test_cases = [
-        ("简单算术", "x = 1 + 2 * 3"),
-        ("三角函数", "x = sin(3.14) + cos(1.57)"),
-        ("复杂表达式", "x = sin(3.14) * cos(1.57) + sqrt(2.0)"),
-        ("嵌套函数", "x = exp(sin(1.0) + cos(2.0))"),
-    ]
 
-    print("\n  LLVM IR 生成基准（纯文本，无外部工具）:")
-    for name, source in test_cases:
-        start = time.perf_counter()
-        llvm_ir = _to_llvm(source)
-        elapsed = (time.perf_counter() - start) * 1000
-        print(f"    {name:15s}: {elapsed:6.1f}ms, IR 长度 {len(llvm_ir)} 字符")
-        results[f"llvm_ir_{name}"] = elapsed
+    print("\n  LLVM IR 生成基准: skipped（matha_to_llvm 未实现，显式拒绝）")
+    results["llvm_ir"] = "skipped"
 
     print("\n  字节码 VM 基准（主执行链）:")
     interp_prog = "result = sin(3.14) * cos(1.57) + sqrt(2.0)\n#1：[result]"
@@ -118,33 +102,21 @@ def benchmark_compiler() -> dict:
     print(f"    VM 1000 次: {vm_ms:.0f}ms")
     results["vm_1000"] = vm_ms
 
-    print("\n  LLVM 编译+执行基准:")
-    if not llvm_available():
-        print(f"    跳过：{describe_availability()}（不做任何模拟计时）")
-        results["llvm_compile"] = "skipped"
-        results["llvm_exec"] = "skipped"
-    else:
-        backend = HybridLLVMBackend()
-        start = time.perf_counter()
-        exe = backend.compile(_to_llvm("result = 2.0 + 3.0\n#1：[result]"), "bench_out")
-        compile_ms = (time.perf_counter() - start) * 1000
-        out = backend.run(exe)
-        results["llvm_compile"] = compile_ms
-        results["llvm_exec"] = out["stdout"]
-        results["llvm_returncode"] = out["returncode"]
-        print(f"    编译 {compile_ms:.0f}ms，真实产物输出：{out['stdout']!r}")
+    print("\n  LLVM 编译+执行基准: skipped（无真实 IR 生成器）")
+    results["llvm_compile"] = "skipped"
+    results["llvm_exec"] = "skipped"
 
     return results
 
 
 def run_full_test() -> bool:
-    """前端链路自检：词法/语法/IR 生成/常量折叠/错误处理。
+    """前端链路自检：词法/语法/真实编译计数/错误处理。
 
-    LLVM 后端一栏**如实**反映工具链可用性；不可用即记为失败（旧版会打印
-    「使用模拟模式」并返回通过）。
+    IR 生成一栏如实标注未实现（matha_to_llvm 显式拒绝）；LLVM 后端一栏
+    **如实**反映工具链可用性，不可用即记为失败。
     """
     from src.compiler.matha_cc import (MathaCompiler, MathaLexer, MathaParser,
-                                       matha_to_llvm as _to_llvm)
+                                       matha_compile, matha_to_llvm as _to_llvm)
 
     ok = True
 
@@ -161,46 +133,56 @@ def run_full_test() -> bool:
     def _lex():
         tokens = MathaLexer("result = sin(3.14) + cos(1.57)").tokenize()
         assert len(tokens) >= 8, f"期望至少 8 个 token，实际 {len(tokens)}"
-        assert tokens[1].type == "ASSIGN", f"期望 ASSIGN，实际 {tokens[1].type}"
-        assert tokens[3].type == "PLUS", f"期望 PLUS，实际 {tokens[3].type}"
+        assert tokens[0].value == "result", f"期望 result，实际 {tokens[0].value!r}"
+        assert tokens[1].type.name == "OP_ASSIGN", f"期望 OP_ASSIGN，实际 {tokens[1].type.name}"
 
     def _parse():
         ast = MathaParser(MathaLexer("x = 1 + 2 * 3").tokenize()).parse()
         assert len(ast.decls) == 1, f"期望 1 个声明，实际 {len(ast.decls)}"
+        assert type(ast.decls[0]).__name__ == "Binding"
 
-    def _ir():
-        llvm_ir = _to_llvm("x = 1 + 2")
-        for needle in ("target triple", "define double @main", "entry:", "fadd"):
-            assert needle in llvm_ir, f"缺少 {needle}"
+    def _compile():
+        summary = matha_compile("func 加倍(x) -> Int = (x) => x * 2", "selftest")
+        assert summary == "# Compiled 1 declarations to selftest: 1 functions, 1 ops", summary
 
-    def _fold():
-        folded = MathaCompiler(optimize=True)._optimize_llvm("  t1 = fadd double 1.0, 2.0")
-        assert "3.0" in folded, f"常量折叠失败: {folded}"
+    def _llvm_reject():
+        try:
+            _to_llvm("x = 1 + 2")
+        except NotImplementedError:
+            return
+        raise AssertionError("matha_to_llvm 未显式拒绝（LLVM IR 生成未实现）")
 
     def _errors():
-        for source in ("x = 1 +", "x = undefined + 1"):
+        from src.parser import ParseError
+        for source in ("x = 1 +", "func 测试( = (x) => x + 1"):
             try:
-                _to_llvm(source)
-            except Exception:
+                MathaParser(MathaLexer(source).tokenize()).parse()
+            except ParseError:
                 continue
-        # 前端对坏输入宽容（不抛）——只在后端不可用时才失败，故此节仅确认可生成 IR
+            raise AssertionError(f"坏输入未报语法错误: {source!r}")
+
+    def _compiler_run():
+        result = MathaCompiler().run("result = 1 + 2 * 3\n#1：[result]")
+        assert result.returncode == 0, f"退出码 {result.returncode}"
+        assert result.stdout.splitlines() == ["7"], f"stdout={result.stdout!r}"
 
     def _backend():
         if not llvm_available():
             raise ToolchainUnavailable(describe_availability())
-        exe = HybridLLVMBackend().compile(_to_llvm("x = 2.0 + 3.0"), "test_output")
-        out = HybridLLVMBackend().run(exe)
-        assert out["returncode"] == 0, f"真实产物返回码 {out['returncode']}"
+        # 工具链就绪但没有真实 IR 生成器——无 IR 可编译，如实跳过；
+        # 真实端到端 LLVM 编译属 LLVM 主线工作（先实现 IR 生成）。
+        print("  skipped：LLVM IR 生成未实现（matha_to_llvm 显式拒绝），无真实 IR 可编译")
 
     print("=" * 60)
     print("Matha LLVM 工具链 - 完整编译测试")
     print("=" * 60)
     _section("测试 1：词法分析", _lex)
     _section("测试 2：语法分析", _parse)
-    _section("测试 3：LLVM IR 生成", _ir)
-    _section("测试 4：常量折叠优化", _fold)
+    _section("测试 3：真实编译计数", _compile)
+    _section("测试 4：LLVM IR 显式拒绝", _llvm_reject)
     _section("测试 5：错误处理", _errors)
-    _section("测试 6：外部工具链（真实编译）", _backend)
+    _section("测试 6：统一编译器真实执行", _compiler_run)
+    _section("测试 7：外部工具链（真实编译）", _backend)
 
     print("\n" + "=" * 60)
     print("全部通过" if ok else "存在失败项，请查看上述输出")

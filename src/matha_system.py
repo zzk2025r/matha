@@ -157,7 +157,7 @@ class MathaSystem:
         self._init_build()
         self._init_database()
         self._init_ai()
-        self._init_compiler()
+        self._init_compiler_backends()
         self._build_interop_channels()
         self._build_virtual_interop()
 
@@ -753,8 +753,15 @@ class MathaSystem:
             if self.debug:
                 print("[MathaSystem] AI 框架模块初始化失败")
 
-    def _init_compiler(self):
-        """初始化编译器后端模块。"""
+    def _init_compiler_backends(self):
+        """初始化编译器后端模块。
+
+        历史上本方法与上方 matha_cc 版 ``_init_compiler`` 同名，类体后定义
+        遮蔽前者——matha_compile/matha_to_llvm/MathaCompiler 从未被绑定，
+        ``system.matha_compile`` / ``compile`` / ``matha2c`` / eval 编译回退
+        全部 AttributeError 死路（同阶段 5 ``_init_ml`` 死接线类）。改名后
+        两条初始化链都真实生效。
+        """
         try:
             from src.compiler_backend import AOTCompiler, MathaCompiler, WASMCompiler
             self.compiler_class = MathaCompiler
@@ -879,10 +886,16 @@ class MathaSystem:
         return out[0] if out else None
 
     def _eval_with_compiler(self, expr: str) -> Any:
-        """通过编译器计算。"""
+        """通过编译链计算（真实 mbc 编译 + 主解释器执行）。
+
+        旧实现直接返回 matha_compile 结果——legacy 解析器时代它对一切真实
+        形态 SyntaxError，本路径从未产出过值；委托主实现后是真实编译+真实执行。
+        """
+        from src.compiler.matha_cc import matha_run as _run
         source = f"result = {expr}\n#1：[result]"
-        result = self.matha_compile(source)
-        return result
+        proc = _run(source)
+        lines = proc.stdout.splitlines()
+        return lines[0] if lines else None
 
     def vm_run(self, bytecode: str) -> Any:
         """通过虚拟机运行字节码。"""

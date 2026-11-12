@@ -4,8 +4,8 @@ Matha 统一命令行工具 — REPL + 编译器 + 调试 一体化
   matha                          # 启动交互式 REPL
   matha eval "sin(3.14)"         # 计算表达式
   matha run demo.matha           # 运行 Matha 源文件
-  matha compile demo.matha -o c  # 编译到 C
-  matha llvm demo.matha          # 生成 LLVM IR
+  matha compile demo.matha -o c  # 真编译（parse + mbc 计数摘要）
+  matha llvm demo.matha          # LLVM IR（未实现，显式拒绝）
   matha optimize demo.matha      # 优化编译
   matha test                     # 运行编译器测试
   matha info                     # 工具链信息
@@ -189,8 +189,10 @@ def _cmd_compile(args) -> int:
     """编译 Matha 源码。"""
     try:
         from src.compiler.matha_cc import matha_compile
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
         start = time.perf_counter()
-        output = matha_compile(args.source, args.output, optimize=not getattr(args, 'no_opt', False))
+        output = matha_compile(source, args.output, optimize=not getattr(args, 'no_opt', False))
         elapsed = (time.perf_counter() - start) * 1000
         print(f"编译成功: {args.source} → {output}")
         print(f"耗时: {elapsed:.0f}ms")
@@ -208,8 +210,10 @@ def _cmd_matha2c(args) -> int:
     """将 Matha 源码转译为 C 代码。"""
     try:
         from src.compiler.matha_cc import matha2c
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
         start = time.perf_counter()
-        c_code = matha2c(args.source, optimize=not getattr(args, 'no_opt', False))
+        c_code = matha2c(source, optimize=not getattr(args, 'no_opt', False))
         elapsed = (time.perf_counter() - start) * 1000
         output = getattr(args, 'output', None)
         if output:
@@ -304,7 +308,9 @@ def _cmd_llvm(args) -> int:
     """生成 LLVM IR。"""
     try:
         from src.compiler.matha_cc import matha_to_llvm
-        llvm_ir = matha_to_llvm(args.source)
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
+        llvm_ir = matha_to_llvm(source)
         if getattr(args, 'output', None):
             with open(args.output, "w", encoding="utf-8") as f:
                 f.write(llvm_ir)
@@ -325,8 +331,10 @@ def _cmd_optimize(args) -> int:
     """优化编译。"""
     try:
         from src.compiler.matha_cc import matha_compile
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
         start = time.perf_counter()
-        output = matha_compile(args.source, args.output, optimize=True)
+        output = matha_compile(source, args.output, optimize=True)
         elapsed = (time.perf_counter() - start) * 1000
         print(f"优化编译成功: {args.source} → {output}")
         print(f"耗时: {elapsed:.0f}ms")
@@ -439,9 +447,10 @@ def _cmd_debug(args) -> int:
         print("=" * 50)
         mir_gen = MIRGenerator()
         mir_program = mir_gen.generate(ast)
-        print(f"MIR 指令数量: {len(mir_program)}")
-        for instr in mir_program[:10]:
-            print(f"  {instr}")
+        total = sum(len(fn.instructions) for fn in mir_program.functions.values())
+        print(f"MIR 函数数: {len(mir_program.functions)}, 指令总数: {total}")
+        for name, fn in list(mir_program.functions.items())[:5]:
+            print(f"  [{name}] {len(fn.instructions)} 指令")
 
         # Step 4: 代码生成
         print()
@@ -463,15 +472,28 @@ def _cmd_debug(args) -> int:
 
 
 # ============================================================
-# build 模式 — 构建独立可执行文件
+# build 模式 — 构建独立字节码工件（MBC1）
 # ============================================================
 
 def _cmd_build(args) -> int:
-    """构建独立可执行文件。"""
+    """构建独立字节码工件（MBC1）。
+
+    历史上此命令声称"构建独立可执行文件"，但 matha_compile 从未产出过
+    可执行文件（legacy 解析即炸，其后是无效 IR → 工具缺失）。现产出真实
+    .mbc 字节码工件（src/mbc/serial MBC1 布局，read_mbc 可读回）；原生
+    机器码走 src.mbc.native 主链。
+    """
     try:
-        from src.compiler.matha_cc import matha_compile
-        matha_compile(args.source, args.output, optimize=True)
-        print(f"构建成功: {args.source} → {args.output}")
+        from src.mbc.compiler import compile_program
+        from src.mbc.serial import write_mbc
+        from src.parser import parse
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
+        mod = compile_program(parse(source))
+        write_mbc(mod, args.output)
+        size = os.path.getsize(args.output)
+        print(f"构建成功: {args.source} → {args.output}（M3V 字节码 MBC1，{size} 字节，"
+              f"{len(mod.functions)} 函数 / {len(mod.main_code)} ops）")
         return 0
     except Exception as e:
         print(f"构建失败: {e}", file=sys.stderr)

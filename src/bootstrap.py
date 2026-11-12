@@ -234,9 +234,12 @@ class MathaBytecodeCompiler:
 # ============================================================
 
 class MathaSelfCompiler:
-    """Matha 自编译器 — 将 Matha 编译为 Matha 字节码。
+    """Matha 自编译器 — 将 Matha 源码编译为真实 M3V 字节码（MBC1 布局）。
 
-    实现自举：Matha 源码 → Matha 字节码 → Matha 虚拟机
+    实现自举：Matha 源码 → 主实现 parse → mbc compile_program → MBC1 字节串。
+    旧实现借道 ``hasattr(matha_ir, 'functions')`` 误判，对任意输入静默产出
+    空字节码；现产物是真实可被 :func:`src.mbc.serial.deserialize_mbc` 读回的
+    MBC1 二进制。
     """
 
     def __init__(self, optimize: bool = True):
@@ -244,33 +247,17 @@ class MathaSelfCompiler:
         self._cache: dict[str, bytes] = {}
 
     def compile(self, source: str) -> bytes:
-        """将 Matha 源码编译为 Matha 字节码。"""
+        """将 Matha 源码编译为 M3V 字节码（MBC1 布局）。"""
         cache_key = f"matha_self:{hash(source)}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        from src.compiler.matha_cc import MathaFrontend, MathaLexer, MathaParser
-        from src.matha_vm import MathaBytecode
+        from src.mbc.compiler import compile_program
+        from src.mbc.serial import serialize_mbc
+        from src.parser import parse
 
-        # Phase 1: 词法分析
-        lexer = MathaLexer(source)
-        tokens = lexer.tokenize()
-
-        # Phase 2: 语法分析
-        parser = MathaParser(tokens)
-        ast = parser.parse()
-
-        # Phase 3: 生成 MIR
-        frontend = MathaFrontend()
-        matha_ir = frontend.compile(ast)
-
-        # Phase 4: 生成字节码
-        bytecode = MathaBytecode()
-        if hasattr(matha_ir, 'functions'):
-            for func_name, func in matha_ir.functions.items():
-                bytecode.add_function(func_name, func.params, func.instructions)
-
-        result = bytecode.to_bytes()
+        mod = compile_program(parse(source))
+        result = serialize_mbc(mod)
         self._cache[cache_key] = result
         return result
 
@@ -343,9 +330,9 @@ def matha_bootstrap_compile(
         return py_gen.generate(mir_program)
 
     elif target == "llvm":
-        from src.compiler.matha_cc import MathaLLVMGenerator
-        llvm_gen = MathaLLVMGenerator("matha_module")
-        return llvm_gen.generate(mir_program)
+        # LLVM IR 生成未实现：matha_to_llvm 显式拒绝（历史上产出无效 IR 文本）
+        from src.compiler.matha_cc import matha_to_llvm
+        return matha_to_llvm(source)
 
     elif target == "matha":
         # Matha → Matha 字节码
@@ -545,8 +532,12 @@ def bootstrap_compile(source: str, target: str = "c", optimize: bool = True) -> 
 
 
 def compile_and_benchmark() -> dict:
-    """编译并基准测试。"""
-    from src.compiler.matha_cc import matha_to_llvm
+    """编译并基准测试（只测真实存在的链路：解释器与 MIR→C）。
+
+    旧版对 matha_to_llvm 计时——legacy 解析器时代它对全部用例 SyntaxError，
+    「LLVM 基准」从未产生过数据；LLVM IR 生成未实现（matha_to_llvm 显式
+    拒绝），此处如实标注 skipped。
+    """
     from src.diag_backends import new_interpreter as Interpreter
     from src.parser import parse as interp_parse
 
@@ -567,22 +558,17 @@ def compile_and_benchmark() -> dict:
         interp_ms = (time.perf_counter() - t0) * 1000
 
         t0 = time.perf_counter()
-        llvm_ir = matha_to_llvm(source)
-        llvm_ms = (time.perf_counter() - t0) * 1000
-
-        t0 = time.perf_counter()
         mir_code = bootstrap_compile(source, target="c", optimize=True)
         mir_ms = (time.perf_counter() - t0) * 1000
 
         results[name] = {
             "interp_ms": interp_ms,
-            "llvm_ms": llvm_ms,
+            "llvm_ms": "skipped",
             "mir_ms": mir_ms,
-            "llvm_ir_length": len(llvm_ir),
             "mir_code_length": len(mir_code),
         }
 
-        print(f"  {name:15s}: 解释器={interp_ms:6.0f}ms, LLVM={llvm_ms:5.1f}ms, MIR={mir_ms:5.1f}ms")
+        print(f"  {name:15s}: 解释器={interp_ms:6.0f}ms, LLVM=skipped, MIR={mir_ms:5.1f}ms")
 
     return results
 

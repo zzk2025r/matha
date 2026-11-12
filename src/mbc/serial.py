@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import io
 import marshal
 import struct
 
@@ -29,29 +30,39 @@ def _read_block(f):
     return marshal.loads(f.read(length))
 
 
-def write_mbc(mod: MModule, path: str) -> None:
-    funcs = {
+def _funcs_dict(mod: MModule) -> dict:
+    return {
         name: {"arity": fn.arity, "nlocals": fn.nlocals,
                "params": fn.params, "code": fn.code}
         for name, fn in mod.functions.items()
     }
-    with open(path, "wb") as f:
-        f.write(MAGIC)
-        _write_block(f, mod.constants)
-        _write_block(f, funcs)
-        _write_block(f, mod.main_code)
-        _write_block(f, mod.module_name)
 
 
-def read_mbc(path: str) -> MModule:
-    with open(path, "rb") as f:
-        magic = f.read(4)
-        if magic != MAGIC:
-            raise ValueError(f"非法 .mbc 文件（magic={magic!r}）")
-        constants = _read_block(f)
-        funcs_raw = _read_block(f)
-        main_code = _read_block(f)
-        module_name = _read_block(f)
+def serialize_mbc(mod: MModule) -> bytes:
+    """MModule → MBC1 内存字节串（与 write_mbc 的文件布局完全一致）。"""
+    buf = io.BytesIO()
+    buf.write(MAGIC)
+    _write_block(buf, mod.constants)
+    _write_block(buf, _funcs_dict(mod))
+    _write_block(buf, mod.main_code)
+    _write_block(buf, mod.module_name)
+    return buf.getvalue()
+
+
+def deserialize_mbc(data: bytes) -> MModule:
+    """MBC1 内存字节串 → MModule（与 read_mbc 的文件解析完全一致）。"""
+    stream = io.BytesIO(data)
+    magic = stream.read(4)
+    if magic != MAGIC:
+        raise ValueError(f"非法 .mbc 数据（magic={magic!r}）")
+    return _load_blocks(stream)
+
+
+def _load_blocks(stream) -> MModule:
+    constants = _read_block(stream)
+    funcs_raw = _read_block(stream)
+    main_code = _read_block(stream)
+    module_name = _read_block(stream)
     mod = MModule(module_name=module_name)
     mod.constants = constants
     mod.main_code = main_code
@@ -60,3 +71,16 @@ def read_mbc(path: str) -> MModule:
             name=name, arity=d["arity"], nlocals=d["nlocals"],
             code=d["code"], params=d["params"])
     return mod
+
+
+def write_mbc(mod: MModule, path: str) -> None:
+    with open(path, "wb") as f:
+        f.write(serialize_mbc(mod))
+
+
+def read_mbc(path: str) -> MModule:
+    with open(path, "rb") as f:
+        magic = f.read(4)
+        if magic != MAGIC:
+            raise ValueError(f"非法 .mbc 文件（magic={magic!r}）")
+        return _load_blocks(f)

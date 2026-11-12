@@ -1,10 +1,10 @@
-"""Matha LLVM 工具链 - matha-cc 编译器前端。
+"""Matha 编译器前端 - matha-cc 命令行接口。
 
 命令行接口：
-  matha-cc compile input.matha -o output       # 编译为可执行文件
-  matha-cc run input.matha [args...]            # 编译并运行
-  matha-cc llvm input.matha -o output.ll       # 仅生成 LLVM IR
-  matha-cc optimize input.matha -O2            # 编译并优化
+  matha-cc compile input.matha -o output       # 真编译（parse + mbc，计数摘要）
+  matha-cc run input.matha [args...]            # 主解释器真实执行
+  matha-cc llvm input.matha -o output.ll       # LLVM IR（未实现，显式拒绝）
+  matha-cc optimize input.matha -O2            # 优化编译（同 compile）
   matha-cc info                                # 显示工具链信息
 """
 
@@ -37,7 +37,9 @@ def cmd_compile(args) -> int:
     from src.compiler.matha_cc import matha_compile
     start = time.perf_counter()
     try:
-        output = matha_compile(args.source, args.output, optimize=not args.no_opt)
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
+        output = matha_compile(source, args.output, optimize=not args.no_opt)
         elapsed = (time.perf_counter() - start) * 1000
         print(f"编译成功: {args.source} → {output}")
         print(f"耗时: {elapsed:.0f}ms")
@@ -52,7 +54,9 @@ def cmd_run(args) -> int:
     from src.compiler.matha_cc import matha_run
     start = time.perf_counter()
     try:
-        result = matha_run(args.source, args.args)
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
+        result = matha_run(source, args.args)
         elapsed = (time.perf_counter() - start) * 1000
         if result.stdout:
             print(result.stdout.strip())
@@ -69,7 +73,9 @@ def cmd_llvm(args) -> int:
     """生成 LLVM IR 命令。"""
     from src.compiler.matha_cc import matha_to_llvm
     try:
-        llvm_ir = matha_to_llvm(args.source)
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
+        llvm_ir = matha_to_llvm(source)
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
                 f.write(llvm_ir)
@@ -87,7 +93,9 @@ def cmd_optimize(args) -> int:
     from src.compiler.matha_cc import matha_compile
     start = time.perf_counter()
     try:
-        output = matha_compile(args.source, args.output, optimize=True)
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
+        output = matha_compile(source, args.output, optimize=True)
         elapsed = (time.perf_counter() - start) * 1000
         print(f"优化编译成功: {args.source} → {output}")
         print(f"耗时: {elapsed:.0f}ms")
@@ -100,22 +108,16 @@ def cmd_optimize(args) -> int:
 def cmd_info(args) -> int:
     """显示工具链信息。"""
     print("=" * 60)
-    print("Matha LLVM 工具链 (matha-cc)")
+    print("Matha 编译器前端 (matha-cc)")
     print("=" * 60)
     print("版本:     1.0.0")
-    print("前端:     MathaLexer → MathaParser → MathaFrontend")
-    print("IR:       MathaIR (三地址码)")
-    print("后端:     MathaLLVMGenerator → LLVM IR")
-    print("代码生成: llc/clang → 原生机器码")
+    print("前端:     MathaLexer → MathaParser（委托主实现 src.lexer / src.parser）")
+    print("编译:     matha_compile → parse + mbc compile_program（真实计数摘要）")
+    print("执行:     matha_run → 主解释器真实执行")
+    print("LLVM IR:  未实现——matha_to_llvm 显式拒绝（历史上产出无效 IR 文本）")
+    print("机器码主链: src.mbc.compiler → src.mbc.vm（原生为 src.mbc.native）")
     print()
-    print("支持的优化 Pass:")
-    print("  • MathaConstFoldPass  - 常量折叠")
-    print("  • MathaTailRecPass    - 尾递归消除")
-    print("  • MathaLoopUnrollPass - 循环展开")
-    print("  • MathaSIMDPass       - 自动向量化")
-    print("  • MathaCurryFlatten   - 柯里化扁平化")
-    print()
-    print("LLVM 工具链状态:")
+    print("外部 LLVM 工具链（可选，经 src/plugins/toolchain_llvm）:")
     for tool in ["llc", "clang", "opt", "llvm-as"]:
         try:
             result = subprocess.run([tool, "--version"], capture_output=True, timeout=10)
@@ -137,8 +139,8 @@ def cmd_test(args) -> int:
 
     tests = [
         ("简单算术", "result = 1 + 2 * 3\n#1：[result]"),
-        ("函数定义", "add = (a, b) => a + b\nresult = add(10)(20)\n#1：[result]"),
-        ("递归阶乘", "fact = (n) => if n <= 1 then 1 else n * fact(n-1)\nresult = fact(5)\n#1：[result]"),
+        ("柯里化加法", "add = (a, b) => a + b\nresult = add(10)(20)\n#1：[result]"),
+        ("递归阶乘", "func fact(n) -> Int = (n) => if n <= 1 then 1 else n * fact(n-1)\nresult = fact(5)\n#1：[result]"),
         ("三角函数", "result = sin(3.14159) + cos(1.57)\n#1：[result]"),
     ]
 

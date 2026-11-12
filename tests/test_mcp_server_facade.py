@@ -90,29 +90,28 @@ class TestFacadeRealMethods:
         out = s.run_file(str(tmp_path / "nope.matha"))
         assert "文件不存在" in out
 
-    def test_compile_source_real(self, tmp_path):
-        # x = 1+1 可过 legacy 语法；本机无 llc/clang 时须诚实报工具缺失，
-        # 有工具链时须真产出。两条路径都不得假成功/挂死。
+    def test_compile_source_real_summary(self, tmp_path):
+        # 阶段 10：matha_compile 真编译（parse + mbc 真实计数摘要），不再产出 exe
         s = MathaMCPServer()
         out = s.compile_source("x = 1+1", str(tmp_path / "out"))
-        if "编译成功" in out:
-            assert (tmp_path / "out").exists() or (tmp_path / "out.exe").exists()
-        else:
-            assert "编译失败" in out and ("工具缺失" in out or "token" in out)
+        assert "编译成功" in out
+        assert "# Compiled 1 declarations" in out
 
     def test_compile_source_fullwidth_punctuation_no_hang(self, tmp_path):
         # 回归锁：legacy lexer 的 id-start/续符谓词不一致曾使全角标点
-        # （：、【、，）产出零宽 token 死循环；现须如实报语法失败而非挂死
+        # （：、【、，）产出零宽 token 死循环；委托主 lexer 后如实解析。
+        # 锁定：任何输入都不得挂死，且返回值只能是诚实成功/失败之一。
         s = MathaMCPServer()
         out = s.compile_source("#1：[1+1]\n", str(tmp_path / "out"))
-        assert "编译失败" in out
+        assert isinstance(out, str)
+        assert "编译成功" in out or "编译失败" in out
 
     def test_lexer_consumes_id_start_chars(self):
         from src.compiler.matha_cc import MathaLexer
         for src in ("#1：[1+1]", "@：【加载领域】，神经网络", "，【："):
             tokens = MathaLexer(src).tokenize()  # 修复前：死循环
-            assert tokens[-1].type == "EOF"
-            assert all(t.value != "" or t.type == "EOF" for t in tokens)
+            assert tokens[-1].type.name == "EOF"
+            assert all(t.value != "" or t.type.name == "EOF" for t in tokens)
 
     def test_diagnose_returns_list(self):
         s = MathaMCPServer()

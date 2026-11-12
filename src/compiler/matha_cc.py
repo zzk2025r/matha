@@ -1,40 +1,27 @@
 """
-Matha LLVM 工具链架构
+matha-cc 编译器前端 — 主实现委托层（阶段 10 假实现清算）。
 
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Matha 工具链架构                               │
-│                                                                     │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐            │
-│  │  Matha 前端   │──▶│  Matha IR   │──▶│ LLVM IR      │            │
-│  │ (词法/语法)   │   │ (中间表示)   │   │ (优化/翻译)   │            │
-│  └──────────────┘   └──────────────┘   └──────┬───────┘            │
-│                                               │                     │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────▼───────┐            │
-│  │  Matha REPL  │   │  matha run   │   │ LLVM 后端     │            │
-│  │  (交互)      │   │  (运行)      │   │ (llc/clang)  │            │
-│  └──────────────┘   └──────────────┘   └──────┬───────┘            │
-│                                               │                     │
-│                                       ┌───────▼───────┐            │
-│                                       │  原生机器码    │            │
-│                                       │  (ELF/PE)     │            │
-│                                       └───────────────┘            │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────┐      │
-│  │  Matha 专属优化 Pass:                                     │      │
-│  │  • MathaTailRecPass    - 尾递归消除                        │      │
-│  │  • MathaLoopUnrollPass - 循环展开                          │      │
-│  │  • MathaSIMDPass       - 自动向量化                        │      │
-│  │  • MathaConstFoldPass  - 常量折叠                          │      │
-│  │  • MathaCurryFlattenPass- 柯里化扁平化                      │      │
-│  └──────────────────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────────────┘
+历史：本模块曾自带一套独立 legacy 词法/语法器 + 三地址 MathaIR + "LLVM IR"
+文本生成器。实测全部真实语言形态（``func f(x) -> Int``、``#1：[expr]`` 输出行、
+多参函数）一律 SyntaxError；唯一"编译成功"的产物是把三地址码贴进 LLVM 模板
+得到的无效 IR 文本（llc 直接拒绝）；bootstrap.MathaSelfCompiler 借道 hasattr
+误判静默产出空字节码。
+
+阶段 10 起全部委托主实现（unified_parser 同款先例）：
+  · MathaLexer / MathaParser          → src.lexer.Lexer / src.parser.Parser
+  · MathaFrontend                     → 主 parse（接受源码字符串或 AST Program）
+  · matha_compile                     → parse + mbc compile_program 真实计数摘要
+  · matha_run                         → 主解释器真实执行（真实输出封入 CompletedProcess）
+  · matha_to_llvm / MathaLLVMGenerator → 显式拒绝（无效 IR 文本不再产出）
+  · MathaBackend                      → 维持真实工具链委托（src/plugins/toolchain_llvm）
+
+机器码主链是 src.mbc.compiler → src.mbc.vm（原生为 src.mbc.native）；LLVM 是
+可选外部工具链，见 src/compiler/llvm_hybrid.py。
 """
 
 from __future__ import annotations
 
-import os
 import subprocess
-import tempfile
 
 from src.bootstrap import (
     MathaBytecodeCompiler,
@@ -43,781 +30,84 @@ from src.bootstrap import (
 )
 
 # ============================================================
-# 1. Matha 前端 (Frontend)
+# 1. 前端：主实现委托
 # ============================================================
-
-class MathaToken:
-    """Matha 词法 token。"""
-    def __init__(self, type_: str, value: str, line: int = 0, col: int = 0):
-        self.type = type_
-        self.value = value
-        self.line = line
-        self.col = col
-
-    def __repr__(self):
-        return f"Token({self.type}, {self.value!r}, L{self.line}:C{self.col})"
-
 
 class MathaLexer:
-    """Matha 词法分析器。"""
+    """matha_cc 兼容：委托主实现 src.lexer.Lexer。"""
 
-    KEYWORDS = {"func", "if", "else", "while", "for", "in", "let", "match",
-                "case", "return", "import", "module", "class", "def"}
+    def __init__(self, source: str = ""):
+        from src.lexer import Lexer
+        self._lexer = Lexer(source)
 
-    def __init__(self, source: str):
-        self._source = source
-        self._pos = 0
-        self._line = 1
-        self._col = 1
+    def tokenize(self):
+        return list(self._lexer.tokenize())
 
-    def tokenize(self) -> list[MathaToken]:
-        tokens = []
-        while self._pos < len(self._source):
-            self._skip_whitespace()
-            if self._pos >= len(self._source):
-                break
-            ch = self._source[self._pos]
-            if ch == "/" and self._pos + 1 < len(self._source) and self._source[self._pos + 1] == "/":
-                self._skip_line_comment()
-                continue
-            if ch == "(" and self._pos + 1 < len(self._source) and self._source[self._pos + 1] == "*":
-                self._skip_block_comment()
-                continue
-            if ch.isdigit() or (ch == "." and self._pos + 1 < len(self._source) and self._source[self._pos + 1].isdigit()):
-                tokens.append(self._read_number())
-                continue
-            if ch in ('"', "'"):
-                tokens.append(self._read_string(ch))
-                continue
-            if ch.isalpha() or ch == "_" or self._is_unicode_id_start(ch):
-                tokens.append(self._read_identifier())
-                continue
-            if ch in "+-*/%=!<>&|^~":
-                tokens.append(self._read_operator())
-                continue
-            if ch in "(),;:[]{}→∈":
-                tokens.append(MathaToken(ch, ch, self._line, self._col))
-                self._advance()
-                continue
-            self._advance()
-        tokens.append(MathaToken("EOF", "", self._line, self._col))
-        return tokens
+    def next_token(self):
+        return self._lexer.next_token()
 
-    def _skip_whitespace(self) -> None:
-        while self._pos < len(self._source) and self._source[self._pos] in " \t\n\r":
-            if self._source[self._pos] == "\n":
-                self._line += 1
-                self._col = 1
-            else:
-                self._col += 1
-            self._pos += 1
-
-    def _skip_line_comment(self) -> None:
-        while self._pos < len(self._source) and self._source[self._pos] != "\n":
-            self._pos += 1
-
-    def _skip_block_comment(self) -> None:
-        self._pos += 2
-        while self._pos < len(self._source) - 1:
-            if self._source[self._pos] == "*" and self._source[self._pos + 1] == ")":
-                self._pos += 2
-                break
-            if self._source[self._pos] == "\n":
-                self._line += 1
-            self._pos += 1
-
-    def _read_number(self) -> MathaToken:
-        start = self._pos
-        has_dot = False
-        while self._pos < len(self._source) and (self._source[self._pos].isdigit() or self._source[self._pos] == "."):
-            if self._source[self._pos] == ".":
-                if has_dot:
-                    break
-                has_dot = True
-            self._pos += 1
-        return MathaToken("NUMBER", self._source[start:self._pos], self._line, self._col)
-
-    def _read_string(self, quote: str) -> MathaToken:
-        start = self._pos
-        self._pos += 1
-        while self._pos < len(self._source) and self._source[self._pos] != quote:
-            if self._source[self._pos] == "\n":
-                self._line += 1
-            self._pos += 1
-        self._pos += 1
-        return MathaToken("STRING", self._source[start:self._pos], self._line, self._col)
-
-    def _read_identifier(self) -> MathaToken:
-        start = self._pos
-        # 首字符由调用方按 id-start 判定（含 ord>0x2E00 兜底），必须消费：
-        # 它与下方续符谓词不一致时（如全角冒号：），零宽 token 会死循环
-        self._pos += 1
-        while self._pos < len(self._source) and (self._source[self._pos].isalnum() or self._source[self._pos] in "_─"):
-            self._pos += 1
-        word = self._source[start:self._pos]
-        if word in self.KEYWORDS:
-            return MathaToken("KEYWORD", word, self._line, self._col)
-        return MathaToken("IDENT", word, self._line, self._col)
-
-    def _read_operator(self) -> MathaToken:
-        start = self._pos
-        op_chars = "+-*/%=!<>&|^~"
-        while self._pos < len(self._source) and self._source[self._pos] in op_chars:
-            self._pos += 1
-        op = self._source[start:self._pos]
-        op_map = {
-            "→": "ARROW", ">>": "RSHIFT", "++": "INCR", "--": "DECR",
-            "∈": "BELONGS", "=": "ASSIGN", "==": "EQ", "!=": "NEQ",
-            "<=": "LEQ", ">=": "GEQ", "**": "POW", "//": "FLOORDIV",
-            "+": "PLUS", "-": "MINUS", "*": "MUL", "/": "DIV",
-            "%": "MOD", "<": "LT", ">": "GT", "=>": "LAMBDA",
-        }
-        return MathaToken(op_map.get(op, "OP"), op, self._line, self._col)
-
-    def _is_unicode_id_start(self, ch: str) -> bool:
-        import unicodedata
-        if not ch:
-            return False
-        cat = unicodedata.category(ch)
-        return cat.startswith(("L", "N", "Mn", "Mc", "Pc")) or ord(ch) > 0x2E00
-
-    def _advance(self) -> None:
-        if self._pos < len(self._source):
-            if self._source[self._pos] == "\n":
-                self._line += 1
-                self._col = 1
-            else:
-                self._col += 1
-            self._pos += 1
-
-
-# ============================================================
-# 2. Matha 语法树 (AST) - 使用普通类避免 dataclass 字段顺序问题
-# ============================================================
-
-class ASTNode:
-    """AST 节点基类。"""
-    def __init__(self, line: int = 0, col: int = 0):
-        self.line = line
-        self.col = col
-
-
-class Program(ASTNode):
-    def __init__(self, decls=None, line=0, col=0):
-        super().__init__(line, col)
-        self.decls = decls or []
-
-
-class Binding(ASTNode):
-    def __init__(self, name="", value=None, ann_type=None, line=0, col=0):
-        super().__init__(line, col)
-        self.name = name
-        self.value = value
-        self.ann_type = ann_type
-
-
-class FuncDef(ASTNode):
-    def __init__(self, name="", params=None, return_type="Any", body=None, line=0, col=0):
-        super().__init__(line, col)
-        self.name = name
-        self.params = params or []
-        self.return_type = return_type
-        self.body = body
-
-
-class BinaryOp(ASTNode):
-    def __init__(self, op="", left=None, right=None, line=0, col=0):
-        super().__init__(line, col)
-        self.op = op
-        self.left = left
-        self.right = right
-
-
-class UnaryOp(ASTNode):
-    def __init__(self, op="", operand=None, line=0, col=0):
-        super().__init__(line, col)
-        self.op = op
-        self.operand = operand
-
-
-class FuncApp(ASTNode):
-    def __init__(self, func=None, arg=None, line=0, col=0):
-        super().__init__(line, col)
-        self.func = func
-        self.arg = arg
-
-
-class Lambda(ASTNode):
-    def __init__(self, params=None, body=None, line=0, col=0):
-        super().__init__(line, col)
-        self.params = params or []
-        self.body = body
-
-
-class IfExpr(ASTNode):
-    def __init__(self, cond=None, then=None, else_=None, line=0, col=0):
-        super().__init__(line, col)
-        self.cond = cond
-        self.then = then
-        self.else_ = else_
-
-
-class WhileStmt(ASTNode):
-    def __init__(self, cond=None, body=None, line=0, col=0):
-        super().__init__(line, col)
-        self.cond = cond
-        self.body = body
-
-
-class ForStmt(ASTNode):
-    def __init__(self, target="", iterable=None, body=None, line=0, col=0):
-        super().__init__(line, col)
-        self.target = target
-        self.iterable = iterable
-        self.body = body
-
-
-class Literal(ASTNode):
-    def __init__(self, value=None, kind="number", line=0, col=0):
-        super().__init__(line, col)
-        self.value = value
-        self.kind = kind
-
-
-class Variable(ASTNode):
-    def __init__(self, name="", line=0, col=0):
-        super().__init__(line, col)
-        self.name = name
-
-
-class ListLiteral(ASTNode):
-    def __init__(self, items=None, line=0, col=0):
-        super().__init__(line, col)
-        self.items = items or []
-
-
-class DictLiteral(ASTNode):
-    def __init__(self, keys=None, values=None, line=0, col=0):
-        super().__init__(line, col)
-        self.keys = keys or []
-        self.values = values or []
-
-
-class TupleExpr(ASTNode):
-    def __init__(self, elements=None, line=0, col=0):
-        super().__init__(line, col)
-        self.elements = elements or []
-
-
-class Output(ASTNode):
-    def __init__(self, expr=None, line=0, col=0):
-        super().__init__(line, col)
-        self.expr = expr
-
-
-# ============================================================
-# 3. Matha 解析器 (Parser)
-# ============================================================
 
 class MathaParser:
-    def __init__(self, tokens: list[MathaToken]):
-        self._tokens = tokens
-        self._pos = 0
+    """matha_cc 兼容：委托主实现 src.parser.Parser。"""
 
-    def parse(self) -> Program:
-        decls = []
-        while self._peek().type != "EOF":
-            decls.append(self._parse_decl())
-        return Program(decls=decls)
+    def __init__(self, tokens=None):
+        from src.parser import Parser
+        self._parser = Parser("")
+        if tokens:
+            # 主 Parser 的 token 序列/游标字段是 tokens/pos（unified_parser
+            # 历史写法误设 _tokens/_pos，注入实际不生效——此处按真实字段注入）
+            self._parser.tokens = list(tokens)
+            self._parser.pos = 0
 
-    def _peek(self) -> MathaToken:
-        return self._tokens[self._pos] if self._pos < len(self._tokens) else MathaToken("EOF", "")
+    def parse(self):
+        return self._parser.parse()
 
-    def _advance(self) -> MathaToken:
-        tok = self._tokens[self._pos]
-        self._pos += 1
-        return tok
-
-    def _expect(self, type_: str) -> MathaToken:
-        tok = self._peek()
-        expected = type_
-        if expected == "=" and tok.type == "ASSIGN":
-            expected = "ASSIGN"
-        if tok.type != expected:
-            raise SyntaxError(f"期望 {type_}, 实际 {tok.type} ({tok.value!r})")
-        return self._advance()
-
-    def _parse_decl(self) -> ASTNode:
-        tok = self._peek()
-        if tok.type == "KEYWORD" and tok.value == "func":
-            return self._parse_func_def()
-        if tok.type == "IDENT":
-            return self._parse_binding()
-        if tok.type == "#":
-            return self._parse_output()
-        raise SyntaxError(f"意外的 token: {tok.type} ({tok.value!r})")
-
-    def _parse_func_def(self) -> FuncDef:
-        self._expect("KEYWORD")
-        name_tok = self._expect("IDENT")
-        self._expect("(")
-        self._parse_param_list()
-        self._expect(")")
-        ret_type = "Any"
-        if self._peek().type == "-":
-            self._advance()
-            self._expect(">")
-            if self._peek().type == "IDENT":
-                ret_type = self._advance().value
-        self._expect("=")
-        self._expect("(")
-        lam_params = self._parse_param_list()
-        self._expect(")")
-        self._expect("→")
-        body = self._parse_expr()
-        return FuncDef(name=name_tok.value, params=lam_params, return_type=ret_type, body=body)
-
-    def _parse_param_list(self) -> list:
-        params = []
-        if self._peek().type == ")":
-            return params
-        while True:
-            if self._peek().type == ")":
-                break
-            params.append(self._advance().value)
-            if self._peek().type == ",":
-                self._advance()
-        return params
-
-    def _parse_binding(self) -> Binding:
-        name = self._advance().value
-        self._expect("=")
-        value = self._parse_expr()
-        return Binding(name=name, value=value)
-
-    def _parse_output(self) -> Output:
-        self._expect("#")
-        self._expect("：")
-        self._expect("[")
-        expr = self._parse_expr()
-        self._expect("]")
-        return Output(expr=expr)
-
-    def _parse_expr(self) -> ASTNode:
-        return self._parse_or()
-
-    def _parse_or(self) -> ASTNode:
-        left = self._parse_and()
-        while self._peek().type == "IDENT" and self._peek().value == "或":
-            self._advance()
-            right = self._parse_and()
-            left = BinaryOp(op="or", left=left, right=right)
-        return left
-
-    def _parse_and(self) -> ASTNode:
-        left = self._parse_equality()
-        while self._peek().type == "IDENT" and self._peek().value == "与":
-            self._advance()
-            right = self._parse_equality()
-            left = BinaryOp(op="and", left=left, right=right)
-        return left
-
-    def _parse_equality(self) -> ASTNode:
-        left = self._parse_comparison()
-        while self._peek().type in ("EQ", "NEQ", "BELONGS"):
-            op_tok = self._advance()
-            right = self._parse_comparison()
-            left = BinaryOp(op=op_tok.type, left=left, right=right)
-        return left
-
-    def _parse_comparison(self) -> ASTNode:
-        left = self._parse_additive()
-        while self._peek().type in ("LT", "GT", "LEQ", "GEQ"):
-            op_tok = self._advance()
-            right = self._parse_additive()
-            left = BinaryOp(op=op_tok.type, left=left, right=right)
-        return left
-
-    def _parse_additive(self) -> ASTNode:
-        left = self._parse_multiplicative()
-        while self._peek().type in ("PLUS", "MINUS"):
-            op_tok = self._advance()
-            right = self._parse_multiplicative()
-            left = BinaryOp(op=op_tok.value, left=left, right=right)
-        return left
-
-    def _parse_multiplicative(self) -> ASTNode:
-        left = self._parse_unary()
-        while self._peek().type in ("MUL", "DIV", "FLOORDIV", "MOD", "POW"):
-            op_tok = self._advance()
-            right = self._parse_unary()
-            left = BinaryOp(op=op_tok.value, left=left, right=right)
-        return left
-
-    def _parse_unary(self) -> ASTNode:
-        if self._peek().type == "-":
-            self._advance()
-            operand = self._parse_unary()
-            return UnaryOp(op="-", operand=operand)
-        if self._peek().type in ("INCR", "DECR"):
-            op_tok = self._advance()
-            operand = self._parse_unary()
-            return UnaryOp(op=op_tok.value, operand=operand)
-        return self._parse_primary()
-
-    def _parse_primary(self) -> ASTNode:
-        tok = self._peek()
-        if tok.type == "NUMBER":
-            self._advance()
-            try:
-                return Literal(value=int(tok.value), kind="number")
-            except ValueError:
-                return Literal(value=float(tok.value), kind="number")
-        if tok.type == "STRING":
-            self._advance()
-            return Literal(value=tok.value[1:-1], kind="string")
-        if tok.type == "IDENT" and tok.value in ("True", "False"):
-            self._advance()
-            return Literal(value=tok.value == "True", kind="bool")
-        if tok.type == "IDENT":
-            self._advance()
-            if self._peek().type == "(":
-                self._advance()  # consume (
-                args = self._parse_arg_list()
-                self._expect(")")  # consume )
-                if len(args) == 1:
-                    return FuncApp(func=Variable(name=tok.value), arg=args[0])
-                return FuncApp(func=Variable(name=tok.value), arg=args)
-            return Variable(name=tok.value)
-        if tok.type == "(":
-            self._advance()
-            # 检查是否是 lambda: (params) => body
-            params = []
-            if self._peek().type != ")":
-                while True:
-                    if self._peek().type == "IDENT":
-                        params.append(self._advance().value)
-                        if self._peek().type == ",":
-                            self._advance()
-                        elif self._peek().type == ")":
-                            break
-                        else:
-                            break
-                    elif self._peek().type == ")":
-                        break
-                    else:
-                        break
-            self._expect(")")
-            # 检查 => 或 →
-            if self._peek().type in ("ARROW", "LAMBDA"):
-                self._advance()  # consume → or =>
-                body = self._parse_expr()
-                return Lambda(params=params, body=body)
-            # 普通括号表达式
-            expr = self._parse_expr()
-            self._expect(")")
-            return expr
-        if tok.type == "→":
-            self._advance()
-            body = self._parse_expr()
-            return Lambda(params=[], body=body)
-        if tok.type == "[":
-            return self._parse_list_literal()
-        if tok.type == "{":
-            return self._parse_dict_literal()
-        if tok.type == "ARROW":
-            self._advance()
-            right = self._parse_expr()
-            return BinaryOp(op="→", left=Variable(name="apply"), right=right)
-        raise SyntaxError(f"意外的 token: {tok.type} ({tok.value!r})")
-
-    def _parse_arg_list(self) -> list:
-        args = []
-        if self._peek().type == ")":
-            return args
-        # 解析第一个参数 (完整表达式，包括运算符)
-        args.append(self._parse_expr())
-        while self._peek().type == ",":
-            self._advance()  # consume comma
-            if self._peek().type == ")":
-                break
-            args.append(self._parse_expr())
-        return args
-
-    def _parse_list_literal(self) -> ListLiteral:
-        self._expect("[")
-        items = []
-        if self._peek().type != "]":
-            while True:
-                items.append(self._parse_expr())
-                if self._peek().type == ",":
-                    self._advance()
-                elif self._peek().type == "]":
-                    break
-        self._expect("]")
-        return ListLiteral(items=items)
-
-    def _parse_dict_literal(self) -> DictLiteral:
-        self._expect("{")
-        keys, values = [], []
-        if self._peek().type != "}":
-            while True:
-                keys.append(self._parse_expr())
-                self._expect(":")
-                values.append(self._parse_expr())
-                if self._peek().type == ",":
-                    self._advance()
-                elif self._peek().type == "}":
-                    break
-        self._expect("}")
-        return DictLiteral(keys=keys, values=values)
-
-
-# ============================================================
-# 4. Matha IR (中间表示)
-# ============================================================
-
-class MathaIR:
-    def __init__(self) -> None:
-        self._instructions: list = []
-        self._labels: dict = {}
-        self._temps = 0
-        self._funcs: dict = {}
-        self._globals: dict = {}
-
-    def _new_temp(self) -> str:
-        self._temps += 1
-        return f"t{self._temps}"
-
-    def emit(self, instr: str) -> str:
-        self._instructions.append(instr)
-        if "=" in instr:
-            return instr.split("=")[0].strip()
-        return ""
-
-    def emit_label(self, name: str) -> None:
-        self._labels[name] = len(self._instructions)
-        self._instructions.append(f"{name}:")
-
-    def emit_call(self, func: str, args: list, result: str = None) -> str:
-        result = result or self._new_temp()
-        args_str = ", ".join(args)
-        self._instructions.append(f"{result} = call {func}({args_str})")
-        return result
-
-    def emit_binary(self, op: str, left: str, right: str, result: str = None) -> str:
-        result = result or self._new_temp()
-        self._instructions.append(f"{result} = {op} {left}, {right}")
-        return result
-
-    def emit_load(self, name: str, result: str = None) -> str:
-        result = result or self._new_temp()
-        self._instructions.append(f"{result} = load {name}")
-        return result
-
-    def emit_store(self, name: str, value: str) -> None:
-        self._instructions.append(f"store {value}, {name}")
-
-    def to_dict(self) -> dict:
-        return {"instructions": self._instructions, "labels": self._labels,
-                "funcs": self._funcs, "globals": self._globals}
-
-
-# ============================================================
-# 5. 编译器前端: AST → Matha IR
-# ============================================================
 
 class MathaFrontend:
-    def __init__(self) -> None:
-        self._ir = MathaIR()
-        self._scopes: list = [{}]
+    """matha_cc 兼容前端：compile 接受源码字符串或已解析 AST Program。"""
 
-    def compile(self, program: Program) -> MathaIR:
-        for decl in program.decls:
-            self._compile_decl(decl)
-        return self._ir
+    def __init__(self):
+        self._last_ast = None
 
-    def _compile_decl(self, decl: ASTNode) -> None:
-        if isinstance(decl, FuncDef):
-            self._compile_func(decl)
-        elif isinstance(decl, Binding):
-            self._compile_binding(decl)
-        elif isinstance(decl, Output):
-            if decl.expr:
-                self._ir.emit(f"print {self._compile_expr(decl.expr)}")
-
-    def _compile_func(self, func: FuncDef) -> None:
-        self._scopes.append({})
-        for param in func.params:
-            self._scopes[-1][param] = param
-        body_ir = self._compile_expr(func.body)
-        self._ir._funcs[func.name] = {"params": func.params, "return_type": func.return_type, "body": body_ir}
-        self._scopes.pop()
-
-    def _compile_binding(self, binding: Binding) -> None:
-        value = self._compile_expr(binding.value)
-        self._ir.emit_store(binding.name, value)
-        self._scopes[-1][binding.name] = binding.name
-
-    def _compile_expr(self, expr: ASTNode) -> str:
-        if expr is None:
-            return "0.0"
-        if isinstance(expr, Literal):
-            return self._emit_literal(expr)
-        if isinstance(expr, Variable):
-            return self._ir.emit_load(expr.name)
-        if isinstance(expr, BinaryOp):
-            return self._compile_binary(expr)
-        if isinstance(expr, UnaryOp):
-            return self._compile_unary(expr)
-        if isinstance(expr, FuncApp):
-            return self._compile_func_app(expr)
-        if isinstance(expr, Lambda):
-            return self._ir.emit("call __matha_lambda()")
-        if isinstance(expr, IfExpr):
-            return self._compile_if(expr)
-        if isinstance(expr, ListLiteral):
-            return self._compile_list(expr)
-        if isinstance(expr, DictLiteral):
-            return self._compile_dict(expr)
-        return "0.0"
-
-    def _emit_literal(self, lit: Literal) -> str:
-        val = lit.value
-        if lit.kind == "number":
-            return str(val)
-        if lit.kind == "string":
-            return f'"{val}"'
-        if lit.kind == "bool":
-            return "1.0" if val else "0.0"
-        return "0.0"
-
-    def _compile_binary(self, expr: BinaryOp) -> str:
-        left = self._compile_expr(expr.left)
-        right = self._compile_expr(expr.right)
-        op_map = {"+": "add", "-": "sub", "*": "mul", "/": "fdiv", "//": "fdiv", "%": "fmod",
-                  "**": "call @pow", "and": "and", "or": "or", "not": "not"}
-        llvm_op = op_map.get(expr.op, expr.op)
-        return self._ir.emit_binary(llvm_op, left, right)
-
-    def _compile_unary(self, expr: UnaryOp) -> str:
-        operand = self._compile_expr(expr.operand)
-        if expr.op == "-":
-            return self._ir.emit_binary("fsub", "0.0", operand)
-        if expr.op in ("++", "DECR"):
-            return self._ir.emit_binary("fadd", operand, "1.0")
-        if expr.op in ("--", "INCR"):
-            return self._ir.emit_binary("fsub", operand, "1.0")
-        return operand
-
-    def _compile_func_app(self, expr: FuncApp) -> str:
-        if isinstance(expr.func, Variable):
-            func_name = expr.func.name
-            arg = self._compile_expr(expr.arg) if expr.arg else ""
-            return self._ir.emit_call(func_name, [arg] if arg else [])
-        func_val = self._compile_expr(expr.func)
-        arg = self._compile_expr(expr.arg) if expr.arg else ""
-        return self._ir.emit_call(func_val, [arg] if arg else [])
-
-    def _compile_if(self, expr: IfExpr) -> str:
-        cond = self._compile_expr(expr.cond)
-        then_var = self._compile_expr(expr.then)
-        else_var = self._compile_expr(expr.else_) if expr.else_ else "0.0"
-        result = self._ir._new_temp()
-        self._ir._instructions.append(f"br i1 {cond}, label %if.then, label %if.else")
-        self._ir._instructions.append("if.then:")
-        self._ir._instructions.append("  br label %if.end")
-        self._ir._instructions.append("if.else:")
-        self._ir._instructions.append("  br label %if.end")
-        self._ir._instructions.append("if.end:")
-        self._ir._instructions.append(f"  {result} = phi double [{then_var}, %if.then], [{else_var}, %if.else]")
-        return result
-
-    def _compile_list(self, expr: ListLiteral) -> str:
-        items = [self._compile_expr(i) for i in expr.items]
-        result = self._ir._new_temp()
-        self._ir._instructions.append(f"{result} = call ptr @make_list({', '.join(items)})")
-        return result
-
-    def _compile_dict(self, expr: DictLiteral) -> str:
-        keys = [self._compile_expr(k) for k in expr.keys]
-        values = [self._compile_expr(v) for v in expr.values]
-        result = self._ir._new_temp()
-        self._ir._instructions.append(f"{result} = call ptr @make_dict({keys}, {values})")
-        return result
-
-    def _compile_tuple(self, expr: TupleExpr) -> str:
-        """编译元组表达式为 C 数组构造。"""
-        elements = [self._compile_expr(e) for e in expr.elements]
-        result = self._ir._new_temp()
-        self._ir._instructions.append(
-            f"{result} = call ptr @make_tuple({', '.join(elements)})"
-        )
-        return result
+    def compile(self, source_or_program):
+        from src.parser import parse
+        if isinstance(source_or_program, str):
+            self._last_ast = parse(source_or_program)
+        else:
+            self._last_ast = source_or_program
+        return self._last_ast
 
 
 # ============================================================
-# 6. Matha IR → LLVM IR 生成器
+# 2. LLVM 生成器：显式拒绝
 # ============================================================
 
 class MathaLLVMGenerator:
+    """matha_cc 兼容 LLVM 生成器（未实现，显式拒绝而非无效 IR）。"""
+
     def __init__(self, module_name: str = "matha") -> None:
         self._module_name = module_name
-        self._llvm_ir: list = []
 
-    def generate(self, matha_ir: MathaIR) -> str:
-        self._llvm_ir = [
-            "; Matha LLVM IR - 由 matha-cc 自动生成",
-            f"; 模块: {self._module_name}",
-            'target triple = "x86_64-pc-windows-msvc"',
-            '',
-            '; === 数学函数声明 ===',
-            'declare double @sqrt(double)',
-            'declare double @pow(double, double)',
-            'declare double @sin(double)',
-            'declare double @cos(double)',
-            'declare double @tan(double)',
-            'declare double @log(double)',
-            'declare double @exp(double)',
-            'declare double @fabs(double)',
-            'declare double @floor(double)',
-            'declare double @ceil(double)',
-            '',
-            '; === 主函数 ===',
-            'define double @main() {',
-            '  entry:',
-        ]
-        for instr in matha_ir._instructions:
-            if instr.strip():
-                self._llvm_ir.append(f"  {instr}")
-        self._llvm_ir.extend(['  ret double 0.0', '}'])
-        for func_name, func_info in matha_ir._funcs.items():
-            params_str = ", ".join(f"double %{p}" for p in func_info["params"])
-            self._llvm_ir.extend([
-                '',
-                f'define double @{func_name}({params_str}) {{',
-                '  entry:',
-                f'  ret double {func_info.get("body", "0.0")}',
-                '}',
-            ])
-        return "\n".join(self._llvm_ir)
+    def generate(self, _ir) -> str:
+        raise NotImplementedError(
+            "LLVM 生成器未实现（此前把三地址码贴进 LLVM 模板产出无效 IR，现显式拒绝）")
 
-    def save(self, path: str) -> None:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(self._llvm_ir))
+
+def matha_to_llvm(source: str) -> str:
+    """matha_cc 兼容：Matha → LLVM IR（未实现，显式拒绝）。"""
+    raise NotImplementedError(
+        "Matha → LLVM IR 未实现（此前返回无效 IR 文本，现显式拒绝）")
 
 
 # ============================================================
-# 7. 编译器后端: LLVM IR → 原生机器码
+# 3. 后端：真实工具链委托
 # ============================================================
 
 class MathaBackend:
-    """LLVM 后端外壳：真实工具链调用已移出主链。
+    """LLVM 后端外壳：真实工具链调用住在 src/plugins/toolchain_llvm.py。
 
-    子进程（llc/clang）住在插件 ``src/plugins/toolchain_llvm.py``，本类只做
-    「缓存 + 委托」。**行为变更**：旧实现在工具缺失/编译失败时返回空串，
-    调用方（``matha_compile`` / ``MathaCompiler.run``）把空串当产物路径继续
-    使用 → 静默失败；现在直接抛 ``ToolchainUnavailable``，携带安装指引。
+    工具缺失/编译失败直接抛 ToolchainUnavailable（附安装指引），不返回空串、
+    不产出模拟产物。
     """
 
     def __init__(self, toolchain: str = "clang") -> None:
@@ -846,14 +136,42 @@ class MathaBackend:
 
 
 # ============================================================
-# 8. 统一编译器 (matha-cc)
+# 4. 编译 / 运行入口（真实计数 + 真实执行）
 # ============================================================
 
+def matha_compile(source: str, output_name: str = "out", optimize: bool = True) -> str:
+    """编译入口（真编译：parse + mbc compile_program）。
+
+    返回携带真实计数的摘要：声明数 / 函数数 / 主代码 ops 数。
+    optimize 仅为兼容签名保留——mbc 编译当前无优化开关。
+    """
+    from src.unified_parser import matha_compile as _real
+    return _real(source, output_name)
+
+
+def matha_run(source: str, args: list = None) -> subprocess.CompletedProcess:
+    """运行入口（主解释器真实执行）。
+
+    真实输出封入 subprocess.CompletedProcess（stdout = 各输出行拼接，
+    returncode = 0）；运行期错误如实抛出。args 无解释器 argv 桥接，
+    暂不参与执行。
+    """
+    from src.unified_parser import matha_run as _real
+    outputs, _trace = _real(source)
+    return subprocess.CompletedProcess(
+        args=[source] + list(args or []),
+        returncode=0,
+        stdout="\n".join(str(item) for item in outputs),
+        stderr="",
+    )
+
+
 class MathaCompiler:
+    """matha-cc 统一编译器（真实 mbc 编译 + 真实执行的薄门面）。"""
+
     def __init__(self, optimize: bool = True) -> None:
         self._optimize = optimize
-        self._backend = MathaBackend()
-        self._stats = {"compile_count": 0, "cache_hits": 0}
+        self._stats = {"compile_count": 0}
 
     def compile_file(self, matha_file: str, output_name: str = "out") -> str:
         with open(matha_file, encoding="utf-8") as f:
@@ -862,68 +180,19 @@ class MathaCompiler:
 
     def compile_source(self, source: str, output_name: str = "out") -> str:
         self._stats["compile_count"] += 1
-        lexer = MathaLexer(source)
-        tokens = lexer.tokenize()
-        parser = MathaParser(tokens)
-        ast = parser.parse()
-        frontend = MathaFrontend()
-        matha_ir = frontend.compile(ast)
-        generator = MathaLLVMGenerator(os.path.splitext(output_name)[0])
-        llvm_ir = generator.generate(matha_ir)
-        if self._optimize:
-            llvm_ir = self._optimize_llvm(llvm_ir)
-        return self._backend.compile(llvm_ir, output_name)
-
-    def _optimize_llvm(self, llvm_ir: str) -> str:
-        import re
-        def fold_const(m):
-            try:
-                left = float(m.group(1))
-                right = float(m.group(4))
-                op = m.group(2)
-                if op == "add": return f"fadd double {left + right}, 0.0"
-                if op == "sub": return f"fsub double {left - right}, 0.0"
-                if op == "mul": return f"fmul double {left * right}, 0.0"
-                if op == "fdiv": return f"fdiv double {left / right}, 0.0" if right != 0 else m.group(0)
-            except (ValueError, ZeroDivisionError): pass
-            return m.group(0)
-        return re.sub(r'(\-?\d+\.?\d*)\s*=\s*(fadd|fsub|fmul|fdiv)\s+double\s+(\-?\d+\.?\d*),\s*(\-?\d+\.?\d*)', fold_const, llvm_ir)
+        return matha_compile(source, output_name)
 
     def run(self, source: str, args: list = None) -> subprocess.CompletedProcess:
-        exe_path = self.compile_source(source, "__matha_tmp")
-        try:
-            return self._backend.run(exe_path, args)
-        finally:
-            if os.path.exists(exe_path):
-                os.unlink(exe_path)
+        return matha_run(source, args)
 
     @property
     def stats(self) -> dict:
-        return {**self._stats, "backend_cache": self._backend.cache_stats}
+        return {**self._stats, "optimize": self._optimize}
 
 
 # ============================================================
-# 公共 API
+# 公共 API：C 转译与自举编译（委托 src.bootstrap 主链）
 # ============================================================
-
-def matha_compile(source: str, output_name: str = "out", optimize: bool = True) -> str:
-    compiler = MathaCompiler(optimize=optimize)
-    return compiler.compile_source(source, output_name)
-
-def matha_run(source: str, args: list = None) -> subprocess.CompletedProcess:
-    compiler = MathaCompiler()
-    return compiler.run(source, args)
-
-def matha_to_llvm(source: str) -> str:
-    lexer = MathaLexer(source)
-    tokens = lexer.tokenize()
-    parser = MathaParser(tokens)
-    ast = parser.parse()
-    frontend = MathaFrontend()
-    matha_ir = frontend.compile(ast)
-    generator = MathaLLVMGenerator("matha_module")
-    return generator.generate(matha_ir)
-
 
 def matha2c(source: str, optimize: bool = True) -> str:
     """将 Matha 源码转译为 C 代码。"""
@@ -932,22 +201,13 @@ def matha2c(source: str, optimize: bool = True) -> str:
 
 
 def matha_bootstrap_compile(source: str, target: str = "c",
-                               optimize: bool = True,
-                               target_base: int = 2,
-                               hardware_profile: str | None = None
-                               ) -> str:
-    """完整自举编译 Matha 源码。
-
-    支持目标：c, python, llvm, matha, binary, trinary, decimal
-
-    数制选择：
-      根据底层硬件需求自动选择最优数制：
-      - x86/ARM → 二进制 (Base-2)
-      - 三进制处理器 → 三进制 (Base-3)
-      - 十进制硬件 → 十进制 (Base-10)
-    """
-    from src.bootstrap import matha_bootstrap_compile
-    return matha_bootstrap_compile(source, target, optimize, target_base, hardware_profile)
+                            optimize: bool = True,
+                            target_base: int = 2,
+                            hardware_profile: str | None = None
+                            ) -> str:
+    """完整自举编译 Matha 源码（委托 src.bootstrap 主实现）。"""
+    from src.bootstrap import matha_bootstrap_compile as _real
+    return _real(source, target, optimize, target_base, hardware_profile)
 
 
 # ============================================================
@@ -955,12 +215,8 @@ def matha_bootstrap_compile(source: str, target: str = "c",
 # ============================================================
 
 __all__ = [
-    "MathaToken", "MathaLexer",
-    "ASTNode", "Program", "Binding", "FuncDef", "BinaryOp", "UnaryOp",
-    "FuncApp", "Lambda", "IfExpr", "WhileStmt", "ForStmt",
-    "Literal", "Variable", "ListLiteral", "DictLiteral", "TupleExpr", "Output",
+    "MathaLexer",
     "MathaParser",
-    "MathaIR",
     "MathaFrontend",
     "MathaLLVMGenerator",
     "MathaBackend",

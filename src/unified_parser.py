@@ -39,8 +39,10 @@ class MathaParser:
     def __init__(self, tokens=None):
         self._parser = Parser("")
         if tokens:
-            self._parser._tokens = tokens
-            self._parser._pos = 0
+            # 主 Parser 的 token 序列/游标字段是 tokens/pos（历史写法误设
+            # _tokens/_pos，注入实际不生效——此处按真实字段注入）
+            self._parser.tokens = list(tokens)
+            self._parser.pos = 0
 
     def parse(self):
         return self._parser.parse()

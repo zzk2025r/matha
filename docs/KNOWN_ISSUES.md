@@ -801,6 +801,53 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   不在本轮范围。
   **仍未背书/未修**：阶段 3-7 登记的 quantum grover/shor 假实现与 unified_parser 假编译产物
   已全部清除；本阶段无新增未修项。
+- **2026-11 阶段 10 收官（matha_cc 清算 + 死代码删除）**：经批准本轮范围 = `src/compiler/matha_cc.py`
+  委托化/诚实化 + 调用方逐一同步 + 删除零消费死代码 `src/quantum.py`：
+  ① **`matha_cc.py` 977→235 行整体委托化**（unified_parser 先例的延伸）：MathaLexer→`src.lexer.Lexer`
+  （主 tokenize 是生成器，包装成 list 保旧契约）、MathaParser→`src.parser.Parser`（token 注入按主实现
+  真实字段 `tokens/pos`——历史写法误设 `_tokens/_pos`，注入静默不生效产空 Program，该 bug 在
+  unified_parser.MathaParser 同在、两处同修）、MathaFrontend→`src.parser.parse`、MathaCompiler→真
+  matha_compile/matha_run、matha2c→`bootstrap_compile(target="c")`、matha_bootstrap_compile→同名真实现。
+  ② **假产物显式拒绝**：matha_to_llvm/MathaLLVMGenerator 从「三地址码贴 LLVM 模板产无效 IR」改
+  NotImplementedError（llvm_hybrid 与 bootstrap target="llvm" 同步委托；compile_and_benchmark 的
+  llvm_ms 恒空假基准改 `"skipped"` 如实跳过；benchmark_compiler/run_full_test/matha_cc_cli cmd_info
+  相应诚实化）；**MathaSelfCompiler.compile** 从 hasattr 静默返回空字节串改真 MBC1
+  （parse+compile_program+serialize_mbc）；`src/mbc/serial.py` 补 serialize_mbc/deserialize_mbc
+  内存孪生（write_mbc/read_mbc 重构共用）。
+  ③ **`matha_system.py` 同名 `_init_compiler` 遮蔽修复**（第二定义 compiler_backend 版覆盖第一定义
+  matha_cc 接线版 → matha_compile/compiler 从未绑定，整段接线全死，Phase 5 `_init_ml` 同类；第二定义
+  更名 `_init_compiler_backends`）：matha_compile/matha_to_llvm/compiler 自此真绑定；两处
+  `_eval_with_compiler` 假值改真 matha_run（MathaEngine 版保留 None 回退）。
+  ④ **CLI path-as-source 修复**：matha_cc_cli（compile/run/llvm/optimize）与 matha_main
+  （compile/matha2c/llvm/optimize）八处此前把文件路径字符串当源码送编译——旧 lexer 下路径恰好解析
+  失败算「诚实报错」，主 lexer 委托后路径「可解析」产假成功（实测 2 声明文件报 8 声明假摘要）；全部改
+  先读文件再编译；matha_main `_cmd_build` 从假产物改真 MBC1 工件（write_mbc，实测 149 字节可 read_mbc
+  读回）；`_cmd_debug` 的 `len(MIRProgram)` 崩溃改函数/指令计数。
+  ⑤ **死代码删除**：`src/quantum.py`（338 行，全仓零消费、2Q 门物理错误）git rm；`src/__init__.py`
+  移除指向已删 MathaIR 的幻影懒加载导出。
+  新 `tests/test_matha_cc_phase10.py` **31 条**三锁：
+  parity（matha_cc.MathaLexer/MathaParser 与主实现同源 token 逐项/AST 形状对拍、token 注入真解析
+  回归锁、matha_compile 摘要与 unified_parser 独立复算精确一致、MathaSelfCompiler 真字节码
+  deserialize_mbc 全等对拍（arity/nlocals/params/code/main_code/constants）、serialize_mbc 与
+  write_mbc 文件字节等值）；闭环（matha_run 真执行 [3]/柯里化 [30]/func 递归 [120]、MathaCompiler
+  run+stats、CLI 子进程 compile/run/test 4 通过 0 失败/build MBC1 工件可读回、MathaSystem 全初始化
+  接线锁（matha_compile 精确摘要 + compiler_class + "compile" 内建 + eval 7——同名遮蔽回归锁）、
+  MathaSystem 定向 _init_compiler、MathaEngine eval 42、mir_converter 双入口、bootstrap c/python
+  双 target 非平凡）；显式拒绝（matha_to_llvm/generate/llvm_hybrid/bootstrap-llvm 四入口
+  NotImplementedError、CLI llvm rc1 诚实失败、破损源 ParseError、MathaBackend 无效 IR
+  ToolchainUnavailable、src/quantum.py 缺席 + import 拒绝、matha_cc 17 个旧 IR/AST 类名清除、
+  src.MathaIR AttributeError、缺文件 rc1）。
+  既有锁同步：`test_unified_layers.py` matha_parser compat 加 AST 形状断言（防 `_tokens/_pos` 回潮）、
+  `test_mcp_server_facade.py` 编译摘要/全角标点/EOF 枚举比较 3 条按新契约升级。
+  **登记未修（本轮发现，超出范围，另立轨道）**：`src/mcp/ffi_sdk.py:221` 引用不存在的
+  `src.compiler.mir_codegen.MathaLLVMGenerator`（ImportError 死分支）；`src/bootstrap.py`
+  MathaBytecodeCompiler `_generate_bytecode` 对 target=matha/binary/trinary/decimal 抛 TypeError
+  （'MIRConstInstr' 不可解释为整数，字节码链断裂）；MathaEngine.vm_run 编译路径暂眠回退 None
+  属注释性假值。
+  全量门禁 **6749/6749 通过**（基线：`python scripts/check.py`，tests 项 6646 过 41m21s +
+  kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知
+  未实现不计入分母；零失败零跳过。首轮 6748/6749 唯一失败为 `test_ai_servers_smoke.py` 鉴权 401
+  参数化一例，单跑与整文件复跑 39/39 均过，判定为长跑偶发连接时序，与本轮改动面无关）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
