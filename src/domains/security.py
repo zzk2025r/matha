@@ -148,25 +148,17 @@ class EncryptionEngine:
         return key_id
 
     def encrypt(self, data: str, key_id: str) -> EncryptionResult:
-        """加密数据。"""
-        key = self._keys.get(key_id)
-        if key:
-            iv = secrets.token_bytes(16)
-            self._stats.encryptions += 1
-            return EncryptionResult(
-                algorithm="AES-256",
-                ciphertext=data.encode(),
-                key_id=key_id,
-                iv=iv,
-            )
-        return EncryptionResult(algorithm="AES-256", ciphertext=b"", key_id="", iv=b"")
+        """加密数据 — 显式拒绝：AES 对称加密未实现（标准库无 AES）。
+
+        旧实现把明文字节标注成 AES-256 密文返回（假成功）。
+        """
+        raise NotImplementedError(
+            "对称加密未实现（标准库无 AES；旧实现将明文冒充密文，已显式拒绝）")
 
     def decrypt(self, ciphertext: bytes, key_id: str) -> str:
-        """解密数据。"""
-        if key_id in self._keys:
-            self._stats.encryptions += 1
-            return ciphertext.decode(errors='ignore')
-        return ""
+        """解密数据 — 显式拒绝（同 encrypt）。"""
+        raise NotImplementedError(
+            "对称解密未实现（标准库无 AES；旧实现将密文原样解码冒充明文，已显式拒绝）")
 
 
 class SignatureEngine:
@@ -182,26 +174,36 @@ class SignatureEngine:
         self._initialized = True
 
     def sign(self, data: str, key_id: str) -> SignatureResult:
-        """签名数据。"""
+        """签名数据 — 真实 HMAC-SHA256（key_id 即密钥材料）。"""
+        import hmac
         self._stats.signatures += 1
+        digest = hmac.new(key_id.encode(), data.encode(), "sha256").digest()
         return SignatureResult(
             algorithm="HMAC-SHA256",
-            signature=data.encode(),
+            signature=digest,
             public_key=key_id,
             verified=True,
         )
 
     def verify(self, data: str, signature: bytes,
                 public_key: str) -> bool:
-        """验证签名。"""
-        return True
+        """验证签名 — 重算 HMAC 并恒时比较（旧实现恒 True）。"""
+        import hmac
+        expected = hmac.new(public_key.encode(), data.encode(), "sha256").digest()
+        return hmac.compare_digest(expected, signature)
 
 
 class AuthManager:
-    """认证管理器：用户认证和授权。"""
+    """认证管理器：用户认证和授权。
+
+    令牌存于类级仓库（跨实例共享）：一次性工厂（生成令牌/验证令牌内建各建
+    新实例）下签发与验证仍属同一仓库，验证真实可用。
+    """
+
+    _TOKEN_STORE: dict[str, "AuthToken"] = {}
 
     def __init__(self):
-        self._tokens: dict[str, AuthToken] = {}
+        self._tokens: dict[str, AuthToken] = self._TOKEN_STORE
         self._stats = SecurityStats()
         self._initialized = False
         self._init_auth()
@@ -226,8 +228,11 @@ class AuthManager:
         return auth_token
 
     def verify_token(self, token: str) -> bool:
-        """验证令牌。"""
-        return token in self._tokens
+        """验证令牌 — 存在且未过期（旧实现只查存在、无视过期）。"""
+        t = self._tokens.get(token)
+        if t is None:
+            return False
+        return t.expires_at > time.time()
 
     def revoke_token(self, token: str) -> bool:
         """撤销令牌。"""

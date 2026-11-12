@@ -3596,198 +3596,31 @@ class Interpreter:
         b["对比实现"] = self._curry(4, self._b_compare_impl)
         b["对比升级"] = self._curry(5, self._b_compare_upgrade)
         b["空列表"] = []  # 空列表值（[] 在 Matha 中解析为 Output）
-        # enumerate/zip
-        def _builtin_enumerate(x, start=0):
-            try:
-                start_i = start
-                # if passed as evaluated, keep as is
-                try:
-                    start_i = int(start_i)
-                except Exception:
-                    start_i = 0
-            except Exception:
-                start_i = 0
-            try:
-                if isinstance(x, dict):
-                    items = list(x.items())
-                elif isinstance(x, str):
-                    items = list(x)
-                elif isinstance(x, (list, tuple, set)):
-                    items = list(x)
-                else:
-                    try:
-                        items = list(x)
-                    except Exception:
-                        items = []
-            except Exception:
-                items = []
-            res = []
-            for i, v in enumerate(items, start_i):
-                res.append([i, v])
-            return res
+        # enumerate/zip：柯里化两参内建（enumerate(lst, start)、zip(a, b)），
+        # 与 MBC-VM enumerate_val/zip_val 同语义；不可迭代/非整数下标显式拒绝
+        def _enum_zip_items(x, fn_name):
+            if isinstance(x, dict):
+                return list(x.items())
+            if isinstance(x, (list, tuple, set, str)):
+                return list(x)
+            raise MathaRuntimeError(
+                f"内建 '{fn_name}' 需要可迭代参数，得到 {self._fmt(x)}")
 
-        def _builtin_zip(a=None, b=None, *rest):
-            # 支持柯里化多参调用
-            lists = []
-            for x in (a, b) + rest:
-                if x is None and len(rest) == 0 and b is None and a is not None:
-                    pass  # will handle below
-                if x is None:
-                    continue
-                try:
-                    if isinstance(x, dict):
-                        lists.append(list(x.items()))
-                    elif isinstance(x, str):
-                        lists.append(list(x))
-                    elif isinstance(x, (list, tuple, set)):
-                        lists.append(list(x))
-                    else:
-                        try:
-                            lists.append(list(x))
-                        except Exception:
-                            lists.append([])
-                except Exception:
-                    lists.append([])
-            if len(lists) < 2:
-                # 柯里化：返回能接受下一个参数的函数
-                def _zip2(x2):
-                    lists2 = list(lists)
-                    x = x2
-                    try:
-                        if isinstance(x, dict):
-                            lists2.append(list(x.items()))
-                        elif isinstance(x, str):
-                            lists2.append(list(x))
-                        elif isinstance(x, (list, tuple, set)):
-                            lists2.append(list(x))
-                        else:
-                            try:
-                                lists2.append(list(x))
-                            except Exception:
-                                lists2.append([])
-                    except Exception:
-                        lists2.append([])
-                    if len(lists2) < 2:
-                        return _zip2
-                    res = []
-                    try:
-                        for t in zip(*lists2):
-                            res.append(list(t))
-                    except Exception:
-                        return res
-                    return res
-                return _zip2
-            res = []
-            try:
-                for t in zip(*lists):
-                    res.append(list(t))
-            except Exception:
-                return res
-            return res
+        def _builtin_enumerate(x, start):
+            items = _enum_zip_items(x, "enumerate")
+            if isinstance(start, bool) or not isinstance(start, (int, float)) \
+                    or (isinstance(start, float) and not start.is_integer()):
+                raise MathaRuntimeError(
+                    f"内建 'enumerate' 起始下标需要整数，得到 {self._fmt(start)}")
+            return [[i, v] for i, v in enumerate(items, int(start))]
 
-        b["enumerate"] = self._curry(2, lambda x, s=0: (lambda a,b: _builtin_enumerate.__wrapped__(a,b) if hasattr(_builtin_enumerate,'__wrapped__') else None)(x,s) or _builtin_enumerate(x,s))
-        # simpler: make directly curryable
-        def _enum_c(x, start=0):
-            return _builtin_enumerate(x, start)
-        def _enumerate_curried(a=None):
-            class _EnumRes(list):
-                def __call__(self, *args, **kwargs):
-                    return self
-            if a is None:
-                def _g(b=None):
-                    if b is None:
-                        return _g
-                    res = _builtin_enumerate(b, 0)
-                    return _EnumRes(res)
-                return _g
-            # a is provided - in Matha currying this might be first arg; try to be flexible
-            def _g(b=None):
-                if b is None:
-                    res = _builtin_enumerate(a, 0)
-                    return _EnumRes(res)
-                try:
-                    if isinstance(b, (list, dict, tuple, set, str)):
-                        res = _builtin_enumerate(a, 0)
-                        return _EnumRes(res)
-                except Exception:
-                    pass
-                try:
-                    # check if b is int-like
-                    res = _builtin_enumerate(a, b)
-                    return _EnumRes(res)
-                except Exception:
-                    res = _builtin_enumerate(a, 0)
-                    return _EnumRes(res)
-            # also make the function itself return result if called in a context expecting default?
-            # easier: check if first arg looks like iterable and we want default start
-            res_default = _builtin_enumerate(a, 0)
-            r = _EnumRes(res_default)
-            # make r callable to accept start as well
-            orig_call = r.__call__
-            def _r_call(*args, **kwargs):
-                if args:
-                    try:
-                        b = args[0]
-                        if isinstance(b, (list, dict, tuple, set, str)):
-                            return _EnumRes(_builtin_enumerate(a, 0))
-                        res = _builtin_enumerate(a, b)
-                        return _EnumRes(res)
-                    except Exception:
-                        pass
-                return orig_call(*args, **kwargs)
-            r.__call__ = _r_call
-            return r
-        b["enumerate"] = _enumerate_curried
-        def _zip_curried(a=None):
-            lists = []
-            def _make_callable_result(res):
-                # make list callable to absorb extra args in curried chain
-                class _ZipRes(list):
-                    def __call__(self, *args, **kwargs):
-                        # absorb extra args, return self
-                        return self
-                r = _ZipRes(res)
-                return r
-            def _acc(x):
-                if x is None:
-                    return _acc
-                try:
-                    if isinstance(x, dict):
-                        lists.append(list(x.items()))
-                    elif isinstance(x, str):
-                        lists.append(list(x))
-                    elif isinstance(x, (list, tuple, set)):
-                        lists.append(list(x))
-                    else:
-                        try:
-                            lists.append(list(x))
-                        except Exception:
-                            lists.append([])
-                except Exception:
-                    lists.append([])
-                def _more(y=None):
-                    if y is None:
-                        res = []
-                        try:
-                            for t in zip(*lists):
-                                res.append(list(t))
-                        except Exception:
-                            return res
-                        return res
-                    return _acc(y)
-                if len(lists) >= 2:
-                    res = []
-                    try:
-                        for t in zip(*lists):
-                            res.append(list(t))
-                    except Exception:
-                        res = []
-                    return _make_callable_result(res)
-                return _more
-            if a is None:
-                return _acc
-            return _acc(a)
-        b["zip"] = _zip_curried
+        def _builtin_zip(a, b):
+            return [list(pair)
+                    for pair in zip(_enum_zip_items(a, "zip"),
+                                    _enum_zip_items(b, "zip"))]
+
+        b["enumerate"] = self._curry(2, _builtin_enumerate)
+        b["zip"] = self._curry(2, _builtin_zip)
         # 混合语言编译器内建
         b["混合编译"] = self._curry(2, self._b_hybrid_build)
         b["混合诊断"] = self._curry(1, self._b_hybrid_diagnose)

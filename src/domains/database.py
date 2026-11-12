@@ -143,10 +143,11 @@ class QueryBuilder:
 
 
 class Database:
-    """数据库管理器：连接、查询、事务。"""
+    """数据库管理器：连接、查询、事务（sqlite3 真连接真执行）。"""
 
     def __init__(self):
         self._connections: dict[str, DBConnection] = {}
+        self._sqlite: dict[str, Any] = {}  # name → sqlite3.Connection
         self._queries_executed: int = 0
         self._transactions_active: int = 0
         self._models: dict[str, ModelMeta] = {}
@@ -161,23 +162,43 @@ class Database:
     def connect(self, name: str = "default",
                 db_type: str = "sqlite",
                 database: str = "matha_db") -> DBConnection:
-        """连接数据库。"""
-        conn = DBConnection(db_type=db_type, database=database)
+        """连接数据库（sqlite/memory 真开 sqlite3 连接；其余显式拒绝）。"""
+        if db_type not in ("sqlite", "memory"):
+            raise NotImplementedError(
+                f"数据库类型 '{db_type}' 未实现（仅支持 sqlite/memory；"
+                "旧实现伪装 connected=True 却从不执行 SQL）")
+        import sqlite3
+        target = ":memory:" if db_type == "memory" else database
+        conn = DBConnection(db_type=db_type, database=target)
         conn.connected = True
+        self._sqlite[name] = sqlite3.connect(target)
         self._connections[name] = conn
         return conn
 
+    def _conn(self, name: str = "default"):
+        real = self._sqlite.get(name)
+        if real is None:
+            raise RuntimeError(
+                f"无数据库连接 '{name}'：请先 连接数据库（旧实现无连接时假返回空结果）")
+        return real
+
     def query(self, sql: str, params: list | None = None
                 ) -> QueryResult:
-        """执行查询。"""
+        """执行查询（真执行 SELECT，返回真实行/列）。"""
+        cur = self._conn().execute(sql, tuple(params or []))
+        cols = [d[0] for d in cur.description] if cur.description else []
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
         self._queries_executed += 1
-        return QueryResult(rows=[], row_count=0, columns=[])
+        return QueryResult(rows=rows, row_count=len(rows), columns=cols)
 
     def execute(self, sql: str, params: list | None = None
                 ) -> int:
-        """执行SQL。"""
+        """执行SQL（真执行 DDL/DML，返回影响行数；事务期间不自动提交）。"""
+        cur = self._conn().execute(sql, tuple(params or []))
+        if self._transactions_active == 0:
+            self._conn().commit()
         self._queries_executed += 1
-        return 1
+        return cur.rowcount if cur.rowcount >= 0 else 0
 
     def begin_transaction(self) -> Transaction:
         """开始事务。"""
@@ -185,15 +206,19 @@ class Database:
         return Transaction(connection="default", active=True)
 
     def commit(self) -> bool:
-        """提交事务。"""
+        """提交事务（真提交全部连接）。"""
         if self._transactions_active > 0:
+            for c in self._sqlite.values():
+                c.commit()
             self._transactions_active -= 1
             return True
         return False
 
     def rollback(self) -> bool:
-        """回滚事务。"""
+        """回滚事务（真回滚全部连接）。"""
         if self._transactions_active > 0:
+            for c in self._sqlite.values():
+                c.rollback()
             self._transactions_active -= 1
             return True
         return False

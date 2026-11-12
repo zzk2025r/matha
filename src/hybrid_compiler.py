@@ -204,40 +204,24 @@ class LanguageBridge:
     # ── 私有：各语言转译器 ────────────────────────────────────────────────
 
     def _matha_to_ts(self, source: str) -> str:
-        """Matha → TypeScript（复用现有 TS transpiler）。"""
-        try:
-            from src.transpiler_ts import TypeScriptTranspiler
-            return TypeScriptTranspiler().transpile(source)
-        except Exception:
-            # 降级为简单转译
-            return (
-                "// Matha → TypeScript (降级转译)\n"
-                f"// 原始 Matha:\n{source}\n"
-                "export function main(): any {\n"
-                "  return null;\n"
-                "}\n"
-            )
+        """Matha → TypeScript（复用现有 TS transpiler，错误如实传播）。"""
+        from src.transpiler_ts import TypeScriptTranspiler
+        return TypeScriptTranspiler().transpile(source)
 
     def _matha_to_c(self, source: str) -> str:
-        return (
-            "/* Matha → C (降级转译) */\n"
-            f"/* 原始 Matha:\n{source}\n*/\n"
-            "int main(void) { return 0; }\n"
-        )
+        raise NotImplementedError(
+            "Matha → C 转译未实现（旧实现返回 'int main(void){return 0;}' "
+            "空壳冒充转译产物，已显式拒绝）；真 C 编译请走 MIR→C 管线")
 
     def _matha_to_rust(self, source: str) -> str:
-        return (
-            "// Matha → Rust (降级转译)\n"
-            f"// 原始 Matha:\n{source}\n"
-            "fn main() {{ println!(\"hello\"); }}\n"
-        )
+        raise NotImplementedError(
+            "Matha → Rust 转译未实现（旧实现返回 hello-world 空壳冒充"
+            "转译产物，已显式拒绝）")
 
     def _matha_to_go(self, source: str) -> str:
-        return (
-            "// Matha → Go (降级转译)\n"
-            f"// 原始 Matha:\n{source}\n"
-            "package main\nfunc main() {}\n"
-        )
+        raise NotImplementedError(
+            "Matha → Go 转译未实现（旧实现返回空 main 空壳冒充转译产物，"
+            "已显式拒绝）")
 
     # ── 反向：任意语言 → Matha ────────────────────────────────────────────
 
@@ -248,7 +232,8 @@ class LanguageBridge:
         elif lang == Language.JAVASCRIPT:
             return self._ts_to_matha(source)
         else:
-            return f"(* 不支持从 {lang} 反向转译 *)\n{source}"
+            raise ValueError(
+                f"不支持从 {lang} 反向转译（旧实现假返回原文包裹注释，已显式拒绝）")
 
     def _ts_to_matha(self, ts_source: str) -> str:
         """TypeScript → Matha（启发式）。"""

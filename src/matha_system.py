@@ -106,6 +106,7 @@ class MathaSystem:
         # 领域模块
         # ============================================================
         self.domain_registry: Any | None = None
+        self._shared_concurrent: Any | None = None
 
         # ============================================================
         # 新领域类引用
@@ -119,6 +120,13 @@ class MathaSystem:
         self.process_manager_class = None
         self.memory_manager_class = None
         self.thread_manager_class = None
+        self.neural_network_class = None
+        self.data_science_class = None
+        self.concurrent_manager_class = None
+        self.event_loop_class = None
+        self.web_server_class = None
+        self.websocket_class = None
+        self.database_class = None
 
         # ============================================================
         # 性能统计
@@ -897,9 +905,23 @@ class MathaSystem:
         lines = proc.stdout.splitlines()
         return lines[0] if lines else None
 
-    def vm_run(self, bytecode: str) -> Any:
-        """通过虚拟机运行字节码。"""
-        return self.vm.run(bytecode)
+    def vm_run(self, source: str) -> Any:
+        """通过真实 MBC1 字节码虚拟机运行源码（编译→序列化→反序列化→VM 执行）。
+
+        旧实现委托 matha_vm.MathaVM.run——该原型 VM 只能消费手工构造的
+        MathaOpcode 指令，编译链从未产出过它可执行的字节码；现走主实现
+        mbc 编译链闭环执行。
+        """
+        from src.mbc.compiler import compile_program
+        from src.mbc.serial import deserialize_mbc, serialize_mbc
+        from src.mbc.vm import VM
+        from src.parser import parse
+
+        mod = compile_program(parse(source))
+        bc = serialize_mbc(mod)
+        vm = VM(deserialize_mbc(bc))
+        vm.run()
+        return vm.outputs
 
     def run(self, file_path: str) -> Any:
         """运行 Matha 源文件。"""
@@ -1330,33 +1352,41 @@ class MathaSystem:
 
     # ─── 并发编程方法 ───
 
+    def _concurrent_manager(self) -> Any:
+        """取共享并发管理器（懒创建；并发模块未加载则显式拒绝）。"""
+        if not self.concurrent_manager_class:
+            raise RuntimeError("并发模块初始化失败，不可用")
+        if self._shared_concurrent is None:
+            self._shared_concurrent = self.concurrent_manager_class()
+        return self._shared_concurrent
+
     def create_concurrent_manager(self) -> Any:
-        """创建并发管理器。"""
+        """创建并发管理器（新建独立实例）。"""
         if self.concurrent_manager_class:
             return self.concurrent_manager_class()
-        return {"type": "concurrent_manager"}
+        raise RuntimeError("并发模块初始化失败，不可用")
 
     def create_thread_pool(self, num_threads: int = 4) -> Any:
-        """创建线程池。"""
-        return {"type": "thread_pool", "num_threads": num_threads}
+        """创建线程池（共享管理器内真建 ThreadPool）。"""
+        return self._concurrent_manager().create_thread_pool(num_threads)
 
     def create_event_loop(self) -> Any:
         """创建事件循环。"""
         if self.event_loop_class:
             return self.event_loop_class()
-        return {"type": "event_loop", "running": False}
+        raise RuntimeError("并发模块初始化失败，不可用")
 
     def create_channel(self, buffer_size: int = 10) -> Any:
-        """创建CSP通道。"""
-        return {"type": "channel", "buffer_size": buffer_size}
+        """创建CSP通道（注册进共享管理器）。"""
+        return self._concurrent_manager().create_channel(buffer_size)
 
     def create_actor(self, name: str = "Actor") -> Any:
-        """创建Actor。"""
-        return {"type": "actor", "name": name, "mailbox": []}
+        """创建Actor（注册进共享管理器）。"""
+        return self._concurrent_manager().create_actor(name)
 
     def submit_task(self, func: Any, *args) -> int:
-        """提交任务。"""
-        return 0
+        """提交任务（共享管理器线程池真执行，返回任务序号）。"""
+        return self._concurrent_manager().submit_task(func, *args)
 
     # ─── 数据科学方法 ───
 
@@ -1555,20 +1585,27 @@ class MathaSystem:
         """创建Web服务器。"""
         if self.web_server_class:
             return self.web_server_class(host, port)
-        return {"type": "web_server", "host": host, "port": port}
+        raise RuntimeError("Web框架模块初始化失败，不可用")
 
     def create_web_app(self, name: str = "MathaApp") -> Any:
-        """创建Web应用。"""
-        return {"type": "web_app", "name": name}
+        """创建Web应用（委托领域域同名工厂，返回真 WebServer）。"""
+        if not self.web_server_class:
+            raise RuntimeError("Web框架模块初始化失败，不可用")
+        from src.domains.web_framework import create_web_app
+        return create_web_app(name)
 
     def add_web_route(self, path: str, method: str = "GET",
                          handler: Any | None = None) -> Any:
         """添加Web路由。"""
-        return {"path": path, "method": method, "handler": handler}
+        raise RuntimeError(
+            "add_web_route 需要具体服务器实例；请先 create_web_server 再调用"
+            " server.add_route（旧实现假返回路由字典却从不注册）")
 
     def create_websocket(self, url: str = "ws://localhost:8080") -> Any:
-        """创建WebSocket。"""
-        return {"type": "websocket", "url": url, "connected": False}
+        """创建WebSocket（真 WebSocket 对象；其 connect 因 RFC6455 缺失显式拒绝）。"""
+        if self.websocket_class:
+            return self.websocket_class(url)
+        raise RuntimeError("Web框架模块初始化失败，不可用")
 
     # ─── 数据库方法 ───
 
@@ -1576,30 +1613,44 @@ class MathaSystem:
         """创建数据库管理器。"""
         if self.database_class:
             return self.database_class()
-        return {"type": "database", "connections": []}
+        raise RuntimeError("数据库模块初始化失败，不可用")
 
     def create_db_connection(self, db_type: str = "sqlite",
                                   database: str = "matha_db") -> Any:
-        """创建数据库连接。"""
-        return {"type": "db_connection", "db_type": db_type,
-                "database": database, "connected": True}
+        """创建数据库连接（委托数据库引擎，真 sqlite3 存储）。"""
+        if not self.database_class:
+            raise RuntimeError("数据库模块初始化失败，不可用")
+        if db_type not in ("sqlite", "memory"):
+            raise NotImplementedError(
+                f"数据库类型 '{db_type}' 未实现（仅支持 sqlite/memory；"
+                "旧实现伪装 connected=True 却从不执行 SQL）")
+        return self.database_class(
+            path=database if db_type == "sqlite" else ":memory:")
 
     def execute_query(self, sql: str, params: list | None = None
                           ) -> Any:
         """执行查询。"""
-        return {"sql": sql, "params": params or [], "rows": []}
+        raise RuntimeError(
+            "execute_query 需要数据库连接；请先 create_db_connection 再用"
+            " db.execute / db.select / db.insert（旧实现假返回空行集）")
 
     def begin_transaction(self) -> Any:
         """开始事务。"""
-        return {"type": "transaction", "active": True}
+        raise RuntimeError(
+            "事务需绑定数据库连接；请先 create_db_connection 再调用"
+            " db.begin_transaction（旧实现假返回 active=True）")
 
     def commit_transaction(self) -> bool:
         """提交事务。"""
-        return True
+        raise RuntimeError(
+            "事务需绑定数据库连接；请先 create_db_connection 得到 tx_id 再调用"
+            " db.commit(tx_id)（旧实现无条件假返回 True）")
 
     def rollback_transaction(self) -> bool:
         """回滚事务。"""
-        return True
+        raise RuntimeError(
+            "事务需绑定数据库连接；请先 create_db_connection 得到 tx_id 再调用"
+            " db.rollback(tx_id)（旧实现无条件假返回 True）")
 
     # ─── 安全加密方法 ───
 

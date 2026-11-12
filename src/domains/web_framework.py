@@ -215,8 +215,9 @@ class WebSocket:
 
     def connect(self) -> bool:
         """连接。"""
-        self.connected = True
-        return True
+        raise NotImplementedError(
+            "WebSocket 客户端连接未实现（RFC6455 握手/帧协议缺失；"
+            "旧实现直接置 connected=True 冒充已连接，已显式拒绝）")
 
     def send(self, message: str) -> bool:
         """发送消息。"""

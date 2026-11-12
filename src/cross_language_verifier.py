@@ -118,12 +118,19 @@ class CrossLanguageVerifier:
         successes = {lang: r for lang, r in result.languages.items() if r.success}
         if len(successes) >= 2:
             outputs = list(successes.values())[0].vm_outputs
-            for lang, lang_result in successes.items():
-                if lang_result.vm_outputs != outputs:
-                    result.consistent = False
-                    result.differences.append(
-                        f"{lang}: 输出不一致 (expected {outputs}, got {lang_result.vm_outputs})"
-                    )
+            if not outputs:
+                # 全部空输出：VM 没有产出可对比的值，不能判一致
+                # （旧实现 [] == [] 恒真 → 假通过）
+                result.consistent = False
+                result.differences.append(
+                    "所有语言 VM 输出为空，无可对比结果")
+            else:
+                for lang, lang_result in successes.items():
+                    if lang_result.vm_outputs != outputs:
+                        result.consistent = False
+                        result.differences.append(
+                            f"{lang}: 输出不一致 (expected {outputs}, got {lang_result.vm_outputs})"
+                        )
 
         result.summary = self._generate_summary(result)
         self._results.append(result)

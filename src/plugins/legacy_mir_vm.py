@@ -130,6 +130,8 @@ class MathaVM:
         self._state = VMState(max_iterations=self._state.max_iterations)
         self._state.globals = {}
 
+        # 先注册全部函数（main 内的用户函数调用需要按名查找），再逐帧执行
+        frames = []
         for func_name, func in mir_program.functions.items():
             self._state.trace.append(f"; func {func_name}({func.params})")
             frame = VMFrame(
@@ -138,29 +140,40 @@ class MathaVM:
                 locals={},
                 instructions=getattr(func, "instructions", []),
             )
-            # 预解析标签
+            # 预解析标签（仅标签定义指令计入，跳转指令的同名 label 是目标不是定义）
             for i, instr in enumerate(frame.instructions):
-                if hasattr(instr, "label"):
+                if type(instr).__name__ == "MIRLabelInstr":
                     frame.labels[instr.label] = i
+            self._state.globals[func_name] = func
+            frames.append(frame)
+        for frame in frames:
             self._state.frames.append(frame)
             self._execute_frame(frame)
 
         return self._state.outputs, self._state.trace
 
     def run_func(self, func_name: str, args: list[float] | None = None) -> float:
-        """运行指定函数，返回结果。"""
-        self._state = VMState(max_iterations=self._state.max_iterations)
+        """运行指定函数，返回结果。需先 run(mir_program) 加载程序
+        （函数表存于当前状态，不在 run_func 内重置状态）。"""
         args = args or []
 
-        if func_name not in self._state.globals:
-            # 从 program 中查找
+        func = self._state.globals.get(func_name)
+        if func is None:
+            if not self._state.globals:
+                raise ValueError(
+                    f"MathaVM.run_func 需要先 run(mir_program) 加载程序，"
+                    f"才能运行函数 '{func_name}'")
             raise ValueError(f"函数 '{func_name}' 不存在")
 
-        frame = VMFrame(func_name=func_name, params=[], locals=dict(enumerate(args)))
-        func = self._state.globals[func_name]
-        frame.instructions = getattr(func, "instructions", [])
+        params = list(getattr(func, "params", []))
+        frame = VMFrame(
+            func_name=func_name,
+            params=params,
+            locals=dict(zip(params, [float(a) for a in args])),
+            instructions=getattr(func, "instructions", []),
+        )
         for i, instr in enumerate(frame.instructions):
-            if hasattr(instr, "label"):
+            if type(instr).__name__ == "MIRLabelInstr":
                 frame.labels[instr.label] = i
 
         self._state.frames.append(frame)
@@ -190,8 +203,8 @@ class MathaVM:
             elif result == VMResult.RETURN:
                 return
             elif result == VMResult.JUMP or result == VMResult.BRANCH_TRUE or result == VMResult.BRANCH_FALSE:
-                # pc 由 instruction handler 设置
-                pass
+                # 分派器已将 frame.pc 设为目标标签位置（旧实现不推进 pc，分支即死循环）
+                pc = frame.pc
             elif result == VMResult.LABEL:
                 pc += 1
                 continue
@@ -201,13 +214,19 @@ class MathaVM:
         frame.pc = pc
 
     def _execute_instruction(self, frame: VMFrame, instr: Any, pc: int) -> VMResult:
-        """执行单条指令。"""
+        """执行单条指令。
+
+        按指令类型分派：MIRReturnInstr.value / MIRStoreInstr.target /
+        MIRCondBranchInstr.cond 等载荷字段与常量指令的 value 同形，
+        宽松的 hasattr 匹配会把返回值/存储目标误当常量、把分支误当标签。
+        """
         result_var = getattr(instr, "result", "")
         operands = getattr(instr, "operands", [])
         metadata = getattr(instr, "metadata", {})
+        kind = type(instr).__name__
 
         # 常量赋值
-        if hasattr(instr, "value") and instr.value is not None:
+        if kind == "MIRConstInstr":
             val = float(instr.value)
             if result_var:
                 frame.locals[result_var.lstrip("%")] = val
@@ -215,43 +234,53 @@ class MathaVM:
                 self._state.trace.append(f"  [{pc}] const {result_var} = {val}")
             return VMResult.OK
 
-        # 标签（无条件跳转或纯标签）
-        if hasattr(instr, "label"):
-            # 检查是否有 true_label（条件分支）
-            if hasattr(instr, "true_label") and hasattr(instr, "false_label"):
-                cond = self._resolve_operand(frame, operands[0]) if operands else 0.0
-                if cond != 0:
-                    self._state.trace.append(f"  [{pc}] br true -> %{instr.true_label}")
-                    return VMResult.BRANCH_TRUE
-                else:
-                    self._state.trace.append(f"  [{pc}] br false -> %{instr.false_label}")
-                    return VMResult.BRANCH_FALSE
-            else:
-                # 无条件跳转或纯标签
-                label = getattr(instr, "label", "")
-                if label in frame.labels:
-                    if self._debug:
-                        self._state.trace.append(f"  [{pc}] label %{label}")
-                    return VMResult.LABEL
-                elif label:
-                    self._state.trace.append(f"  [{pc}] jmp %{label}")
-                    return VMResult.JUMP
+        # 标签定义 / 无条件跳转 / 条件分支
+        if kind == "MIRLabelInstr":
+            if self._debug:
+                self._state.trace.append(f"  [{pc}] label %{instr.label}")
+            return VMResult.LABEL
 
-        # 函数调用
-        if hasattr(instr, "c_func") or hasattr(instr, "func_name"):
-            return self._execute_call(frame, instr, operands, result_var, metadata)
+        if kind == "MIRBranchInstr":
+            target = instr.label
+            frame.pc = frame.labels.get(target, pc + 1)
+            if self._debug:
+                self._state.trace.append(f"  [{pc}] jmp %{target}")
+            return VMResult.JUMP
 
-        # 算术运算
-        if hasattr(instr, "op") and instr.op:
+        if kind == "MIRCondBranchInstr":
+            cond = self._resolve_operand(frame, instr.cond)
+            target = instr.true_label if cond != 0 else instr.false_label
+            frame.pc = frame.labels.get(target, pc + 1)
+            if self._debug:
+                self._state.trace.append(
+                    f"  [{pc}] br {'true' if cond != 0 else 'false'} -> %{target}")
+            return VMResult.BRANCH_TRUE if cond != 0 else VMResult.BRANCH_FALSE
+
+        # 返回（value/operands[0] 是临时名，须查帧内局部值）
+        if kind == "MIRReturnInstr":
+            src = operands[0] if operands else instr.value
+            frame.returns.append(
+                self._resolve_operand(frame, src) if src else 0.0)
+            return VMResult.RETURN
+
+        if kind == "MIRStoreInstr":
+            return self._execute_store(frame, instr, operands)
+
+        if kind == "MIRLoadInstr":
+            return self._execute_load(frame, instr, operands, result_var)
+
+        if kind == "MIRArithInstr":
             return self._execute_arith(frame, instr, operands, result_var)
 
-        # 比较运算
-        if hasattr(instr, "op") and instr.op in ("==", "!=", "<", "<=", ">", ">="):
+        if kind == "MIRCompareInstr":
             return self._execute_compare(frame, instr, operands, result_var)
 
-        # 逻辑运算
-        if hasattr(instr, "op") and instr.op in ("and", "or", "not"):
+        if kind == "MIRLogicalInstr":
             return self._execute_logical(frame, instr, operands, result_var)
+
+        # 函数调用
+        if kind == "MIRCallInstr":
+            return self._execute_call(frame, instr, operands, result_var, metadata)
 
         # Store/Load
         if hasattr(instr, "instr_type"):
@@ -308,7 +337,9 @@ class MathaVM:
         right = self._resolve_operand(frame, operands[1]) if len(operands) > 1 else 0.0
 
         try:
-            if op == "+":
+            if op == "=":
+                val = left  # 单操作数拷贝（if 表达式分支赋值）
+            elif op == "+":
                 val = left + right
             elif op == "-":
                 val = left - right
@@ -397,6 +428,13 @@ class MathaVM:
         # 解析操作数
         resolved = [self._resolve_operand(frame, op) for op in operands]
 
+        # 输出指令：printf/print 产出真实输出（旧实现落入未知函数 → outputs 恒空）
+        if (c_func or func_name) in ("printf", "print"):
+            if resolved:
+                self._state.outputs.append(
+                    resolved[0] if len(resolved) == 1 else list(resolved))
+            return VMResult.OK
+
         # C 数学函数
         if c_func and c_func in self._MATH_FUNCS:
             try:
@@ -432,16 +470,17 @@ class MathaVM:
     def _execute_function_call(self, caller_frame: VMFrame, func_name: str,
                                 func: Any, args: list[float], result_var: str) -> VMResult:
         """执行用户函数调用。"""
-        # 创建新帧
+        # 创建新帧（参数按名绑定，旧实现按位置下标绑定 → 函数体取参恒 0.0）
+        params = list(getattr(func, "params", []))
         new_frame = VMFrame(
             func_name=func_name,
-            params=getattr(func, "params", []),
-            locals=dict(enumerate(args)),
+            params=params,
+            locals=dict(zip(params, args)),
             instructions=getattr(func, "instructions", []),
         )
-        # 预解析标签
+        # 预解析标签（仅标签定义指令计入）
         for i, instr in enumerate(new_frame.instructions):
-            if hasattr(instr, "label"):
+            if type(instr).__name__ == "MIRLabelInstr":
                 new_frame.labels[instr.label] = i
 
         self._state.frames.append(new_frame)
@@ -453,7 +492,8 @@ class MathaVM:
             val = new_frame.returns[-1]
             if result_var:
                 caller_frame.locals[result_var.lstrip("%")] = val
-            return VMResult.RETURN
+            # 调用返回 OK 继续执行调用者（旧实现返回 RETURN 会中止调用者帧）
+            return VMResult.OK
         return VMResult.OK
 
     # ---------- 存储/加载执行 ----------
@@ -461,9 +501,13 @@ class MathaVM:
     def _execute_store(self, frame: VMFrame, instr: Any, operands: list) -> VMResult:
         """执行 store 指令。"""
         value = self._resolve_operand(frame, operands[0])
-        target = getattr(instr, "metadata", {}).get("target", "")
+        target = getattr(instr, "target", "") \
+            or getattr(instr, "metadata", {}).get("target", "")
         if target:
             frame.locals[target] = value
+        else:
+            self._state.trace.append(
+                f"; WARN: store 缺少目标名，值 {value} 被丢弃")
         return VMResult.OK
 
     def _execute_load(self, frame: VMFrame, instr: Any, operands: list, result_var: str) -> VMResult:

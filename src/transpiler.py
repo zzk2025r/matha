@@ -207,6 +207,8 @@ class PythonTranspiler:
                 return "True"
             if name == "假":
                 return "False"
+            if name in ("pi", "e", "tau"):
+                return MATHA_TO_PYTHON[name]
             return name
         if isinstance(expr, ast.BinaryOp):
             left = self._transpile_expr(expr.left)
@@ -248,8 +250,9 @@ class PythonTranspiler:
                     parts.append(f"{target} = {value}")
             return "; ".join(parts) if parts else "None"
 
-        # 兜底
-        return f"None  # 未转译: {type(expr).__name__}"
+        raise TranspileError(
+            f"Python 转译不支持的表达式节点: {type(expr).__name__}"
+            "（旧实现生成 'None  # 未转译' 假产物，已显式拒绝）")
 
     @staticmethod
     def _map_op(op: str) -> str:
@@ -424,7 +427,9 @@ class JavaScriptTranspiler:
             then = self._transpile_expr(expr.then)
             els = self._transpile_expr(expr.else_)
             return f"({cond} ? {then} : {els})"
-        return f"null /* 未转译: {type(expr).__name__} */"
+        raise TranspileError(
+            f"JavaScript 转译不支持的表达式节点: {type(expr).__name__}"
+            "（旧实现生成 'null /* 未转译 */' 假产物，已显式拒绝）")
 
     @staticmethod
     def _map_op(op: str) -> str:

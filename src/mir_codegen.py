@@ -68,15 +68,9 @@ class MIRToCGenerator:
 
     def generate(self, mir_program: any) -> str:
         """生成完整 C 代码。"""
-        # 在生成前对 MIR 进行清洗（优化管线）
-        try:
-            pipeline = mir_opt.MIRPassPipeline.create_default()
-            mir_program = pipeline.run(mir_program)
-        except Exception:
-            try:
-                mir_program = mir_opt.MIRPassPipeline().run(mir_program, mir_opt.MIRPassPipeline.default_pipeline())
-            except Exception:
-                pass
+        # 在生成前对 MIR 进行清洗（优化管线；优化器异常如实传播，不静默跳过）
+        pipeline = mir_opt.MIRPassPipeline.create_default()
+        mir_program = pipeline.run(mir_program)
 
         lines = [
             "/* Matha MIR → C 代码生成 */",

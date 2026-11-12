@@ -395,7 +395,18 @@ Matha 代码规则：
             # 默认使用 OpenAI 兼容接口
             try:
                 from openai import OpenAI
-                kwargs = {"api_key": self._api_key or "sk-placeholder", "base_url": self.base_url or "http://localhost:11434/v1"}
+                base_url = self.base_url or "http://localhost:11434/v1"
+                is_local = "localhost" in base_url or "127.0.0.1" in base_url
+                if self._api_key:
+                    kwargs = {"api_key": self._api_key, "base_url": base_url}
+                elif is_local:
+                    # 本地推理服务（如 Ollama）无需真实密钥；占位密钥仅满足 SDK 必填参数
+                    kwargs = {"api_key": "sk-placeholder", "base_url": base_url}
+                else:
+                    raise ValueError(
+                        f"使用远程 LLM 服务 ({base_url}) 需要显式提供 api_key"
+                        "（旧实现以 sk-placeholder 占位密钥构造客户端，已显式拒绝）"
+                    )
                 self._api_client = OpenAI(**kwargs)
             except ImportError:
                 raise ImportError("请安装 openai: pip install openai")

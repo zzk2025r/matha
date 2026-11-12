@@ -18,6 +18,7 @@ import os
 import platform
 import socket
 import subprocess
+import time
 
 # ============================================================
 # 系统信息
@@ -104,12 +105,50 @@ def _kill(pid: int, sig: int = 15) -> bool:
 
 
 def _wait(pid: int, timeout: int = 5) -> bool:
-    """等待进程结束。"""
+    """等待进程结束（真等待；退出/已退出返回 True，超时返回 False）。"""
     try:
         import psutil
-        return psutil.wait_procs([psutil.Process(pid)], timeout=timeout)
     except ImportError:
-        return True  # 简化：假设等待成功
+        psutil = None
+    if psutil is not None:
+        try:
+            proc = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            return True
+        try:
+            proc.wait(timeout=timeout)
+            return True
+        except psutil.TimeoutExpired:
+            return False
+    # 无 psutil：轮询探活直至退出或超时
+    deadline = time.monotonic() + max(0, timeout)
+    while True:
+        if not _pid_alive(pid):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def _pid_alive(pid: int) -> bool:
+    """探测进程是否存活（Windows 用 OpenProcess，POSIX 用 kill(pid, 0)）。"""
+    if platform.system() == "Windows":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        exit_code = ctypes.c_ulong()
+        ok = bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)))
+        kernel32.CloseHandle(handle)
+        return ok and exit_code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # 进程存在但无权发信号
 
 
 # ============================================================

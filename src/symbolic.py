@@ -355,6 +355,11 @@ class MathaSymbolic:
                 self.diff(expr.operands[0], var),
                 self.diff(expr.operands[1], var)
             ])
+        if expr.operator == '-':
+            return Expression(operator='-', operands=[
+                self.diff(expr.operands[0], var),
+                self.diff(expr.operands[1], var)
+            ])
         if expr.operator == '*':
             # 乘积法则
             u = expr.operands[0]
@@ -367,21 +372,43 @@ class MathaSymbolic:
                     u, self.diff(v, var)
                 ])
             ])
-        if expr.operator == '**':
-            # 幂法则
-            base = expr.operands[0]
-            exp = expr.operands[1]
-            return Expression(operator='*', operands=[
-                Expression(operator='*', operands=[
-                    exp, base
+        if expr.operator == '/':
+            # 商法则 (u/v)' = (u'v − uv')/v²
+            u = expr.operands[0]
+            v = expr.operands[1]
+            return Expression(operator='/', operands=[
+                Expression(operator='-', operands=[
+                    Expression(operator='*', operands=[
+                        self.diff(u, var), v
+                    ]),
+                    Expression(operator='*', operands=[
+                        u, self.diff(v, var)
+                    ])
                 ]),
                 Expression(operator='**', operands=[
-                    base, Expression(operator='-', operands=[
+                    v, Expression(operator='number', operands=[2])
+                ])
+            ])
+        if expr.operator == '**':
+            # 幂法则 + 链式因子：d(u^n) = n·u^(n-1)·u'
+            base = expr.operands[0]
+            exp = expr.operands[1]
+            power = Expression(operator='*', operands=[
+                exp,
+                Expression(operator='**', operands=[
+                    base,
+                    Expression(operator='-', operands=[
                         exp, Expression(operator='number', operands=[1])
                     ])
                 ])
             ])
-        return expr
+            if base.operator == 'symbol' and base.operands \
+                    and base.operands[0].name == var:
+                return power
+            return Expression(operator='*', operands=[
+                power, self.diff(base, var)
+            ])
+        raise ValueError(f"求导不支持该节点类型: {expr.operator}")
 
     def solve(self, equation: Equation
                  ) -> list[float]:
@@ -425,7 +452,11 @@ class MathaSymbolic:
             return v.value if isinstance(v, Symbol) else v
         if expr.operator == 'symbol':
             sym = expr.operands[0] if expr.operands else Symbol("")
-            return vars_dict.get(sym.name, 0)
+            if sym.name in vars_dict:
+                return vars_dict[sym.name]
+            if sym.type == SymbolType.CONSTANT and sym.value is not None:
+                return sym.value
+            raise ValueError(f"未绑定的符号: {sym.name}")
         if expr.operator == '+':
             return self._evaluate(expr.operands[0], vars_dict) + \
                    self._evaluate(expr.operands[1], vars_dict)
@@ -436,12 +467,14 @@ class MathaSymbolic:
             return self._evaluate(expr.operands[0], vars_dict) * \
                    self._evaluate(expr.operands[1], vars_dict)
         if expr.operator == '/':
-            return self._evaluate(expr.operands[0], vars_dict) / \
-                   (self._evaluate(expr.operands[1], vars_dict) or 1)
+            denom = self._evaluate(expr.operands[1], vars_dict)
+            if denom == 0:
+                raise ZeroDivisionError("符号求值除数为零")
+            return self._evaluate(expr.operands[0], vars_dict) / denom
         if expr.operator == '**':
             return self._evaluate(expr.operands[0], vars_dict) ** \
                    self._evaluate(expr.operands[1], vars_dict)
-        return 0.0
+        raise ValueError(f"符号求值不支持该节点类型: {expr.operator}")
 
     def _derivative(self, expr: Expression,
                        var: str) -> float:
@@ -452,18 +485,66 @@ class MathaSymbolic:
 
     def integrate(self, expr: Expression, var: str = "x"
                       ) -> Expression:
-        """积分（符号）。"""
-        # 幂函数积分
+        """符号积分（幂/线性/常数倍法则；不支持的表达式显式拒绝）。"""
+        if expr.operator == 'number':
+            # ∫c dx = c·x
+            return Expression(operator='*', operands=[
+                Expression(operator='number',
+                           operands=[self._number_value(expr)]),
+                Expression(operator='symbol', operands=[Symbol(var)])
+            ])
+        if expr.operator == 'symbol':
+            sym = expr.operands[0] if expr.operands else Symbol(var)
+            if sym.name != var:
+                raise ValueError(f"符号积分未实现对变量 {sym.name} 的积分")
+            # ∫x dx = x²/2
+            return Expression(operator='/', operands=[
+                Expression(operator='**', operands=[
+                    Expression(operator='symbol', operands=[Symbol(var)]),
+                    Expression(operator='number', operands=[2])
+                ]),
+                Expression(operator='number', operands=[2])
+            ])
+        if expr.operator == '+':
+            return Expression(operator='+', operands=[
+                self.integrate(expr.operands[0], var),
+                self.integrate(expr.operands[1], var)
+            ])
+        if expr.operator == '-':
+            return Expression(operator='-', operands=[
+                self.integrate(expr.operands[0], var),
+                self.integrate(expr.operands[1], var)
+            ])
+        if expr.operator == '*':
+            # 常数倍法则：∫c·f = c·∫f
+            u, v = expr.operands
+            if self._is_number(u):
+                return Expression(operator='*', operands=[
+                    u, self.integrate(v, var)
+                ])
+            if self._is_number(v):
+                return Expression(operator='*', operands=[
+                    v, self.integrate(u, var)
+                ])
+            raise ValueError("符号积分未实现乘积法则")
         if expr.operator == '**':
             base = expr.operands[0]
             exp = expr.operands[1]
-            return Expression(operator='**', operands=[
-                base,
-                Expression(operator='+', operands=[
-                    exp, Expression(operator='number', operands=[1])
+            if base.operator == 'symbol' and base.operands \
+                    and base.operands[0].name == var and self._is_number(exp):
+                n = self._number_value(exp)
+                if n == -1:
+                    raise ValueError("∫x⁻¹ = ln|x| 未实现（无对数节点）")
+                # ∫x^n dx = x^(n+1)/(n+1)
+                return Expression(operator='/', operands=[
+                    Expression(operator='**', operands=[
+                        base,
+                        Expression(operator='number', operands=[n + 1])
+                    ]),
+                    Expression(operator='number', operands=[n + 1])
                 ])
-            ])
-        return expr
+            raise ValueError("符号积分仅支持 x^n 幂规则")
+        raise ValueError(f"符号积分不支持该节点类型: {expr.operator}")
 
     def limit(self, expr: Expression, var: str,
                  approach: float = 0.0) -> float:

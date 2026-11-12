@@ -61,12 +61,13 @@ class Actor:
 
 
 class EventLoop:
-    """事件循环。"""
+    """事件循环（协作式单线程调度：按序执行任务，定时器到期触发回调）。"""
 
     def __init__(self):
         self._tasks: list[Any] = []
         self._running = False
         self._timers: list[Any] = []
+        self._timer_start: float | None = None
         self._initialized = False
         self._init_event_loop()
 
@@ -75,12 +76,20 @@ class EventLoop:
         self._initialized = True
 
     def run(self) -> None:
-        """运行事件循环。"""
+        """运行事件循环：逐个执行队列任务，触发到期定时器（旧实现弹出任务后丢弃）。"""
+        import time as _time
         self._running = True
-        while self._running and self._tasks:
-            task = self._tasks.pop(0)
-            if task:
-                pass
+        self._timer_start = _time.monotonic()
+        while self._running and (self._tasks or self._timers):
+            task = self._tasks.pop(0) if self._tasks else None
+            if task is not None:
+                task()
+            now = _time.monotonic()
+            due = [t for t in self._timers
+                   if now - self._timer_start >= t.get("delay", 0)]
+            for t in due:
+                self._timers.remove(t)
+                t["callback"]()
 
     def stop(self) -> None:
         """停止事件循环。"""
@@ -96,7 +105,7 @@ class EventLoop:
 
 
 class ConcurrentManager:
-    """并发管理器：线程池、异步、CSP、Actor。"""
+    """并发管理器：线程池（concurrent.futures 真执行）、CSP、Actor。"""
 
     def __init__(self):
         self._thread_pool = ThreadPool()
@@ -105,6 +114,8 @@ class ConcurrentManager:
         self._actors: list[Actor] = []
         self._tasks_completed = 0
         self._tasks_failed = 0
+        self._executor = None
+        self._futures: list[Any] = []
         self._initialized = False
         self._init_concurrent()
 
@@ -135,12 +146,32 @@ class ConcurrentManager:
         return actor
 
     def submit_task(self, func: Callable, *args) -> int:
-        """提交任务到线程池。"""
-        self._thread_pool.tasks.append(func)
-        return len(self._thread_pool.tasks) - 1
+        """提交任务到线程池（concurrent.futures 真执行，返回任务序号）。"""
+        if self._executor is None:
+            from concurrent.futures import ThreadPoolExecutor
+            self._executor = ThreadPoolExecutor(
+                max_workers=max(1, self._thread_pool.num_threads))
+        future = self._executor.submit(func, *args)
+        self._futures.append(future)
+        return len(self._futures) - 1
 
     def await_all(self) -> int:
-        """等待所有任务完成。"""
+        """等待所有提交的任务完成，返回成功完成数（失败计入 tasks_failed）。"""
+        from concurrent.futures import wait as _futures_wait
+        if not self._futures:
+            return self._tasks_completed
+        _futures_wait(self._futures)
+        completed = 0
+        failed = 0
+        for f in self._futures:
+            exc = f.exception()
+            if exc is None:
+                completed += 1
+            else:
+                failed += 1
+        self._tasks_completed += completed
+        self._tasks_failed += failed
+        self._futures = []
         return self._tasks_completed
 
     def get_stats(self) -> dict:

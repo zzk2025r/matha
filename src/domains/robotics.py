@@ -85,15 +85,40 @@ class RobotEngine:
 
     def read_sensor(self, robot: Robot, sensor: str) -> SensorData:
         """读取传感器。"""
-        return SensorData(sensor_type=sensor, value=0.0)
+        raise RuntimeError(
+            f"读取传感器 '{sensor}' 需要真实硬件驱动（本环境无传感器数据源；"
+            "旧实现恒返回 value=0.0 假读数，已显式拒绝）")
 
     def plan_path(self, start: list[float], end: list[float]
                      ) -> list[list[float]]:
-        """规划路径。"""
-        return [start, end]
+        """规划路径（直线插值：按 0.1 单位步长采样起点→终点）。"""
+        if not start or len(start) != len(end):
+            raise ValueError(
+                f"路径起终点维度必须一致且非空：start={start}, end={end}")
+        for v in (*start, *end):
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(f"路径坐标需要数值，得到 {v!r}")
+        dist = sum((e - s) ** 2 for s, e in zip(start, end)) ** 0.5
+        n = max(2, min(101, int(dist / 0.1) + 1))
+        return [
+            [s + (e - s) * i / (n - 1) for s, e in zip(start, end)]
+            for i in range(n)
+        ]
 
     def control_arm(self, robot: Robot, joint_angles: list[float]) -> bool:
-        """控制机械臂。"""
+        """控制机械臂（真写关节角度：数量不符/越界显式拒绝）。"""
+        if len(joint_angles) != len(robot.joints):
+            raise ValueError(
+                f"关节角度数量 ({len(joint_angles)}) 与机器人关节数 "
+                f"({len(robot.joints)}) 不符：请先 添加关节")
+        for joint, angle in zip(robot.joints, joint_angles):
+            if isinstance(angle, bool) or not isinstance(angle, (int, float)):
+                raise ValueError(f"关节 '{joint.name}' 角度需要数值，得到 {angle!r}")
+            if not joint.min_angle <= angle <= joint.max_angle:
+                raise ValueError(
+                    f"关节 '{joint.name}' 角度 {angle} 越界 "
+                    f"[{joint.min_angle}, {joint.max_angle}]")
+            joint.angle = float(angle)
         return True
 
 

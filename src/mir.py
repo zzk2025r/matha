@@ -837,10 +837,26 @@ class MIRGenerator:
             c_func="printf",
         ))
 
+    def _emit_output_expr(self, expr: Any) -> None:
+        result = self._compile_expr(expr)
+        self._emit(MIRCallInstr(
+            result=result,
+            instr_type=MIRInstrType.CALL,
+            operands=[result],
+            func_name="printf",
+            c_func="printf",
+        ))
+
     def _compile_mech_unit(self, mech_unit: Any) -> None:
-        """按 Matha 块尾值语义输出代码块最后一个表达式。"""
+        """按 Matha 块尾值语义输出代码块最后一个表达式；Output 显式 printf。"""
         body = getattr(mech_unit, "body", None)
+        body_kind = type(body).__name__
+        if body_kind == "GenStmt":
+            self._compile_gen_content(getattr(body, "content", None))
+            return
         statements = list(getattr(body, "stmts", []) or [])
+        if body is not None and not statements and body_kind != "CodeBlock":
+            raise ValueError(f"MIR 编译不支持该生成体类型: {body_kind}")
         last_value = ""
         for statement in statements:
             kind = type(statement).__name__
@@ -850,9 +866,33 @@ class MIRGenerator:
                 if name and value is not None:
                     self._ensure_scope()[name] = self._compile_expr(value)
                 continue
+            if kind == "Binding":
+                self._compile_binding(statement)
+                continue
+            if kind == "Output":
+                expr = getattr(statement, "expr", None)
+                if expr is not None:
+                    self._emit_output_expr(expr)
+                continue
             last_value = self._compile_expr(statement)
         if last_value:
             self._emit_output(last_value)
+
+    def _compile_gen_content(self, content: Any) -> None:
+        """#(N)：生成体内容（OutputTrail | Output | 表达式）→ 显式输出。"""
+        if type(content).__name__ == "OutputTrail":
+            content = getattr(content, "output", None)
+        kind = type(content).__name__
+        if content is None:
+            return
+        if kind == "CommandLiteral":
+            raise ValueError("MIR 编译不支持命令字面量内容（#：命令）")
+        if kind == "Output":
+            expr = getattr(content, "expr", None)
+            if expr is not None:
+                self._emit_output_expr(expr)
+            return
+        self._emit_output_expr(content)
 
     def _compile_func_def(self, func_def: Any) -> None:
         name = getattr(func_def, "name", "unknown")
@@ -889,16 +929,20 @@ class MIRGenerator:
         self._program.functions[name] = func
 
     def _compile_binding(self, binding: Any) -> None:
-        name = getattr(binding, "name", "")
+        target = getattr(binding, "target", None)
+        target_name = getattr(target, "name", None)
+        if not isinstance(target_name, str) or not target_name:
+            raise ValueError(
+                f"MIR 编译不支持该绑定目标: {type(target).__name__}")
         value = getattr(binding, "value", None)
         if value:
             result = self._compile_expr(value)
-            self._ensure_scope()[name] = result
+            self._ensure_scope()[target_name] = result
             self._emit(MIRStoreInstr(
                 result="",
                 instr_type=MIRInstrType.STORE,
                 operands=[result],
-                target=name,
+                target=target_name,
             ))
 
     # 类型分派表（避免字符串比较）- 实例变量，避免跨实例污染

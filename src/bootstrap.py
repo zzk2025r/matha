@@ -3,11 +3,9 @@
 编译目标：
   1. C       — Matha源码 → C代码 → 原生机器码
   2. Python  — Matha源码 → Python代码
-  3. LLVM    — Matha源码 → LLVM IR → 原生机器码
-  4. Matha   — Matha源码 → Matha字节码 → Matha虚拟机
-  5. Binary  — Matha源码 → Base-2二进制 → 硬件二进制
-  6. Trinary — Matha源码 → Base-3三进制 → 硬件三进制
-  7. Decimal — Matha源码 → Base-10十进制 → 硬件十进制
+  3. LLVM    — 显式拒绝（LLVM IR 生成未实现）
+  4. Matha   — Matha源码 → MBC1 字节码（经 mbc.compiler，真实可读回）
+  5-7. Binary/Trinary/Decimal — 显式拒绝（Base-N 原生机器码生成未实现）
 
 架构：
   .matha 源码
@@ -61,127 +59,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ============================================================
 
 class NumberSystemCompiler:
-    """数制编译器 — 根据硬件需求编译为二进制/三进制/十进制。
+    """数制编译器 — Base-2/3/10 原生机器码生成（显式拒绝）。
 
-    核心能力：
-    - 二进制编译（Base-2）：适用于x86/ARM处理器
-    - 三进制编译（Base-3）：适用于三进制处理器
-    - 十进制编译（Base-10）：适用于十进制硬件
+    历史上 compile() 产出「注释头 + MIR 指令文本列表」冒充机器码——
+    那不是任何硬件可执行的产物。真实 Base-N 机器码生成未实现；
+    原生码请走 target='c'（MIR→C→clang）路径。
     """
 
     def __init__(self, target_base: int = 2, optimize: bool = True):
         self.target_base = target_base  # 2, 3, or 10
         self.optimize = optimize
-        self._cache: dict[str, str] = {}
 
     def compile(self, mir_program: Any, source: str = "") -> str:
-        """根据目标数制编译MIR。"""
-        cache_key = f"base{self.target_base}:{id(mir_program)}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
-
-        if self.target_base == 2:
-            result = self._compile_binary(mir_program, source)
-        elif self.target_base == 3:
-            result = self._compile_trinary(mir_program, source)
-        elif self.target_base == 10:
-            result = self._compile_decimal(mir_program, source)
-        else:
-            raise ValueError(f"不支持的数制: {self.target_base}")
-
-        self._cache[cache_key] = result
-        return result
-
-    def _compile_binary(self, mir_program: Any, source: str) -> str:
-        """编译为二进制（Base-2）— 适用于x86/ARM处理器。"""
-
-        lines = [
-            "// Matha Binary Compiler (Base-2)",
-            "// Target: Binary (Base-2) — x86/ARM",
-            f"// Source: {source[:50] if source else 'unknown'}",
-            f"// Optimized: {self.optimize}",
-            "//",
-            "// 数制说明：所有数据以二进制存储和计算",
-            "// Base2 是所有数据的最终物理表示",
-        ]
-
-        # 将MIR指令转换为二进制表示
-        if hasattr(mir_program, 'functions'):
-            for func_name, func in mir_program.functions.items():
-                lines.append(f"\n// 函数: {func_name}")
-                lines.append(f"// 参数: {func.params}")
-                for instr in func.instructions:
-                    binary_instr = self._instr_to_binary(instr)
-                    lines.append(f"  {binary_instr}")
-
-        result = "\n".join(lines)
-        return result
-
-    def _compile_trinary(self, mir_program: Any, source: str) -> str:
-        """编译为三进制（Base-3）— 适用于三进制处理器。"""
-
-        lines = [
-            "// Matha Trinary Compiler (Base-3)",
-            "// Target: Trinary (Base-3) — 三进制处理器",
-            f"// Source: {source[:50] if source else 'unknown'}",
-            f"// Optimized: {self.optimize}",
-            "//",
-            "// 数制说明：所有数据以三进制存储和计算",
-            "// Base3 使用三进制编码，汉字/字母 → 三进制映射",
-        ]
-
-        if hasattr(mir_program, 'functions'):
-            for func_name, func in mir_program.functions.items():
-                lines.append(f"\n// 函数: {func_name}")
-                lines.append(f"// 参数: {func.params}")
-                for instr in func.instructions:
-                    trinary_instr = self._instr_to_trinary(instr)
-                    lines.append(f"  {trinary_instr}")
-
-        result = "\n".join(lines)
-        return result
-
-    def _compile_decimal(self, mir_program: Any, source: str) -> str:
-        """编译为十进制（Base-10）— 适用于十进制硬件。"""
-
-        lines = [
-            "// Matha Decimal Compiler (Base-10)",
-            "// Target: Decimal (Base-10) — 十进制硬件",
-            f"// Source: {source[:50] if source else 'unknown'}",
-            f"// Optimized: {self.optimize}",
-            "//",
-            "// 数制说明：所有数据以十进制存储和计算",
-            "// Base10 使用十进制编码，人类可读",
-        ]
-
-        if hasattr(mir_program, 'functions'):
-            for func_name, func in mir_program.functions.items():
-                lines.append(f"\n// 函数: {func_name}")
-                lines.append(f"// 参数: {func.params}")
-                for instr in func.instructions:
-                    decimal_instr = self._instr_to_decimal(instr)
-                    lines.append(f"  {decimal_instr}")
-
-        result = "\n".join(lines)
-        return result
-
-    def _instr_to_binary(self, instr: Any) -> str:
-        """将指令转换为二进制表示。"""
-        if isinstance(instr, str):
-            return f"0b{''.join(format(ord(c), '08b') for c in instr)}"
-        return str(instr)
-
-    def _instr_to_trinary(self, instr: Any) -> str:
-        """将指令转换为三进制表示。"""
-        if isinstance(instr, str):
-            return f"0t{''.join(format(ord(c), '04t') if False else format(ord(c) % 3, '02') for c in instr)}"
-        return str(instr)
-
-    def _instr_to_decimal(self, instr: Any) -> str:
-        """将指令转换为十进制表示。"""
-        if isinstance(instr, str):
-            return f"0d{ord(instr[0]) if instr else 0}"
-        return str(instr)
+        raise NotImplementedError(
+            f"Base-{self.target_base} 原生机器码生成未实现"
+            "（旧路径仅产出注释头+指令文本，非可执行代码）；"
+            "原生码请走 target='c' 经 MIR→C→clang 编译")
 
 
 # ============================================================
@@ -189,10 +82,12 @@ class NumberSystemCompiler:
 # ============================================================
 
 class MathaBytecodeCompiler:
-    """Matha 字节码编译器 — 将 MIR 编译为 M3V 字节码。
+    """Matha 字节码编译器 — 委托真实 MBC1 编译链（MathaSelfCompiler）。
 
-    架构：
-      MIR → MathaBytecode → M3V虚拟机 → 结果
+    旧实现遍历 MIR 指令取不存在的 .opcode 字段，把指令对象当操作码
+    emit，产物既无法被 matha_vm.MathaVM 消费（序列化 TypeError）也不符
+    MBC1 布局。真实字节码从源码经 mbc.compiler 编译（MBC1 布局，可被
+    src.mbc.serial 反序列化）；MIR → MBC1 直译未实现：无源码时显式拒绝。
     """
 
     def __init__(self, optimize: bool = True):
@@ -200,33 +95,17 @@ class MathaBytecodeCompiler:
         self._cache: dict[str, bytes] = {}
 
     def compile(self, mir_program: Any, source: str = "") -> bytes:
-        """将MIR编译为M3V字节码。"""
-        cache_key = f"matha_bytecode:{id(mir_program)}"
+        """将 Matha 源码编译为真实 MBC1 字节码（可被 src.mbc.serial 读回）。"""
+        if not source:
+            raise ValueError(
+                "MathaBytecodeCompiler.compile 需要源码字符串："
+                "MIR → MBC1 直译未实现，字节码从源码经 mbc.compiler 编译")
+        cache_key = f"matha_bytecode:{hash(source)}"
         if cache_key in self._cache:
             return self._cache[cache_key]
-
-        bytecode = self._generate_bytecode(mir_program)
+        bytecode = MathaSelfCompiler(optimize=self.optimize).compile(source)
         self._cache[cache_key] = bytecode
         return bytecode
-
-    def _generate_bytecode(self, mir_program: Any) -> bytes:
-        """生成M3V字节码。"""
-        from src.matha_vm import MathaBytecode
-
-        bytecode = MathaBytecode()
-
-        if hasattr(mir_program, 'functions'):
-            for func_name, func in mir_program.functions.items():
-                bytecode.function_start(func_name)
-                for instr in func.instructions:
-                    opcode = getattr(instr, 'opcode', None)
-                    if opcode is not None:
-                        operands = getattr(instr, 'operands', ())
-                        bytecode.emit(opcode, *operands)
-                    else:
-                        bytecode.emit(instr)
-
-        return bytecode.to_bytes()
 
 
 # ============================================================
@@ -291,11 +170,9 @@ def matha_bootstrap_compile(
     目标说明：
         c        — Matha → C → llc/clang → 原生机器码
         python   — Matha → Python → .pyc
-        llvm     — Matha → LLVM IR → llc → 原生机器码
-        matha    — Matha → M3V字节码 → Matha虚拟机
-        binary   — Matha → Base-2 → x86/ARM硬件
-        trinary  — Matha → Base-3 → 三进制处理器
-        decimal  — Matha → Base-10 → 十进制硬件
+        llvm     — 显式拒绝（LLVM IR 生成未实现）
+        matha    — Matha → MBC1 字节码（真实 mbc 编译，可反序列化）
+        binary/trinary/decimal — 显式拒绝（Base-N 原生机器码生成未实现）
     """
     from src.compiler.matha_cc import MathaLexer, MathaParser
     from src.mir import MIRGenerator

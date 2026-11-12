@@ -37,12 +37,8 @@ def _get_codegen():
 
 
 def _get_verifier():
-    try:
-        from src.multi_lang_verifier import MultiLangVerifierV2
-        return MultiLangVerifierV2
-    except ImportError:
-        from src.cross_language_verifier import CrossLanguageVerifier
-        return CrossLanguageVerifier
+    from src.multi_lang_verifier import MultiLangVerifier
+    return MultiLangVerifier
 
 
 def _get_transpiler():
@@ -114,14 +110,10 @@ class UnifiedMultiLang:
     def generate_code(self, language: str, func_name: str,
                       params: list, expr: str,
                       return_type: str = "Any") -> str:
-        """将 Matha 函数生成为目标语言代码。"""
+        """将 Matha 函数生成为目标语言代码（错误如实传播，不吞成空串）。"""
         self._ensure_initialized()
-        try:
-            result = self._codegen.generate(language, func_name, params, expr, return_type)
-            return result.code if hasattr(result, 'code') else str(result)
-        except Exception as e:
-            logger.warning(f"代码生成失败 ({language}): {e}")
-            return ""
+        result = self._codegen.generate(language, func_name, params, expr, return_type)
+        return result.code if hasattr(result, 'code') else str(result)
 
     # ── 验证：多语言交叉验证 ───────────────────────────────────────────────
 
@@ -131,14 +123,14 @@ class UnifiedMultiLang:
         languages: list[str] = None,
         test_cases: list = None,
     ) -> dict:
-        """跨语言交叉验证 Matha 代码。"""
-        self._ensure_initialized()
-        try:
-            verifier = self._verifier_cls()
-            return verifier.verify(matha_source, languages or ["python", "rust"], test_cases or [])
-        except Exception as e:
-            logger.warning(f"交叉验证失败: {e}")
-            return {"success": False, "error": str(e)}
+        """跨语言交叉验证 Matha 代码（源码级签名无法映射真验证器契约，如实返回失败）。"""
+        return {"success": False, "error": (
+            "verify_cross_language 源码级签名无法映射到真验证器契约"
+            "（旧实现 import 幻影类 MultiLangVerifierV2 + 调用签名错配恒失败）；"
+            "函数级请用 src.multi_lang_verifier.MultiLangVerifier.verify"
+            "(func_name, params, expr, test_cases)；"
+            "源码对比请用 src.cross_language_verifier.CrossLanguageVerifier"
+            ".verify(algorithm, sources)")}
 
     # ── 转译：Matha ↔ 目标语言 ────────────────────────────────────────────
 
@@ -151,7 +143,9 @@ class UnifiedMultiLang:
         """Matha → TypeScript。"""
         self._ensure_initialized()
         if self._ts_transpiler_cls is None:
-            return "# TypeScript transpiler not available"
+            raise NotImplementedError(
+                "TypeScript 转译器不可用（旧实现返回 '# TypeScript transpiler "
+                "not available' 注释冒充产物，已显式拒绝）")
         return self._ts_transpiler_cls().transpile(matha_source)
 
     def transpile_from_python(self, python_source: str) -> str:
@@ -182,8 +176,14 @@ class UnifiedMultiLang:
 
         for lang in langs:
             try:
-                code = self.generate_code(matha_source, lang)
-                generations[lang] = code
+                if lang == "python":
+                    generations[lang] = self.transpile_to_python(matha_source)
+                elif lang == "typescript":
+                    generations[lang] = self.transpile_to_typescript(matha_source)
+                else:
+                    raise NotImplementedError(
+                        f"full_workflow 暂不支持 {lang}：函数级代码生成需要"
+                        " func_name/params/expr，请用 generate_code")
             except Exception as e:
                 errors.append(f"{lang}: {e}")
 

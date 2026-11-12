@@ -184,44 +184,29 @@ class QueryExecutor:
     def execute(self, sql: str) -> QueryResult:
         start = time.time()
         parsed = self.parser.parse(sql)
-        table = self.database.get_table(parsed.get("table", ""))
+        table = self.database.get_table(parsed.get("table", "") or "")
         plan = self.optimizer.optimize(parsed, table) if table else None
-        result = self._execute_parsed(parsed)
+        conn = self.database._connection
+        cur = conn.cursor()
+        cur.execute(sql)
+        result = QueryResult()
+        if cur.description is not None:
+            result.columns = [d[0] for d in cur.description]
+            result.rows = [dict(zip(result.columns, r))
+                           for r in cur.fetchall()]
+        else:
+            result.affected_rows = cur.rowcount if cur.rowcount >= 0 else 0
+            result.last_insert_id = cur.lastrowid
+        if parsed["type"] == "CREATE":
+            m = re.search(
+                r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)",
+                sql, re.IGNORECASE)
+            if m and m.group(1) not in self.database.tables:
+                self.database.tables[m.group(1)] = Table(name=m.group(1))
+        if self.database.transaction_manager._active_tx is None:
+            conn.commit()
         result.execution_time = time.time() - start
         result.query_plan = plan["plan"] if plan else None
-        return result
-
-    def _execute_parsed(self, parsed: dict[str, Any]) -> QueryResult:
-        result = QueryResult()
-        if parsed["type"] == "SELECT":
-            result = self._execute_select(parsed)
-        elif parsed["type"] == "INSERT":
-            result = self._execute_insert(parsed)
-        elif parsed["type"] == "UPDATE":
-            result = self._execute_update(parsed)
-        elif parsed["type"] == "DELETE":
-            result = self._execute_delete(parsed)
-        return result
-
-    def _execute_select(self, parsed: dict[str, Any]) -> QueryResult:
-        result = QueryResult()
-        result.columns = parsed.get("columns", ["*"])
-        return result
-
-    def _execute_insert(self, parsed: dict[str, Any]) -> QueryResult:
-        result = QueryResult()
-        result.affected_rows = 1
-        result.last_insert_id = 1
-        return result
-
-    def _execute_update(self, parsed: dict[str, Any]) -> QueryResult:
-        result = QueryResult()
-        result.affected_rows = 1
-        return result
-
-    def _execute_delete(self, parsed: dict[str, Any]) -> QueryResult:
-        result = QueryResult()
-        result.affected_rows = 1
         return result
 
 
@@ -253,13 +238,14 @@ class Index:
 
 
 class TransactionManager:
-    """事务管理器。"""
+    """事务管理器（真提交/回滚底层 sqlite3 连接）。"""
 
-    def __init__(self):
+    def __init__(self, connection: Any = None):
         self._transactions: dict[str, Transaction] = {}
         self._active_tx: str | None = None
         self._isolation = TransactionIsolation.READ_COMMITTED
         self._lock_manager = {}
+        self._connection = connection
 
     def begin(self, isolation: TransactionIsolation
                 = TransactionIsolation.READ_COMMITTED) -> str:
@@ -272,6 +258,8 @@ class TransactionManager:
     def commit(self, tx_id: str) -> bool:
         tx = self._transactions.get(tx_id)
         if tx:
+            if self._connection is not None:
+                self._connection.commit()
             tx.status = "committed"
             tx.end_time = time.time()
             self._active_tx = None
@@ -281,6 +269,8 @@ class TransactionManager:
     def rollback(self, tx_id: str) -> bool:
         tx = self._transactions.get(tx_id)
         if tx:
+            if self._connection is not None:
+                self._connection.rollback()
             tx.status = "rolledback"
             tx.end_time = time.time()
             self._active_tx = None
@@ -297,15 +287,15 @@ class TransactionManager:
 
 
 class Database:
-    """数据库引擎。"""
+    """数据库引擎（真 sqlite3 存储：SQL 与 dict API 同库）。"""
 
     def __init__(self, path: str = ":memory:"):
         self.path = path
         self.tables: dict[str, Table] = {}
-        self.query_executor = QueryExecutor(self)
-        self.transaction_manager = TransactionManager()
         self._connection = sqlite3.connect(path)
         self._cursor = self._connection.cursor()
+        self.transaction_manager = TransactionManager(self._connection)
+        self.query_executor = QueryExecutor(self)
         self._indexes: dict[str, Index] = {}
         self._views: dict[str, str] = {}
         self._triggers: dict[str, str] = {}
@@ -321,33 +311,58 @@ class Database:
         self._connected = False
 
     def create_table(self, name: str, columns: list[Column]) -> Table:
-        table = Table(name=name, columns=columns)
+        defs = ", ".join(
+            f"{c.name} {c.data_type.value}"
+            + (" PRIMARY KEY" if c.primary_key else "")
+            + (" UNIQUE" if c.unique else "")
+            for c in columns)
+        self._connection.execute(f"CREATE TABLE IF NOT EXISTS {name} ({defs})")
+        if self.transaction_manager._active_tx is None:
+            self._connection.commit()
+        table = Table(
+            name=name, columns=columns,
+            primary_key=next((c.name for c in columns if c.primary_key), None))
         self.tables[name] = table
         return table
 
     def drop_table(self, name: str) -> bool:
-        if name in self.tables:
-            del self.tables[name]
-            return True
-        return False
+        if name not in self.tables:
+            return False
+        self._connection.execute(f"DROP TABLE IF EXISTS {name}")
+        if self.transaction_manager._active_tx is None:
+            self._connection.commit()
+        del self.tables[name]
+        return True
 
     def get_table(self, name: str) -> Table | None:
         return self.tables.get(name)
 
     def insert(self, table_name: str, row: dict[str, Any]) -> bool:
         table = self.tables.get(table_name)
-        if table:
-            table.rows.append(row)
-            return True
-        return False
+        if not table:
+            return False
+        cols = list(row.keys())
+        placeholders = ", ".join("?" for _ in cols)
+        self._cursor.execute(
+            f"INSERT INTO {table_name} ({', '.join(cols)}) "
+            f"VALUES ({placeholders})",
+            tuple(row.values()))
+        if self.transaction_manager._active_tx is None:
+            self._connection.commit()
+        return True
 
     def select(self, table_name: str, columns: list[str] | None = None,
                 where: str | None = None) -> list[dict[str, Any]]:
         table = self.tables.get(table_name)
         if not table:
             return []
-        columns = columns or [c.name for c in table.columns]
-        return [row for row in table.rows]
+        cols = ", ".join(columns) if columns else "*"
+        sql = f"SELECT {cols} FROM {table_name}"
+        if where:
+            sql += f" WHERE {where}"
+        cur = self._connection.execute(sql)
+        names = [d[0] for d in cur.description]
+        return [dict(zip(names, r)) for r in cur.fetchall()]
 
     def create_index(self, name: str, table_name: str, column: str,
                       index_type: IndexType = IndexType.BPLUS_TREE) -> Index:

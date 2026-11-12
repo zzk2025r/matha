@@ -25,30 +25,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-# 尝试加载 tree-sitter 后端（无外部依赖的回退方案）
-try:
-    from src.plugins.tree_sitter_backends import (
-        _TS_AVAILABLE,  # noqa: F401
-    )
-    from src.plugins.tree_sitter_backends import (
-        CParser as _TS_C,
-    )
-    from src.plugins.tree_sitter_backends import (
-        GoParser as _TS_Go,
-    )
-    from src.plugins.tree_sitter_backends import (
-        JSParser as _TS_JS,
-    )
-    from src.plugins.tree_sitter_backends import (
-        RustParser as _TS_Rust,
-    )
-    from src.plugins.tree_sitter_backends import (
-        get_parser as _ts_get_parser,  # noqa: F401
-    )
-    _USE_TS = True
-except ImportError:
-    _USE_TS = False
-
 from src.mir import (
     MIRArithInstr,
     MIRCallInstr,
@@ -675,8 +651,8 @@ class GoFrontend:
             nodes.extend(expr_nodes)
             param_types[var_name] = typ
 
-        # 赋值
-        assign_pattern = re.compile(r'(\w+)\s*=\s*([^;{}]+);?')
+        # 赋值（Go 的 = 与 := 两种形式）
+        assign_pattern = re.compile(r'(\w+)\s*:?=\s*([^;{}\n]+);?')
         for match in assign_pattern.finditer(body):
             var_name = match.group(1)
             expr_str = match.group(2).strip()
@@ -689,8 +665,8 @@ class GoFrontend:
             nodes.append(IRNode(IRKind.VAR, value=var_name, result=var_name, typ=typ))
             nodes.extend(expr_nodes)
 
-        # return
-        for match in re.finditer(r'return\s+([^;]+);', body):
+        # return（Go 源码通常无行尾分号）
+        for match in re.finditer(r'return\s+([^;\n]+);?', body):
             expr_str = match.group(1).strip()
             expr_nodes = self._parse_expr(expr_str, param_types)
             nodes.extend(expr_nodes)
@@ -1216,7 +1192,7 @@ class CFrontend:
             return self.TYPE_MAP[type_str]
         if type_str.startswith('unsigned'):
             return T_INT
-        return T_INT
+        return T_ANY
 
     def _parse_body(self, body: str, param_types: dict[str, Type]) -> list[IRNode]:
         nodes: list[IRNode] = []
@@ -1406,142 +1382,15 @@ class MultiLanguageFrontend:
 # 初始化注册
 # ============================================================
 
-# ── tree-sitter 适配器（替代 Regex 前端）─────────────────────────
-
-class _TS_RustAdapter:
-    """Rust tree-sitter 适配器。"""
-    LANGUAGE = "rust"
-    STD_MATH = {"sin": "sin", "cos": "cos", "tan": "tan", "sqrt": "sqrt",
-                "exp": "exp", "log": "log", "log10": "log10", "abs": "fabs",
-                "floor": "floor", "ceil": "ceil"}
-
-    def compile(self, source: str) -> CompileResult:
-        result = CompileResult(language=self.LANGUAGE, source=source)
-        try:
-            parser = _TS_Rust()
-            tree = parser.parse(source)
-            for fn in tree.children:
-                if fn.type in ("rust_function",):
-                    name = fn.value
-                    result.functions[name] = []
-                    result.types[name] = T_FLOAT
-                    result.effects[name] = "Pure"
-        except Exception as e:
-            result.errors.append(f"Rust compile error: {e}")
-        return result
-
-    def infer_types(self, source: str) -> dict[str, Type]:
-        result = self.compile(source)
-        return result.types
-
-    def analyze_effects(self, source: str) -> dict[str, str]:
-        result = self.compile(source)
-        return result.effects
-
-
-class _TS_GoAdapter:
-    """Go tree-sitter 适配器。"""
-    LANGUAGE = "go"
-    STD_MATH = {"sin": "sin", "cos": "cos", "tan": "tan", "sqrt": "sqrt",
-                "exp": "exp", "log": "log", "log10": "log10", "abs": "fabs"}
-
-    def compile(self, source: str) -> CompileResult:
-        result = CompileResult(language=self.LANGUAGE, source=source)
-        try:
-            parser = _TS_Go()
-            tree = parser.parse(source)
-            for fn in tree.children:
-                if fn.type in ("go_function",):
-                    name = fn.value
-                    result.functions[name] = []
-                    result.types[name] = T_FLOAT
-                    result.effects[name] = "Pure"
-        except Exception as e:
-            result.errors.append(f"Go compile error: {e}")
-        return result
-
-    def infer_types(self, source: str) -> dict[str, Type]:
-        return self.compile(source).types
-
-    def analyze_effects(self, source: str) -> dict[str, str]:
-        return self.compile(source).effects
-
-
-class _TS_JSAdapter:
-    """JS tree-sitter 适配器。"""
-    LANGUAGE = "javascript"
-
-    def compile(self, source: str) -> CompileResult:
-        result = CompileResult(language=self.LANGUAGE, source=source)
-        try:
-            parser = _TS_JS()
-            tree = parser.parse(source)
-            for child in tree.children:
-                if child.type == "js_function":
-                    name = child.value
-                    result.functions[name] = []
-                    result.types[name] = T_FLOAT
-                elif child.type == "js_stmt":
-                    result.ir_nodes.extend([child])
-        except Exception as e:
-            result.errors.append(f"JS compile error: {e}")
-        return result
-
-    def infer_types(self, source: str) -> dict[str, Type]:
-        return self.compile(source).types
-
-    def analyze_effects(self, source: str) -> dict[str, str]:
-        return dict.fromkeys(self.compile(source).functions, "IO" if "console" in source else "Pure")
-
-
-class _TS_CAdapter:
-    """C tree-sitter 适配器。"""
-    LANGUAGE = "c"
-    STD_MATH = {"sin": "sin", "cos": "cos", "tan": "tan", "sqrt": "sqrt",
-                "exp": "exp", "log": "log", "fabs": "fabs",
-                "floor": "floor", "ceil": "ceil", "pow": "pow"}
-
-    def compile(self, source: str) -> CompileResult:
-        result = CompileResult(language=self.LANGUAGE, source=source)
-        try:
-            parser = _TS_C()
-            tree = parser.parse(source)
-            for fn in tree.children:
-                if fn.type in ("c_function",):
-                    name = fn.value
-                    result.functions[name] = []
-                    result.types[name] = T_FLOAT
-                    result.effects[name] = "Pure"
-        except Exception as e:
-            result.errors.append(f"C compile error: {e}")
-        return result
-
-    def infer_types(self, source: str) -> dict[str, Type]:
-        return self.compile(source).types
-
-    def analyze_effects(self, source: str) -> dict[str, str]:
-        return self.compile(source).effects
-
-
-# ============================================================
-# 初始化注册
-# ============================================================
-
 def get_frontend() -> MultiLanguageFrontend:
     """获取全局前端实例。"""
     from src.mir2_frontend import PythonFrontend
     frontend = MultiLanguageFrontend()
     frontend.register("python", PythonFrontend())
-    if _USE_TS:
-        frontend.register("rust", _TS_RustAdapter())
-        frontend.register("go", _TS_GoAdapter())
-        frontend.register("javascript", _TS_JSAdapter())
-        frontend.register("c", _TS_CAdapter())
-    else:
-        frontend.register("rust", RustFrontend())
-        frontend.register("go", GoFrontend())
-        frontend.register("javascript", JSFrontend())
-        frontend.register("c", CFrontend())
+    frontend.register("rust", RustFrontend())
+    frontend.register("go", GoFrontend())
+    frontend.register("javascript", JSFrontend())
+    frontend.register("c", CFrontend())
     return frontend
 
 

@@ -1850,10 +1850,7 @@ class DomainRegistry:
                  if self._normalize_name(a[len("_register_"):]) == want]
         chosen = exact or (hooks if len(hooks) == 1 else [])
         for name in chosen:
-            try:
-                getattr(mod, name)(reg)
-            except Exception:
-                continue
+            getattr(mod, name)(reg)   # 钩子损坏如实抛出，不静默跳过冒充注册成功
             if reg:
                 return True
         return False
@@ -1881,12 +1878,9 @@ class DomainRegistry:
         self._events[event].append(callback)
 
     def fire(self, event: str, **kwargs) -> None:
-        """触发事件。"""
+        """触发事件（回调异常如实抛出，不静默吞掉）。"""
         for cb in self._events.get(event, []):
-            try:
-                cb(**kwargs)
-            except Exception:
-                pass
+            cb(**kwargs)
 
     def get_stats(self) -> dict:
         """获取注册表统计。"""

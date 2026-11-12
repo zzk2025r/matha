@@ -329,14 +329,12 @@ class MathaEngine:
         """通过编译链计算（真实 mbc 编译 + 主解释器执行）。
 
         旧实现对 matha_compile 的返回值起子进程——legacy 时代它从未成功过
-        （解析即炸），委托主实现后是真实编译+真实执行。
+        （解析即炸），委托主实现后是真实编译+真实执行；失败不吞成 None
+        （None 会被 JIT 缓存永久固化）。
         """
         from src.compiler.matha_cc import matha_run as _run
         source = f"result = {expr}\n#1：[result]"
-        try:
-            proc = _run(source)
-        except Exception:
-            return None
+        proc = _run(source)
         lines = proc.stdout.splitlines()
         return lines[0] if lines else None
 
@@ -383,17 +381,21 @@ class MathaEngine:
         return result
 
     def vm_run(self, source: str) -> Any:
-        """通过虚拟机运行源码。"""
-        if not self.vm or not self.vm.bc:
-            self.vm = self.MathaVM()
+        """通过真实 MBC1 字节码虚拟机运行源码（闭环：编译→序列化→反序列化→VM 执行）。
 
-        # 简单的字节码生成和执行
-        self.MathaBytecode()
+        旧实现仅调用解释器（"简化处理"），MathaVM/MathaBytecode 对象从未
+        参与执行——现走主实现 mbc 编译链，字节码真实可被 src.mbc.serial 读回。
+        """
+        from src.mbc.compiler import compile_program
+        from src.mbc.serial import deserialize_mbc, serialize_mbc
+        from src.mbc.vm import VM
+        from src.parser import parse
 
-        # 将源码解析为字节码并执行
-        # 这里简化处理：直接使用解释器结果
-        result = self._eval_with_interpreter(source)
-        return result
+        mod = compile_program(parse(source))
+        bc = serialize_mbc(mod)
+        vm = VM(deserialize_mbc(bc))
+        vm.run()
+        return vm.outputs
 
     # ============================================================
     # JIT 编译和缓存优化

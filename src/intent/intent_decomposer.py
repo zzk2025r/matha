@@ -266,14 +266,14 @@ class IntentDecomposer:
         return self._heuristic_long_decompose(text)
 
     def _llm_decompose(self, text: str) -> IntentNode:
-        """
-        使用 LLM 进行意图分解。
+        """LLM 意图分解未接线（无真实 LLM API 客户端）。
 
-        返回包含完整意图树的根节点。
-        """
-        # 实际实现应调用 Claude/GPT API
-        # 这里返回模拟结果用于演示
-        return self._simulate_llm_decomposition(text)
+        旧实现返回 _simulate_llm_decomposition 的关键词模拟结果冒充 LLM 输出，
+        已显式拒绝。无 LLM 的启发式分解请用 use_llm=False（默认）。"""
+        raise NotImplementedError(
+            "LLM 意图分解未接线（旧实现返回模拟结果冒充 LLM 输出，已显式拒绝；"
+            "启发式分解请 use_llm=False）"
+        )
 
     def _heuristic_long_decompose(self, text: str) -> IntentNode:
         """长文本启发式分解（无 LLM 时的降级方案）。
@@ -342,81 +342,6 @@ class IntentDecomposer:
         # 匹配中文标点和英文标点
         parts = re.split(r'[，,。.;;、|]+', text)
         return [p.strip() for p in parts if p.strip()]
-
-    def _simulate_llm_decomposition(self, text: str) -> IntentNode:
-        """
-        模拟 LLM 分解（用于测试和演示）。
-
-        实际实现应调用真实 LLM API。
-        """
-        # 基于关键词的智能分解
-        sub_intents = []
-
-        # 检测素数搜索
-        if re.search(r'素数|质数', text):
-            match = re.search(r'(\d+)\s*到\s*(\d+)', text)
-            if match:
-                start, end = int(match.group(1)), int(match.group(2))
-                sub_intents.append(IntentNode(
-                    node_type=IntentNodeType.ATOMIC,
-                    text="找出素数",
-                    math_expr=f"primes = [p for p in range({start}, {end}+1) if is_prime(p)]",
-                    confidence=0.95,
-                ))
-
-        # 检测排序
-        if re.search(r'排序', text):
-            match = re.search(r'数组?\s*([^\s,，。]+)', text)
-            if match:
-                arr_str = match.group(1).strip('【】〔〕[]')
-                arr = [float(x) for x in arr_str.split(',')]
-                sub_intents.append(IntentNode(
-                    node_type=IntentNodeType.ATOMIC,
-                    text="排序数组",
-                    math_expr=f"sorted_arr = sorted({arr})",
-                    confidence=0.95,
-                ))
-
-        # 检测算术
-        if re.search(r'计算|求', text):
-            match = re.search(r'([\d.]+\s*[+\-*/^]\s*[\d.]+)', text)
-            if match:
-                expr = match.group(1)
-                sub_intents.append(IntentNode(
-                    node_type=IntentNodeType.ATOMIC,
-                    text="算术计算",
-                    math_expr=f"result = {expr}",
-                    confidence=0.95,
-                ))
-
-        # 检测条件
-        if re.search(r'如果|假如', text):
-            sub_intents.append(IntentNode(
-                node_type=IntentNodeType.CONSTRAINT,
-                text="条件约束",
-                constraints=["需要进一步澄清条件"],
-                confidence=0.6,
-                follow_up=["请明确条件表达式"],
-            ))
-
-        if not sub_intents:
-            # 无法分解 → 返回单节点
-            # KNP-008: 动态置信度
-            rule_matches = sum(1 for kw in text if any(k in text.lower() for k in ["加", "减", "乘", "除", "算", "求", "多少"]))
-            dynamic_confidence = min(0.9, 0.3 + rule_matches * 0.1 + len(text) * 0.005)
-            return IntentNode(
-                node_type=IntentNodeType.ROOT,
-                text=text,
-                confidence=dynamic_confidence,
-                follow_up=["请输入更具体的计算任务"],
-            )
-
-        return IntentNode(
-            node_type=IntentNodeType.ROOT,
-            text=text,
-            sub_intents=sub_intents,
-            confidence=0.9,
-        )
 
     # ============================================================
     # 模板学习

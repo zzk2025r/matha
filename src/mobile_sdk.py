@@ -574,18 +574,17 @@ class NetworkClient:
                     return {"url": url, "data": val,
                             "cached": True,
                             "age": round(time.time() - ts, 2)}
-        time.sleep(0.01)
-        payload = self._fake_response(url)
+        payload = self._http_get(url)
         with self._lock:
             self._cache[url] = (time.time(), payload)
         return {"url": url, "data": payload,
                 "cached": False, "age": 0.0}
 
-    def _fake_response(self, url: str) -> dict[str, Any]:
-        h = hashlib.sha256(url.encode()).hexdigest()[:12]
-        return {"id": h, "url": url,
-                "items": [h[i % len(h)] for i in range(5)],
-                "ts": time.time()}
+    def _http_get(self, url: str, timeout: float = 10.0) -> str:
+        """真 HTTP GET（urllib；网络错误如实传播，不伪造响应）。"""
+        from urllib.request import urlopen
+        with urlopen(url, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
 
     def invalidate(self, url: str) -> bool:
         with self._lock:

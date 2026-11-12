@@ -839,15 +839,110 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   src.MathaIR AttributeError、缺文件 rc1）。
   既有锁同步：`test_unified_layers.py` matha_parser compat 加 AST 形状断言（防 `_tokens/_pos` 回潮）、
   `test_mcp_server_facade.py` 编译摘要/全角标点/EOF 枚举比较 3 条按新契约升级。
-  **登记未修（本轮发现，超出范围，另立轨道）**：`src/mcp/ffi_sdk.py:221` 引用不存在的
-  `src.compiler.mir_codegen.MathaLLVMGenerator`（ImportError 死分支）；`src/bootstrap.py`
+  **登记未修（本轮发现，超出范围，另立轨道）**：`src/bootstrap.py`
   MathaBytecodeCompiler `_generate_bytecode` 对 target=matha/binary/trinary/decimal 抛 TypeError
   （'MIRConstInstr' 不可解释为整数，字节码链断裂）；MathaEngine.vm_run 编译路径暂眠回退 None
-  属注释性假值。
+  属注释性假值。ffi_sdk 一项（本条目原写作 `src/mcp/ffi_sdk.py:221` 引用不存在的
+  `src.compiler.mir_codegen.MathaLLVMGenerator`，路径与模块名笔误——实为 `src/plugins/ffi_sdk.py:221`
+  引用不存在的 `src.mir_codegen.MathaLLVMGenerator`）已于同日补充修复，见下方条目。
   全量门禁 **6749/6749 通过**（基线：`python scripts/check.py`，tests 项 6646 过 41m21s +
   kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知
   未实现不计入分母；零失败零跳过。首轮 6748/6749 唯一失败为 `test_ai_servers_smoke.py` 鉴权 401
   参数化一例，单跑与整文件复跑 39/39 均过，判定为长跑偶发连接时序，与本轮改动面无关）。
+- **2026-11 阶段 10 补充（ffi_sdk compile 分派诚实化）**：修复阶段 10 登记的
+  `src/plugins/ffi_sdk.py:221` 死分支，顺带清算该文件 compile 分派面：
+  ① **llvm 死分支**（import 不存在的 `src.mir_codegen.MathaLLVMGenerator` → 恒 ImportError）→
+  NotImplementedError 显式拒绝；② **python/c 改委托真生成器**：从 src/codegen 原型后端
+  （PythonGenerator 等对常量指令 IndexError——MIRConstInstr 的 instr_type 误标 ADD 且 operands
+  为空）改为 `src.mir_codegen.MIRToPythonGenerator/MIRToCGenerator`（func 形态真编译，
+  生成 Python 代码 exec 可跑：加一(3)=4；test_mir_pipeline 既有锁覆盖该生成器）；③
+  **rust/cpp/go/java/js 显式拒绝**（rust 后端输出源码无关固定模板——两份不同源码逐字节相同，
+  与阶段 9/10 清算的假产物同类）；④ **compile_and_execute 假成功 dict 清除**：非 VM 目标
+  `{"compiled": True}` 假回显改为返回编译工件本身（mir/optimized_mir 仍走 MIR VM）；⑤
+  **matha_eval 双执行修复**（同一表达式原执行两次）+ **execute 共享单例累积 outputs 修复**
+  （Interpreter.run 返回实例级累积列表，此前第二次 execute 返回全部历史输出、matha_eval
+  取 [0] 拿陈旧值——现按调用前基线取增量）；⑥ 模块 docstring 诚实化（不再声称 Rust FFI/
+  Go CGO/NAPI/JNI/WASM 绑定；libmatha 本仓不产出，`MathaLibrary.load` 缺失如实 False）。
+  新 `tests/test_ffi_sdk_honest.py` **21 条**三锁：真实面（execute/matha_eval 真值、单次执行
+  计数锁、ast/mir/optimized_mir 真产物类型、python 目标生成代码 exec 对拍 加一(3)=4、
+  c 目标函数签名存在、matha_run_file 真值）；闭环（cae mir 纯输出源返回空 = MIR 原型层不表示
+  顶层 Output 的登记边界、cae python/ast 返回编译工件本身、run_pipeline 逐目标诚实报告）；
+  显式拒绝（llvm+五原型目标 NotImplementedError、未知目标 ValueError、坏源 ParseError、
+  库缺失 load() False、源码面不再路由 src/codegen 七后端）。
+  **登记未修（本轮发现，另立轨道）**：`src/codegen/` 七个语言后端
+  （python/rust/c/cpp/go/java/js_backend）零消费者原型（rust 固定模板/其余常量 IndexError）；
+  `src/mir.py` MIRGenerator 对顶层 Binding 丢名（MIRStoreInstr result='' → C 生成器发射非法 C
+  ` = 2.0;`、Python 生成器对纯绑定源输出空 main）；`src/mir.py` 不表示顶层 Output
+  （compile_and_execute 纯输出源返回空）；`src/plugins/legacy_mir_vm.py` func 调用形态
+  ValueError 崩溃（float('t2')）；MathaBytecodeCompiler 字节码链与 vm_run 仍登记未修。
+  全量门禁 **6770/6770 通过**（基线：`python scripts/check.py`，tests 项 6667 过 42m43s +
+  kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知
+  未实现不计入分母；零失败零跳过）。
+- **2026-11 阶段 11 收官（全面清算：崩溃/未诚实化/假成功/未修理项 #14-#21）**：用户指令
+  「门禁跑完后，检测整个 matha 所有的崩溃/未诚实化/假成功/未修理项进行修复」，按 P0→P3 清算：
+  ① **[P0] `src/symbolic.py` 数学错误修复**：diff() 补 '-' 规则 + '/' 商法则 (u'v−uv')/v² +
+  '**' 链式因子（旧对 sin/exp/log 恒等返回）；integrate() 幂规则补 ÷(n+1)（旧 ∫x² 产 x³）；
+  除零诚实（1/0 求值抛 ZeroDivisionError「符号求值除数为零」，`symbolic_calc` value=None
+  不冒充数值）。② **[P0] `src/interp.py` enumerate/zip 真化**：柯里化两参内建（与 MBC-VM
+  enumerate_val/zip_val 同语义；不可迭代/非整数下标显式拒绝），删除死 _enum_c/_enumerate_curried/
+  _zip_curried。③ **[P0] `src/mir.py` 顶层 Binding 丢名 + Output 不表示**：_compile_binding
+  真名入 scope/MIRStoreInstr.target（旧 result='' → C 生成器发射非法 ` = 2.0;`）；
+  _compile_mech_unit 处理 GenStmt/CodeBlock 体 + Output 真发射（旧顶层 Output 整段丢弃）。
+  ④ **[P0] `src/plugins/legacy_mir_vm.py` 四 bug 真化**：指令按类分派（旧 payload 形态碰撞——
+  Return.value 被误当 const 值）、函数注册 _state.globals、params 按名绑定（旧按索引错位）、
+  frame.pc 跳转真读写；跨语言验证 outputs 恒空 → `[]==[]` 恒假通过的假阳性清除（空输出如实报
+  不可验证）。⑤ **[P0] `src/bootstrap.py` MathaBytecodeCompiler + `src/matha_engine.py`**：
+  binary/trinary/decimal 旧产文本冒充字节码清算 → 真 MBC1 委托；vm_run/eval_vm 暂眠回退 None
+  显式化。⑥ **[P1] domains 假值真化**：concurrent（任务静默丢弃→真执行）、security（明文当密文
+  +verify 恒 True→真 HMAC-SHA256 校验；AES 非 stdlib 显式拒绝）、blockchain（区块校验真 hash
+  重算）、robotics（传感器恒 0→无硬件显式拒绝；plan_path 真直线插值手算对拍；control_arm 真写
+  关节+越界/数量不符拒绝）、hardware（_wait 真等待：psutil/ctypes 双路）、web_framework
+  （WebSocket 假连接→RFC6455 未实现显式拒绝）、matha_system 门面九类假返回清算（并发/web/
+  database 门面未初始化或无连接时显式拒绝 + 真对象/真执行）。⑦ **[P1] `src/database_engine.py`
+  真 sqlite3 重写**：QueryExecutor.execute 真执行 SQL（cursor.description 列名 + dict 行、受影响
+  行数、lastrowid、CREATE TABLE 自动登记、事务内抑制隐式 commit）、TransactionManager 真
+  commit/rollback（旧空转）、create_table 真 DDL、insert 参数化、select 真查询；matha_system
+  双 `_init_database` 遮蔽同名（database_class 实为 src.database_engine.Database 路径型 API）据实
+  接线。⑧ **[P2] 多语言链诚实化**：multi_lang_frontend 删除坏 _TS_*Adapter 层（检查后端从不发射
+  的节点类型），真前端无条件注册；Go 前端 `:?=`/无分号 return 解析修复；transpiler 裸常量
+  pi/e/tau + 双 fallback 显式拒绝（旧产 'None  # 未转译'）；hybrid_compiler C/Rust/Go 空壳
+  NotImplementedError + from_language 反向假转译 ValueError；multi_lang_codegen Rust 假测试架
+  （伪造 assert!/预期值）删除；unified_multilang 幻影 MultiLangVerifierV2 如实点名 +
+  generate_code 异常传播（旧吞成空串）+ full_workflow 真路径。⑨ **[P3] 其余诚实化**：
+  unified_growth 插件市场 8 包装吞错假空清除（管理器损坏如实抛出、get_package_rating 不再伪造
+  0 分统计；未知包/非法分值锁定降级契约保持）；intent_decomposer `_llm_decompose` 显式拒绝
+  （旧返回关键词模拟结果冒充 LLM 输出）+ 删除死 `_simulate_llm_decomposition`；llm_parser
+  sk-placeholder 占位密钥仅限本地 base_url、远程无密钥显式拒绝；mobile_sdk NetworkClient.get
+  真 HTTP（旧 _fake_response 伪造响应）；mir_codegen MIR 清洗管线吞错清除（旧双层
+  try/except-pass）；domains/registry fire/_dispatch_register 吞错清除。⑩ **锁定契约核实不修**
+  （登记口径复核）：time_builtin parse_time 失败 0.0 / 未知时区 0 / 注册任务回调不触发——
+  三后端对拍既有锁；openai_compat chat 腿异常 200 透出「Matha 错误」——诚实契约锁。
+  新 `tests/test_phase11_honest_purge.py` **46 条**三锁：parity（symbolic 结构手算对拍
+  ∫x²=x³/3 + symbolic_calc (x²)'=2x/值 9.0 + unknown 括号边界；robotics 11 点插值逐点对拍/
+  真写关节；_wait 真等待时长锁；db 真 sqlite 行读回/事务回滚提交/dict 与 SQL 同库；并发
+  submit_task 真执行 await_all=1；前端四语言真 IR 节点 + i64→T_INT；Rust 生成器真函数体）；
+  闭环（db create_table→insert→select→drop_table 全链、full_workflow python 真产物）；显式拒绝
+  （除零、robotics 越界/无传感器、WebSocket RFC6455、门面未初始化×9、hybrid 三空壳 + 反向、
+  转译未知节点、市场损坏传播×8、LLM 模拟冒充、远程无密钥、registry 回调/钩子）。
+  全量门禁 **6816/6816 通过**（基线：`python scripts/check.py`，tests 项 6713 过 +
+  kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知
+  未实现不计入分母；零失败零跳过；增量 +46 = 新测试文件条数）。
+- **2026-11 阶段 11 孤儿清单登记（零消费文件，待批准删除）**：transitive 零消费扫描
+  （无任何 src/tests/scripts/extensions 消费者；动态 importlib 字符串引用已计入；src 总
+  180,938 行）实测 **34 文件 14,275 行（7.9%）**：纯库模块 21（adapters/language_adapters、
+  binary_codec、compiler_matha、cross_language_verifier、debug_interp29、exceptions、
+  matha_formula、matha_service、numpy_compat、os_module、symbol_compat、symbol_registry、
+  web_framework、domains/{extended_modeling,real_hardware}、dynamics/rv32_executor_pilot、
+  hardware/hal_multiprocessing、jupyter/notebook_example、offline/storage、
+  optimization/sparse_svd、stdlib/probability_stats、plugins/{deps_probe,interop,numpy_accel,
+  toolchain_msvc,toolchain_signature,tree_sitter_cext}）+ 含 `__main__` 独立入口 13
+  （base3_matha、lexer_matha、matha_daemon、demos/demo_calculus_matrix、hardware/benchmark、
+  tools/flame_graph、mbc/native_elf、adapters/language_adapters、binary_codec、compiler_matha、
+  cross_language_verifier、offline/storage、stdlib/probability_stats，与前组有交叠）；
+  其中 mbc/native_elf.py（2,653 行）为 docs/spec/NATIVE_* 五份文档锚定的原型（无代码消费）。
+  **复核更正**：早前 54 文件估算中的 `src/codegen/` 与 `src/auth/` 经实查有活引用
+  （autonomous.py:464 `from src.codegen import codegen`；matha_system.py:402 AuthManager），
+  移出删除候选。**删除需单独批准，未擅动**。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

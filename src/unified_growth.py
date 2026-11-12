@@ -357,78 +357,48 @@ class UnifiedGrowth:
         """取回注册时附带的可调用对象（旧缺陷：func 被忽略、无从取回）。"""
         return self._extension_callables.get(name)
     # ── 插件市场 ──────────────────────────────────────────────────────
+    # 旧缺陷：八个包装方法全部 except Exception 吞错返回空值——管理器损坏时
+    # 「空结果」与「真无结果」不可区分，get_package_rating 还伪造 0 分统计。
+    # 现在如实委托管理器：损坏错误如实抛出；仅用户输入类错误按锁定契约降级。
+    def _pkg_manager(self):
+        from src.pkg_manager_v2 import MathaPackageManager
+        return MathaPackageManager()
+
     def search_packages(self, query: str, remote: bool = False) -> list[dict]:
         self._ensure_initialized()
-        try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            return mgr.search(query, remote=remote)
-        except Exception:
-            return []
+        return self._pkg_manager().search(query, remote=remote)
+
     def get_package_info(self, pkg_name: str) -> str:
-        """获取包详细信息。"""
-        try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            return mgr.show_package_info(pkg_name)
-        except Exception as e:
-            return f"获取信息失败: {e}"
+        """获取包详细信息（未知包由管理器如实返回「包不存在: X」）。"""
+        return self._pkg_manager().show_package_info(pkg_name)
+
     def rate_package(self, pkg_name: str, rating: int, user: str = "anonymous") -> bool:
-        """为包评分。"""
+        """为包评分。未知包/非法分值如实降级 False；管理器损坏如实抛出。"""
         try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            return mgr.rate_package(pkg_name, rating, user)
-        except Exception:
-            return False
+            return self._pkg_manager().rate_package(pkg_name, rating, user)
+        except Exception as e:
+            from src.pkg_manager import PackageNotFoundError
+            if isinstance(e, (PackageNotFoundError, ValueError)):
+                return False
+            raise
+
     def get_package_rating(self, pkg_name: str) -> dict:
-        """获取包评分信息。"""
-        try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            return mgr.get_package_rating(pkg_name)
-        except Exception:
-            return {"average": 0, "count": 0}
+        """获取包评分信息（未知包/无评分由管理器如实返回全零统计）。"""
+        return self._pkg_manager().get_package_rating(pkg_name)
+
     def check_updates(self) -> list[dict]:
-        """检查已安装包更新。"""
-        try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            return mgr.check_updates()
-        except Exception:
-            return []
+        return self._pkg_manager().check_updates()
+
     def upgrade_packages(self, pkg_name: str = None, dry_run: bool = False) -> list[str]:
-        """升级包。"""
-        try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            if pkg_name:
-                updates = mgr.check_updates()
-                pkg_update = next((u for u in updates if u['package'] == pkg_name), None)
-                if pkg_update:
-                    if not dry_run:
-                        mgr.install(f"{pkg_name}=={pkg_update['latest']}")
-                    return [f"{pkg_name} {pkg_update['current']} -> {pkg_update['latest']}"]
-                return []
-            return mgr.upgrade_all(dry_run=dry_run)
-        except Exception:
-            return []
+        if pkg_name:
+            return self._pkg_manager().upgrade_package(pkg_name, dry_run=dry_run)
+        return self._pkg_manager().upgrade_all(dry_run=dry_run)
+
     def get_dependency_tree(self, pkg_name: str, depth: int = 5) -> dict:
-        """获取依赖树。"""
-        try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            return mgr.get_dependency_tree(pkg_name, depth)
-        except Exception:
-            return {}
+        return self._pkg_manager().get_dependency_tree(pkg_name, depth)
+
     def check_conflicts(self, specs: list[str]) -> list[dict]:
-        """检查依赖冲突。"""
-        try:
-            from src.pkg_manager_v2 import MathaPackageManager
-            mgr = MathaPackageManager()
-            return mgr.check_conflicts(specs)
-        except Exception:
-            return []
+        return self._pkg_manager().check_conflicts(specs)
 # ── 单例 ────────────────────────────────────────────────────────────
 _unified_growth: UnifiedGrowth | None = None
 def get_unified_growth(interp=None) -> UnifiedGrowth:

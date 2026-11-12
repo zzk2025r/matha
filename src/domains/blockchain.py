@@ -120,12 +120,31 @@ class Blockchain:
         return wallet
 
     def validate_chain(self) -> bool:
-        """验证链。"""
+        """验证链 — 重算每块哈希并校验前向链接（旧实现恒 True）。"""
+        for i, block in enumerate(self._chain):
+            claimed = block.hash
+            block.hash = ""
+            recalculated = hashlib.sha256(str(block).encode()).hexdigest()
+            block.hash = claimed
+            if claimed != recalculated:
+                return False
+            if i > 0 and block.previous_hash != self._chain[i - 1].hash:
+                return False
         return True
 
     def get_balance(self, address: str) -> float:
-        """获取余额。"""
-        return 0.0
+        """获取余额 — 汇总链上全部已记账交易（收款为正、付款为负）。
+
+        旧实现恒 0.0。未上链的待处理交易不计入。
+        """
+        balance = 0.0
+        for block in self._chain:
+            for tx in block.transactions:
+                if tx.recipient == address:
+                    balance += tx.amount
+                if tx.sender == address:
+                    balance -= tx.amount
+        return balance
 
 
 def create_blockchain(consensus: str = "pow") -> Blockchain:

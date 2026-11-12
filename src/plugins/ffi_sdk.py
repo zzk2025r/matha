@@ -1,22 +1,19 @@
 """
-Matha FFI SDK - 多语言调用接口
+Matha FFI SDK - Python 绑定与外部动态库契约层
 
-提供统一的 API 供各种语言调用 Matha：
-- C API (matha.h / libmatha.so/.dll)
-- Python 绑定 (pip install matha)
-- Rust FFI (matha-sys / matha crate)
-- Go CGO 绑定
-- Node.js NAPI 绑定
-- Java JNI 绑定
-- WASM 绑定 (Web 运行时)
+真实可用（经测试锁定）：
+- Python 绑定：引擎创建/销毁、编译（ast/mir/optimized_mir 真产物；python/c 委托
+  真实 mir_codegen 生成器）、执行（主解释器）、异步执行、统一值转换
+- 外部动态库契约层（ctypes）：libmatha.dll/.so 的加载与签名声明——本仓不产出该库，
+  load() 在库缺失时如实返回 False
 
-核心能力：
-- 引擎创建/销毁
-- 代码编译/执行
-- 值传递 (标量/数组/矩阵)
-- 异步执行/流式输出
-- 内存管理
-- 错误处理
+显式拒绝（未实现真编译，旧路径产无效产物/固定模板/常量崩溃）：
+- llvm / rust / cpp / go / java / js 代码生成
+
+已知边界（如实登记）：
+- MIR 原型层不表示顶层 Output（compile_and_execute 对纯输出源返回空）；
+- mir.py MIRGenerator 对顶层 Binding 丢失名字（STORE result 为空）；
+- legacy_mir_vm 仅覆盖窄形态（func 调用形态会崩）。
 """
 
 from __future__ import annotations
@@ -202,7 +199,12 @@ class MathaEngine:
         self._context.clear()
 
     def compile(self, source: str, target: str = "mir") -> Any:
-        """编译源码"""
+        """编译源码。
+
+        ast/mir/optimized_mir 为真产物；python/c 委托真实 mir_codegen 生成器；
+        llvm/rust/cpp/go/java/js 未实现真编译，显式拒绝（旧路径 import 不存在的
+        MathaLLVMGenerator、输出源码无关固定模板或对常量指令崩溃）。
+        """
         if not self._initialized:
             self.initialize()
 
@@ -215,58 +217,33 @@ class MathaEngine:
         elif target == "optimized_mir":
             mir = self._mir_gen.generate(ast)
             return self._optimizer.run(mir)
-        elif target == "llvm":
-            mir = self._mir_gen.generate(ast)
-            mir = self._optimizer.run(mir)
-            from src.mir_codegen import MathaLLVMGenerator
-            gen = MathaLLVMGenerator()
-            return gen.generate(mir)
         elif target == "python":
-            from src.codegen.python_backend import PythonGenerator
+            from src.mir_codegen import MIRToPythonGenerator
             mir = self._mir_gen.generate(ast)
-            gen = PythonGenerator(mir, "/tmp")
-            return gen._build_main()
-        elif target == "rust":
-            from src.codegen.rust_backend import RustGenerator
-            mir = self._mir_gen.generate(ast)
-            gen = RustGenerator(mir, "/tmp")
-            return gen._build_lib_rs()
+            return MIRToPythonGenerator().generate(mir)
         elif target == "c":
-            from src.codegen.c_backend import CGenerator
+            from src.mir_codegen import MIRToCGenerator
             mir = self._mir_gen.generate(ast)
-            gen = CGenerator(mir, "/tmp")
-            return gen._build_header() + "\n\n" + gen._build_source()
-        elif target == "cpp":
-            from src.codegen.cpp_backend import CppGenerator
-            mir = self._mir_gen.generate(ast)
-            gen = CppGenerator(mir, "/tmp")
-            return gen._build_header() + "\n\n" + gen._build_source()
-        elif target == "go":
-            from src.codegen.go_backend import GoGenerator
-            mir = self._mir_gen.generate(ast)
-            gen = GoGenerator(mir, "/tmp")
-            return gen._build_main()
-        elif target == "java":
-            from src.codegen.java_backend import JavaGenerator
-            mir = self._mir_gen.generate(ast)
-            gen = JavaGenerator(mir, "/tmp")
-            return gen._build_main()
-        elif target == "js":
-            from src.codegen.js_backend import JSGenerator
-            mir = self._mir_gen.generate(ast)
-            gen = JSGenerator(mir, "/tmp")
-            return gen._build_main()
+            return MIRToCGenerator().generate(mir)
+        elif target in ("llvm", "rust", "cpp", "go", "java", "js"):
+            raise NotImplementedError(
+                f"Matha → {target} 代码生成未实现真编译（旧路径产无效产物或崩溃，现显式拒绝）")
 
         raise ValueError(f"不支持的目标: {target}")
 
     def execute(self, source: str, inputs: dict[str, Any] | None = None) -> list[Any]:
-        """执行源码"""
+        """执行源码，返回本次调用的输出。
+
+        底层 Interpreter.run 返回实例级累积 outputs（诊断后端语义），此处按
+        调用前基线取增量——共享引擎单例跨调用不携带历史输出。
+        """
         if not self._initialized:
             self.initialize()
 
         ast = self._parser(source)
+        before = len(self._interpreter.outputs)
         outputs, trace = self._interpreter.run(ast)
-        return outputs
+        return outputs[before:]
 
     def execute_async(self, source: str, inputs: dict[str, Any] | None = None) -> Any:
         """异步执行源码"""
@@ -274,18 +251,17 @@ class MathaEngine:
         return asyncio.get_event_loop().run_in_executor(None, self.execute, source, inputs)
 
     def compile_and_execute(self, source: str, target: str = "mir") -> Any:
-        """编译并执行"""
-        mir = self.compile(source, target)
+        """编译并执行。
+
+        mir/optimized_mir 走 MIR VM 真执行（注意：MIR 原型层不表示顶层 Output，
+        纯输出源返回空）；其余目标返回编译工件本身，不假执行、不产假成功 dict。
+        """
+        compiled = self.compile(source, target)
 
         if target in ("mir", "optimized_mir"):
-            # 使用 VM 执行
-            outputs, trace = self._vm.run(mir)
+            outputs, trace = self._vm.run(compiled)
             return outputs
-        elif target in ("python", "js", "wasm"):
-            # 这些目标生成可直接运行的代码
-            return {"compiled_code": mir}
-        else:
-            return {"compiled": True, "target": target}
+        return compiled
 
     def register_module(self, name: str, module: Any) -> None:
         """注册外部模块"""
@@ -584,7 +560,8 @@ def run_pipeline(source: str, targets: list[str] = None) -> dict[str, Any]:
 
 def matha_eval(expression: str) -> Any:
     """计算表达式"""
-    return execute_source(f"#1：[{expression}]")[0] if execute_source(f"#1：[{expression}]") else None
+    outputs = execute_source(f"#1：[{expression}]")
+    return outputs[0] if outputs else None
 
 
 def matha_run_file(filepath: str) -> list[Any]:
@@ -662,21 +639,27 @@ if __name__ == "__main__":
     outputs = execute_source("#1：[sin(3.14)]")
     print(f"  sin(3.14) = {outputs}")
 
-    # 测试编译
+    # 测试编译（func 形态真生成；原型目标显式拒绝）
     print("\n[编译测试]")
-    c_code = compile_source("#1：[x + 1]", "c")
+    demo_src = "func 加一(x) -> Int = (x) => x + 1"
+    c_code = compile_source(demo_src, "c")
     print(f"  C 代码生成: {'成功' if c_code else '失败'} (长度: {len(c_code)} 字符)")
 
-    py_code = compile_source("#1：[x + 1]", "python")
+    py_code = compile_source(demo_src, "python")
     print(f"  Python 代码生成: {'成功' if py_code else '失败'} (长度: {len(py_code)} 字符)")
 
-    rust_code = compile_source("#1：[x + 1]", "rust")
-    print(f"  Rust 代码生成: {'成功' if rust_code else '失败'} (长度: {len(rust_code)} 字符)")
+    try:
+        compile_source(demo_src, "rust")
+        print("  Rust 代码生成: 假成功（不应到达）")
+    except NotImplementedError:
+        print("  Rust 代码生成: 显式拒绝（未实现真编译）")
 
     # 管线测试
     print("\n[管线测试]")
-    pipeline_result = run_pipeline("#1：[x^2 + 2*x + 1]", ["python", "rust", "c"])
+    pipeline_result = run_pipeline(demo_src, ["python", "rust", "c"])
     print(f"  管线执行: {pipeline_result['execution']['success']}")
+    for tgt, report in pipeline_result["targets"].items():
+        print(f"  目标 {tgt}: {'成功' if report['success'] else report['error']}")
 
     print("\n" + "=" * 60)
     print("  测试完成")
