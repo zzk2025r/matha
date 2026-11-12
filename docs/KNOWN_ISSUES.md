@@ -929,20 +929,30 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   未实现不计入分母；零失败零跳过；增量 +46 = 新测试文件条数）。
 - **2026-11 阶段 11 孤儿清单登记（零消费文件，待批准删除）**：transitive 零消费扫描
   （无任何 src/tests/scripts/extensions 消费者；动态 importlib 字符串引用已计入；src 总
-  180,938 行）实测 **34 文件 14,275 行（7.9%）**：纯库模块 21（adapters/language_adapters、
-  binary_codec、compiler_matha、cross_language_verifier、debug_interp29、exceptions、
-  matha_formula、matha_service、numpy_compat、os_module、symbol_compat、symbol_registry、
-  web_framework、domains/{extended_modeling,real_hardware}、dynamics/rv32_executor_pilot、
-  hardware/hal_multiprocessing、jupyter/notebook_example、offline/storage、
-  optimization/sparse_svd、stdlib/probability_stats、plugins/{deps_probe,interop,numpy_accel,
-  toolchain_msvc,toolchain_signature,tree_sitter_cext}）+ 含 `__main__` 独立入口 13
-  （base3_matha、lexer_matha、matha_daemon、demos/demo_calculus_matrix、hardware/benchmark、
-  tools/flame_graph、mbc/native_elf、adapters/language_adapters、binary_codec、compiler_matha、
-  cross_language_verifier、offline/storage、stdlib/probability_stats，与前组有交叠）；
-  其中 mbc/native_elf.py（2,653 行）为 docs/spec/NATIVE_* 五份文档锚定的原型（无代码消费）。
-  **复核更正**：早前 54 文件估算中的 `src/codegen/` 与 `src/auth/` 经实查有活引用
+  180,938 行）+ **非 Python 数据引用复核**（manifest.json / docs / spec 全量核对）实测
+  **30 文件 14,068 行（7.8%）**：纯库模块 17（adapters/language_adapters、binary_codec、
+  compiler_matha、cross_language_verifier、debug_interp29、exceptions、matha_formula、
+  matha_service、numpy_compat、os_module、symbol_compat、web_framework、
+  hardware/hal.py（仅被孤儿 benchmark 与孤儿 hal_multiprocessing 消费）、
+  hardware/hal_multiprocessing、jupyter/notebook_example、offline/storage（OFFLINE_GUIDE
+  有文档示例但零代码接线）、optimization/sparse_svd）+ 含 `__main__` 独立入口 13
+  （base3_matha、lexer_matha、matha_daemon、demos/demo_calculus_matrix、
+  hardware/benchmark、tools/flame_graph、mbc/native_elf、language_adapters、binary_codec、
+  compiler_matha、cross_language_verifier、offline/storage、stdlib/probability_stats，
+  与前组有交叠）；其中 mbc/native_elf.py（2,653 行）为 docs/spec/NATIVE_* 五份文档锚定的
+  原型（无代码消费）。
+  **复核更正两轮**：① 早前 54 文件估算中的 `src/codegen/` 与 `src/auth/` 经实查有活引用
   （autonomous.py:464 `from src.codegen import codegen`；matha_system.py:402 AuthManager），
-  移出删除候选。**删除需单独批准，未擅动**。
+  移出删除候选；② 首轮 34 文件清单中的 `src/domains/{extended_modeling,real_hardware,kernel}.py`
+  经 manifest.json 复核为**已接线的懒加载领域插件**（PluginResolver 按需动态加载，无静态
+  import 属设计状态），移出删除候选；`src/symbol_registry.py` 与
+  `src/plugins/toolchain_signature.py` 经 parent-package import 形态复核有真实消费者
+  （tests/test_symbol_registry.py、pkg_manager_v2.py:55 PEP 562 惰性转发），同样移出。
+  **删除已于 2026-11-12 经用户逐类审批后执行**（选项：全删 30 个；git 历史可恢复）：
+  29 个 `git rm` + debug_interp29.py 为未跟踪文件直接删除；空目录 adapters/、demos/、
+  optimization/ 一并移除（tools/ 保留其余 4 个活文件、hardware/ 保留 hal_v2、jupyter/
+  保留 matha_magic）。doc 面同步：README 内核外工具插件 14→9、ARCHITECTURE
+  core_py_lines 34,260→31,608（repo_facts 实测一致）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

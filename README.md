@@ -9,7 +9,7 @@
 
 - **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
 - **领域插件：** 82（`src/domains/` 共 84 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
-- **内核外工具插件：** 14（`src/plugins/`）
+- **内核外工具插件：** 9（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 166（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
 - **测试文件：** 128（`tests/`）
