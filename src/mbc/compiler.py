@@ -410,6 +410,14 @@ class Compiler:
         elif isinstance(decl, ast.MechUnit):
             # #1：[expr] 输出单元 → GenStmt → OutputTrail/Output
             self._compile_stmt(decl.body, code)
+        elif isinstance(decl, ast.UnaryOp) or (
+                isinstance(decl, ast.BinaryOp) and decl.op != "="):
+            # 顶层裸算术/一元表达式（如 1 + 2、-3、~5）：与解释器一致发射其值。
+            # 此前走兜底「求值后 POP 丢弃」，matha run 文件面静默吞输出（阶段 15a）。
+            # `=` 赋值形态（顶层下标赋值 s[0] = 9 解析为 BinaryOp("=")，现为
+            # 双端 no-op 契约）不发射，仍走兜底 POP；自举编译器镜像同构。
+            self._emit_expr(decl, _Scope(None, is_main=True), code)
+            code.append((OP.OUTPUT,))
         elif isinstance(decl, (ast.IfStmt, ast.IfElseStmt, ast.WhileStmt, ast.ForStmt,
                                ast.TryStmt, ast.ThrowStmt, ast.CodeBlock)):
             # 顶层控制流语句（绑定写全局，语句值丢弃）

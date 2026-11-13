@@ -686,9 +686,10 @@ def test_selfhost_compile_emits_module_dict(compiler_boot_vm):
     assert d["常量"] == [8]
     assert d["函数"] == []
     assert d["主码"][-1] == [0xFF]
-    # 折叠后：PUSH_CONST 0(=8); POP; HALT
+    # 折叠后：PUSH_CONST 0(=8); OUTPUT; HALT —— 阶段 15a 起顶层裸表达式发射
+    # 其值（宿主 _compile_top_decl 与自举编译器镜像同构），不再是 POP(0x59)
     assert d["主码"][0] == [0x01, 0]
-    assert d["主码"][1] == [0x59]
+    assert d["主码"][1] == [0x60]
     # 与宿主编译器逐字节一致（stage2 ≡ stage3）
     assert _canon(d) == _canon(_host_compile("3 + 5"))
 

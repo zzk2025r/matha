@@ -219,7 +219,7 @@ module 编译器 {
       -> (List, List, Dict) =
     decls = [] ? (code, sc, bc) :
     decls[0]["类型"] = "函数定义" ? _编译非函数列表(decls[1:], code, sc, bc) :
-    let (c2, sc2, bc2) = _编译声明(decls[0], code, sc, bc) in
+    let (c2, sc2, bc2) = _编译顶层声明(decls[0], code, sc, bc) in
     _编译非函数列表(decls[1:], c2, sc2, bc2)
 
   func _编译函数(fdef: Dict, bc: Dict) -> Dict = (fdef, bc) =>
@@ -254,10 +254,30 @@ module 编译器 {
   func _重置主作用域计数(sc: List) -> List =
     sc[3] = 真 ? [0, sc[1], sc[2], sc[3], sc[4]] : sc
 
+  (* ===== 阶段 15a：顶层裸二元（≠ "=" 赋值形态）/一元运算发射语句值 =====
+     与宿主 _compile_top_decl 显式分支同构：matha run 文件面发射 1 + 2、-3、~5
+     的值。仅顶层 decl 位（程序主码 / 模块内非函数声明）走本包装；块尾
+     （_发射块末条）/生成语句链/let-body 等语句位宿主仍 POP，故 _编译声明
+     兜底不动；`s[0] = 9` 等 "=" 形态保持双端 no-op 契约。 *)
+  func _编译顶层声明(decl: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    (* 体不得以 `(` 开头：func-def 解析器把 `= (a, b) =>` 贪婪当 lambda
+       参数表（_编译函数 同款语法），故条件先 let 绑定再取用。 *)
+    let 发输出 =
+      decl["类型"] = "二元运算" ? (decl["运算符"] = "=" ? 假 : 真) :
+      decl["类型"] = "一元运算" ? 真 : 假 in
+    (* 只有真算术/一元形态才发值；其余声明（机械单元/输出/while 等）仍是
+       非表达式节点，必须走 _编译声明，不得落入 _发射表达式。 *)
+    发输出 ?
+      (let (c2, sc2, bc2) =
+         _发射表达式(decl, code, _重置主作用域计数(sc), bc) in
+       (_发(c2, [OP_OUTPUT]), sc2, bc2)) :
+      _编译声明(decl, code, sc, bc)
+
   func _编译声明列表(decls: List, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     decls = [] ? (code, sc, bc) :
-    let (c2, sc2, bc2) = _编译声明(decls[0], code, sc, bc) in
+    let (c2, sc2, bc2) = _编译顶层声明(decls[0], code, sc, bc) in
     _编译声明列表(decls[1:], c2, sc2, bc2)
 
   func _编译声明(decl: Dict, code: List, sc: List, bc: Dict)
@@ -303,7 +323,9 @@ module 编译器 {
        的 RaiseExpr 分支（求值 + RAISE），**不补 POP**——RAISE 不返回，栈上
        也不会残留值。裸表达式兜底会多发一条 POP，与宿主产物不一致。 *)
     decl["类型"] = "抛出" ? _发射表达式(decl, code, _重置主作用域计数(sc), bc) :
-    (* 其余视为裸表达式语句：求值后丢弃 *)
+    (* 其余视为裸表达式语句：求值后丢弃。顶层裸二元/一元运算的发射
+       （阶段 15a）在 _编译顶层声明 包装层做——本兜底同时被块尾
+       （_发射块末条）/生成语句链复用，那些语句位宿主仍 POP。 *)
     let (c2, sc2, bc2) = _发射表达式(decl, code, _重置主作用域计数(sc), bc) in
     (_发(c2, [OP_POP]), sc2, bc2)
 

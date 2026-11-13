@@ -1174,6 +1174,39 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   全量门禁 **7091/7091 通过**（基线 `python scripts/check.py`：tests 6988 + kernel_purity 14 +
   ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
   算术闭合：7051（13 总收官）+ 40（阶段 14 三锁）= 7091。
+- **2026-11 阶段 15 收官（双端语义对齐：语句级发射语义 host↔VM 逐项对齐——D1/D2 修复 + 自举编译器
+  镜像同构；D3/D4/D5 拍板登记不修）**：摸底五分歧矩阵（探针逐项复现）——**D1** 顶层裸二元/一元运算
+  （host 解释器发射其值 / VM 兜底 POP 吞掉：`matha run` 文件面 `1+2` host 出 3、VM 静默）；
+  **D2** 顶层 if 表达式（host `_exec_decl` 末尾 else 整体静默跳过——代码不跑、分支内 输出(...) 丢失 /
+  VM 照常执行）；**D3** `let x=1 in [x+2]`（host 发首元素〔自测块兼容行为〕 / VM POP）；
+  **D4** 顶层裸变量/字面量（host 静默 / VM `MathaUndefinedNameError`）；**D5** `===`（host 支持
+  但语义可疑：`1===1.0`→False、`"甲"==="甲"`→False、`[1]===[1]` 解析拒绝 / VM RuntimeError
+  不支持的二元运算符）。**用户拍板**：D1 修（VM 侧加发射）、D2 修（host 侧加 IfExpr 分支）、
+  D3/D4/D5 登记不修（D3 是自测块兼容契约、D4 变量名引用属语义错误面非发射面、D5 修任一端都是
+  语义变更另立片）。**15a**（`src/mbc/compiler.py` `_compile_top_decl` 新分支）：UnaryOp 或
+  BinaryOp(op≠"=") → `_emit_expr` + OP.OUTPUT；`=` 赋值形态（顶层下标赋值 `s[0] = 9` 解析为
+  BinaryOp("=")）保持双端 no-op POP 契约不动（误纳入时 test_set_index_and_mutate 当场揪出）。
+  **15b**（`src/interp.py` `_exec_decl` 新 IfExpr 分支）：`_eval` 真执行（分支副作用生效、值丢弃、
+  错误传播），与 VM 语句语义一致。**15c 自举编译器镜像**（`matha/compiler_matha.matha` 新增
+  `_编译顶层声明` 包装层，仅 `_编译声明列表`/`_编译非函数列表` 两个顶层入口接线）：块尾
+  （`_发射块末条`）/生成语句链复用的 `_编译声明` 兜底保持 POP 不动（宿主块层仍 POP，
+  test_brace_still_dispatches 两轮揪出）；包装层条件先 let 绑定再取用（func-def 解析器把
+  `= (a, b) =>` 贪婪当 lambda 参数表），`_发射表达式` 只在 发输出 真分支内调用（机械单元/输出/
+  while 等非表达式节点必须走 `_编译声明`，无条件调用时 test_brace 当场揪出）；test_mbc_bootstrap
+  主码断言同步 [0x01,0]+[0x60]（OUTPUT）并登记镜像同构口径。**零扰动面**：语料求值对拍仅
+  kernel_memory.matha/statistics.matha 两处命中且双端一致报错，其余全语料零扰动；golden 39 零
+  命中；bootstrap 链零命中；ast_vm_gap 无 used_in 漂移不重生成（11/11 绿）。三锁 31 条
+  （`tests/test_semantic_parity_phase15.py`：顶层表达式双端对拍 12〔1+2/5-3/2*3/7/2/7%3/1<2/
+  2>=2/1==2/-3/~5/-(2+3)/`甲=3` 续行/`输出(1)+2`→[1,3]〕+ if 表达式 3〔then 发射/else 发射/
+  值丢弃+错误传播〕+ e2e 8〔matha run 子进程 binop/IfExpr、eval 回归与 wrap 契约、while、
+  MechUnit、GlobalIdStmt〕+ 登记边界 11〔D3 host[3]/vm[]、D4 裸变量 host 静默/vm 报错、
+  D5 host True/vm RuntimeError "==="、D5 数值/字符串语义锁〕）。
+  **doc 同步**：README 测试文件 137→138；ARCHITECTURE core_py_lines 31,891→31,899（+8 =
+  VM 顶层发射分支 + host IfExpr 分支）。
+  全量门禁 **7122/7122 通过**（首跑 1 红 = doc_facts 读到修正前 ARCHITECTURE 数字〔doc 修正与
+  门禁起跑竞速〕，单测复核绿后全量重跑干净：tests 7019 + kernel_purity 14 + ast_vm_gap 11 +
+  golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：7091（14 收官）+ 31（阶段 15 三锁）= 7122。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

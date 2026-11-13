@@ -1522,6 +1522,12 @@ class Interpreter:
             # 顶层函数调用：执行并丢弃返回值
             self._log(logging.DEBUG, "exec top-level FuncApp")
             self._eval(decl)
+        elif isinstance(decl, ast.IfExpr):
+            # 顶层 if 表达式：求值执行（分支副作用生效），值丢弃——与 MBC/VM
+            # 的语句语义一致。此前落入末尾 else 被整体静默跳过：代码不跑、
+            # 分支内的 输出(...) 丢失（阶段 15b 对齐）。
+            self._log(logging.INFO, "exec top-level IfExpr")
+            self._eval(decl)
         elif isinstance(decl, ast.WhileStmt):
             self._exec_while_stmt(decl)
         elif isinstance(decl, ast.ForStmt):
