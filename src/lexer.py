@@ -344,6 +344,72 @@ class Lexer:
         while self.pos < self.n and self.src[self.pos] in (" ", "\t"):
             self._advance()
 
+    # ---------- 阶段 14a：逻辑行续行（仅紧邻行） ----------
+
+    # 行首续行集：仅 infix-only 运算符。排除 `-` 与一切一元前缀（- ~ ++ -- not ^ << 等）
+    # ——行首 `-` 今天是一元负号语句，纳入会静默改变已有合法程序的含义（拍板 2026-11-13）。
+    # 排除 `and`/`or`——行首 `and` 今天是互递归函数声明的延续（func 体换行 + and 新行，
+    # 解析器中缀环遇 NEWLINE 退出，and 落到语句层），纳入会把它并入布尔表达式；
+    # 行尾 `and`/`or` 续行本就合法（布尔环运算符后 skip），能力无损。
+    _LEAD_CONTINUATION = frozenset(
+        {"+", "*", "/", "%", "<", ">", "<=", ">=", "==", "!="}
+    )
+    # 行尾续行集：仅算术/比较运算符。`and`/`or` 行尾换行今天已合法（解析器布尔环
+    # 运算符后 skip）；`=` 不纳入——func 声明 `-> T =` 行尾换行接体已合法（`=` 后 skip）；
+    # `-` 不纳入——与行首口径一致。
+    _TRAIL_CONTINUATION = frozenset({"+", "*", "/", "%", "<", ">", "<=", ">=", "==", "!="})
+    _OP_CHARS = frozenset("+-*/%<>=!")
+
+    def _trail_op_before_newline(self) -> bool:
+        """上一行是否以中缀运算符结尾（行尾续行）。向后扫过空白与行尾注释。"""
+        src, p = self.src, self.pos - 1
+        while p >= 0 and src[p] in " \t\r":
+            p -= 1
+        if p >= 1 and src[p] == ")" and p >= 1 and src[p - 1] == "*":
+            q = p - 1
+            while q >= 1:
+                if src[q] == "*" and src[q - 1] == "(":
+                    q -= 1
+                    break
+                q -= 1
+            else:
+                return False
+            p = q - 1
+            while p >= 0 and src[p] in " \t\r":
+                p -= 1
+        if p < 0:
+            return False
+        if src[p] in self._OP_CHARS:
+            q = p
+            while q >= 0 and src[q] in self._OP_CHARS:
+                q -= 1
+            return src[q + 1:p + 1] in self._TRAIL_CONTINUATION
+        return False
+
+    def _lead_op_after_newline(self, after: int | None = None) -> bool:
+        """紧邻下一行是否以 infix-only 运算符开头（行首续行）。空行/注释行断开。"""
+        src, n = self.src, self.n
+        p = self.pos + 1 if after is None else after
+        while p < n and src[p] in " \t\r":
+            p += 1
+        if p >= n:
+            return False
+        if src.startswith("(*", p):
+            return False
+        if src[p] in self._OP_CHARS:
+            q = p
+            while q < n and src[q] in self._OP_CHARS:
+                q += 1
+            return src[p:q] in self._LEAD_CONTINUATION
+        return False
+
+    def _invisible_newline(self) -> bool:
+        """当前换行是否为「不可见换行」（续行并入上一逻辑行，不发任何 token、
+        不参与缩进进栈——续行缩进不改变逻辑行层级，后续边界相对原栈计算）。"""
+        if self._trail_op_before_newline():
+            return True
+        return self._lead_op_after_newline()
+
     # ---------- 主入口 ----------
 
     def tokenize(self):
@@ -366,6 +432,11 @@ class Lexer:
             # 因为那时 at_line_start 还是 False，会导致下一行首字符被跳过。
             # 正确做法：先计算缩进，再 yield NEWLINE。
             if ch == "\n":
+                # 阶段 14a：续行换行不产生 INDENT/DEDENT/NEWLINE（并入上一逻辑行）
+                if self._invisible_newline():
+                    self._advance()
+                    at_line_start = True
+                    continue
                 # 计算下一行的缩进（此时 pos 指向 \n，_count_indent 会跳过 \n 后的空格）
                 next_indent = self._count_indent_after_newline()
                 # 与栈顶比较，产生 INDENT/DEDENT
@@ -387,9 +458,12 @@ class Lexer:
             if ch == "\r":
                 self._advance()
                 if self.pos < self.n and self.src[self.pos] == "\n":
-                    pass  # \r 已消费，\n 会单独处理
+                    pass  # \r 已消费，\n 会单独处理（续行判定在 \n 分支做）
                 else:
                     # 单独 \r，视为换行
+                    if self._trail_op_before_newline() or self._lead_op_after_newline(self.pos):
+                        at_line_start = True
+                        continue
                     next_indent = self._count_indent_after_newline()
                     stack_top = self._indent_stack[-1]
                     if next_indent > stack_top:

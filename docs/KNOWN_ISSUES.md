@@ -1144,6 +1144,36 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
   算术闭合：6913（12e）−8（12c 管道/重定向拒绝行 2+2 条 ×双端退役）+19+15+9（13a/13b/13c
   三锁）= 6948 tests。
+- **2026-11 阶段 14 收官（解析器踩界真化：行首运算符续行 / then 独立成行 / 参数跨行——主解析器 only，
+  12c 登记三项全落）**：用户拍板范围 = 12c 登记三项 + E3；两项设计决策经 AskUserQuestion 审批
+  （① 主解析器 only，bootstrap `matha/lexer.matha`·`matha/parser.matha` 维持登记边界不动；
+  ② 排除 `-`；③ 纳入 E3）。**14a 词法器逻辑行续行**（`src/lexer.py`）：行首 infix-only 运算符
+  （`+ * / % < > <= >= == !=`）或行尾算术/比较运算符的**紧邻**换行 → 不发 INDENT/DEDENT/NEWLINE
+  （并入上一逻辑行；空行/注释行断开；续行缩进不进缩进栈，后续边界相对原层级计算）。**两项排除如实
+  登记**：排除 `-`（行首 `-` 今天是一元负号语句，纳入会静默改义）；**排除 `and`/`or` 行首**——探测
+  当场抓获真冲突：解析器中缀环遇 NEWLINE 退出，行首 `and` 落到语句层是**互递归函数声明的延续**
+  （`func 体换行 + and 新行` 两 FuncDef，pre-14a AST 对拍证实），纳入会把它并入布尔表达式并毁掉该
+  既有合法形态；行尾 `and`/`or` 续行本就合法（布尔环运算符后 skip），能力无损。首版行尾集曾含
+  `=`/`and`/`or`，token 流对拍逐轮揪出（`=` 行尾换行接体、布尔环行尾换行均已合法）后收窄。
+  **14b then/else 独立成行**（`src/parser.py` 三处 if 站点 2099/3492/3591）：未命中回退位置，
+  修复「else 行首已合法、then 行首报错」的不对称；`{` 块形式 `if cond\n{` 保持显式拒绝。
+  **14c 参数跨行**（14 处 skip，统一 LPAREN 后/逗号后/RPAREN 前三跳）：func 声明 + and 声明 +
+  let rec 声明参数 + func/let rec lambda 体参数 + 独立 lambda 试探（分组/元组无害）+ E3（`-> T`
+  与 `=` 之间换行）+ let rec `)` 与 `->` 之间换行；`=>` 独立成行、lambda 体参数带类型标注保持
+  既有拒绝（单行同错）。**12c 登记口径修正**：「调用参数跨行」实测早已合法（真缺口 = 声明/lambda
+  参数括号内换行）；`matha/term_engine.matha` 的 let-in 链为惯用形态非补丁残留，不动（72 锁语料
+  零扰动）。**零扰动证明**：286 语料文件 token 流 HEAD↔新 逐 token 一致；求值用例 host ↔ vm
+  输出一致。**探测中如实登记（不修）**：顶层裸表达式语句（UnaryOp/BinaryOp 形态）host 发输出、
+  VM 不发（裸 变量/字面量 两端都不发）——既有双端分歧，与本阶段无关。三锁 40 条
+  （`tests/test_parser_multiline_phase14.py`：续行 token 流=单行源 6 + 双端对拍 10 + 行首/行尾
+  运算符全集 19 + then 矩阵/嵌套/调用内 5 + 参数跨行全形态 10 + 互递归 and 回归 2 + 边界
+  拒绝 9：`-` token 锁/`and` 语句层锁/or decl 数锁/空行/注释断开/块形式/`=>` 独立行/类型标注/
+  续行缩进不进栈）。
+  **doc 同步**：README 测试文件 136→137；ARCHITECTURE core_py_lines 31,778→31,891（+113 =
+  词法器续行判定 + 主解析器 14b/14c skip）；ast_vm_gap 无语料变更不重生成。
+  全量门禁 **7091/7091 通过**（基线 `python scripts/check.py`：tests 6988 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：7051（13 总收官）+ 40（阶段 14 三锁）= 7091。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

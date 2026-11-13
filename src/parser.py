@@ -2099,6 +2099,9 @@ class Parser:
                     cond = self._parse_expr()
                 finally:
                     self._in_control_flow = saved_cf
+                # 阶段 14b：then/else 允许独立成行（未命中回退到 if 前，按非 if 分支处理）
+                _saved_then = self.pos
+                self._skip_newlines()
                 if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
                     self._advance()
                     then_val = self._parse_expr()
@@ -2528,6 +2531,8 @@ class Parser:
         为空，导致 lambda 无法作为一等值正确传递参数。
         """
         self._expect(TokenType.PUNCT_LPAREN, "(")
+        # 阶段 14c：lambda 参数允许跨行（与声明参数一致）；对分组/元组无害
+        self._skip_newlines()
         # 空参数列表 () => body
         if self._check(TokenType.PUNCT_RPAREN):
             self._advance()
@@ -2566,6 +2571,7 @@ class Parser:
                     self._advance()
                     self._skip_newlines()
                     params.append(self._parse_lambda_param())
+                self._skip_newlines()
                 self._expect(TokenType.PUNCT_RPAREN, ")")
                 if self._check(TokenType.OP_FATARROW):
                     self._advance()
@@ -3207,24 +3213,31 @@ class Parser:
             try:
                 # 解析参数列表
                 self._advance()  # consume (
+                self._skip_newlines()
                 params: list[tuple[str, Any]] = []
                 if not self._check(TokenType.PUNCT_RPAREN):
                     params.append(self._parse_typed_param())
                     while self._is_comma():
                         self._advance()
+                        self._skip_newlines()
                         params.append(self._parse_typed_param())
+                self._skip_newlines()
                 self._expect(TokenType.PUNCT_RPAREN, ")")
-                # 检查 -> 返回类型
+                # 检查 -> 返回类型（阶段 14c：允许右括号与 -> 之间换行，与 func 声明一致）
+                self._skip_newlines()
                 if self._check(TokenType.OP_ARROW):
                     self._advance()  # consume ->
                     ret_type = self._parse_type_expr()
                     # 检查 = (params) => body 或 = expr（let rec 直接表达式体）
+                    # 阶段 14c：允许 -> 类型与 = 之间换行（与 func 声明一致）
+                    self._skip_newlines()
                     self._expect(TokenType.OP_ASSIGN, "=")
                     self._skip_newlines()
                     if self._check(TokenType.PUNCT_LPAREN):
                         # 显式 lambda: = (params) => body
                         lam_params: list[Any] = []
                         self._advance()  # consume (
+                        self._skip_newlines()
                         if not self._check(TokenType.PUNCT_RPAREN):
                             tok = self._current()
                             if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
@@ -3236,6 +3249,7 @@ class Parser:
                                 lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
                             while self._is_comma():
                                 self._advance()
+                                self._skip_newlines()
                                 tok = self._current()
                                 if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
                                                 TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
@@ -3244,6 +3258,7 @@ class Parser:
                                     lam_params.append(ast.Variable(name=tok.value))
                                 else:
                                     lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+                        self._skip_newlines()
                         self._expect(TokenType.PUNCT_RPAREN, ")")
                         self._expect(TokenType.OP_FATARROW, "=>")
                         self._skip_newlines()
@@ -3477,6 +3492,10 @@ class Parser:
         try:
             cond = self._parse_expr()
             # 关键字形式: if cond then expr else expr
+            # 阶段 14b：then/else 允许独立成行（与 then-后-else 行首现状对齐）；
+            # 未命中则回退位置，`{` 块语句形式保持原行内语义。
+            _saved_then = self.pos
+            self._skip_newlines()
             if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
                 result = self._parse_if_then_else_expr(cond)
                 if result is not None:
@@ -3486,6 +3505,7 @@ class Parser:
                 result = self._parse_if_then_else_expr_no_then(cond)
                 if result is not None:
                     return result
+            self.pos = _saved_then
             # 语句形式: if cond { block } [ 否则 { block }]
             self._expect(TokenType.PUNCT_LBRACE, "{")
             then_block = self._parse_block_body()
@@ -3571,6 +3591,9 @@ class Parser:
                 self._in_control_flow = saved
                 self._in_let_value = saved_lv
             # 关键字形式: if cond then expr else expr
+            # 阶段 14b：then 允许独立成行；未命中回退位置，冒号/elif/else/块各形式不变。
+            _saved_then = self.pos
+            self._skip_newlines()
             if self._check(TokenType.IDENTIFIER) and self._current().value == "then":
                 self._advance()
                 # 恢复 _in_control_flow 以允许 then/else 分支内解析嵌套 if 表达式
@@ -3605,6 +3628,7 @@ class Parser:
                     else:
                         else_expr = _else_expr
                 return ast.IfExpr(cond=cond, then=then_expr, else_=else_expr)
+            self.pos = _saved_then
             # 冒号形式: if cond: expr else expr
             if self._check(TokenType.OP_COLON):
                 self._advance()
@@ -4012,12 +4036,16 @@ class Parser:
             annotation = self._parse_annotation()
         # 参数列表（带类型标注）
         self._expect(TokenType.PUNCT_LPAREN, "(")
+        # 阶段 14c：参数允许跨行（与调用参数、lambda 体参数一致）
+        self._skip_newlines()
         params: list[tuple[str, Any]] = []
         if not self._check(TokenType.PUNCT_RPAREN):
             params.append(self._parse_typed_param())
             while self._is_comma():
                 self._advance()
+                self._skip_newlines()
                 params.append(self._parse_typed_param())
+        self._skip_newlines()
         self._expect(TokenType.PUNCT_RPAREN, ")")
         # 返回类型（允许右括号与 -> 之间换行）
         self._skip_newlines()
@@ -4032,6 +4060,8 @@ class Parser:
             param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
         func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
         # 函数体：(params) => expr 或 expr（直接表达式）或 { } 代码块
+        # 阶段 14c：允许 -> 类型与 = 之间换行（与右括号与 -> 之间的换行一致）
+        self._skip_newlines()
         self._expect(TokenType.OP_ASSIGN, "=")
         self._skip_newlines()
         # 直接体（非 `(` 开头）：以**声明参数**合成 lambda 参数。
@@ -4052,6 +4082,7 @@ class Parser:
             body = ast.Lambda(params=lam_vars, body=lam_body)
             return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
         self._expect(TokenType.PUNCT_LPAREN, "(")
+        self._skip_newlines()
         lam_params: list[Any] = []
         if not self._check(TokenType.PUNCT_RPAREN):
             # 参数名可以是关键字（如 func、and、or）
@@ -4074,6 +4105,7 @@ class Parser:
                     lam_params.append(ast.Variable(name=tok.value))
                 else:
                     lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+        self._skip_newlines()
         self._expect(TokenType.PUNCT_RPAREN, ")")
         self._expect(TokenType.OP_FATARROW, "=>")
         self._skip_newlines()
@@ -4107,12 +4139,16 @@ class Parser:
         if self._check(TokenType.MATHA_ANNOT_START):
             annotation = self._parse_annotation()
         self._expect(TokenType.PUNCT_LPAREN, "(")
+        # 阶段 14c：参数允许跨行（与 func 声明一致）
+        self._skip_newlines()
         params: list[tuple[str, Any]] = []
         if not self._check(TokenType.PUNCT_RPAREN):
             params.append(self._parse_typed_param())
             while self._is_comma():
                 self._advance()
+                self._skip_newlines()
                 params.append(self._parse_typed_param())
+        self._skip_newlines()
         self._expect(TokenType.PUNCT_RPAREN, ")")
         self._expect(TokenType.OP_ARROW, "->")
         ret_type = self._parse_type_expr()
@@ -4123,6 +4159,7 @@ class Parser:
         else:
             param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
         func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
+        self._skip_newlines()
         self._expect(TokenType.OP_ASSIGN, "=")
         self._skip_newlines()
         if not self._check(TokenType.PUNCT_LPAREN):
@@ -4140,6 +4177,7 @@ class Parser:
             body = ast.Lambda(params=lam_vars, body=lam_body)
             return ast.FuncDef(name=name, annotation=annotation, func_type=func_type, body=body)
         self._expect(TokenType.PUNCT_LPAREN, "(")
+        self._skip_newlines()
         lam_params: list[Any] = []
         if not self._check(TokenType.PUNCT_RPAREN):
             tok = self._current()
@@ -4161,6 +4199,7 @@ class Parser:
                     lam_params.append(ast.Variable(name=tok.value))
                 else:
                     lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+        self._skip_newlines()
         self._expect(TokenType.PUNCT_RPAREN, ")")
         self._expect(TokenType.OP_FATARROW, "=>")
         self._skip_newlines()
