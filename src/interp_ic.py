@@ -57,13 +57,13 @@ def _identity(l, r):
     return l is r
 
 
-def _identity_strict(l, r):
-    """``===``：同一对象且类型完全相同。"""
-    return (l is r) and type(l) is type(r)
+def _strict_eq(l, r):
+    """``===``：类型完全相同且值相等（与 src/interp.py 同语义，阶段 16 对齐）。"""
+    return (type(l) is type(r)) and (l == r)
 
 
-def _identity_strict_not(l, r):
-    return not ((l is r) and type(l) is type(r))
+def _strict_neq(l, r):
+    return not ((type(l) is type(r)) and (l == r))
 
 
 def _null_coalesce(l, r):
@@ -93,8 +93,8 @@ _COMPARISONS = {
     "=": operator.eq,
     "!=": operator.ne,
     "is": _identity,
-    "===": _identity_strict,
-    "!==": _identity_strict_not,
+    "===": _strict_eq,
+    "!==": _strict_neq,
     "??": _null_coalesce,
 }
 

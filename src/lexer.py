@@ -307,6 +307,11 @@ class Lexer:
     """
 
     def __init__(self, source: str):
+        # 文件首 BOM（EF BB BF 解码为 \ufeff）：不可见且非语法。此前被标识符
+        # 规则吞成一个名为 '\ufeff' 的裸变量语句（阶段 16 D4 对齐后 host 会
+        # 因未定义名报错）——在进入 token 流前剥掉。
+        if source.startswith("\ufeff"):
+            source = source[1:]
         self.src = source
         self.pos = 0
         self.line = 1

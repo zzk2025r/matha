@@ -1597,6 +1597,14 @@ class Interpreter:
             self._auto_register(decl.name, "结构", _struct_factory)
             self._log(logging.INFO,
                       f"register struct '{decl.name}' fields={field_names}")
+        elif isinstance(decl, (ast.Variable, ast.IntegerLit, ast.FloatLit,
+                               ast.StringLit, ast.BoolLit, ast.IsExpr,
+                               ast.IndexExpr, ast.SliceExpr, ast.TypeOfExpr)):
+            # 顶层裸表达式语句：求值丢弃——与 MBC/VM 兜底（求值+POP）同构；
+            # 未定义名随之报错，两端一致（阶段 16 D4 对齐）。此前落入末尾
+            # else 被静默跳过：不求值、未定义名不报错，与 VM 分叉。
+            # 通道收发（SendExpr/ChanExpr）有副作用，维持既有静默跳过。
+            self._eval(decl)
         else:
             # 可扩展 AST 节点：插件语句规则（顶层声明路径，对应 MBC _compile_stmt）
             _ext_rule = ast_ext.get_exec(type(decl))
@@ -2136,12 +2144,6 @@ class Interpreter:
         elif isinstance(stmt, ast.OutputTrail):
             self._log(logging.DEBUG, "OutputTrail → 透传")
             self._exec_stmt(stmt.output)
-        elif isinstance(stmt, ast.ListLiteral):
-            # ListLiteral 在语句语境中视为输出（如 let x = ... in [1]）
-            # 取首个元素作为输出值，兼容自测块 [1] → 输出 1
-            result = [self._eval(e) for e in stmt.elements]
-            self.outputs.append(_norm_output(result[0] if result else None))
-            self._log(logging.INFO, f"[output] += {self._fmt(result[0] if result else None)}")
         elif isinstance(stmt, ast.CodeBlock):
             if self.debug:
                 self._log(logging.DEBUG, f"CodeBlock ({len(stmt.stmts)} stmts)")
@@ -2284,8 +2286,7 @@ class Interpreter:
                              ast.MatchStmt, ast.GoStmt, ast.LetBinding,
                              ast.LetTupleBinding, ast.GlobalIdStmt,
                              ast.BreakStmt, ast.ContinueStmt, ast.ReturnStmt,
-                             ast.ThrowStmt, ast.RaiseExpr, ast.TryStmt, ast.SwitchStmt,
-                             ast.ListLiteral)):
+                             ast.ThrowStmt, ast.RaiseExpr, ast.TryStmt, ast.SwitchStmt)):
             self._exec_stmt(node)
         else:
             self._eval(node)
@@ -3193,9 +3194,12 @@ class Interpreter:
             elif op == "||":
                 result = l or r
             elif op == "===":
-                result = (l is r) and type(l) is type(r)
+                # 严格相等：类型完全相同且值相等（token 语义注释本位）。
+                # 此前为身份比较 (l is r) and type(l) is type(r)——"甲"==="甲"
+                # 因两个独立字面量对象恒 False（阶段 16 D5 真化）。
+                result = (type(l) is type(r)) and (l == r)
             elif op == "!==":
-                result = not ((l is r) and type(l) is type(r))
+                result = not ((type(l) is type(r)) and (l == r))
             elif op == "//":
                 if r == 0:
                     raise MathaRuntimeError(f"整除除零错误: {l!r} // 0")

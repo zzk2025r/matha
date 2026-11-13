@@ -118,7 +118,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `TupleType` | noop | no | 126 |
 | `TypeOfExpr` | emits | yes | 2 |
 | `UnaryOp` | emits | yes | 57 |
-| `Variable` | emits | yes | 213 |
+| `Variable` | emits | yes | 208 |
 | `WhileStmt` | emits | yes | 8 |
 
 ## 六、指令码 × VM / native

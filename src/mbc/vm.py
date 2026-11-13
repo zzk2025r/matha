@@ -197,6 +197,9 @@ _BINOPS = {
     "or": lambda a, b: a or b,
     "in": lambda a, b: a in b,
     "is": lambda a, b: a is b,
+    # 严格相等：类型完全相同且值相等，与解释器后端同语义（阶段 16 D5 对齐）。
+    "===": lambda a, b: (type(a) is type(b)) and (a == b),
+    "!==": lambda a, b: not ((type(a) is type(b)) and (a == b)),
     # 位移：与解释器后端一致（1 << 3 == 8、16 >> 2 == 4）。
     # 右移对负数用算术右移，与 Python // 语义一致。
     "<<": lambda a, b: a << b,

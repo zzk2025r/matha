@@ -131,9 +131,10 @@ def test_run_lexer_matha():
     assert interp.call("是下划线", 95) is True
     print("  ✓ 推进位置(5)=6, 是数字起(48)=True, 是下划线(95)=True")
 
-    # 代码块产出（自测块输出 [1]）
-    assert 1 in outputs, outputs
-    print(f"  ✓ 代码块产出: {outputs}")
+    # 自测块求值丢弃：let-in 列表体不再漏发死兼容值 [1]（阶段 16 D3
+    # 删除 `_exec_stmt` 首元素分支——与 MBC/VM 语义对齐，双方均无杂散输出）
+    assert outputs == [], outputs
+    print(f"  ✓ 自测块无杂散漏发: {outputs}")
 
     # 命令链追踪（自测块无命令链，trace 为空）
     print(f"  ✓ 追踪 {len(trace)} 步命令链")

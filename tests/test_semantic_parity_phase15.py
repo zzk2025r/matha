@@ -14,14 +14,22 @@
 BinaryOp/UnaryOp 分支 → OUTPUT）；D2 → host `_exec_decl` 显式 IfExpr 分支
 （求值执行、丢弃值）；D3/D4/D5 → 登记不修（怪兼容不扩散 / 语义本身待修）。
 
+【阶段 16 追记（2026-11-13）】D3/D4/D5 已在阶段 16 全部真化对齐（用户拍板
+「双端语义第二片 D3/D4/D5」）：D3 host 删死兼容（let-in 列表体求值丢弃，
+两端 []）；D4 host 顶层裸表达式求值丢弃（未定义名两端一致报错）+ 词法器
+剥 BOM 根修；D5 三端严格值相等 `(type(l) is type(r)) and (l == r)`
+（host interp / interp_ic / VM _BINOPS / 编译器 _BIN_OPS / 自举镜像）。
+完整三锁见 tests/test_semantic_parity_phase16.py；本文件第三组锁改为
+「真化后一致性轻锁」，防止旧分歧形态回潮。
+
 三锁封死：
   1. 对拍：顶层裸算术/一元/绑定后表达式 host ↔ vm 输出逐值一致；
      顶层 IfExpr 副作用（输出分支/else 分支/错误传播）双端一致。
   2. 闭环：`matha run` 文件面（真子进程）顶层裸表达式真吐输出；
      `matha eval` 包装契约回归（不受本轮影响）；既有合法程序零扰动
      （while {} / Output 自动包装 / MechUnit / GlobalIdStmt）。
-  3. 登记边界锁现状：D3 分歧值锁、D4 错误行为分歧锁、D5 host 严格语义 +
-     VM 编译拒绝锁——防止登记边界在无人拍板时漂移。
+  3. 真化后一致性：D3 两端 []、D4 两端报未定义名、D5 两端严格值相等——
+     阶段 15 旧分歧形态（host 发首元素 / host 静默 / vm 拒绝）不得回潮。
 """
 from __future__ import annotations
 
@@ -170,38 +178,43 @@ class TestClosedLoopE2E:
 
 
 # ============================================================
-# 3. 登记边界锁现状：D3/D4/D5 登记不修，分歧不得漂移
+# 3. 真化后一致性：D3/D4/D5 阶段 15 旧分歧形态不得回潮
+#    （完整三锁矩阵在 tests/test_semantic_parity_phase16.py）
 # ============================================================
 
-class TestRegisteredBoundaries:
-    """拍板登记不修的三处边界——锁定 2026-11-13 现状。"""
+class TestResolvedBoundaries:
+    """阶段 15 登记不修的 D3/D4/D5 已于阶段 16 真化——此处锁旧形态不回潮。"""
 
-    def test_d3_letin_listlit_host_first_element_vm_discards(self):
-        # host 自测块兼容：列表语句发首元素；VM 丢弃。怪兼容不扩散进 VM（拍板）。
+    def test_d3_letin_listlit_both_discard(self):
+        # 旧形态：host 发首元素 [3] / vm []。真化后两端求值丢弃 → []。
         src = "let 甲 = 1 in [甲 + 2]"
-        assert _run_host(src) == [3]
+        assert _run_host(src) == []
         assert _run_vm(src) == []
 
-    def test_d4_top_bare_variable_host_silent_vm_raises(self):
-        # host 跳过不求值；VM 求值报未定义名。
-        assert _run_host("甲") == []
+    def test_d4_top_bare_variable_both_raise(self):
+        # 旧形态：host 静默跳过 / vm 报错。真化后两端一致报未定义名。
+        with pytest.raises(MathaUndefinedNameError):
+            _run_host("甲")
         with pytest.raises(MathaUndefinedNameError):
             _run_vm("甲")
 
     def test_d4_top_bare_string_literal_both_silent(self):
+        # 求值无副作用、值丢弃 → 双端仍无输出。
         assert _run_host('"字"') == []
         assert _run_vm('"字"') == []
 
-    def test_d5_strict_eq_host_supported_vm_rejects(self):
+    def test_d5_strict_eq_both_supported(self):
+        # 旧形态：vm RuntimeError「不支持的二元运算符 '==='」。真化后双端支持。
         assert _run_host("1 === 1") == [True]
-        with pytest.raises(RuntimeError, match="==="):
-            _run_vm("1 === 1")
+        assert _run_vm("1 === 1") == [True]
 
-    def test_d5_host_strict_eq_type_sensitive(self):
-        # host === 严格语义：跨数值类型 False（1 == 1.0 为 True）。
-        assert _run_host("1 == 1.0") == [True]
+    def test_d5_strict_eq_type_sensitive_both(self):
+        # 严格值相等：跨数值类型 False（宽松 == 仍 True）。
         assert _run_host("1 === 1.0") == [False]
+        assert _run_vm("1 === 1.0") == [False]
 
-    def test_d5_host_strict_eq_string_anomaly_locked(self):
-        # 已登记的可疑语义：同值同型字符串 host === 也为 False（待修面）。
-        assert _run_host('"甲" === "甲"') == [False]
+    def test_d5_strict_eq_string_both_true(self):
+        # 旧形态：同值同型字符串 host === 也 False（身份比较）。
+        # 真化后严格值相等 → True。
+        assert _run_host('"甲" === "甲"') == [True]
+        assert _run_vm('"甲" === "甲"') == [True]

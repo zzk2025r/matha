@@ -1207,6 +1207,49 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   门禁起跑竞速〕，单测复核绿后全量重跑干净：tests 7019 + kernel_purity 14 + ast_vm_gap 11 +
   golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
   算术闭合：7091（14 收官）+ 31（阶段 15 三锁）= 7122。
+- **2026-11 阶段 16 收官（双端语义第二片真化：阶段 15 拍板「登记不修」的 D3/D4/D5 全部修复；
+  自举镜像同步）**：**用户拍板**（AskUserQuestion 三项全选推荐）：D3=host 删死兼容、
+  D4=对齐求值丢弃+BOM 根修、D5=三端真化严格值相等。**D3**（`src/interp.py`）：删除
+  `_exec_stmt` ListLiteral 首元素分支（「兼容自测块 [1] → 输出 1」死兼容）+
+  `_exec_stmt_or_expr` 去掉 ListLiteral 语句归类——let-in 列表体路由 `_eval` 求值丢弃
+  （副作用保留、值不发射），与 VM「求值+POP」同构；**语料对拍收益**：lexer.matha 从
+  「双端 OK 但输出不同」转为双端一致 []（回归锁 `test_run_lexer_matha` 同步改锁新形态
+  ——旧锁 `assert 1 in outputs` 锁的正是死兼容漏发值）。**D4**（`src/interp.py`
+  `_exec_decl` 新裸表达式分支）：Variable/IntegerLit/FloatLit/StringLit/BoolLit/IsExpr/
+  IndexExpr/SliceExpr/TypeOfExpr 语句 → `_eval` 求值丢弃（未定义名随之报错，两端一致）；
+  SendExpr/ChanExpr 通道收发有副作用，维持既有静默跳过（登记不修）。**BOM 根修**
+  （`src/lexer.py` `__init__`）：文件首 `\ufeff` 在进 token 流前剥掉——此前被标识符规则
+  吞成名为 `\ufeff` 的裸未定义变量语句（host 静默容忍、VM DCE），D4 对齐后 5 个带 BOM
+  语料文件（matha/runtime/simple_test/test2/test_dbg/test_dbg2/test_orig.matha）会误报。
+  **D5 三端严格值相等**：`===`/`!==` = `(type(l) is type(r)) and (l == r)`（旧身份语义
+  废除——`"甲"==="甲"` 因两个独立字面量对象恒 False）：host interp BinaryOp eval +
+  interp_ic `_strict_eq/_strict_neq`（内联缓存特化路径）+ VM `_BINOPS` 同名键 +
+  compiler `_BIN_OPS` 归约表 + 自举镜像 matha/compiler_matha.matha 二元运算表
+  （stage2↔stage3 定点同构）；token 语义注释「=== 严格相等」本位落地。
+  **零扰动证明**（HEAD 工作树基线对拍：`git worktree add` 到 38732e2 跑同一 174 语料
+  host/vm sweep 再 diff）：全部跟踪语料 VM 状态/输出与基线逐位相同；host 无类别迁移
+  （4 文件首个报错名前移 = D4 求值更早的裸未定义名，同 ERR 类别）；唯一新增错误项 =
+  未跟踪生成文件 matha/generated/算术库.matha（VM 拒 `≠`，存量缺口）。
+  **残留登记（存量分歧、与死兼容无关，与基线同文件同 vm 值）**：parser.matha 的
+  `[1]` 自测 MechUnit→CodeBlock→OutputTrail→Output(printf,1) host 全发射/VM 欠发射
+  （parser.matha vm [1] vs host [1,1]；compiler_matha/nl_* vm [] vs host [1,1]；
+  runtime/test_compile·test_math 浮点精度型差异）；`[1]===[1]` 语句位置 ParseError
+  （列表语句解析形态，与 D5 值语义正交，两端同源解析器同报错）。
+  三锁 44 条（`tests/test_semantic_parity_phase16.py`：D3 对拍 8〔值丢弃/副作用保留
+  `let 甲=1 in [输出(9)]`→[9] 双端/表达式位 `输出(let 甲=2 in 甲*3)`→[6] 双端〕+
+  D4 裸表达式矩阵 13〔8 形态求值丢弃 + 3 未定义名 + BOM 双端 2 + 词法器 token 锁〕+
+  D5 严格相等矩阵 13〔跨数值类型/同值同型独立字面量/布尔整数分型/变量绑定值〕+
+  闭环 e2e 5〔matha run 文件面：D3 丢弃不吐值/D4 退出码 1/D5 真吐 True/BOM 文件正常〕+
+  边界 4〔`[1]===[1]` ParseError、VM `_BINOPS`/compiler `_BIN_OPS` 静态锁、自举镜像
+  表登记〕）；阶段 15 文件 6 条登记边界锁重写为真化后一致性轻锁（防旧分歧形态回潮）。
+  **doc 同步**：README 测试文件 138→139；ARCHITECTURE core_py_lines 31,899→31,909
+  （+10 = D3 删分支 + D4 裸表达式分支 + D5 三端登记 + BOM 剥除）；ast_vm_gap 快照
+  重生成（运算符表登记 → used_in 漂移，`scripts/ast_vm_matrix.py --write`，11/11 绿）。
+  全量门禁 **7166/7166 通过**（首跑 1 红 = `test_run_lexer_matha` 旧锁
+  `assert 1 in outputs` 锁死兼容漏发值——预期行为变更非 flake，改锁新形态后整文件
+  18/18 复跑绿，按协议全量重跑干净：tests 7063 + kernel_purity 14 + ast_vm_gap 11 +
+  golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：7122（15 收官）+ 44（阶段 16 三锁）= 7166。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
