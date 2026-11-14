@@ -29,7 +29,6 @@ a = Analysis(
         'src.lsp',
         'src.doc_gen',
         'src.pkg_manager_v2',
-        'src.tree_sitter_backends',
         'src.multi_lang_codegen',
         'src.multi_lang_verifier',
         'src.csp_os_thread',
@@ -61,7 +60,6 @@ a = Analysis(
         'src.symbols',
         'src.diagnostics',
         # 领域模块（核心物理/工程）
-        'src.domains.hal',
         'src.domains.kernel_math',
         'src.domains.software_app',
         'src.domains.hardware',

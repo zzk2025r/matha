@@ -232,17 +232,10 @@ def codegen(spec: Any, out_dir: str = None) -> CodegenResult:
 
     # 延迟导入：避免循环依赖
     from src.codegen.backend import BackendGenerator
-    from src.codegen.c_backend import CGenerator
-    from src.codegen.cpp_backend import CppGenerator
     from src.codegen.desktop import DesktopGenerator
     from src.codegen.game import GameGenerator
-    from src.codegen.go_backend import GoGenerator
-    from src.codegen.java_backend import JavaGenerator
-    from src.codegen.js_backend import JSGenerator
     from src.codegen.kernel import KernelGenerator
     from src.codegen.model3d import Model3DGenerator
-    from src.codegen.python_backend import PythonGenerator
-    from src.codegen.rust_backend import RustGenerator
     from src.codegen.system import SystemGenerator
     from src.codegen.web import WebGenerator
 
@@ -254,15 +247,6 @@ def codegen(spec: Any, out_dir: str = None) -> CodegenResult:
         "内核": KernelGenerator,
         "游戏": GameGenerator,
         "建模": Model3DGenerator,
-        "C": CGenerator,
-        "Rust": RustGenerator,
-        "JavaScript": JSGenerator,
-        "TypeScript": JSGenerator,
-        "Python": PythonGenerator,
-        "Go": GoGenerator,
-        "C++": CppGenerator,
-        "Cpp": CppGenerator,
-        "Java": JavaGenerator,
     }
     gen_cls = generators.get(app.kind)
     if gen_cls is None:

@@ -845,6 +845,9 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   属注释性假值。ffi_sdk 一项（本条目原写作 `src/mcp/ffi_sdk.py:221` 引用不存在的
   `src.compiler.mir_codegen.MathaLLVMGenerator`，路径与模块名笔误——实为 `src/plugins/ffi_sdk.py:221`
   引用不存在的 `src.mir_codegen.MathaLLVMGenerator`）已于同日补充修复，见下方条目。
+  【阶段 17 勘误：本条两项均已于阶段 11 ⑤ 真修并经阶段 17 探针复核——MathaBytecodeCompiler
+  改为 compile 需源码、真 MBC1 委托（探针 170 字节 MBC1 反序列化成功），`_generate_bytecode`
+  旧方法已不存在；MathaEngine.vm_run 真执行（探针 `输出(1+2)` → [3]）。】
   全量门禁 **6749/6749 通过**（基线：`python scripts/check.py`，tests 项 6646 过 41m21s +
   kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知
   未实现不计入分母；零失败零跳过。首轮 6748/6749 唯一失败为 `test_ai_servers_smoke.py` 鉴权 401
@@ -875,6 +878,12 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   ` = 2.0;`、Python 生成器对纯绑定源输出空 main）；`src/mir.py` 不表示顶层 Output
   （compile_and_execute 纯输出源返回空）；`src/plugins/legacy_mir_vm.py` func 调用形态
   ValueError 崩溃（float('t2')）；MathaBytecodeCompiler 字节码链与 vm_run 仍登记未修。
+  【阶段 17 勘误：mir.py Binding/Output 与 legacy_mir_vm 已于阶段 11 ③④ 修复；
+  MathaBytecodeCompiler 字节码链与 vm_run 已于阶段 11 ⑤ 修复（见上条勘误）；
+  src/codegen 七后端经阶段 17 复核比登记更死——唯一工厂入口 `codegen()` 的
+  parse_app_spec 按 kind 先行拒绝语言类（「未知应用类型」），静态消费者 0，属不可达
+  死代码，已于阶段 17b 经用户批准删除（七文件 2,277 行 + base.py 懒导入与工厂条目，
+  git 历史可恢复）。】
   全量门禁 **6770/6770 通过**（基线：`python scripts/check.py`，tests 项 6667 过 42m43s +
   kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知
   未实现不计入分母；零失败零跳过）。
@@ -1230,6 +1239,11 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   host/vm sweep 再 diff）：全部跟踪语料 VM 状态/输出与基线逐位相同；host 无类别迁移
   （4 文件首个报错名前移 = D4 求值更早的裸未定义名，同 ERR 类别）；唯一新增错误项 =
   未跟踪生成文件 matha/generated/算术库.matha（VM 拒 `≠`，存量缺口）。
+  【阶段 17 勘误：① matha/generated/ 实为 `.gitignore` 忽略目录（129 行），非「未跟踪」；
+  ② `≠` 经探针复核为**双端全拒**（host「未知运算符 '≠'」/ VM「不支持的二元运算符
+  '≠'」——host 整文件跑通不报错系函数体惰性求值、该函数从未被调用；VM 编译期对
+  函数体 eager 编译故先炸），本条目原措辞只点名 VM 侧不完整；缺口已由阶段 17a
+  解析器归一化真化（`≤`/`≥` 同批）。】
   **残留登记（存量分歧、与死兼容无关，与基线同文件同 vm 值）**：parser.matha 的
   `[1]` 自测 MechUnit→CodeBlock→OutputTrail→Output(printf,1) host 全发射/VM 欠发射
   （parser.matha vm [1] vs host [1,1]；compiler_matha/nl_* vm [] vs host [1,1]；
@@ -1250,6 +1264,59 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   18/18 复跑绿，按协议全量重跑干净：tests 7063 + kernel_purity 14 + ast_vm_gap 11 +
   golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
   算术闭合：7122（15 收官）+ 44（阶段 16 三锁）= 7166。
+- **2026-11 阶段 17 收官（全面清算 sweep：登记不修清单逐项复核——四项拍板全落：运算符缺口
+  真化 ≠/≤/≥ + codegen 七后端删除 + CI/spec 死件清理 + 登记勘误）**：用户拍板范围
+  「全面清算 sweep」（阶段 11 同款），对 KNOWN_ISSUES 全部「登记不修/坐实不修」条目逐项
+  探针复核现状（崩溃/假成功/未诚实化/登记过期），候选清单经 AskUserQuestion 四项全选。
+  **摸底结论**：登记项三类——①登记过期（bootstrap 字节码链/vm_run 暂眠已于阶段 11 真修、
+  mir.py/legacy_mir_vm 已于阶段 11 修复、「未跟踪」实为 .gitignore）；②真缺口
+  （≠/≤/≥ 双端全拒、codegen 七后端不可达死代码 2,277 行、CI/spec 死件）；③良性边界
+  （parser.matha MechUnit 分歧、自举链下标、symbolic 覆盖、SendExpr/ChanExpr、
+  `[1]===[1]`、time_builtin/openai_compat 锁定契约、G-5、AI 不背书、CI secrets/休眠
+  工作流——维持登记不动）。
+  **17a 运算符缺口真化（≠/≤/≥）**：lexer 早已映射（OP_NEQ/OP_LE/OP_GE）、
+  stdlib_symbols.matha 早已注册为官方运算符（不等于/小于等于/大于等于），但三处求值面
+  全拒（host「未知运算符」/ VM「不支持的二元运算符」）——语言表面声明了不存在的运算符；
+  唯一真实踩中点 = gitignore 的 matha/generated/算术库.matha:85 函数守卫 `base ≠ 1`
+  （host 函数体惰性求值整文件跑通不报错、VM 编译期 eager 先炸）。修复 = 解析器三处
+  op 取值位点归一化（`src/parser.py` 类常量 `_CMP_ALIASES` {≤→<=, ≥→>=, ≠→!=}，
+  应用于 1746 比较环/1755 链式比较/1765 等值环——`_parse_set_expr` 集合运算符 type→op
+  字典与 ∧/∨ 类型归一化同先例），host interp / interp_ic / MBC VM / compiler /
+  自举镜像五面共用 ASCII op 字符串集；词法器与 token 流不动（语料仅注释/元数据使用，
+  零扰动）。**`<>` 死键双面删除**（`src/mbc/compiler.py` _BIN_OPS + 自举镜像
+  matha/compiler_matha.matha 同名行——词法器无 `<>` token、三端求值面也无 `<>`，
+  镜像同构纪律同步）。验证矩阵 25 例（输出/let 绑定/链式比较/布尔组合/算术库同型
+  函数守卫/ASCII 回归/集合∪∩⊆/∧/∨/⊕）双端逐值一致。
+  **17b codegen 七语言后端删除**：python/rust/c/cpp/go/java/js_backend 共 2,277 行——
+  比阶段 10 登记「零消费者原型」更死：唯一工厂入口 `codegen()` 的 parse_app_spec 按
+  kind 先行拒绝语言类（「未知应用类型: …（应为 网页/桌面/服务/系统/内核/游戏/建模）」），
+  静态消费者 0（grep src/tests/scripts/extensions 全负），属不可达死代码；经用户批准
+  `git rm` 七文件 + `src/codegen/base.py` 懒导入（7 行）与工厂条目（9 项）清理；
+  应用类 kind 真产物回归（网页/桌面冒烟 成功=True）、语言类拒绝契约不变（9 kind ×
+  未知应用类型）。`tests/test_ffi_sdk_honest.py` 不路由锁不受影响（锁的是 ffi_sdk 源码
+  文本）。
+  **17c CI/spec 死件清理**：`matha-ci.yml` benchmark 死 job 删除（`if: false` + 主体
+  引用已删除的 src/vm.py，9e 登记口径「要么重建、要么删除」按删除拍板；YAML 解析实测
+  通过、test_ci_hygiene 6/6）；`matha.spec` 2 处 + `matha-cc.spec` 1 处死 hiddenimports
+  删除（`src.tree_sitter_backends`、`src.domains.hal` ×2，`ls` 坐实模块不存在；活条目
+  `src.domains.hardware` 等保留）。
+  **17d 登记勘误（本文件内，括注式）**：阶段 10 条目（bootstrap 链/vm_run → 阶段 11 已修
+  探针复核：MBC1 170 字节反序列化成功、vm_run `输出(1+2)`→[3]）；阶段 10 补充条目
+  （mir.py/legacy_mir_vm → 阶段 11 已修；codegen 七后端 → 不可达并已删）；阶段 16 条目
+  （「未跟踪」→ .gitignore 忽略；「VM 拒 ≠」→ 双端全拒、host 侧被函数体惰性求值掩盖）；
+  9e 两条（spec hiddenimports/benchmark job → 已删）。
+  三锁 56 条（`tests/test_phase17_sweep.py`：对拍 28〔≠/≤/≥ 输出/let/链式/布尔组合/
+  算术库同型函数守卫 15 + ASCII 回归 6 + 集合∪∩⊆/∧/∨/⊕ 6 + AST op 字符串归一化 1〕+
+  闭环 13〔matha run 真子进程 ≠/≤/≥ 3 + codegen 应用类真产物 1 + 语言类 9 kind 拒绝〕+
+  防回潮 14〔七后端文件缺席 7 + import 拒绝 + base.py 文本锁 + compiler/镜像 `<>`
+  双面缺席 + ci workflow 无 benchmark + spec 死条目缺席 + 非空洞活条目 +
+  stdlib_symbols 注册面不动〕+ 登记边界 1〔自举链下标维持〕）。
+  doc 同步：README 测试文件 139→140；ARCHITECTURE core_py_lines 31,909→31,918（+9 =
+  解析器 _CMP_ALIASES 常量与三处归一化位点；codegen 不计入 core_py_lines 统计面）；
+  ast_vm_gap 镜像删行无语料节点面变化（11/11 复核绿，不重生成）。
+  全量门禁 7222/7222（tests 7119 + kernel_purity 14 + ast_vm_gap 11 + golden 39 +
+  dep_audit 1 + native_parity 38〔native 1 例已知未实现未计入〕，失败 0，一次跑绿）。
+  算术闭合：7166（16 收官）+ 56（阶段 17 三锁）= 7222。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
@@ -1536,11 +1603,15 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   `ERROR: Hidden import … not found`，但实测**不阻断构建**（修完 `matha-cc.spec` 后本地重跑
   仍只有这一行 ERROR、exit 0）。这几行本身仍属登记不修：经批准修的只是 9c 里的 EXE 结构
   缺陷，没有顺手动 `hiddenimports`，因为它们需要单独的清理与全量产物实测。
+  【阶段 17 勘误：三行已于阶段 17c 删除（三模块均不存在，探针 `ls` 坐实），两份 spec
+  活条目不动（`src.domains.hardware` 等保留），文本锁入 `tests/test_phase17_sweep.py`。】
 - `matha-ci.yml` 的 `benchmark` job 主体依赖已删除的 `src/vm.py`（`git ls-files src/vm.py`
   无输出）。首版改造降为仅 dispatch，但 run 42195342421 实测：一旦 dispatch 就会以
   `ModuleNotFoundError: No module named 'src.vm'` 失败，把整个验证 run 染红，反而失去「用
   dispatch 单独验 build 链路」的手段。故改为 `if: false`（保留定义、任何事件都不跑），要么
   重建基准入口、要么删除——本 PR 不背书本机不能跑的那一段。
+  【阶段 17 勘误：该 job 已于阶段 17c 按「删除」选项移除（`if: false` + 死依赖一并清去，
+  workflow YAML 实测解析通过，test_ci_hygiene 6/6 绿）；基准入口如需重建另立片。】
 - 上述休眠工作流内部仍有可能的 GH 侧拒绝原因未逐个穷举（本地只能复现 YAML/结构层）；
   真正的判据是推分支后看 Actions 现场：休眠文件不应再产生任何 run。
 

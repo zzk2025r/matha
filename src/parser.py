@@ -1048,6 +1048,12 @@ class Parser:
     _COMP_SKIP = (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT)
     # 有界整数域推断的跨度上限（{x | 1 <= x <= N} 会展开为 N 个元素的枚举迭代器）
     _COMP_RANGE_CAP = 100000
+    # 数学符号比较符归一化：lexer 把 ≤ ≥ ≠ 映射为 OP_LE/OP_GE/OP_NEQ 且 value 保留
+    # 原字符，下方三处 op 取值位点统一归到 ASCII 等价运算符——host interp /
+    # interp_ic / MBC VM / compiler / 自举镜像共用同一 op 字符串集
+    # （_parse_set_expr 的集合运算符 type→op 字典同先例；∧/∨ 经类型检查归一化为
+    # "and"/"or"）。
+    _CMP_ALIASES = {"≤": "<=", "≥": ">=", "≠": "!="}
     # 判定「顶层 | 之后是过滤条件」所用的比较/逻辑运算符（`==` 词法为两个 OP_ASSIGN）
     _COMP_COND_OPS = frozenset((
         TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE,
@@ -1744,7 +1750,8 @@ class Parser:
             right = self._parse_set_expr()
             return ast.BinaryOp(op="!==", left=left, right=right)
         if self._check(TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE):
-            op = self._advance().value
+            _t = self._advance()
+            op = self._CMP_ALIASES.get(_t.value, _t.value)
             right = self._parse_set_expr()
             first = ast.BinaryOp(op=op, left=left, right=right)
             # 链式比较：`a <= b <= c` → `(a <= b) and (b <= c)`（中间项复用，
@@ -1753,7 +1760,8 @@ class Parser:
             chain = None
             while self._check(TokenType.OP_LT, TokenType.OP_GT,
                               TokenType.OP_LE, TokenType.OP_GE):
-                op2 = self._advance().value
+                _t2 = self._advance()
+                op2 = self._CMP_ALIASES.get(_t2.value, _t2.value)
                 right2 = self._parse_set_expr()
                 cmp2 = ast.BinaryOp(op=op2, left=right, right=right2)
                 chain = cmp2 if chain is None else ast.BinaryOp(
@@ -1763,7 +1771,8 @@ class Parser:
                 return ast.BinaryOp(op="and", left=first, right=chain)
             return first
         if self._check(TokenType.OP_ASSIGN, TokenType.OP_NEQ):
-            op = self._advance().value
+            _t3 = self._advance()
+            op = self._CMP_ALIASES.get(_t3.value, _t3.value)
             # 处理连续等号：= = → ==（等于比较）
             is_assign = False
             if op == "=" and self._check(TokenType.OP_ASSIGN):

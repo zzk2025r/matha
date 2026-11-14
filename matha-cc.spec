@@ -44,7 +44,6 @@ a = Analysis(
         'src.math_driver',
         'src.result',
         # 领域模块
-        'src.domains.hal',
         'src.domains.hardware',
         'src.domains.hardware_reverse',
         'src.domains.kernel_math',
