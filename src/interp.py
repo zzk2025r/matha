@@ -1872,6 +1872,9 @@ class Interpreter:
                 _propagating = sys.exc_info()[1]
                 raise
             except MathaRuntimeError as e:
+                if stmt.catch_block is None:
+                    # 无 catch：异常继续传播，finally 仍先执行（对齐 VM / 自举层语义）
+                    raise
                 # catch 变量绑定消息字符串（与自举层 try 语义对齐）
                 if stmt.catch_var:
                     self.env[stmt.catch_var] = str(e)

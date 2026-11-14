@@ -966,10 +966,14 @@ class Compiler:
         """try/catch/finally：三块各编译为 thunk，VM「调用捕获」返回 tagged 结果：
         正常 ["__正常__", 值]；异常 ["__异常__", 消息]。
 
-        块内绑定落全局（与遗留解释器一致，见 `_compile_thunk` 的 leak 参数）；
-        try/catch 作为值表达式时其值为正常体或捕获体的尾值，finally 的返回值
-        丢弃。语句位置则整体 POP。"""
+        异常路径（无 catch 重抛 / catch 体再次抛出）均「先 finally 后重抛」，
+        与解释器语义同构（解释面 finally 由宿主 Python finally 保证先于异常传播）。
+        catch 体亦经「调用捕获」受保护运行。块内绑定落全局（与遗留解释器一致，
+        见 `_compile_thunk` 的 leak 参数）；try/catch 作为值表达式时其值为正常体
+        或捕获体的尾值，finally 的返回值丢弃。语句位置则整体 POP。"""
         try_name = self._compile_thunk(stmt.try_block, scope, leak=True)
+        fin_name = (self._compile_thunk(stmt.finally_block, scope, leak=True)
+                    if stmt.finally_block is not None else None)
         # guarded = 调用捕获(try_thunk)；result = guarded([])
         code.append((OP.LOAD_GLOBAL, self.sconst("调用捕获")))
         code.append((OP.MAKE_CLOSURE, try_name))
@@ -986,36 +990,69 @@ class Compiler:
         code.append((OP.BINOP, self.const("==")))
         jz = len(code)
         code.append((OP.JZ, 0))
-        # 正常：result[1]
+        # 正常：先 finally（返回值 POP 丢弃）再留 try 体值
+        self._emit_fin_call(fin_name, code)
         self._load_temp(code, result_t)
         code.append((OP.PUSH_CONST, self.const(1)))
         code.append((OP.INDEX_GET,))
-        jmp = len(code)
+        end_jumps = [len(code)]
         code.append((OP.JMP, 0))
-        # 异常：catch_thunk(result[1])；无 catch 则重新抛出消息
+        # 异常：result[1] 存 msg 临时；无 catch 或 catch 再抛 → 尾部先 finally 后重抛
         code[jz] = (OP.JZ, len(code))
+        msg_t = self._alloc_temp(scope, "try_msg")
+        self._load_temp(code, result_t)
+        code.append((OP.PUSH_CONST, self.const(1)))
+        code.append((OP.INDEX_GET,))
+        self._store_temp(code, msg_t)
         if stmt.catch_block is not None:
             catch_params = [stmt.catch_var] if stmt.catch_var else []
             catch_name = self._compile_thunk(stmt.catch_block, scope, catch_params,
                                              leak=True)
+            # ct = 调用捕获(catch_thunk)([msg])
+            code.append((OP.LOAD_GLOBAL, self.sconst("调用捕获")))
             code.append((OP.MAKE_CLOSURE, catch_name))
-            self._load_temp(code, result_t)
-            code.append((OP.PUSH_CONST, self.const(1)))
-            code.append((OP.INDEX_GET,))
-            code.append((OP.CALL, 1 if catch_params else 0))
-        else:
-            self._load_temp(code, result_t)
-            code.append((OP.PUSH_CONST, self.const(1)))
-            code.append((OP.INDEX_GET,))
-            code.append((OP.RAISE,))
-        code[jmp] = (OP.JMP, len(code))
-        # finally：零参 thunk，返回值丢弃
-        if stmt.finally_block is not None:
-            fin_name = self._compile_thunk(stmt.finally_block, scope, leak=True)
-            code.append((OP.MAKE_CLOSURE, fin_name))
-            code.append((OP.BUILD_LIST, 0))
             code.append((OP.CALL, 1))
-            code.append((OP.POP,))
+            self._load_temp(code, msg_t)
+            code.append((OP.BUILD_LIST, 1))
+            code.append((OP.CALL, 1))
+            ct_t = self._alloc_temp(scope, "try_ct")
+            self._store_temp(code, ct_t)
+            # ct[0] == "__正常__"
+            self._load_temp(code, ct_t)
+            code.append((OP.PUSH_CONST, self.const(0)))
+            code.append((OP.INDEX_GET,))
+            code.append((OP.PUSH_CONST, self.const("__正常__")))
+            code.append((OP.BINOP, self.const("==")))
+            jz2 = len(code)
+            code.append((OP.JZ, 0))
+            # catch 正常：先 finally 再留捕获体值
+            self._emit_fin_call(fin_name, code)
+            self._load_temp(code, ct_t)
+            code.append((OP.PUSH_CONST, self.const(1)))
+            code.append((OP.INDEX_GET,))
+            end_jumps.append(len(code))
+            code.append((OP.JMP, 0))
+            # catch 异常：msg ← ct[1]，落入重抛尾部
+            code[jz2] = (OP.JZ, len(code))
+            self._load_temp(code, ct_t)
+            code.append((OP.PUSH_CONST, self.const(1)))
+            code.append((OP.INDEX_GET,))
+            self._store_temp(code, msg_t)
+        # 重抛尾部：先 finally 再重抛消息
+        self._emit_fin_call(fin_name, code)
+        self._load_temp(code, msg_t)
+        code.append((OP.RAISE,))
+        for j in end_jumps:
+            code[j] = (OP.JMP, len(code))
+
+    def _emit_fin_call(self, fin_name: str | None, code: list) -> None:
+        """调用 finally thunk 并丢弃其返回值；无 finally 块时不发射。"""
+        if fin_name is None:
+            return
+        code.append((OP.MAKE_CLOSURE, fin_name))
+        code.append((OP.BUILD_LIST, 0))
+        code.append((OP.CALL, 1))
+        code.append((OP.POP,))
 
     def _param_vars(self, params) -> list:
         """let f(params)=body 的 params: [(Variable, type), ...] → [Variable]。"""
@@ -1179,20 +1216,48 @@ class Compiler:
                     code: list, leave_value: bool = False) -> None:
         """match <expr> { | <pattern> [if guard] => <body> }
 
-        降级为 if/elif 链：每个分支把被匹配值存入临时槽，按模式测试。
+        与解释器 `_eval_match` 同构：守卫先于模式求值（模式绑定名对守卫不可见，
+        守卫引用之将按未定义名报错）；通配分支按「守卫为真且尚未记录兜底」记录
+        标记后顺延测试后续分支，兜底体由尾部调度链执行；全部落空时载入被匹配值
+        发射 RAISE_MATCH，报「match 无匹配分支: …」。
         模式：字面量 / 变量绑定 / ConstructorPat / _ 通配。"""
         scrut_t = self._alloc_temp(scope, "match_s")
         self._emit_expr(node.scrutinee, scope, code)
         self._store_temp(code, scrut_t)
+        # 兜底标记槽：0 = 未记录，i = 第 i 个通配分支（1 起）
+        default_t = self._alloc_temp(scope, "match_d")
+        code.append((OP.PUSH_CONST, self.const(0)))
+        self._store_temp(code, default_t)
         end_jumps: list[int] = []
-        for pat, guard, body in node.branches:
-            fails: list[int] = []
-            # 模式测试失败时跳到下一分支；绑定型模式顺带把值存入槽位
-            self._emit_pattern_test(pat, scrut_t, scope, code, fails)
+        candidates: list[tuple[int, object]] = []
+        for idx, (pat, guard, body) in enumerate(node.branches):
+            if isinstance(pat, ast.Variable) and (pat.is_placeholder or pat.name == "_"):
+                # 通配分支：守卫先行；真 → 标记未记录时记录之（首记录优先）；
+                # 不发射体——顺延测后续分支，兜底体由尾部调度链执行
+                fails: list[int] = []
+                if guard is not None:
+                    self._emit_expr(guard, scope, code)
+                    jz = len(code); code.append((OP.JZ, 0))
+                    fails.append(jz)
+                self._load_temp(code, default_t)
+                code.append((OP.PUSH_CONST, self.const(0)))
+                code.append((OP.BINOP, self.const("==")))
+                skip = len(code); code.append((OP.JZ, 0))
+                code.append((OP.PUSH_CONST, self.const(idx + 1)))
+                self._store_temp(code, default_t)
+                for j in fails + [skip]:
+                    code[j] = (code[j][0], len(code))
+                candidates.append((idx + 1, body))
+                continue
+            fails = []
             if guard is not None:
+                # 守卫先于模式求值：绑定名此刻尚未声明 → LOAD_GLOBAL，
+                # 运行期未定义名报错与解释面逐字一致
                 self._emit_expr(guard, scope, code)
                 jz = len(code); code.append((OP.JZ, 0))
                 fails.append(jz)
+            # 模式测试失败时跳到下一分支；绑定型模式顺带把值存入槽位
+            self._emit_pattern_test(pat, scrut_t, scope, code, fails)
             self._emit_body(body, scope, code)
             if not leave_value:
                 code.append((OP.POP,))
@@ -1201,8 +1266,20 @@ class Compiler:
             # 仅改跳转目标，必须保留 JZ 的条件语义
             for j in fails:
                 code[j] = (code[j][0], len(code))
-        if leave_value:
-            code.append((OP.PUSH_NULL,))
+        # 尾部：兜底调度链（标记 == tag → 该通配体）→ 无兜底 → 无匹配错误
+        for tag, body in candidates:
+            self._load_temp(code, default_t)
+            code.append((OP.PUSH_CONST, self.const(tag)))
+            code.append((OP.BINOP, self.const("==")))
+            jz = len(code); code.append((OP.JZ, 0))
+            self._emit_body(body, scope, code)
+            if not leave_value:
+                code.append((OP.POP,))
+            jmp = len(code); code.append((OP.JMP, 0))
+            end_jumps.append(jmp)
+            code[jz] = (OP.JZ, len(code))
+        self._load_temp(code, scrut_t)
+        code.append((OP.RAISE_MATCH,))
         for j in end_jumps:
             code[j] = (OP.JMP, len(code))
 

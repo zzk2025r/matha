@@ -16,14 +16,11 @@
       「暂不支持的节点 list」（bootstrap_test/v2）。本轮 _compile_stmt
       新增 list 分支逐元素编译，与 host 容忍面同构。
 
-登记边界（现状防漂移锁，不修）：
-  - match 无匹配分支：host 报错「match 无匹配分支: <值>」（语句位/表达式位
-    同源 _eval_match），VM 表达式位求值 None、语句位静默继续（M1 既有）
-    ——两形态均语料零命中，与 8a 自举链「无匹配显式拒绝」语义的 VM 对齐
-    属独立片。
-  - match 守卫求值序：host 先守卫后模式绑定（8a 自举设计 guard-first），
-    VM 先模式绑定（临时槽）后守卫——守卫引用绑定名时 host 报未定义变量、
-    VM 求值成功。语料守卫均不引用绑定名，零命中。
+登记边界（阶段 20 收口勘误后状态）：
+  - match 无匹配分支 / 守卫求值序 / try-finally 无 catch 重抛三处旧登记
+    分歧已由阶段 20 全部真化收口（编译面→解释面对齐 + 新 opcode
+    RAISE_MATCH 值渲染 + finally 全链「先 finally 后重抛」同构）——专项
+    锁在 test_semantic_parity_phase20.py，本文件保留收口后一致性轻锁。
   - bootstrap_test/v2 编译缺口修复后残留分歧转 C 类（自举链符号面）：
     文件 use 词法器/运行时引擎 等，独立 VM 编译看不见被载模块符号
     （与 interp.matha/interp_matha.matha 同界）。
@@ -35,14 +32,11 @@
      os_concepts.matha 错误传播同构（双端同错同消息）。
   2. 闭环：matha run 真子进程 func 体 match 输出、MechUnit 组合 body 输出、
      grammar.matha 语料运行 exit 0。
-  3. 边界：match 无匹配/守卫序/语句位无匹配三处登记分歧现状锁、switch
-     表达式位解析拒绝、MechUnit 纯块与裸 list AST 形态锁、bootstrap_test/
-     v2 编译通过 + C 类边界现状锁。
+  3. 边界：switch 表达式位解析拒绝、MechUnit 纯块与裸 list AST 形态锁、
+     bootstrap_test/v2 编译通过 + C 类边界现状锁、19c 收口后一致性轻锁。
   4. 19c 终端管道态修复：段内出错 catch 清态后重抛不泄漏（host 锁在
      test_matha_term_13a.py 旧锁改锁新形态、VM 面在此）+ 引擎 try 形态
-     保值/重抛保真锁 + try-finally 无 catch 双端相反分歧现状锁
-     （host 吞错继续 / VM 重抛但跳过 finally——语料零命中，登记不修；
-     引擎因此弃 finally 改 catch-清态-重抛）。
+     保值/重抛保真锁（引擎弃 finally 改 catch-清态-重抛，形态保留）。
 """
 from __future__ import annotations
 
@@ -152,7 +146,7 @@ class TestParity19aMatchExpr:
         _both("输出(match 2 {\n  | 1 => 10\n  | 2 => 20\n})\n", [20])
 
     def test_literal_guard_order_irrelevant(self):
-        # 字面模式 + 常量守卫：求值序（host 先守卫/VM 先模式）不影响结果
+        # 字面模式 + 常量守卫：求值序双端同构（阶段 20 收口：先守卫后模式）
         _both(
             "输出(match 7 {\n  | 7 if 1 > 0 => \"大\"\n  | _ => \"小\"\n})\n",
             ["大"],
@@ -255,29 +249,32 @@ class TestEndToEndPhase19:
 
 
 # ============================================================
-# 3. 边界：登记分歧现状锁（不修，防漂移）
+# 3. 边界：阶段 20 收口后一致性轻锁（旧登记分歧已修，防回潮）
 # ============================================================
 
 class TestBoundariesPhase19:
     def test_match_no_match_expr_divergence(self):
-        # 登记分歧：host 报错「match 无匹配分支: 9」/ VM 表达式位求值 None
+        # 阶段 20 收口：无匹配双端同错「match 无匹配分支: 9」
+        # （旧登记分歧 = host 报错 / VM 表达式位求值 None，已除名）
         src = "输出(match 9 {\n  | 1 => 10\n  | 2 => 20\n})\n"
         ho = _run_raw(src, "host")
         vo = _run_raw(src, "vm")
+        assert ho == vo
         assert isinstance(ho, str) and "match 无匹配分支: 9" in ho
-        assert vo == [None]
 
     def test_match_stmt_no_match_silent_vm(self):
-        # 登记分歧（M1 既有）：host 语句位报错 / VM 静默继续
+        # 阶段 20 收口：语句位无匹配双端同错，VM 不再静默继续
+        # （旧登记分歧 = host 报错 / VM [5] 继续跑，已除名）
         src = "match 9 { | 1 => 输出(10) }\n输出(5)\n"
         ho = _run_raw(src, "host")
         vo = _run_raw(src, "vm")
+        assert ho == vo
         assert isinstance(ho, str) and "match 无匹配分支: 9" in ho
-        assert vo == [5]
 
     def test_match_guard_binding_ref_divergence(self):
-        # 登记分歧：host 先守卫（绑定名不可见 → 未定义变量 'x'）/
-        # VM 先模式绑定（守卫可引用绑定名 → '大'）
+        # 阶段 20 收口：守卫先于模式求值（绑定名对守卫不可见）双端同构——
+        # 守卫引用绑定名 → 未定义变量 'x'
+        # （旧登记分歧 = host 报错 / VM 先绑定输出「大」，已除名）
         src = (
             "输出(match 7 {\n"
             "  | x if x > 5 => \"大\"\n"
@@ -286,8 +283,8 @@ class TestBoundariesPhase19:
         )
         ho = _run_raw(src, "host")
         vo = _run_raw(src, "vm")
+        assert ho == vo
         assert isinstance(ho, str) and "未定义变量 'x'" in ho
-        assert vo == ["大"]
 
     def test_bootstrap_test_v2_compiles_and_c_class_boundary(self):
         # 编译缺口已修（不再「暂不支持的节点 list」）；残留分歧 = C 类
@@ -336,7 +333,8 @@ class TestPipeState19c:
     设计约束（形态探针证实，双端一致）：try 只能落块尾语句位（let 链尾接
     try 双端 ParseError）；try 体块尾若是 let-in 整体被当语句丢弃（值 None），
     清理与返回必须拆语句「let 绑定 + 裸 管道结束() 调用 + 块尾裸值」；
-    不用 finally——VM finally 在无 catch 重抛路径不执行（见 19c 边界锁）。"""
+    不用 finally——块尾 let-in 值丢弃（D4）要求清理与返回拆语句，
+    catch+throw 形态保值又保清理（阶段 20 已修 VM 重抛路径，形态保留）。"""
 
     def test_engine_form_value_survives_try_body(self):
         # 引擎形态回归锁：拆语句形态保值（若有人改回 let-in 块尾 → None 即红）
@@ -395,7 +393,7 @@ class TestPipeState19c:
 
 
 class TestFinallyBoundary19c:
-    """VM finally 语义缺口（19c 设计期发现，登记分歧现状锁，不修）。"""
+    """try/finally 双端语义（阶段 20 全链同步后一致性锁）。"""
 
     def test_finally_normal_and_caught_paths_parity(self):
         # 正常路径 / 有 catch 路径：finally 双端一致执行
@@ -403,16 +401,22 @@ class TestFinallyBoundary19c:
         _both("try { 输出(1 / 0) } catch (e) { 输出(7) } finally { 输出(9) }\n", [7, 9])
 
     def test_try_finally_no_catch_divergence(self):
-        # 登记分歧（双端相反，语料零命中）：host try-finally 无 catch 时
-        # 吞错继续（_exec_try except MathaRuntimeError → catch_block None →
-        # _exec_stmt(None) 静默 no-op；finally 副作用执行、异常不再传播）/
-        # VM 重抛异常但跳过 finally thunk（OP.RAISE 先于 finally 发射）。
-        # 语料 finally 仅出现在自举镜像 try 语义实现内，可执行语料零命中。
+        # 阶段 20 全链同步：无 catch 重抛路径「先 finally 后重抛」双端同构
+        # （旧登记分歧 = host 吞错继续 / VM 重抛跳过 finally，两形态均已除名）
         src = "try { 输出(1 / 0) } finally { 输出(9) }\n输出(2)\n"
+        ho = _run_raw(src, "host")
+        vo = _run_raw(src, "vm")
+        assert ho == vo
+        assert isinstance(ho, str) and "除零错误" in ho
+        # finally 副作用双端都执行，且发生在 输出(2) 之前（异常传播终止）
         ho_interp = Interpreter()
-        ho_interp.run(parse(src))
-        assert ho_interp.outputs == [9, 2], "host 现状：吞错继续（登记分歧）"
+        with pytest.raises(Exception, match="除零错误"):
+            ho_interp.run(parse(src))
+        assert ho_interp.outputs == [9]
         vm = VM(Compiler().compile_program(parse(src)))
         with pytest.raises(Exception, match="除零错误"):
             vm.run()
-        assert 9 not in vm.outputs, "VM 现状：重抛但跳过 finally（登记分歧）"
+        assert vm.outputs == [9]
+
+    # （阶段 20：catch 体再抛先 finally 后重抛、RAISE_MATCH 消息渲染两形态
+    # 移入 test_semantic_parity_phase20.py 专项锁，此处不再重复）

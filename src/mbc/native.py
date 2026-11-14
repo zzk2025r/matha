@@ -4614,6 +4614,67 @@ def _emit_exception_runtime(em: _Emitter, guard: bool):
         em.emit(b"\x48\x89\x48\x18")                # mov [rax+24],rcx
         em.emit(b"\xC3")                            # ret
 
+    # ---- match_render（rax=被匹配值 → rax=渲染串 STR；OP.RAISE_MATCH 用）----
+    # 渲染形态对齐 VM _fmt_match_value 的常见分支：标量走 value_to_str
+    # （int 十进制 / float repr / bool/null 原样），字符串/列表/字典经
+    # print_repr 两遍渲染（repr 形态：字符串加引号转义、容器元素/值 repr）。
+    # 与 VM/host 的已登记差异：无 60 字符截断、无 >4/>6 容器缩略形态、
+    # 字典键经 repr（VM/host 键原样）、闭包值原样（VM 报 <builtin …>）。
+    em.label_here("match_render")
+    em.emit(b"\x55")                                # push rbp
+    em.emit(b"\x48\x89\xE5")                        # mov rbp,rsp
+    em.emit(b"\x48\x83\xEC\x20")                    # sub rsp,32（帧槽+shadow）
+    em.mov_mem_r(5, -24, 0)                         # [rbp-24] = 被匹配值
+    # 堆指针判定（与 value_to_str 同构）：非堆 → 标量路径
+    em.mov_rd_mem(1, 5, -24)                        # rcx = 值
+    em.lea_rip(2, "heap_base")                      # rdx = heap_base
+    em.sub_rr(1, 2)                                 # rcx -= rdx
+    em.cmp_heap_used(1)
+    em.jcc_rel32(0x83, "mr_scalar")                 # jae → 裸值/静态区外
+    em.mov_rd_mem(1, 5, -24)
+    em.mov_rd_mem(1, 1, 0)                          # rcx = [值] 类型
+    em.cmp_ri(1, TYPE_STR)
+    em.jcc_rel32(0x84, "mr_repr")
+    em.cmp_ri(1, TYPE_LIST)
+    em.jcc_rel32(0x84, "mr_repr")
+    em.cmp_ri(1, TYPE_DICT)
+    em.jcc_rel32(0x84, "mr_repr")
+    em.label_here("mr_scalar")
+    em.mov_rd_mem(0, 5, -24)                        # rax = 值
+    em.call_rel32("value_to_str")
+    em.jcc_rel32(None, "mr_done")
+    em.label_here("mr_repr")
+    # 两遍渲染（模式对齐 fn:str 容器分支）：out_mode=1 计数 → 分配精确 STR
+    # → out_buf_ptr 指向载荷 → out_mode=2 填充 → 恢复 stdout。
+    # 值与结果对象都在机器栈帧槽上，GC 保守扫描天然可见。
+    em.mov_r_imm32(1, 1)
+    em.store_rip_from("out_mode", 1)
+    em.xor_rr32(1, 1)
+    em.store_rip_from("out_count", 1)
+    em.mov_rd_mem(0, 5, -24)
+    em.call_rel32("print_repr")                     # 计数遍
+    em.load_rip_to(1, "out_count")
+    em.emit(b"\x48\x83\xC1\x10")                    # add rcx,16（对象总大小）
+    em.mov_rr(7, 1)                                 # rdi = size
+    em.call_rel32("alloc")
+    em.emit(b"\x48\xC7\x00" + struct.pack("<I", TYPE_STR))
+    em.load_rip_to(1, "out_count")
+    em.mov_mem_r(0, 8, 1)                           # [rax+8] = len
+    em.lea_mem(2, 0, 16)                            # rdx = 载荷指针
+    em.store_rip_from("out_buf_ptr", 2)
+    em.mov_mem_r(5, -32, 0)                         # [rbp-32] = 结果 STR
+    em.mov_r_imm32(1, 2)
+    em.store_rip_from("out_mode", 1)
+    em.mov_rd_mem(0, 5, -24)
+    em.call_rel32("print_repr")                     # 填充遍
+    em.xor_rr32(1, 1)
+    em.store_rip_from("out_mode", 1)                # 恢复 stdout
+    em.mov_rd_mem(0, 5, -32)
+    em.label_here("mr_done")
+    em.emit(b"\x48\x89\xEC")                        # mov rsp,rbp
+    em.emit(b"\x5D")                                # pop rbp
+    em.emit(b"\xC3")                                # ret
+
     # ---- raise_rt（rax=值；永不返回）----
     em.label_here("raise_rt")
     em.emit(b"\x48\x83\xE4\xF0")                    # and rsp,-16（对齐，兼容任意入口）
@@ -8389,6 +8450,16 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.pop_to(0)                                # rax = 抛出值
         em.call_rel32("raise_rt")                   # 不返回（展开或终止）
         em.emit(b"\x0F\x0B")                        # ud2
+    elif op == OP.RAISE_MATCH:
+        # match 无匹配：前缀 + 被匹配值 repr 渲染 → raise_rt（消息形态对齐
+        # VM/解释器「match 无匹配分支: …」；容器缩略形态差异登记 KNOWN_ISSUES）
+        em.pop_to(0)                                # rax = 被匹配值
+        em.call_rel32("match_render")               # rax = 渲染串（repr 风格）
+        em.mov_rr(1, 0)                             # rcx = 渲染串
+        em.lea_rip(0, "err_match_nomsg")            # rax = 前缀静态串
+        em.call_rel32("str_concat")                 # rax = 前缀 + 渲染
+        em.call_rel32("raise_rt")                   # 不返回（展开或终止）
+        em.emit(b"\x0F\x0B")                        # ud2
     elif op == OP.FORMULA_SCHEMA:
         # `#N：？公式` 登记模式：纯静态规格元数据，无运行期效果（不产生输出、
         # 不触碰栈与变量表），故原生后端发空实现即可——与解释器/VM 的可观察
@@ -10391,7 +10462,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_mathdom", "math domain error"),
                      ("err_bigintop", "大整数不支持该运算"),
                      ("err_attr", "属性访问失败: 非字典对象"),
-                     ("err_not_callable", "不可调用的值")):
+                     ("err_not_callable", "不可调用的值"),
+                     ("err_match_nomsg", "match 无匹配分支: ")):
         raw = s.encode("utf-8")
         ed.align(8)
         ed.label_here(lbl)

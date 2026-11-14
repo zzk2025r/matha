@@ -27,7 +27,7 @@ src/lexer.py → src/parser.py → src/ast_nodes.py
   仅测试与调试可见）。全仓库 `src.interp` 的引用已改指门面。
 
 核心体量：`src/lexer.py + src/parser.py + src/ast_nodes.py + src/kernel/ + src/mbc/`
-共 **31,990 行**（`repo_facts.core_py_lines`，阶段 11 孤儿清算 −2,653 行；阶段 12b 终端 OS 胶水内建 +141 行；阶段 13 终端补全 os 域 升级包/执行命令输入 胶水 +29 行；阶段 14 解析器踩界真化 +113 行——词法器续行判定 + 主解析器 then 行首/参数跨行 skip；阶段 15 双端语义对齐 +8 行——VM 顶层裸表达式发射 + host 顶层 IfExpr 真执行；阶段 16 双端语义第二片 +10 行——let-in 列表体丢死兼容 + 顶层裸表达式求值丢弃 + 严格值相等三端登记 + 词法器剥 BOM；阶段 17 全面清算 +9 行——解析器 _CMP_ALIASES 归一化常量与三处 op 取值位点；阶段 18 双端语义第三片 +56 行——解释器删模块递归双执行 + use 加载自测块跳过标志 + 通道收发 host 求值 + 解析器全中缀回退与 `_bracket_followed_by_infix`；阶段 19 双端语义第四片 +16 行——VM 编译器 match/switch 表达式位 + MechUnit 裸 list body 逐元素编译 + 成长引擎规则聚合）。
+共 **32,166 行**（`repo_facts.core_py_lines`，阶段 11 孤儿清算 −2,653 行；阶段 12b 终端 OS 胶水内建 +141 行；阶段 13 终端补全 os 域 升级包/执行命令输入 胶水 +29 行；阶段 14 解析器踩界真化 +113 行——词法器续行判定 + 主解析器 then 行首/参数跨行 skip；阶段 15 双端语义对齐 +8 行——VM 顶层裸表达式发射 + host 顶层 IfExpr 真执行；阶段 16 双端语义第二片 +10 行——let-in 列表体丢死兼容 + 顶层裸表达式求值丢弃 + 严格值相等三端登记 + 词法器剥 BOM；阶段 17 全面清算 +9 行——解析器 _CMP_ALIASES 归一化常量与三处 op 取值位点；阶段 18 双端语义第三片 +56 行——解释器删模块递归双执行 + use 加载自测块跳过标志 + 通道收发 host 求值 + 解析器全中缀回退与 `_bracket_followed_by_infix`；阶段 19 双端语义第四片 +16 行——VM 编译器 match/switch 表达式位 + MechUnit 裸 list body 逐元素编译 + 成长引擎规则聚合；阶段 20 match 收口 + finally 全链 +176 行——编译器 match 动态兜底/守卫先求值/try 三路径重抛、VM RAISE_MATCH 0x63 处理器、原生 RAISE_MATCH 与 repr 渲染运行时、解释器 match 无匹配口径对齐、opcode 登记）。
 
 ## 二、L1 纯净内核与 import 白名单
 

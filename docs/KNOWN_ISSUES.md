@@ -1411,8 +1411,9 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   ① try 只能落块尾语句位——let 链尾接 try / let 值位 try 双端 ParseError；② 块尾若是
   let-in Binding 整体被 D4 语义当语句丢弃（值 None），「清理 + 返回」必须拆成裸
   管道结束() 语句 + 块尾裸 r；③ 不用 finally = VM finally 无 catch 重抛路径不执行
-  thunk（见下）。
-  **finally 双端相反分歧（新登记不修 + 现状锁）**：try-finally 无 catch 时 host **吞错
+  thunk（见下）。〔勘误 2026-11 阶段 20：③已修，见阶段 20 收官条目 20e〕
+  **finally 双端相反分歧（新登记不修 + 现状锁）〔勘误 2026-11 阶段 20：已修，见阶段 20
+  收官条目 20e；下文为修复前形态存档〕**：try-finally 无 catch 时 host **吞错
   继续**（src/interp.py `_exec_try` catch_var None → catch_block None → `_exec_stmt(None)`
   静默 no-op——错误不传播、finally 副作用照跑、执行继续），VM **重抛但跳过 finally
   thunk**（compiler OP.RAISE 先于 finally thunk 发射）。两形态相反、语料零命中（finally
@@ -1429,7 +1430,9 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   parser 自测块存量等）。
   三锁 30 条净增（`tests/test_semantic_parity_phase19.py` 新档 29：19a match 8 + switch 3 +
   19b 4 + e2e 3 + 边界/登记锁 5 + 19c 管道态 4 + finally 2；growth `TestG5` 净 +1；13a
-  旧泄漏锁 1:1 改锁新形态）。**登记分歧现状锁（防回潮面不放松）**：match 无匹配表达式位
+  旧泄漏锁 1:1 改锁新形态）。**登记分歧现状锁（防回潮面不放松）〔勘误 2026-11 阶段 20：
+  match 两分歧已修（无匹配 RAISE_MATCH 真化 + 守卫序 guard-first 同构），见阶段 20 收官
+  条目 20a/20c；switch 表达式位解析拒绝维持登记〕**：match 无匹配表达式位
   host 报「match 无匹配分支」/VM 表达式位求值 None、语句位 VM 静默继续；守卫绑定名求值序
   host 先守卫（绑定名不可见 → 未定义变量）/VM 先模式绑定（守卫可引用）；switch 表达式位
   ParseError（VM `_emit_expr` SwitchStmt 分支为与 host 对称的防御支持）。
@@ -1440,6 +1443,61 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   非回归〕→ 重生成 → 按协议全量重跑干净：tests 7184 + kernel_purity 14 + ast_vm_gap 11 +
   golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
   算术闭合：7257（18 收官）+ 30（phase19 新档 29 + growth 净 +1）= 7287。
+- **2026-11 阶段 20 收官（match 分歧收口五面同构 + finally 双端分歧全链真修）**：用户拍板
+  范围两件（match 分歧收口 + finally 双端分歧真修），设计拍板三项推荐全采：对齐方向 =
+  编译面→解释面（解释器为基准不动语义面）、VM 无匹配消息 = 新 opcode 值渲染、finally
+  修复面 = 全族全链。
+  **20a 守卫求值序收口（编译面→解释面）**：host compiler `_emit_match` 与自举镜像
+  `_发射match尾部` 由「先模式绑定后守卫」改为 guard-first——守卫先于模式绑定求值，守卫
+  引用绑定名双端一致报「未定义变量 'x'」（对齐 interp `_eval_match`；旧 VM 面
+  bind-then-guard 守卫可引用绑定名输出「大」的错误形态除名）；镜像 `_发射match尾部` bc
+  线程 typo 同修（`bc3` 自引用未绑定 → 改 `bc3` 前值）。旧锁改锁新形态两处：m18
+  [guard]（test_mbc_bootstrap.py，守卫改引外层参数 n，路由覆盖保留）+ M1
+  `test_match_guard_filters_branch`（test_m1_nodes.py 同款）；「守卫引用绑定名 → 双端
+  同错」形态由 phase20 专项锁 + phase19 收口后轻锁封死。
+  **20b 通配兜底动态化**：通配 `_` 分支不再编译期静态化——守卫通过的通配动态记录兜底
+  tag（marker 槽 match_d/default_t record-if-unset），循环内后续显式分支照测（后显式
+  分支优先于先记录通配，对齐解释面 default_branch「循环结束后才生效」语义），循环尾
+  tag 分派链统一出口；语料型多守卫通配矩阵锁（lifestyle_math 分档形态）。
+  **20c 无匹配真化（新 opcode RAISE_MATCH 0x63）**：主/镜像编译器 match 尾部统一发射
+  `load scrutinee; RAISE_MATCH`，VM 处理器按 interp._fmt 渲染被匹配值（字符串带引号截
+  60 / >4 列表 [list len=N] / >6 字典 {dict keys=[...]} 原始键）后抛「match 无匹配分支:
+  <值>」——VM 表达式位求值 None / 语句位静默继续两形态除名，双端三形态（表达式位/
+  语句位/catch 接获含完整前缀消息）逐字一致。
+  **20d 原生 RAISE_MATCH（opcode-surface 硬门禁合规）**：src/mbc/native.py err_match_nomsg
+  静态串 + opcode 分派 + match_render 运行时（堆指针判定 + STR/LIST/DICT 两遍 print_repr
+  repr 渲染 / 标量 value_to_str → str_concat 前缀 → raise_rt）；未捕获路径 stderr
+  「match 无匹配分支: <值>」+ exit 1。**登记差异（现状锁）**：原生渲染无 60 字符截断与
+  >4/>6 缩略形（完整 [1, 2, 3, 4, 5, 6]）、字典键走 repr、闭包值原样——
+  `test_native_render_delta_long_list` 显式登记防静默收敛/漂移。
+  **20e finally 全链真修（19 收官条目「登记不修」勘误为已修）**：host `_exec_try` 无
+  catch 不再吞错（catch_block None → 重抛，finally 先执行）；VM `_emit_try_stmt` 无
+  catch 路径 fin thunk 先执行后重抛、catch 再抛路径同构；自举镜像 interp.matha `执行try`
+  两路径「先 finally 后重抛」（catch 体经 调用捕获 受保护）+ compiler_matha.matha
+  `_发射try` 同构（无变量 catch CALL 1 = 宿主 `_invoke` 丢参契约）。19c 引擎弃 finally
+  改 catch-清态-重抛的形态保留（保守设计不动），其理由③勘误为已修。镜像 parser
+  `catch{}` 歧义（无 catch ≡ 显式空 catch 同形态 → 镜像面按重抛，与宿主 catch_block
+  None/空 CodeBlock 区分不同源）维持登记边界不修。
+  **20f 镜像 try 缺口形态锁（M21）**：M16 全部用例带 catch 变量，无变量 catch 与无
+  catch+finally 重抛两形态此前自举链路无锁——新增三面锁（host 基准 / stage2≡stage3
+  字节级 / stage3 执行）：无变量 catch 函数体、无变量 catch 顶层输出、嵌套 finally 重抛
+  外层接获 [9, "1"]。
+  **零扰动证明**（HEAD b8238bd worktree 基线对拍：163 跟踪语料 host/vm sweep 逐文件
+  diff）：语义面零变化，唯一 4 处差异全为良性工件（08_auto_optimize 对象地址 +
+  10/11/12 examples worktree 绝对路径，与阶段 19 同批）；matha/generated/ 6 个未跟踪
+  生成文件不入 worktree 不参与对拍；语料守卫均不引用绑定名、finally 语料零命中（仅
+  自举镜像 try 语义实现内部使用）——两收口对语料零扰动。
+  三锁 38 条净增（`tests/test_semantic_parity_phase20.py` 新档 31：守卫序 4 + 动态兜底
+  4 + 无匹配消息 8 + finally parity 7 + e2e 3 + 原生 3 + 边界 2；`test_mbc_bootstrap.py`
+  M21 +9；phase19 文件 2 条移交专项锁 −2；m18/m1 旧锁改锁 ±0）。门禁 7327/7327（首跑
+  7326/7327，1 红 = M1 test_match_guard_filters_branch 旧锁编码 bind-then-guard 形态 →
+  按旧锁改锁新形态协议改锁 → 按协议全量重跑干净：tests 7224 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入
+  分母）。算术闭合：7287（19 收官）+ 31 + 9 − 2 = 7327。
+  doc 同步：README 测试文件 142→143；ARCHITECTURE core_py_lines 31,990→32,166（+176 =
+  编译器 match 动态兜底/守卫先求值/try 三路径重抛 + VM RAISE_MATCH 处理器 + 原生
+  match_render 渲染运行时 + 解释器无 catch 重抛 + opcode 登记）；ast_vm_gap 快照重生成
+  （RAISE_MATCH 进 opcode surface，指令码 34 VM 34 / native 34）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

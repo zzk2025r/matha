@@ -393,6 +393,30 @@ def _norm_output(v):
     return "<function>" if _is_matha_function(v) else v
 
 
+def _fmt_match_value(v, _depth: int = 0) -> str:
+    """OP.RAISE_MATCH 的被匹配值渲染，对齐 interp.Interpreter._fmt 核心分型，
+    使「match 无匹配分支: …」消息双端逐字一致。"""
+    if _depth > 3:
+        return "…"
+    if isinstance(v, str):
+        return repr(v[:60] + ("…" if len(v) > 60 else ""))
+    if v is None or isinstance(v, (bool, int, float)):
+        return repr(v)
+    if isinstance(v, (list, tuple)):
+        if len(v) > 4:
+            return f"[{type(v).__name__} len={len(v)}]"
+        return "[" + ", ".join(_fmt_match_value(x, _depth + 1) for x in v) + "]"
+    if isinstance(v, dict):
+        if len(v) > 6:
+            return f"{{dict keys={list(v.keys())[:8]}}}"
+        return "{" + ", ".join(
+            f"{k}: {_fmt_match_value(x, _depth + 1)}"
+            for k, x in list(v.items())[:6]) + "}"
+    if callable(v):
+        return f"<builtin {getattr(v, '__name__', '?')}>"
+    return repr(v)[:120]
+
+
 def _builtin_type_of(v) -> str:
     """返回值类型名称（Matha 类型）——VM 内建，供自举代码使用。
     避免 stdlib 纯 Matha 实现的 type_of 与 str 互相调用死循环。"""
@@ -1005,6 +1029,8 @@ class VM:
                 print(val)
         elif op == OP.RAISE:
             raise MathaRuntimeError(str(st.pop()))
+        elif op == OP.RAISE_MATCH:
+            raise MathaRuntimeError(f"match 无匹配分支: {_fmt_match_value(st.pop())}")
         elif op == OP.FORMULA_SCHEMA:
             # `#N：？公式` 登记为模式：槽不可求值，只记静态规格。
             seg_id, text, shp, slots = C[ins[1]]

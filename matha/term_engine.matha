@@ -429,7 +429,8 @@ module 终端执行器 {
      透传段另拼接文本作 stdin）。
      段内出错也清管道态（阶段 19c）：try 体/体块尾「管道结束() 独立语句 +
      块尾裸值」——块尾若是 let-in 整体会被当语句丢弃（值语义 D4），清理与
-     返回必须拆语句；不用 finally——VM finally 在无 catch 重抛路径不执行。
+     返回必须拆语句；不用 finally（阶段 20 已修双端重抛路径，但块尾 let-in
+     值丢弃要求清理与返回拆语句，catch+throw 形态保留）。
      try 只能落块尾语句位（let 链尾接 try 双端 ParseError），故 else 分支
      用多语句块：裸 管道输入 语句 + try。 *)
   func _执行段(段: Dict, 原行: String, 管入) -> Dict =

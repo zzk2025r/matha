@@ -68,10 +68,12 @@ func 描述(n: Int) -> String = (n) => {
 
 
 def test_match_guard_filters_branch():
+    # 阶段 20 守卫求值序对齐解释面（guard-first：守卫在模式绑定前求值，
+    # 引用绑定名 x 双端一致报未定义变量）——守卫改引外层参数 n。
     outs = _out("""
 func 带守卫(n: Int) -> String = (n) => {
   match n {
-    | x if x > 10 => "大"
+    | x if n > 10 => "大"
     | _ => "小"
   }
 }

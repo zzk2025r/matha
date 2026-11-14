@@ -1996,7 +1996,9 @@ def test_m17_block_let_stage3_runs(compiler_boot_vm, name, src, expect):
 _M18_MATCH_CASES = [
     ("lit_chain", 'func 分类(n: Int) -> String = (n) => {\n  match n {\n    | 0 => "零"\n    | 1 => "一"\n    | _ => "多"\n  }\n}\n#1：[分类(0)]\n#1：[分类(1)]\n#1：[分类(7)]\n', ["零", "一", "多"]),
     ("var_bind",  'func 加一(n: Int) -> Int = (n) => {\n  match n {\n    | x => x + 1\n  }\n}\n#1：[加一(9)]\n', [10]),
-    ("guard",     'func 档(n: Int) -> String = (n) => {\n  match n {\n    | x if x > 10 => "大"\n    | x if x > 3 => "中"\n    | _ => "小"\n  }\n}\n#1：[档(20)]\n#1：[档(5)]\n#1：[档(1)]\n', ["大", "中", "小"]),
+    # 阶段 20 守卫求值序对齐解释面（guard-first：守卫在模式绑定前求值，
+    # 引用绑定名 x 会双端一致报「未定义变量 'x'」）——守卫改引外层参数 n。
+    ("guard",     'func 档(n: Int) -> String = (n) => {\n  match n {\n    | x if n > 10 => "大"\n    | x if n > 3 => "中"\n    | _ => "小"\n  }\n}\n#1：[档(20)]\n#1：[档(5)]\n#1：[档(1)]\n', ["大", "中", "小"]),
     ("ctor",      'func 解(o: Any) -> String = (o) => {\n  match o {\n    | Some(x) => "有" + str(x)\n    | None => "无"\n  }\n}\n#1：[解({"Some": 5})]\n#1：[解({"None": 1})]\n', ["有5", "无"]),
     ("two_ctors", 'func 解(o: Any) -> String = (o) => {\n  match o {\n    | Some(x) => "s" + str(x)\n    | Err(y) => "e" + str(y)\n    | _ => "?"\n  }\n}\n#1：[解({"Some": 1})]\n#1：[解({"Err": 2})]\n#1：[解({"Other": 3})]\n', ["s1", "e2", "?"]),
     ("str_pat",   'func 应(s: String) -> Int = (s) => {\n  match s {\n    | "a" => 1\n    | "b" => 2\n    | _ => 0\n  }\n}\n#1：[应("a")]\n#1：[应("b")]\n#1：[应("z")]\n', [1, 2, 0]),
@@ -2056,6 +2058,41 @@ def test_m18_switch_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
 @pytest.mark.parametrize("name,src,expect", _M18_SWITCH_CASES, ids=_M18_SWITCH_IDS)
 def test_m18_switch_stage3_runs(compiler_boot_vm, name, src, expect):
     """M18：自举链路编译执行 switch，输出与宿主一致。"""
+    stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
+    assert VM(stage3_mod).run() == expect
+
+
+# ==================== M21：镜像 try 缺口形态 ====================
+# 阶段 20 镜像 _发射try 同构后补锁两形态：无变量 catch `catch { }`（镜像
+# 守卫调用 CALL 1 + 0 元 thunk，宿主 _invoke 丢弃多余实参）与无 catch +
+# finally 重抛（fin 先执行后重抛，外层 catch 接住）——M16 全部用例带 (e)，
+# 此前这两形态自举链路无锁。
+_M21_TRY_CASES = [
+    ("varless_catch_fn",  "f = () => { try { throw 1 } catch { 2 } }\n#：[f()]\n", [2]),
+    ("varless_catch_out", "try { throw 1 } catch { #：[7] }\n", [7]),
+    ("no_catch_fin_rethrow", "try { try { throw 1 } finally { #：[9] } } catch (e) { #：[e] }\n", [9, "1"]),
+]
+
+_M21_TRY_IDS = [c[0] for c in _M21_TRY_CASES]
+
+
+@pytest.mark.parametrize("name,src,expect", _M21_TRY_CASES, ids=_M21_TRY_IDS)
+def test_m21_try_host_runs(name, src, expect):
+    """M21：宿主 try 缺口形态语义基准。"""
+    assert VM(_host_compile(src)).run() == expect
+
+
+@pytest.mark.parametrize("name,src,expect", _M21_TRY_CASES, ids=_M21_TRY_IDS)
+def test_m21_try_stage2_equals_stage3(compiler_boot_vm, name, src, expect):
+    """M21：stage2 ≡ stage3（try 缺口形态字节级一致）。"""
+    stage3 = _canon(dict_to_module(compiler_boot_vm.call("编译", src)))
+    stage2 = _canon(_host_compile(src))
+    assert stage3 == stage2, f"stage2 ≡ stage3 不成立: {name}"
+
+
+@pytest.mark.parametrize("name,src,expect", _M21_TRY_CASES, ids=_M21_TRY_IDS)
+def test_m21_try_stage3_runs(compiler_boot_vm, name, src, expect):
+    """M21：自举链路编译执行 try 缺口形态，输出与宿主一致。"""
     stage3_mod = dict_to_module(compiler_boot_vm.call("编译", src))
     assert VM(stage3_mod).run() == expect
 

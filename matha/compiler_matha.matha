@@ -52,6 +52,9 @@ module 编译器 {
   let OP_POP = 0x59
   let OP_OUTPUT = 0x60
   let OP_RAISE  = 0x61
+  (* 弹出被匹配值 → 抛出「match 无匹配分支: <渲染值>」（vm.RAISE_MATCH 0x63，
+     消息渲染由 VM 端 _fmt_match_value 完成，镜像只发射操作码） *)
+  let OP_RAISE_MATCH = 0x63
   let OP_HALT   = 0xFF
 
   let 二元运算表 = {
@@ -502,38 +505,89 @@ module 编译器 {
     (_发(c2, [OP_POP]), sc2, bc2)
 
   (* ===== match / switch：与宿主 _emit_match / _emit_switch 对齐 =====
-     match 语句：scrutinee; 存临时 match_s; 逐分支 [模式, 守卫, 体]：
-       载临时; 模式测试（失败跳 end）; 守卫（假跳 end）; 体;
-       语句位补 POP; JMP end; 失败补丁点补到下一分支起点。
-     留值位置（表达式/块末）末尾 PUSH_NULL。 *)
+     match 语句：scrutinee; 存临时 match_s; 兜底标记槽 match_d 置 0;
+       逐分支 [模式, 守卫, 体]（解释面 _eval_match 同构求值序）：
+       普通分支——守卫先于模式测试（绑定名对守卫不可见，守卫引用之按未定义名报错）；
+       通配分支——守卫真且标记未记录时记之（首个真守卫通配优先），顺延测后续分支，
+       不发射体，兜底体由尾部调度链执行；
+       全部落空——载被匹配值 RAISE_MATCH 报「match 无匹配分支: …」。 *)
   func _发射match(e: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
       -> (List, List, Dict) =
     let (s位置, sc1, bc1) = _分配临时(sc, bc, "match_s") in
     let (c1, sc2, bc2) = _发射表达式(e["scrutinee"], code, sc1, bc1) in
     let (c2, bc3) = _存临时(s位置, c1, bc2) in
-    let (c3, sc3, bc4, end跳) =
-      _发射match分支(e["分支"], s位置, c2, sc2, bc3, 留值, []) in
-    let c4 = 留值 ? _发(c3, [OP_PUSH_NULL]) : c3 in
-    (_补丁列表跳转(c4, end跳, len(c4)), sc3, bc4)
+    let (d位置, sc3, bc4) = _分配临时(sc2, bc3, "match_d") in
+    let (zero, bc5) = _加常量(bc4, 0) in
+    let (c3, bc6) = _存临时(d位置, _发(c2, [OP_PUSH_CONST, zero]), bc5) in
+    let (c4, sc4, bc7, end跳) =
+      _发射match分支(e["分支"], s位置, d位置, c3, sc3, bc6, 留值, [], [], 0) in
+    (_补丁列表跳转(c4, end跳, len(c4)), sc4, bc7)
 
-  func _发射match分支(分支: List, s位置: List, code: List, sc: List, bc: Dict,
-                    留值: Bool, end跳: List) -> (List, List, Dict, List) =
-    分支 = [] ? (code, sc, bc, end跳) :
+  func _发射match分支(分支: List, s位置: List, d位置: List, code: List, sc: List,
+                    bc: Dict, 留值: Bool, end跳: List, 候选: List, 序号: Int)
+      -> (List, List, Dict, List) =
+    分支 = [] ?
+      _发射match尾部(候选, s位置, d位置, code, sc, bc, 留值, end跳) :
     let pat = 分支[0][0] in
     let guard = 分支[0][1] in
     let body = 分支[0][2] in
-    let (c1, sc1, bc1, fails) = _发射模式测试(pat, s位置, code, sc, bc, []) in
-    let (c2, sc2, bc2, fails2) =
-      guard = null ? (c1, sc1, bc1, fails) :
-        let (cg, scg, bcg) = _发射表达式(guard, c1, sc1, bc1) in
-        let j = len(cg) in
-        (_发(cg, [OP_JZ, 0]), scg, bcg, fails + [j]) in
-    let (c3, sc3, bc3) = _发射体(body, c2, sc2, bc2, 真) in
-    let c4 = 留值 ? c3 : _发(c3, [OP_POP]) in
-    let jmp = len(c4) in
-    let c5 = _发(c4, [OP_JMP, 0]) in
-    let c6 = _补丁列表(c5, fails2, len(c5)) in
-    _发射match分支(分支[1:], s位置, c6, sc3, bc3, 留值, end跳 + [jmp])
+    pat["类型"] = "变量" and pat["名"] = "_" ?
+      let (c1, sc1, bc1, fails) =
+        guard = null ? (code, sc, bc, []) :
+          let (cg, scg, bcg) = _发射表达式(guard, code, sc, bc) in
+          let j = len(cg) in
+          (_发(cg, [OP_JZ, 0]), scg, bcg, [j]) in
+      (* 标记 == 0 ? 标记 := 序号+1 : 跳过（首记录优先） *)
+      let (cd0, bc2) = _压临时(c1, d位置, bc1) in
+      let (zero, bc3) = _加常量(bc2, 0) in
+      let c2 = _发(cd0, [OP_PUSH_CONST, zero]) in
+      let (eq, bc4) = _加常量(bc3, "==") in
+      let c3 = _发(c2, [OP_BINOP, eq]) in
+      let jz = len(c3) in
+      let c4 = _发(c3, [OP_JZ, 0]) in
+      let (tag, bc5) = _加常量(bc4, 序号 + 1) in
+      let c5 = _发(c4, [OP_PUSH_CONST, tag]) in
+      let (c6, bc6) = _存临时(d位置, c5, bc5) in
+      let c7 = _补丁列表(c6, [jz] + fails, len(c6)) in
+      _发射match分支(分支[1:], s位置, d位置, c7, sc1, bc6, 留值, end跳,
+                    候选 + [[序号 + 1, body]], 序号 + 1) :
+      (* 普通分支：守卫先于模式测试（绑定名此刻未声明 → LOAD_GLOBAL，
+         运行期未定义名报错与解释面逐字一致） *)
+      let (c1, sc1, bc1, fails) =
+        guard = null ? (code, sc, bc, []) :
+          let (cg, scg, bcg) = _发射表达式(guard, code, sc, bc) in
+          let j = len(cg) in
+          (_发(cg, [OP_JZ, 0]), scg, bcg, [j]) in
+      let (c2, sc2, bc2, fails2) = _发射模式测试(pat, s位置, c1, sc1, bc1, fails) in
+      let (c3, sc3, bc3) = _发射体(body, c2, sc2, bc2, 真) in
+      let c4 = 留值 ? c3 : _发(c3, [OP_POP]) in
+      let jmp = len(c4) in
+      let c5 = _发(c4, [OP_JMP, 0]) in
+      let c6 = _补丁列表(c5, fails2, len(c5)) in
+      _发射match分支(分支[1:], s位置, d位置, c6, sc3, bc3, 留值, end跳 + [jmp],
+                    候选, 序号 + 1)
+
+  (* 尾部：兜底调度链（标记 == tag → 该通配体）→ 无兜底 → 载被匹配值 RAISE_MATCH *)
+  func _发射match尾部(候选: List, s位置: List, d位置: List, code: List, sc: List,
+                    bc: Dict, 留值: Bool, end跳: List) -> (List, List, Dict, List) =
+    候选 = [] ?
+      let (c1, bc1) = _压临时(code, s位置, bc) in
+      let c2 = _发(c1, [OP_RAISE_MATCH]) in
+      (c2, sc, bc1, end跳) :
+    let 候 = 候选[0] in
+    let (tag, bc1) = _加常量(bc, 候[0]) in
+    let (c1, bc2) = _压临时(code, d位置, bc1) in
+    let c2 = _发(c1, [OP_PUSH_CONST, tag]) in
+    let (eq, bc3) = _加常量(bc2, "==") in
+    let c3 = _发(c2, [OP_BINOP, eq]) in
+    let j = len(c3) in
+    let c4 = _发(c3, [OP_JZ, 0]) in
+    let (c5, sc2, bc4) = _发射体(候[1], c4, sc, bc3, 真) in
+    let c6 = 留值 ? c5 : _发(c5, [OP_POP]) in
+    let jmp = len(c6) in
+    let c7 = _发(c6, [OP_JMP, 0]) in
+    let c8 = _补丁列表(c7, [j], len(c7)) in
+    _发射match尾部(候选[1:], s位置, d位置, c8, sc2, bc4, 留值, end跳 + [jmp])
 
   func _发射模式测试(pat: Dict, s位置: List, code: List, sc: List, bc: Dict,
                    fails: List) -> (List, List, Dict, List) =
@@ -1409,11 +1463,17 @@ module 编译器 {
     let c6 = _发(c5, [OP_PUSH_CONST, k5]) in
     (_发(c6, [OP_BUILD_DICT, 3]), sc, bc5)
 
-  (* ===== try/catch/finally：三块编译为 thunk + 调用捕获 tagged 分支 ===== *)
+  (* ===== try/catch/finally：三块编译为 thunk + 调用捕获 tagged 分支 =====
+     异常路径（无 catch 重抛 / catch 体再次抛出）均「先 finally 后重抛」，
+     与宿主 _emit_try_stmt 同构（阶段 20 全链同步）；catch 体亦经
+     调用捕获 受保护运行。finally thunk 只编译一次，三条路径各自调用。 *)
   func _发射try(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let (try名, bc1) = _编译块thunk(e["try体"], [], sc, bc) in
-    let (c0, bca) = _压全局名(code, bc1, "调用捕获") in
+    let (fin名, bc2) =
+      e["finally体"]["声明"] = [] ? (null, bc1) :
+        _编译块thunk(e["finally体"], [], sc, bc1) in
+    let (c0, bca) = _压全局名(code, bc2, "调用捕获") in
     let c1 = _发(c0, [OP_MAKE_CLOSURE, try名]) in
     let c2 = _发(c1, [OP_CALL, 1]) in
     let c3 = _发(c2, [OP_BUILD_LIST, 0]) in
@@ -1430,42 +1490,83 @@ module 编译器 {
     let ca = _发(c9, [OP_BINOP, ieq]) in
     let jz = len(ca) in
     let cb = _发(ca, [OP_JZ, 0]) in
-    (* 正常：result[1] *)
-    let (cc, bch) = _压临时(cb, r位置, bcg) in
-    let (i1, bci) = _加常量(bch, 1) in
-    let cd = _发(cc, [OP_PUSH_CONST, i1]) in
-    let ce = _发(cd, [OP_INDEX_GET]) in
-    let jmp = len(ce) in
-    let cf = _发(ce, [OP_JMP, 0]) in
-    let cg = _补丁(cf, jz, [OP_JZ, len(cf)]) in
-    (* 异常 *)
-    let (ch, sc3, bcj) = _发射catch(e, cg, sc2, bci, r位置) in
-    let ci = _补丁(ch, jmp, [OP_JMP, len(ch)]) in
-    (* finally：thunk 返回值丢弃 *)
-    e["finally体"]["声明"] = [] ? (ci, sc3, bcj) :
-    let (fin名, bck) = _编译块thunk(e["finally体"], [], sc3, bcj) in
-    let cj = _发(ci, [OP_MAKE_CLOSURE, fin名]) in
-    let ck = _发(cj, [OP_BUILD_LIST, 0]) in
-    let cl = _发(ck, [OP_CALL, 1]) in
-    (_发(cl, [OP_POP]), sc3, bck)
-
-  func _发射catch(e, code, sc, bc, r位置) -> (List, List, Dict) =
+    (* 正常：先 finally（返回值丢弃）再留 try 体值 *)
+    let (cc, bch) = _发调用fin(fin名, cb, bcg) in
+    let (cd, bci) = _压临时(cc, r位置, bch) in
+    let (i1, bcj) = _加常量(bci, 1) in
+    let ce = _发(cd, [OP_PUSH_CONST, i1]) in
+    let cf = _发(ce, [OP_INDEX_GET]) in
+    let end1 = len(cf) in
+    let cg = _发(cf, [OP_JMP, 0]) in
+    let ch = _补丁(cg, jz, [OP_JZ, len(cg)]) in
+    (* 异常：result[1] 存 msg 临时 *)
+    let (ci, bck) = _压临时(ch, r位置, bcj) in
+    let (i2, bcl) = _加常量(bck, 1) in
+    let cm = _发(ci, [OP_PUSH_CONST, i2]) in
+    let cn = _发(cm, [OP_INDEX_GET]) in
+    let (m位置, sc3, bcm) = _分配临时(sc2, bcl, "try_msg") in
+    let (co, bcm2) = _存临时(m位置, cn, bcm) in
     e["捕获体"]["声明"] = [] ?
-      (* 无 catch：重新抛出消息 *)
-      let (c1, bc2) = _压临时(code, r位置, bc) in
-      let (i1, bc3) = _加常量(bc2, 1) in
-      let c2 = _发(c1, [OP_PUSH_CONST, i1]) in
-      let c3 = _发(c2, [OP_INDEX_GET]) in
-      (_发(c3, [OP_RAISE]), sc, bc3) :
+      (* 无 catch：先 finally 后重抛消息 *)
+      let (p1, bcp) = _发调用fin(fin名, co, bcm2) in
+      let (p2, bcq) = _压临时(p1, m位置, bcp) in
+      let p3 = _发(p2, [OP_RAISE]) in
+      let p4 = _补丁(p3, end1, [OP_JMP, len(p3)]) in
+      (p4, sc3, bcq) :
       let cv = e["捕获变量"] in
       let 参数 = cv = "" ? [] : append([])(cv) in
-      let (catch名, bc1) = _编译块thunk(e["捕获体"], 参数, sc, bc) in
-      let c1 = _发(code, [OP_MAKE_CLOSURE, catch名]) in
-      let (c2, bc2) = _压临时(c1, r位置, bc1) in
-      let (i1, bc3) = _加常量(bc2, 1) in
-      let c3 = _发(c2, [OP_PUSH_CONST, i1]) in
-      let c4 = _发(c3, [OP_INDEX_GET]) in
-      (_发(c4, [OP_CALL, len(参数)]), sc, bc3)
+      let (catch名, bcr) = _编译块thunk(e["捕获体"], 参数, sc, bcm2) in
+      (* ct = 调用捕获(catch_thunk)([msg])——catch 体再抛时 finally 仍执行 *)
+      let (s0, bcs) = _压全局名(co, bcr, "调用捕获") in
+      let s1 = _发(s0, [OP_MAKE_CLOSURE, catch名]) in
+      let s2 = _发(s1, [OP_CALL, 1]) in
+      let (s3, bct) = _压临时(s2, m位置, bcs) in
+      let s4 = _发(s3, [OP_BUILD_LIST, 1]) in
+      let s5 = _发(s4, [OP_CALL, 1]) in
+      let (ct位置, sc4, bcu) = _分配临时(sc3, bct, "try_ct") in
+      let (s6, bcu2) = _存临时(ct位置, s5, bcu) in
+      (* ct[0] == "__正常__" *)
+      let (s7, bcv) = _压临时(s6, ct位置, bcu2) in
+      let (i3, bcw) = _加常量(bcv, 0) in
+      let s8 = _发(s7, [OP_PUSH_CONST, i3]) in
+      let s9 = _发(s8, [OP_INDEX_GET]) in
+      let (iok2, bcx) = _加常量(bcw, "__正常__") in
+      let t0 = _发(s9, [OP_PUSH_CONST, iok2]) in
+      let (ieq2, bcy) = _加常量(bcx, "==") in
+      let t1 = _发(t0, [OP_BINOP, ieq2]) in
+      let jz2 = len(t1) in
+      let t2 = _发(t1, [OP_JZ, 0]) in
+      (* catch 正常：先 finally 再留捕获体值 *)
+      let (t3, bcz) = _发调用fin(fin名, t2, bcy) in
+      let (t4, bcA) = _压临时(t3, ct位置, bcz) in
+      let (i4, bcB) = _加常量(bcA, 1) in
+      let t5 = _发(t4, [OP_PUSH_CONST, i4]) in
+      let t6 = _发(t5, [OP_INDEX_GET]) in
+      let end2 = len(t6) in
+      let t7 = _发(t6, [OP_JMP, 0]) in
+      let t8 = _补丁(t7, jz2, [OP_JZ, len(t7)]) in
+      (* catch 异常：msg ← ct[1]，落入重抛尾部 *)
+      let (t9, bcC) = _压临时(t8, ct位置, bcB) in
+      let (i5, bcD) = _加常量(bcC, 1) in
+      let ta = _发(t9, [OP_PUSH_CONST, i5]) in
+      let tb = _发(ta, [OP_INDEX_GET]) in
+      let (tc, bcD2) = _存临时(m位置, tb, bcD) in
+      (* 重抛尾部：先 finally 后重抛消息 *)
+      let (td, bcE) = _发调用fin(fin名, tc, bcD2) in
+      let (te, bcF) = _压临时(td, m位置, bcE) in
+      let tf = _发(te, [OP_RAISE]) in
+      let tg = _补丁(tf, end1, [OP_JMP, len(tf)]) in
+      let th = _补丁(tg, end2, [OP_JMP, len(tg)]) in
+      (th, sc4, bcF)
+
+  (* 调用 finally thunk 并丢弃其返回值；null = 无 finally 块，不发射 *)
+  func _发调用fin(fin名, code: List, bc: Dict) -> (List, Dict) =
+    fin名 = null ? (code, bc) :
+      let c1 = _发(code, [OP_MAKE_CLOSURE, fin名]) in
+      let c2 = _发(c1, [OP_BUILD_LIST, 0]) in
+      let c3 = _发(c2, [OP_CALL, 1]) in
+      let c4 = _发(c3, [OP_POP]) in
+      (c4, bc)
 
   (* 编译 Program 块为命名 thunk 函数（参数为参数名列表）→ (函数名, bc) *)
   func _编译块thunk(body: Dict, params: List, sc: List, bc: Dict)

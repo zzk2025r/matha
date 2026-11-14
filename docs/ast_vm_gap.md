@@ -25,7 +25,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | VM 有意无码 | 19 |
 | VM 不认识 | 0 |
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
-| 指令码总数 / VM 已分派 / native 已发射 | 33 / 33 / 33 |
+| 指令码总数 / VM 已分派 / native 已发射 | 34 / 34 / 34 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
 | 语料文件（解析成功） | 216 |
 | 无法解析的语料文件 | 0 |
@@ -123,7 +123,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 
 ## 六、指令码 × VM / native
 
-指令码共 33 条：VM 已分派 33，native 已发射 33，**VM 有而 native 无 = 0 条**（对拍风隙）。
+指令码共 34 条：VM 已分派 34，native 已发射 34，**VM 有而 native 无 = 0 条**（对拍风隙）。
 
 无：两端指令码表面一致。
 
@@ -158,6 +158,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `PUSH_NULL` | yes | yes |
 | `PUSH_TRUE` | yes | yes |
 | `RAISE` | yes | yes |
+| `RAISE_MATCH` | yes | yes |
 | `RET` | yes | yes |
 | `STORE_BOX` | yes | yes |
 | `STORE_GLOBAL` | yes | yes |

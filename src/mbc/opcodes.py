@@ -52,6 +52,7 @@ RAISE  = 0x61  # 弹出消息 → 抛出
 # 登记一条 `？` 公式模式：const_idx 指向 (seg_id, 文本, 形状, 槽位表) 常量元组。
 # 槽不可求值，故不进表达式求值路径——这是纯静态的规格登记指令。
 FORMULA_SCHEMA = 0x62
+RAISE_MATCH = 0x63  # 弹出被匹配值 → 抛出「match 无匹配分支: <渲染值>」（消息形态对齐 interp._fmt）
 HALT   = 0xFF
 
 
