@@ -456,7 +456,13 @@ class Compiler:
         if scope is None:
             scope = _Scope(None, is_main=True)
         top_level = scope.is_main
-        if isinstance(node, ast.MechUnit):
+        if isinstance(node, list):
+            # `#N：命令` 后跟 `{ }` 代码块的组合形态：解析器产出裸 list
+            # [GenStmt, CodeBlock] 作 MechUnit.body——逐元素编译，与 host
+            # _exec_stmt 的链循环容忍面同构（阶段 19b）。
+            for item in node:
+                self._compile_stmt(item, code, scope)
+        elif isinstance(node, ast.MechUnit):
             self._compile_stmt(node.body, code, scope)
         elif isinstance(node, ast.GenStmt):
             # `#：？公式` 含槽 → 登记为模式（不可求值），走静态元数据指令。
@@ -1733,6 +1739,16 @@ class Compiler:
                 self._emit_expr(node.output, scope, code)
             else:
                 code.append((OP.PUSH_NULL,))
+
+        elif isinstance(node, (ast.MatchStmt, ast.SwitchStmt)):
+            # 表达式位 match/switch：被选分支的值即表达式值（host _eval 同款）。
+            # 语句/块尾位早已支持（_STMT_NODES/_VALUE_STMTS）；函数体 Lambda
+            # 值位的 match 此前掉进兜底报「暂不支持的节点 MatchStmt」——
+            # 自举镜像 _发射表达式 早有此分支，主侧补齐（阶段 19a）。
+            if isinstance(node, ast.MatchStmt):
+                self._emit_match(node, scope, code, leave_value=True)
+            else:
+                self._emit_switch(node, scope, code, leave_value=True)
 
         else:
             # 可扩展 AST 节点：插件表达式规则（内置分派之后、兜底报错之前）

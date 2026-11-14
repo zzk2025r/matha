@@ -77,11 +77,15 @@ class MathaGrowthEngine:
 
         正确性闸门（P1·只保证「绝不出坏源码」，不承诺优化有效）：每一轮候选改写
         必须 ①能被重新解析、②不丢失原文已绑定的名字（Binding 变量 / FuncDef），
-        否则回退上一安全版本、如实置空本轮 optimizations_applied，停止前传。
-        闸门只作用于此「前传决策」，_single_growth_iteration 保持原样（不改写规则本身）。
+        否则回退上一安全版本、停止前传；闸门只作用于此「前传决策」，
+        _single_growth_iteration 保持原样（不改写规则本身）。
+        optimizations_applied 聚合全部迭代（G-5 修复）：描述「调用方原始输入 →
+        最终产物」实际发生过的规则，与 semantic_consistent 同口径；闸门回退轮的
+        规则不计入（其改写未前传）。空转轮如实不添加任何条目。
         """
         report = GrowthReport(iteration=0, source=source)
         current = source
+        applied_total: list[str] = []
 
         for iteration in range(1, self.max_iterations + 1):
             report = self._single_growth_iteration(current, iteration)
@@ -96,16 +100,18 @@ class MathaGrowthEngine:
                     diagnostics=report.diagnostics,
                     optimization_suggestions=report.optimization_suggestions,
                     improved_source=current,
-                    optimizations_applied=[],
+                    optimizations_applied=applied_total,
                     errors=[
                         f"第 {iteration} 轮改写未通过正确性闸门，已回退"
                         "（不产出不可解析 / 丢失已绑定名字的源码）"
                     ],
                 )
                 break
+            applied_total.extend(report.optimizations_applied)
             current = candidate
 
         report.improved_source = current
+        report.optimizations_applied = applied_total
         # 最终报告的佐证必须描述「调用方原始输入 → 最终产物」：循环内逐步产出的
         # report 只反映最后一次迭代，滚雪球式腐蚀会在中间步互相“一致”而溜过。
         report.semantic_consistent = self._verify(source, current)

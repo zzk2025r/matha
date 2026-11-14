@@ -6,7 +6,8 @@
      引擎消费者 查找/排序、透传段 执行命令输入、Matha 代码段 输入行 消费、
      退出中断链。
   ② 闭环：胶水 管道输入/输入行/管道结束 状态机（耗尽即 EOF 不回落交互
-     stdin）；终端执行 入口清陈旧态；段内出错管道态泄漏 → 下一入口清除兜底；
+     stdin）；终端执行 入口清陈旧态；段内出错 catch 清态后重抛不泄漏
+     （阶段 19c 真化，原「泄漏 → 下一入口清除兜底」登记边界已修复）；
      扩展处理器经注册表消费管道行（盘面共享事实）。
   ③ 拒绝：查找/排序 参数个数；管道输入 非 List 拒绝。重定向 > >> 已于
      阶段 13b 真化（此处仅留最小落盘对拍，详锁见 test_matha_term_13b.py）。
@@ -184,15 +185,17 @@ def test_loop_entry_clears_stale_pipe(host_term):
     assert tb._pipe_lines is None, "终端执行 入口应清除陈旧管道态"
 
 
-def test_loop_segment_error_leaks_then_next_entry_clears(host_term):
+def test_loop_segment_error_cleans_pipe_state(host_term):
+    """阶段 19c 真化：段内出错 catch 清态后重抛，管道态不再泄漏（旧锁改锁新形态——
+    旧合同为「泄漏 → 下一条 终端执行 入口清除兜底」）。"""
     from src.kernel import terminal_builtin as tb
     tb.pipe_end()
     with pytest.raises(RuntimeError, match="目录: 至多"):
         _host_line(host_term, "回显 a | 目录 a b")
-    assert tb._pipe_lines == ["a"], "段内出错时管道态泄漏（登记边界）"
+    assert tb._pipe_lines is None, "段内出错应立即清管道态（catch 清态后重抛）"
     r = _host_line(host_term, "回显 ok")
     assert r["输出"] == ["ok"]
-    assert tb._pipe_lines is None, "下一条 终端执行 入口清除兜底"
+    assert tb._pipe_lines is None
 
 
 def test_loop_extension_consumes_pipe(tmp_path, monkeypatch, host_term, vm_term):

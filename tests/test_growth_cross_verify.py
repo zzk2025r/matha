@@ -282,20 +282,30 @@ class TestGrowIntegration:
             GrowthReport(iteration=0, source="", cross_language_consistent=True)
 
 
-class TestG5AppliedRulesUnderReported:
-    """表征锁（非认可）：`optimizations_applied` 只描述最后一次空转迭代。
+class TestG5AppliedRulesAggregated:
+    """阶段 19d 真化（原 G-5 表征锁改锁新形态）：`optimizations_applied` 聚合
+    全部迭代的已应用规则，描述「原始输入 → 最终产物」实际发生的改写，
+    不再只描述最后一次空转迭代。
 
-    实测：`grow("x = 3.0 + 4.0\\nprint(x)\\n")` 第 1 轮应用「常量折叠 + 常量传播」，
-    第 2 轮空转退出，而返回的正是第 2 轮的 report → `optimizations_applied == []`，
-    与 `improved_source` 已发生的事实变化自相矛盾（与 G-4 同形，只是另一个字段）。
-    登记于 `docs/KNOWN_ISSUES.md` 第八节 G-5。修它时须同步更新本锁与文档。
+    修复前实测：`grow("x = 3.0 + 4.0\\nprint(x)\\n")` 第 1 轮应用
+    「常量折叠 + 常量传播」、第 2 轮空转退出，而返回的正是第 2 轮的 report
+    → `optimizations_applied == []`，与 improved_source 已发生的事实变化
+    自相矛盾（原登记 docs/KNOWN_ISSUES.md 第八节 G-5）。聚合口径与
+    semantic_consistent 同源（「原始输入 → 最终产物」）；闸门回退轮的规则
+    不计入（其改写未前传），空转轮如实不添加条目。
     """
 
-    def test_applied_rules_are_empty_although_source_changed(self):
+    def test_applied_rules_describe_all_iterations(self):
         report = MathaGrowthEngine().grow(ARITH_OUT)
         assert report.improved_source != ARITH_OUT
-        assert report.optimizations_applied == []
+        assert any("常量折叠" in s for s in report.optimizations_applied)
+        assert any("常量传播" in s for s in report.optimizations_applied)
         assert report.semantic_consistent is True
+
+    def test_noop_growth_still_empty(self):
+        # 无优化可做的输入如实为空（聚合不得凭空造规则）
+        report = MathaGrowthEngine().grow("func 加(x, y) -> Int = (x, y) => x + y\n")
+        assert report.optimizations_applied == []
 
 
 # ============================================================

@@ -426,14 +426,25 @@ module 终端执行器 {
         _透传(原行, 段, 管入文本)
 
   (* 管入 = null（首段，无管道输入）或 List（管道段：注入行列表缓存，
-     透传段另拼接文本作 stdin） *)
+     透传段另拼接文本作 stdin）。
+     段内出错也清管道态（阶段 19c）：try 体/体块尾「管道结束() 独立语句 +
+     块尾裸值」——块尾若是 let-in 整体会被当语句丢弃（值语义 D4），清理与
+     返回必须拆语句；不用 finally——VM finally 在无 catch 重抛路径不执行。
+     try 只能落块尾语句位（let 链尾接 try 双端 ParseError），故 else 分支
+     用多语句块：裸 管道输入 语句 + try。 *)
   func _执行段(段: Dict, 原行: String, 管入) -> Dict =
     if 管入 = null then _派发段(段, 原行, "")
-    else
-      let 已注 = 管道输入(管入) in
-      let r = _派发段(段, "", _拼换行(管入, 0)) in
-      let 已清 = 管道结束() in
-      r
+    else {
+      管道输入(管入)
+      try {
+        let r = _派发段(段, "", _拼换行(管入, 0)) in
+        管道结束()
+        r
+      } catch (e) {
+        管道结束()
+        throw e
+      }
+    }
 
   func _执行链(段们: List, i: Int, 行们: List, 退出: Bool, 原行: String) -> (List, Bool) =
     if 退出 or i = len(段们) then (行们, 退出)

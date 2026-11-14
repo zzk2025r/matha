@@ -1108,8 +1108,11 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   柯里化 执行命令输入(行)(输入)）消费、扩展处理器同享注册表管道面。**③ 边界（登记）**：透传段
   载荷含 stderr/退出码行（与 CMD 仅 stdout 有差异）；管道段透传按段帧重建命令行（12a 词法已剥
   引号）；管道行中空行与 EOF 不可区分（CMD stdin 语义）；行们 = 末段输出（CMD 正确口径）；退出
-  标志中断链并跳过后续段；段内 RuntimeError 跳过 管道结束() 致管道态泄漏至下一入口清除（Matha
-  无 try/finally，登记不粉饰）。胶水落位纪律：管道输入/管道结束 入 `src/kernel/terminal_builtin.py`
+  标志中断链并跳过后续段。〔勘误 2026-11 阶段 19c〕段内泄漏已修（见阶段 19 收官条目：
+  `_执行段` catch-清态-重抛；旧泄漏锁改锁新形态 test_loop_segment_error_cleans_pipe_state）；
+  原登记「Matha 无 try/finally」措辞不实——Matha 有 try/catch/finally 语法，弃用 finally
+  真因 = VM finally 在无 catch 重抛路径不执行 finally thunk（见阶段 19 收官条目 finally
+  分歧登记）。胶水落位纪律：管道输入/管道结束 入 `src/kernel/terminal_builtin.py`
   （内核级 stdin 原语，kernel_purity 14/14 绿），执行命令输入 入 `src/domains/os_module.py`（os 域，
   四处同步：_register_os/_os_symtab_names/__all__/manifest.json）。三锁 19 条
   （`tests/test_matha_term_13a.py`：对拍 查找/排序/透传/Matha 代码消费/退出中断 ×双端 + 闭环 胶水
@@ -1145,7 +1148,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   终端专项累计 201+43 = **244 条**；12c/12d/12e/13a 共四处旧拒绝锁升级为真执行/真安装锁
   （锁不退役、只换合同）。**如实边界（登记，与 CMD 差异）**：管道/重定向载荷 = **显示行**
   （透传段 stderr/退出码行同入管道与文件，CMD 仅 stdout）；管道行空行与 EOF 不可区分；段内
-  错误管道态泄漏至下一入口清除（无 try/finally）；升级 = 本地目录真安装不联网。
+  错误管道态泄漏至下一入口清除（阶段 19c 已修 + 措辞勘误，见 13a 条勘误）；升级 = 本地目录真安装不联网。
   **doc 同步**：README 测试文件 133→136 + 终端小节 13 补全改写（管道/重定向/升级状态实时化）；
   ARCHITECTURE core_py_lines 31,749→31,778（+29 = os 域 升级包/执行命令输入 胶水）；
   ast_vm_gap 矩阵随 term_engine 增段重生（语料 used_in 计数漂移，0 缺口面不变）。
@@ -1386,6 +1389,57 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   tests 7154 + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 +
   native_parity 38，native 1 例已知未实现不计入分母）。
   算术闭合：7222（17 收官）+ 35（阶段 18 三锁）= 7257。
+- **2026-11 阶段 19 收官（双端语义第四片：match/switch 表达式位 + 裸 list body 真化；终端管道态修复；G-5 漏报修复）**：用户拍板
+  范围三件全选（AskUserQuestion；**域符号 VM 面未选** = 维持登记不修），设计拍板 match+switch
+  一并、裸 list body VM 补链循环（推荐项全采）。
+  **19a match/switch 表达式位**（src/mbc/compiler.py `_emit_expr` 补 MatchStmt/SwitchStmt
+  分支 → leave_value=True 委托既有语句编译）：语料 13 文件收敛（grammar.matha +
+  lifestyle_math/molecular/game_algorithms/game_apps_math/os_concepts/civil/kernel_syscall/
+  process_math/emerging_math/crypto_math/utility_math/web_math）；自举镜像
+  matha/compiler_matha.matha 早已同构（镜像先行，host 编译器本轮补齐）；语句位 match 本就
+  双端支持（_STMT_NODES 回归锁）。
+  **19b MechUnit 裸 list body**（`_compile_stmt` list 分支：逐元素编译 + OP.OUTPUT 逐段
+  发射链）：`#N：【段】{ }` 组合 body / `#：{ [8] }` 纯块双端一致（MechUnit body 裸 list
+  [GenStmt, CodeBlock] 形态锁）；bootstrap_test/v2 vm 侧由「编译拒绝 暂不支持的节点
+  list」转为真编译执行——残留分歧 = C 类自举链符号面（use 运行时引擎/词法器，独立 VM
+  编译看不见被载模块符号，登记边界）。
+  **19c 终端管道态**（matha/term_engine.matha `_执行段` 重写为多语句块 try）：旧形态 =
+  else 分支 let 链，段内炸 → 管道结束() 不执行 → 管道态泄漏至下一入口清除兜底；新形态 =
+  裸 管道输入(管入) 语句 + try{ let r = _派发段(...) in 管道结束() \n r } catch(e){
+  管道结束() \n throw e }——段内出错 catch 清态后重抛，管道态即时回收（13a 旧泄漏锁
+  改锁新形态 test_loop_segment_error_cleans_pipe_state）。**块体形态约束（本轮踩界，登记）**：
+  ① try 只能落块尾语句位——let 链尾接 try / let 值位 try 双端 ParseError；② 块尾若是
+  let-in Binding 整体被 D4 语义当语句丢弃（值 None），「清理 + 返回」必须拆成裸
+  管道结束() 语句 + 块尾裸 r；③ 不用 finally = VM finally 无 catch 重抛路径不执行
+  thunk（见下）。
+  **finally 双端相反分歧（新登记不修 + 现状锁）**：try-finally 无 catch 时 host **吞错
+  继续**（src/interp.py `_exec_try` catch_var None → catch_block None → `_exec_stmt(None)`
+  静默 no-op——错误不传播、finally 副作用照跑、执行继续），VM **重抛但跳过 finally
+  thunk**（compiler OP.RAISE 先于 finally thunk 发射）。两形态相反、语料零命中（finally
+  仅自举镜像 try 语义实现内部使用）；现状锁 `test_try_finally_no_catch_divergence` +
+  正常/caught 路径 parity 锁（finally 在无异常/有 catch 路径双端一致）。
+  **19d G-5 真修**（src/matha_growth.py grow()）：`applied_total` 累加器——闸门通过后
+  extend（回退轮改写未前传不计入）、空转轮如实不加条目，返回报告聚合全部迭代规则；
+  第八节 G-5 条目勘误为已修，锁改 `TestG5AppliedRulesAggregated`。
+  **零扰动证明**（HEAD 46d727e worktree 基线对拍：169 文件语料 host/vm sweep 逐文件
+  diff）：基线 31 项分歧 → 18 项；收敛 13 = 恰好 19a 修复面集；**新增分歧 0**；6 项值
+  变化全良性（bootstrap_test/v2 = 19b 报错形态变化；4 examples 文件 = worktree 路径/
+  对象地址工件）。余 18 项为既有登记缺口（域符号 VM 面〔本轮拍板不修〕、自举链 C 类
+  符号面、match 无匹配/守卫绑定名求值序分歧、host 专属域符号、compiler_matha/nl_*/
+  parser 自测块存量等）。
+  三锁 30 条净增（`tests/test_semantic_parity_phase19.py` 新档 29：19a match 8 + switch 3 +
+  19b 4 + e2e 3 + 边界/登记锁 5 + 19c 管道态 4 + finally 2；growth `TestG5` 净 +1；13a
+  旧泄漏锁 1:1 改锁新形态）。**登记分歧现状锁（防回潮面不放松）**：match 无匹配表达式位
+  host 报「match 无匹配分支」/VM 表达式位求值 None、语句位 VM 静默继续；守卫绑定名求值序
+  host 先守卫（绑定名不可见 → 未定义变量）/VM 先模式绑定（守卫可引用）；switch 表达式位
+  ParseError（VM `_emit_expr` SwitchStmt 分支为与 host 对称的防御支持）。
+  doc 同步：README 测试文件 141→142；ARCHITECTURE core_py_lines 31,974→31,990（+16 =
+  compiler match/switch/list body + growth 聚合）；ast_vm_gap 快照重生成（term_engine try
+  形态进语料 → used_in 漂移，`scripts/ast_vm_matrix.py --write`，11/11 绿）。
+  全量门禁 7287/7287（首跑 7285/7287，2 红 = ast_vm_gap 快照漂移〔预期语料 used_in 漂移
+  非回归〕→ 重生成 → 按协议全量重跑干净：tests 7184 + kernel_purity 14 + ast_vm_gap 11 +
+  golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：7257（18 收官）+ 30（phase19 新档 29 + growth 净 +1）= 7287。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
@@ -1451,7 +1505,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 判据：本节的实测命令（`python scripts/build_exe.py --matha --output <临时目录>`、
 `git ls-files matha_wasm`）可随时复跑；若未来某通道要「上锁」，必须先入门禁再进 README。
 
-## 八、成长引擎验证通路（G-1 / G-2 / G-3 / G-4 已修，G-5 已坐实不修）
+## 八、成长引擎验证通路（G-1 … G-5 全部已修）
 
 对象：`src/matha_growth.py` 的 `MathaGrowthEngine._verify` 与 `GrowthReport` 的
 语义佐证字段。以下五条均为**实测坐实**（探针与输出留在会话工件目录，不入库）。
@@ -1507,16 +1561,18 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
 `report.semantic_consistent = self._verify(source, current)`，使字段描述调用方关心的
 「原始输入 → 最终产物」，并由 `test_final_report_describes_original_to_final` 锁定。
 
-### G-5（已坐实，不修）：`optimizations_applied` 与 G-4 同形的漏报
+### G-5（已修，阶段 19d）：`optimizations_applied` 与 G-4 同形的漏报
 
-- 实测（`.trae/g5_probe.py`）：`grow("x = 3.0 + 4.0\\nprint(x)\\n")` 第 1 轮应用
+- 历史实测（`.trae/g5_probe.py`）：`grow("x = 3.0 + 4.0\\nprint(x)\\n")` 第 1 轮应用
   「常量折叠 × 1、常量传播 × 1」，第 2 轮空转退出；返回的正是第 2 轮的 report，
   于是 `optimizations_applied == []` 而 `improved_source` 已发生变化——三个用例全部
   自相矛盾（`y = 2 + 3`、`a = 7 / b = a + 1` 同样如此）。
-- 与 G-4 区别：G-4 是**安全口径**错位（会把腐蚀说成一致），必须修；G-5 只使报告
-  少报已应用的规则，不会把坏码说成好码，方向偏保守，故登记不修。
-- 已上表征锁：`TestG5AppliedRulesUnderReported`——修它时该锁会先红，必须同步更新
-  本条与锁，不得静默改口径。
+- 与 G-4 区别：G-4 是**安全口径**错位（会把腐蚀说成一致），必须修；G-5 只曾使报告
+  少报已应用的规则，不会把坏码说成好码，方向偏保守，故曾登记不修。
+- **已修（阶段 19d）**：grow() 加 `applied_total` 累加器——闸门通过后 extend（回退轮
+  改写未前传、不计入）、空转轮如实不加条目，返回报告聚合全部迭代规则。旧表征锁
+  `TestG5AppliedRulesUnderReported` 改锁新形态 `TestG5AppliedRulesAggregated`
+  （多迭代聚合：折叠/传播条目齐 + noop growth 仍空），旧锁名不得复活。
 
 ### 安全边界（实测 + 结构兜底）
 
