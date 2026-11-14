@@ -40,6 +40,24 @@ GLOBAL_CUSTOM_OPS: dict[str, Any] = {}
 # 使 `#：def 求和(...)` 这类中文命名的外来代码也能正确路由。
 _IDENT_START = r"[^\W\d]"
 
+# 语句位 `]` 后的中缀运算符集：`[1] === [1]` 等形式中 `[...]` 判为列表字面量
+# （表达式位），不再落入输出行语法令中缀悬空 ParseError（阶段 18d 全中缀回退）。
+# 刻意排除：=（OP_ASSIGN，`[1] = 2` 保持诚实 ParseError）、<-（OP_SEND 发送）、
+# >>（OP_NEXT/OP_BIT_RSHIFT 链式语义自有处理）、复合赋值、箭头、| 管道。
+_BRACKET_INFIX_TOKENS = (
+    TokenType.OP_PLUS, TokenType.OP_MINUS, TokenType.OP_STAR,
+    TokenType.OP_SLASH, TokenType.OP_MOD, TokenType.OP_POWER,
+    TokenType.OP_FDIV, TokenType.OP_BIT_XOR, TokenType.OP_XOR,
+    TokenType.OP_BIT_AND, TokenType.OP_BIT_OR, TokenType.OP_BIT_LSHIFT,
+    TokenType.OP_LT, TokenType.OP_GT, TokenType.OP_LE, TokenType.OP_GE,
+    TokenType.OP_NEQ, TokenType.OP_STRICT_EQ, TokenType.OP_STRICT_NEQ,
+    TokenType.KW_AND, TokenType.KW_OR, TokenType.KW_IN,
+    TokenType.OP_LAND, TokenType.OP_LOR, TokenType.OP_NULL_COAL,
+    TokenType.OP_QUESTION,
+    TokenType.OP_SET_UNION, TokenType.OP_SET_INTER, TokenType.OP_SET_DIFF,
+    TokenType.OP_SET_COMP, TokenType.OP_SET_PROD, TokenType.OP_SET_SUBSET,
+)
+
 _FOREIGN_LANG_HINTS: list[tuple[str, re.Pattern]] = [
     ("python", re.compile(r"^\s*(?:import|from)\s+" + _IDENT_START + r"[\w.]*")),
     ("python", re.compile(r"^\s*def\s+" + _IDENT_START + r"\w*\s*\(")),
@@ -2449,6 +2467,15 @@ class Parser:
                     TokenType.PUNCT_COMMA, TokenType.PUNCT_LPAREN,
                     TokenType.PUNCT_LBRACKET, TokenType.PUNCT_LBRACE,
                     TokenType.KW_IN,
+                    # 全中缀回退（阶段 18d）：===/!==/and/or/&&/||/??/?/^/**///
+                    # 的右值 `[...]` 与既有算术/比较/集合运算符同权判为列表字面量。
+                    # 此前缺失 → `x === [1]` 的 RHS 落入输出行 Output，VM 在
+                    # 表达式位对其 DUP+OUTPUT 发射而 host 静默，构成隐性双端分歧。
+                    TokenType.OP_POWER, TokenType.OP_FDIV,
+                    TokenType.OP_STRICT_EQ, TokenType.OP_STRICT_NEQ,
+                    TokenType.KW_AND, TokenType.KW_OR,
+                    TokenType.OP_LAND, TokenType.OP_LOR,
+                    TokenType.OP_NULL_COAL, TokenType.OP_QUESTION,
                     # 集合运算符右值：`A ∪ [x]` 中的 `[x]` 为列表字面量，
                     # 单元素 [x] 亦不可误判为输出（此前遗漏 → `[5]` 变成 Output(5)）。
                     TokenType.OP_SET_UNION, TokenType.OP_SET_INTER,
@@ -2502,7 +2529,7 @@ class Parser:
                         and self._peek(2).type in (TokenType.PUNCT_COMMA, TokenType.PUNCT_RBRACKET))
                 ) or self._bracket_has_comma(saved2)
             self.pos = saved2
-            if is_list_lookahead:
+            if is_list_lookahead or self._bracket_followed_by_infix(saved2):
                 return self._parse_list_literal()
             return self._parse_output()
 
@@ -2930,6 +2957,31 @@ class Parser:
             elif t == TokenType.EOF:
                 return False
             i += 1
+        return False
+
+    def _bracket_followed_by_infix(self, lb: int) -> bool:
+        """语句位 `[...]` 的配对 `]` 后紧跟中缀运算符 → 判为列表字面量。
+
+        `[1] === [1]` 此前 `[1]` 落入输出行语法，`===` 悬空落入下一条语句
+        下降报 ParseError（阶段 18d 真化）。仅限 `[` 与 `]` 同一逻辑行
+        （扫描中遇 NEWLINE 即否），跨行形态维持既有判定不动。"""
+        depth = 0
+        j = lb
+        n = len(self.tokens)
+        while j < n:
+            t = self.tokens[j].type
+            if t in (TokenType.NEWLINE, TokenType.EOF):
+                return False
+            if t in (TokenType.PUNCT_LBRACKET, TokenType.PUNCT_LPAREN,
+                     TokenType.PUNCT_LBRACE):
+                depth += 1
+            elif t in (TokenType.PUNCT_RBRACKET, TokenType.PUNCT_RPAREN,
+                       TokenType.PUNCT_RBRACE):
+                depth -= 1
+                if depth <= 0:
+                    j += 1
+                    return j < n and self.tokens[j].type in _BRACKET_INFIX_TOKENS
+            j += 1
         return False
 
     def _parse_list_literal(self) -> Any:
@@ -4429,6 +4481,10 @@ class Parser:
         if self._check(TokenType.MATHA_CMD_OPEN, TokenType.MATHA_READ_OPEN):
             return self._parse_command_literal()
         if self._check(TokenType.PUNCT_LBRACKET):
+            # 顶层语句位 `[...]` 后跟中缀 → 列表字面量表达式（阶段 18d 全中缀
+            # 回退）：`[1] === [1]` 此前 `[1]` 落入输出行，`===` 悬空 ParseError。
+            if self._bracket_followed_by_infix(self.pos):
+                return self._parse_expr_or_binding()
             return self._parse_output()
         raise ParseError("期望命令或输出", self._current())
 

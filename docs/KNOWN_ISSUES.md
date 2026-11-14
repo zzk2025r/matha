@@ -1249,6 +1249,13 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   （parser.matha vm [1] vs host [1,1]；compiler_matha/nl_* vm [] vs host [1,1]；
   runtime/test_compile·test_math 浮点精度型差异）；`[1]===[1]` 语句位置 ParseError
   （列表语句解析形态，与 D5 值语义正交，两端同源解析器同报错）。
+  【阶段 18 勘误：本块残留登记 10 文件分歧已全部真化——parser.matha/test_compile/test_math
+  host 双跑系 `_exec_with_deferreds` 对 ModuleDecl 的递归与内层循环**双执行**（18a 删递归根修，
+  「浮点精度型差异」措辞勘误：值逐位相同、仅发射次数 ×2）；compiler_matha/nl_*/interp.matha
+  host 多出的 [1,1] 系 `use` 加载嵌套 run 把被载模块自测块输出**泄进载入方**（18b
+  _loading_module 标志跳过，matha_bootstrap.py:59 同款边界）；`[1]===[1]` 语句位 ParseError
+  已由 18d 全中缀回退真化为双端发射 True。含 host 单侧多发的 parser.matha 在内，10 文件
+  双端逐值一致（tests/test_semantic_parity_phase18.py 封死）。】
   三锁 44 条（`tests/test_semantic_parity_phase16.py`：D3 对拍 8〔值丢弃/副作用保留
   `let 甲=1 in [输出(9)]`→[9] 双端/表达式位 `输出(let 甲=2 in 甲*3)`→[6] 双端〕+
   D4 裸表达式矩阵 13〔8 形态求值丢弃 + 3 未定义名 + BOM 双端 2 + 词法器 token 锁〕+
@@ -1317,6 +1324,68 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   全量门禁 7222/7222（tests 7119 + kernel_purity 14 + ast_vm_gap 11 + golden 39 +
   dep_audit 1 + native_parity 38〔native 1 例已知未实现未计入〕，失败 0，一次跑绿）。
   算术闭合：7166（16 收官）+ 56（阶段 17 三锁）= 7222。
+- **2026-11 阶段 18 收官（双端语义第三片 + 通道收发 + `[1]===[1]` 真化：阶段 16 残留登记
+  10 文件分歧全部根修，用户拍板三项全选、四设计全推荐）**：摸底把四形态分歧归约为两根因
+  + 两独立缺口（logging.Handler 执行轨迹逐行坐实），AskUserQuestion 范围三项全选
+  （双端语义第三片 / SendExpr·ChanExpr 通道收发 / `[1]===[1]` 语句位）、设计四项全推荐
+  （删递归保内层循环 / 跳过被载模块自测块 / 全中缀回退 / host 镜像 VM 语义）。
+  **18a 双执行根修**：`src/interp.py` `_exec_with_deferreds` 删 ModuleDecl 递归分支——
+  模块内部声明此前被「`_exec_decl(ModuleDecl)` 内层循环 + 延迟递归」双跑（非 FuncDef
+  声明：自测块 [1]→[1,1]、绑定副作用 ×2；FuncDef 因递归路径 `continue` 跳过幸免）；
+  VM 编译模块内声明仅一次，host 对齐单次。影响：parser.matha host [1,1]→[1]、
+  runtime/test_compile·test_math 值 ×2→×1（勘误阶段 16「浮点精度型差异」措辞——值逐位
+  相同、仅发射次数）、interp.matha/interp_matha.matha 的 [1,1] 系 18b 泄漏叠加（见下）。
+  **18b use 加载泄漏根修**：`load_matha_module` 嵌套 `self.run(prog)` 以
+  `_loading_module` 标志（save/restore 支持嵌套 use）跳过被载模块自测块——
+  `_exec_decl` MechUnit 分支载入中早退（`#：{ }`/`#N：{ }` 一并跳过，
+  matha_bootstrap.py:59 同款边界）；VM 编译 use 模块从不执行其自测代码，此为双端一致化。
+  影响：compiler_matha/nl_lexer·nl_parser·nl_engine（×en）host [1,1]→[]、
+  interp.matha/interp_matha.matha [1,1,8,14,200,10,6]→[8,14,200,10,6]（[1,1] 全部为
+  加载 语法器 时泄漏的双跑自测值，主文件自身无 [1] 自测块）。
+  **18c 通道收发 host 真化**：`_eval` 新增 ChanExpr（降级三键 dict
+  `{"缓冲": [], "容量": buffer_size or 0, "关闭": False}`）与 SendExpr（append 产新
+  列表 + `_dict_put` 产新 dict + **具名变量写回**（env + _sync_matha_env）、无名通道
+  写回退化值丢弃、求值 True）——与 VM ChanExpr BUILD_DICT / SendExpr append+_dict_put
+  +具名 STORE_NAME/无名 POP 逐语义同构（阶段 16 D4 登记的「通道收发静默跳过」随之
+  勘误为求值丢弃）；块位收发经 `_exec_stmt_or_expr` 自动路由 `_eval` 生效。
+  矩阵：`chan Int` 容量 0/关闭 False 双端、`乙 = 甲 <- 5`→True、双发缓冲 [5,7]、
+  无名发送 `(chan Int) <- 5`→True、顶层裸收发副作用静默 []、发送列表值缓冲 [[[1]]]。
+  **18d `[1]===[1]` 语句位真化（全中缀回退）**：顶层命令单元（`_parse_command_unit`）
+  与表达式位（`_parse_primary` `[` 分支）新增 `_bracket_followed_by_infix`——配对 `]`
+  后紧跟中缀运算符且同逻辑行 → 判为列表字面量表达式；模块级常量 `_BRACKET_INFIX_TOKENS`
+  （算术/比较/严格相等/逻辑 and·or·&&·||·??/?/位/集合全 infix；**刻意排除** `=`（关系
+  相等，`[1] = [1]` 保持诚实 ParseError）、`<-`、`>>`（OP_NEXT/OP_BIT_RSHIFT 链式自有
+  处理）、复合赋值、箭头、`|` 管道）；同时补齐 `_parse_primary` 前驱右值集缺失的
+  ===/!==/and/or/&&/||/??/?/^、//——此前 `x === [1]` 的 RHS 落入输出行 Output，
+  VM 表达式位对其 DUP+OUTPUT 发射而 host 静默（隐性双端分歧），回退后两侧对称 ListLiteral。
+  自测块内与跨行 `===` 维持 ParseError（生成代码面与同逻辑行限定，登记边界不动）。
+  **自举镜像面**：本轮未触及 VM/compiler/自举镜像（ ChanExpr/SendExpr 早已三端实现、
+  解析面修复仅主解析器，matha/lexer·parser·interp·compiler_matha.matha 维持 14a 登记
+  边界不动）。**零扰动证明**（HEAD 74aef4b worktree 基线对拍：169 文件语料 host/vm
+  sweep 逐文件 diff）——**新增分歧 0**；host 侧变化恰为 13 文件 = 18a/18b 修复面
+  （全部向 VM 值收敛）；基线 41 项双端分歧收敛至 31 项（消失的 10 项 = 本轮修复面；
+  余 31 项为既有登记缺口：MatchStmt 未编译、领域插件 host 专属符号、bootstrap 链登记
+  边界，与基线同集）；4 文件 diff 系环境工件（对象 repr 地址 / worktree 绝对路径）非行为。
+  三锁 35 条（`tests/test_semantic_parity_phase18.py`：对拍 24〔18a 模块内自测/绑定
+  单次 + 语料 parser.matha [1]/test_compile ×1 共 5 + 18b use 零泄漏/加载 API/嵌套
+  标志恢复/语料 compiler_matha [] 共 4 + 18c 通道矩阵 8 + 18d 语句位矩阵 4 + 表达式/
+  变量位不动/AST 两侧 ListLiteral 共 7〕+
+  闭环 e2e 5〔matha run 真子进程：`[1] === [1]` 吐 True/`!==`/通道缓冲 [5]/use 零泄漏/
+  输出行 `[1]` 不受影响〕+ 边界 6〔`=`、自测块内、跨行、`|` 四 ParseError 锁 +
+  发送列表值双端 + lexer.matha D3 轻锁〕）；阶段 16 文件
+  边界锁 1 条旧形态改锁（`test_list_statement_strict_eq_parse_error` ParseError 锁 →
+  双端发射 True 锁，旧锁改锁新形态协议）。
+  doc 同步：README 测试文件 140→141；ARCHITECTURE core_py_lines 31,918→31,974
+  （+56 = 解释器删递归/标志/通道求值 + 解析器全中缀回退常量与 helper）；
+  ast_vm_gap 快照重生成（18c host 新增 ChanExpr/SendExpr 求值 → 矩阵 interp 列
+  no→yes 漂移，棘轮复核「阻塞缺口未增加」，`scripts/ast_vm_matrix.py --write`，
+  11/11 绿）。
+  全量门禁 7257/7257（首跑 1 红项 = ast_vm_gap 快照漂移〔18c host 新增
+  ChanExpr/SendExpr 求值 → 矩阵 interp 列 no→yes，预期覆盖提升非回归〕→
+  `scripts/ast_vm_matrix.py --write` 重生成、单文件 11/11 绿 → 按协议全量重跑干净：
+  tests 7154 + kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 +
+  native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：7222（17 收官）+ 35（阶段 18 三锁）= 7257。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

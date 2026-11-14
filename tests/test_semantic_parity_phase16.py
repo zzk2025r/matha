@@ -22,9 +22,9 @@
      host ↔ vm 输出逐值一致。
   2. 闭环：`matha run` 文件面（真子进程）D3 丢弃不吐值、D4 未定义名
      退出码 1、D5 严格相等真吐 True；BOM 文件经产品面正常执行。
-  3. 边界：`[1] === [1]` 语句位置解析拒绝（两端同形态）；三端运算符表
-     同名键存在（vm._BINOPS / compiler._BIN_OPS / 自举镜像）；let-in
-     表达式位求值语义不受影响。
+  3. 边界：`[1] === [1]` 语句位置（阶段 16 登记解析拒绝 → 阶段 18 真化为
+     双端发射 True）；三端运算符表同名键存在（vm._BINOPS /
+     compiler._BIN_OPS / 自举镜像）；let-in 表达式位求值语义不受影响。
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ from src.mbc.compiler import Compiler  # noqa: E402
 from src.mbc import compiler as _mbc_compiler  # noqa: E402
 from src.mbc import vm as _mbc_vm  # noqa: E402
 from src.mbc.vm import VM  # noqa: E402
-from src.parser import ParseError, parse  # noqa: E402
+from src.parser import parse  # noqa: E402
 
 
 def _run_host(src: str) -> list:
@@ -230,11 +230,13 @@ class TestClosedLoopE2E:
 class TestBoundaries:
     """语句位置列表与 === 组合的解析拒绝 + 三端运算符表登记。"""
 
-    def test_list_statement_strict_eq_parse_error(self):
-        # `[1]` 语句位置触发列表语句解析，`===` 无表达式可接 → ParseError
-        # （与 D5 值语义正交的解析形态，两端同源解析器同报错）。
-        with pytest.raises(ParseError):
-            parse("[1] === [1]")
+    def test_list_statement_strict_eq_emit_true(self):
+        # 阶段 18 真化（旧锁改锁新形态）：语句位 `[1] === [1]` 此前
+        # `[1]` 落入输出行语法、`===` 悬空 ParseError；18d 全中缀回退后
+        # 判为列表字面量表达式，D5 严格相等双端发射 True（独立字面量对象
+        # 同值同型 → True，非身份语义）。
+        assert _run_host("[1] === [1]") == [True]
+        assert _run_vm("[1] === [1]") == [True]
 
     def test_vm_binops_registered(self):
         assert _mbc_vm._BINOPS["=="]("甲", "甲") is True

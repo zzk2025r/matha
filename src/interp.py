@@ -1093,6 +1093,9 @@ class Interpreter:
         # 模块系统：module_name → {name → bound_value}
         self.modules: dict[str, dict] = {}
         self._matha_loaded: bool = False
+        # use 加载中：True 时跳过被载模块的自测块（#：{ } MechUnit），
+        # 与 VM 编译 use 模块不执行其自测代码对齐（阶段 18b）
+        self._loading_module: bool = False
         # 虚拟代码引擎（自动定义/自动注册）：由 MathaEngine/MathaSystem 接入
         self._virtual_registry = None
         # 自动自愈：None → 仅在接入虚拟注册表或 MATHA_AUTO_HEAL 时启用
@@ -1246,8 +1249,9 @@ class Interpreter:
             if key in deferred:
                 continue
             self._exec_decl(decl)
-            if isinstance(decl, ast.ModuleDecl):
-                self._exec_with_deferreds(decl.decls, deferred, key)
+        # 模块内部声明由 _exec_decl(ModuleDecl) 的内层循环执行一次，不再在此
+        # 递归重复执行——此前内层循环 + 本递归双跑模块内非 FuncDef 声明
+        # （自测块 [1] → 输出 [1,1]，阶段 18a 根修）。
 
     @staticmethod
     def _lambda_body_contains(body, func_name: str) -> bool:
@@ -1402,7 +1406,13 @@ class Interpreter:
                 if isinstance(decl, ast.ModuleDecl):
                     actual_name = decl.name
                     break
-            self.run(prog)
+            # 载入期间跳过被载模块的自测块（save/restore 支持嵌套 use）
+            prev_loading = self._loading_module
+            self._loading_module = True
+            try:
+                self.run(prog)
+            finally:
+                self._loading_module = prev_loading
             loaded = actual_name in self.modules
             self._log(logging.INFO, f"load_matha_module: '{module_name}' -> '{actual_name}' = {loaded}")
             return loaded
@@ -1440,6 +1450,12 @@ class Interpreter:
             self._log(logging.INFO, f"exec SetUp form='{decl.form}' items={len(decl.items)}")
             self._exec_set_up(decl)
         elif isinstance(decl, ast.MechUnit):
+            if self._loading_module:
+                # use 载入的模块：跳过其自测块（#：{ }/#N：{ }），不把自测输出
+                # 泄进载入方——matha_bootstrap.py:59 同款边界；VM 编译 use 模块
+                # 从不执行其自测代码，此为双端一致化（阶段 18b）。
+                self._log(logging.INFO, "exec MechUnit（载入中，跳过自测块）")
+                return
             seg = decl.generate.seg_id
             body = decl.body
             body_type = type(body).__name__ if not isinstance(body, list) else f"list[{len(body)}]"
@@ -1599,11 +1615,13 @@ class Interpreter:
                       f"register struct '{decl.name}' fields={field_names}")
         elif isinstance(decl, (ast.Variable, ast.IntegerLit, ast.FloatLit,
                                ast.StringLit, ast.BoolLit, ast.IsExpr,
-                               ast.IndexExpr, ast.SliceExpr, ast.TypeOfExpr)):
+                               ast.IndexExpr, ast.SliceExpr, ast.TypeOfExpr,
+                               ast.SendExpr, ast.ChanExpr)):
             # 顶层裸表达式语句：求值丢弃——与 MBC/VM 兜底（求值+POP）同构；
             # 未定义名随之报错，两端一致（阶段 16 D4 对齐）。此前落入末尾
             # else 被静默跳过：不求值、未定义名不报错，与 VM 分叉。
-            # 通道收发（SendExpr/ChanExpr）有副作用，维持既有静默跳过。
+            # 通道收发（SendExpr/ChanExpr）亦求值丢弃：VM 顶层裸发送执行副作用
+            # （缓冲追加+写回）但不发射，host 同构（阶段 18c）。
             self._eval(decl)
         else:
             # 可扩展 AST 节点：插件语句规则（顶层声明路径，对应 MBC _compile_stmt）
@@ -2758,6 +2776,22 @@ class Interpreter:
                     return getattr(left_val, field_name)
                 except AttributeError:
                     return None
+        if isinstance(expr, ast.ChanExpr):
+            # chan T：降级为三键 dict——与 VM ChanExpr（BUILD_DICT）同构（阶段 18c）
+            return {"缓冲": [], "容量": expr.buffer_size or 0, "关闭": False}
+        if isinstance(expr, ast.SendExpr):
+            # ch <- v：追加到 ch["缓冲"] 并写回，求值为 true——与 VM SendExpr
+            # （append 产新列表 + _dict_put 产新 dict + 写回具名变量）同构；
+            # 通道非具名变量时写回退化（值丢弃），亦与 VM 的 POP 分支一致。
+            ch = self._eval(expr.channel)
+            val = self._eval(expr.value)
+            buf = ch["缓冲"] + [val]
+            new_ch = {**ch, "缓冲": buf}
+            chan = expr.channel
+            if isinstance(chan, ast.Variable) and not chan.is_placeholder:
+                self.env[chan.name] = new_ch
+                self._sync_matha_env(chan.name, new_ch)
+            return True
         # Matha parser 生成的 dict AST 节点
         if isinstance(expr, dict):
             return self._eval_dict_ast(expr)
