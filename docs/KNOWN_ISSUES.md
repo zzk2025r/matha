@@ -1259,6 +1259,11 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   _loading_module 标志跳过，matha_bootstrap.py:59 同款边界）；`[1]===[1]` 语句位 ParseError
   已由 18d 全中缀回退真化为双端发射 True。含 host 单侧多发的 parser.matha 在内，10 文件
   双端逐值一致（tests/test_semantic_parity_phase18.py 封死）。】
+  【阶段 21 勘误：上块 compiler_matha/nl_* 的 vm [] 半边系 use 编译期 no-op 时代的影子
+  形态——21b 编译面 use 解析真化后，VM 面经 加载模块 胶水真执行被载模块（自测块照旧不进
+  输出，双端输出仍逐值一致）；裸 VM（无加载器注入）遇 use 由静默 no-op 改为诚实拒绝
+  「未定义变量 '加载模块'」（tests/test_semantic_parity_phase18.py 四条旧 vm 断言已按
+  旧锁改锁新形态协议改锁）。】
   三锁 44 条（`tests/test_semantic_parity_phase16.py`：D3 对拍 8〔值丢弃/副作用保留
   `let 甲=1 in [输出(9)]`→[9] 双端/表达式位 `输出(let 甲=2 in 甲*3)`→[6] 双端〕+
   D4 裸表达式矩阵 13〔8 形态求值丢弃 + 3 未定义名 + BOM 双端 2 + 词法器 token 锁〕+
@@ -1436,6 +1441,9 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   host 报「match 无匹配分支」/VM 表达式位求值 None、语句位 VM 静默继续；守卫绑定名求值序
   host 先守卫（绑定名不可见 → 未定义变量）/VM 先模式绑定（守卫可引用）；switch 表达式位
   ParseError（VM `_emit_expr` SwitchStmt 分支为与 host 对称的防御支持）。
+  【阶段 21 勘误：switch 表达式位解析拒绝已由 21c 真化——宿主 `_parse_primary` 与镜像
+  `解析主要` 均接受 switch（语句位分派不受影响），表达式位双端求值一致
+  （tests/test_semantic_parity_phase21.py）。】
   doc 同步：README 测试文件 141→142；ARCHITECTURE core_py_lines 31,974→31,990（+16 =
   compiler match/switch/list body + growth 聚合）；ast_vm_gap 快照重生成（term_engine try
   形态进语料 → used_in 漂移，`scripts/ast_vm_matrix.py --write`，11/11 绿）。
@@ -1478,6 +1486,11 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   改 catch-清态-重抛的形态保留（保守设计不动），其理由③勘误为已修。镜像 parser
   `catch{}` 歧义（无 catch ≡ 显式空 catch 同形态 → 镜像面按重抛，与宿主 catch_block
   None/空 CodeBlock 区分不同源）维持登记边界不修。
+  【阶段 21 勘误：该歧义已由 21c 消解——镜像 parser `解析try语句` 无 catch 产出哨兵
+  捕获体=null（显式空 catch 仍为 `做Program([])`，二者可区分），镜像 interp `执行try`
+  null→重抛/空 catch→吞错继续，镜像 compiler `_发射try` 同构（null→先 finally 后
+  RAISE、空 catch→空体 thunk 走捕获路径），stage2≡stage3 字节级同构锁
+  （tests/test_semantic_parity_phase21.py）。】
   **20f 镜像 try 缺口形态锁（M21）**：M16 全部用例带 catch 变量，无变量 catch 与无
   catch+finally 重抛两形态此前自举链路无锁——新增三面锁（host 基准 / stage2≡stage3
   字节级 / stage3 执行）：无变量 catch 函数体、无变量 catch 顶层输出、嵌套 finally 重抛
@@ -1498,6 +1511,90 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   编译器 match 动态兜底/守卫先求值/try 三路径重抛 + VM RAISE_MATCH 处理器 + 原生
   match_render 渲染运行时 + 解释器无 catch 重抛 + opcode 登记）；ast_vm_gap 快照重生成
   （RAISE_MATCH 进 opcode surface，指令码 34 VM 34 / native 34）。
+- **2026-11 阶段 21 收官（插件符号 VM 面真化 + 编译面 use 解析 + 镜像 catch{} 歧义消解与
+  switch 表达式位）**：用户拍板范围三件全选（21a 插件符号 VM 面真化 / 21b 编译面 use 解析
+  / 21c 镜像 parser catch{} 歧义 + switch 表达式位），设计拍板四项推荐全采。
+  **摸底勘误**：21 摸底「生成_×6 语料零使用」不成立——examples/10_web_app.matha 用
+  生成_网页、11_desktop.matha 用 生成_桌面，capability 插件按门面对拍标准扩至 12 符号
+  （自主_调试/自主_优化/自主_成长/资源_加载/资源_成长/软件_构建 + 生成_网页/桌面/服务/
+  系统/游戏/建模）；资源_列表/资源_读取 仍语料零使用，保持登记边界（插件面未覆盖）。
+  **21a 插件符号 VM 面真化**：`src/domains/capability.py` 能力插件（清单注册 12 符号）；
+  宿主面仍由 src.interp 内建表直挂（直挂优先，宿主面零改动）；VM 面官方入口
+  `exec_api._wire_plugin_runtime` 注入领域解析器（resolver 物化面）+ 效果面胶水
+  `plugin_api.make_capability_runtime` → `capability.make_runtime`（资源_加载/资源_成长
+  把资源函数编译进**同一个运行中 VM**，与宿主面「合并进运行中的解释器」同构；setdefault
+  不覆盖程序自定义同名函数）；跨模块常量池：VM 分派按帧取常量池（`Frame.consts` /
+  `MFunction.consts`，None=与模块共享）——运行期插件合并进运行中 VM 的函数帧携带来源
+  模块池，常量下标不再读到宿主模块的错位值；解析_JSON 双面单一实现
+  （`src/kernel/json_builtin.py`，宿主 BUILTINS 与 VM `_default_builtins` 同源）。
+  两工厂均为**惰性跳板**（构造零 import，首次调用才经解析器动态装入插件；
+  plugin_api.py 静态 `src.domains` 导入零容忍，AST 扫描锁在场）——eval/auto 的
+  「零领域急切加载」语义不因注入面破坏（首跑门禁 5 红真修：plugin_contract×3 +
+  ai_framework/library_basics 急切加载×2）；柯里化定点：`资源_成长("计算动能")("core")("")`
+  首调经跳板物化、链式后续命中真 curry3 Partial（跳板转发 *args），生成
+  matha/library/core/计算动能.matha 与既有生成件同类（已随本片纳入版本控制）。
+  **21b 编译面 use 解析（自举链收口）**：编译器 use 发射 `CALL 加载模块`（宿主注入的
+  插件层胶水把被 use 模块函数/枚举/模块级 let **平铺合并**进同一个运行中 VM + 命名空间
+  绑定，幂等）；被 use 模块已内联在同一程序（自举链多文件合并编译：宿主 `_inline_modules`
+  预扫 + 镜像 `_收集模块名/_名单含/_清内联导入` 三件）时不发射——符号就在本模块全局域，
+  加载调用多余且会二次合并；`GET_ATTR` 补宿主 PathExpr「dict 缺失成员退回内建表」同构
+  回退（标准库.len 一类内建透传）；自举镜像 compiler_matha.matha 同构（use 编译双端
+  一致）；裸 VM（不经官方入口）遇 use 诚实报错「未定义变量 '加载模块'」——错误名由
+  「首个 use 符号」前移到「加载器名」，use 编译期 no-op 时代的裸 VM 拒绝边界就此除名，
+  官方门面（exec_api 注入加载器）真跑到收敛。
+  **21c 镜像 catch{} 歧义消解 + switch 表达式位**：镜像 parser `解析try语句` 无 catch
+  产出哨兵 捕获体=null（显式空 catch 仍为 `做Program([])`，二者可区分）；镜像 interp
+  `执行try`：null → 重抛（对齐宿主无 catch 路径）、空 catch → 吞错继续（对齐宿主 catch
+  空体语义）；镜像 compiler_matha.matha `_发射try`：null → 先 finally 后 RAISE、
+  空 catch → 空体 thunk 照常编译走捕获路径；stage2≡stage3 字节级同构锁。switch 表达式位：
+  宿主 `_parse_primary` 与镜像 `解析主要` 接受 switch（语句位分派不受影响）——interp
+  `_eval_switch_expr` 与编译器 `_emit_expr` SwitchStmt 分支（阶段 19a）早已就绪，本轮只补
+  双端解析。
+  **登记不修五条（现状锁）**：①裸 VM 不承载插件符号（自主_* 等未定义名）与
+  plugins="off" 官方入口不注入——与原生 exe「不承载插件符号」同一架构哲学；
+  ②@：【加载领域】 的 require() 语义按清单顺序覆盖 target（会以解析器物化面覆盖注入的
+  效果面胶水；宿主内建表直挂同理被插件表覆盖；语料零命中，登记现状）；③镜像解释器重抛
+  路径丢弃环境链（immutable env 经 错误 通道不可携带）+ finally 内建调用（原地设置 等）
+  在镜像解释器面的协议缺口；④host-ERR 链三文件双面失败形态（bootstrap_full_test：host
+  未定义变量 '不折叠' 挂更早不变、VM 面 HEAD err 未定义变量 'tokenize' → 真化后跑通到底
+  21 输出越过宿主面；bootstrap_matha：host 属性访问失败 str.类型 不变、VM 面 HEAD err
+  未定义变量 '自举加载器' → TypeError len(Partial)；bootstrap_test：host 不可调用的值
+  不变、VM 面 HEAD err 未定义变量 '词法器' → KeyError: 0——VM 面新形态为更深处的链内
+  分歧，与 use 编译面正交）；⑤match 表达式位：宿主被字典花括号歧义劫持 ParseError
+  「期望 }」、镜像 `解析主要` 接受 match——双解析器潜分歧维持登记。
+  **零扰动证明**（HEAD 9803068 worktree 基线对拍：222 语料 host/vm 双面 sweep）：201
+  文件逐字节相同；21 差异全归因——13 文件插件符号收敛（12 examples + .trae/demo_calc：
+  VM 面 HEAD err 未定义变量 自主_*/资源_*/软件_构建 → ok，21a 面）；4 文件 use 解析收敛
+  （bootstrap_full_test、bootstrap_test_v2、matha/interp.matha、matha/interp_matha.matha：
+  VM 面 HEAD err 未定义变量 首 use 符号 → ok，21b 面）；2 文件 err→err 更深（
+  bootstrap_matha/bootstrap_test，登记边界④）；2 文件已知非确定性（examples/ai/
+  data_pipeline 对象 repr 地址、neural_network 随机初始化，同树双跑复验即漂移，与本片
+  正交）。host 面 222 语料零变化。
+  **旧锁改锁新形态七处（均带勘误注明）**：phase18 四条（parser.matha/use 零泄漏/嵌套
+  use/compiler_matha 的旧 vm 断言是 use 编译期 no-op 时代影子形态 → pytest.raises 锁
+  裸 VM「未定义变量 '加载模块'」诚实拒绝边界，host 面语义全保留）+ phase19 三条（switch
+  表达式位「解析拒绝」登记锁 → 匹配形态双端 [10] 真化锁，无匹配无 default → None 形态
+  仍由 phase21 SW_SRC 锁定；两 bootstrap 文件旧 vm 断言 运行时引擎/词法器 → 未定义变量
+  '加载模块'）。
+  三锁 69 条净增（`tests/test_capability_vm_phase21.py` 新档 28〔门面对拍 + 注入面
+  闭环 + resolver 物化面 + 边界〕；`tests/test_use_compile_phase21.py` 新档 17〔发射/
+  内联抑制 + 胶水真加载/幂等/命名空间/枚举/let 物化 + 裸 VM 拒绝 + 链文件边界〕；
+  `tests/test_semantic_parity_phase21.py` 新档 24〔catch 形状二分 + interp/compiler
+  双面同构 + stage2≡stage3 + switch 表达式位 + match 登记〕）+ json_builtin 内核化使
+  `test_core_never_imports_plugin_contracts` 参数化 +1。门禁 7397/7397（首跑 7380/7397，
+  17 红三类全落定：旧锁改锁 7〔phase18×4 + phase19×3〕+ plugin_api 懒跳板真修 5
+  〔plugin_contract×3 + ai_framework/library_basics 急切加载×2——静态 src.domains 导入
+  改 resolver 惰性物化〕+ doc 数字漂移 5〔领域插件 82→83、语料 169→170、core_py_lines、
+  CHANGELOG token〕→ 按协议全量重跑干净：tests 7294 + kernel_purity 14 + ast_vm_gap 11 +
+  golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：7327（20 收官）+ 69 + 1 = 7397。ast_vm_gap 快照重生成（计算动能.matha 进
+  语料，corpus_files 216→217，used_in 漂移按协议 `scripts/ast_vm_matrix.py --write`）。
+  doc 同步：README 测试文件 143→146、领域插件 82→83（src/domains/ 84→85 个 .py）、
+  语料 169→170；ARCHITECTURE core_py_lines 32,166→32,285（+119 = VM Frame functions 表
+  与 MAKE_CLOSURE 逐帧函数表解析、GET_ATTR 内建名回退、解析器 switch 表达式位、
+  capability/json_builtin 插件移植胶水与 exec_api use 加载器注入面）；CHANGELOG 领域
+  插件 82→83；勘误三处：阶段 16 收官条目 use no-op 影子形态（21b）、阶段 19 收官条目
+  switch 解析拒绝（21c 已真化）、阶段 20 收官条目 catch{} 歧义维持登记（21c 已消解）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

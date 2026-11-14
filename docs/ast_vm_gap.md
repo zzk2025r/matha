@@ -27,7 +27,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
 | 指令码总数 / VM 已分派 / native 已发射 | 34 / 34 / 34 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
-| 语料文件（解析成功） | 216 |
+| 语料文件（解析成功） | 217 |
 | 无法解析的语料文件 | 0 |
 
 ## 三、阻塞缺口（必须先补）
@@ -46,9 +46,9 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `AngleExpr` | emits | no | 0 |
 | `AnnotatedType` | noop | no | 0 |
 | `Annotation` | noop | no | 0 |
-| `BasicType` | noop | no | 157 |
+| `BasicType` | noop | no | 158 |
 | `Belongs` | emits | yes | 1 |
-| `BinaryOp` | emits | yes | 169 |
+| `BinaryOp` | emits | yes | 170 |
 | `Binding` | emits | yes | 48 |
 | `BoolLit` | emits | yes | 38 |
 | `BreakStmt` | emits | yes | 1 |
@@ -62,12 +62,12 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `DictLiteral` | emits | yes | 12 |
 | `EnumDef` | emits | yes | 2 |
 | `FileMarker` | noop | yes | 0 |
-| `FloatLit` | emits | yes | 87 |
+| `FloatLit` | emits | yes | 88 |
 | `ForStmt` | emits | yes | 2 |
 | `ForeignDecl` | noop | yes | 12 |
 | `FuncApp` | emits | yes | 169 |
-| `FuncDef` | emits | yes | 157 |
-| `FuncType` | noop | no | 157 |
+| `FuncDef` | emits | yes | 158 |
+| `FuncType` | noop | no | 158 |
 | `GenStmt` | emits | yes | 35 |
 | `Generate` | noop | no | 55 |
 | `GlobalIdStmt` | noop | yes | 15 |
@@ -76,12 +76,12 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `IfElseStmt` | emits | yes | 0 |
 | `IfExpr` | emits | yes | 85 |
 | `IfStmt` | emits | yes | 14 |
-| `ImportDecl` | emits | yes | 21 |
+| `ImportDecl` | emits | yes | 20 |
 | `IndexExpr` | emits | yes | 65 |
-| `IntegerLit` | emits | yes | 191 |
+| `IntegerLit` | emits | yes | 192 |
 | `IsExpr` | emits | yes | 1 |
 | `Iteration` | emits | no | 0 |
-| `Lambda` | emits | yes | 160 |
+| `Lambda` | emits | yes | 161 |
 | `LetBinding` | emits | yes | 90 |
 | `LetTupleBinding` | emits | yes | 13 |
 | `ListComp` | emits | yes | 1 |
@@ -96,7 +96,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `Output` | emits | yes | 64 |
 | `OutputTrail` | emits | yes | 45 |
 | `PathExpr` | emits | yes | 16 |
-| `Program` | emits | no | 216 |
+| `Program` | emits | no | 217 |
 | `RaiseExpr` | emits | yes | 7 |
 | `ReadBlock` | noop | yes | 23 |
 | `ReturnStmt` | emits | yes | 8 |
@@ -115,10 +115,10 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `ThrowStmt` | emits | yes | 0 |
 | `TryStmt` | emits | yes | 5 |
 | `TupleExpr` | emits | yes | 25 |
-| `TupleType` | noop | no | 126 |
+| `TupleType` | noop | no | 127 |
 | `TypeOfExpr` | emits | yes | 2 |
 | `UnaryOp` | emits | yes | 57 |
-| `Variable` | emits | yes | 208 |
+| `Variable` | emits | yes | 209 |
 | `WhileStmt` | emits | yes | 8 |
 
 ## 六、指令码 × VM / native

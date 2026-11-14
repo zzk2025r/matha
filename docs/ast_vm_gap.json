@@ -1,6 +1,6 @@
 {
   "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
-  "generated_at": "2026-11-14T16:24:39",
+  "generated_at": "2026-11-14T22:03:24",
   "generator": "scripts/ast_vm_matrix.py",
   "corpus_dirs": [
     "matha",
@@ -16,7 +16,7 @@
     "noop": 19,
     "missing": 0,
     "blocking": 0,
-    "corpus_files": 216,
+    "corpus_files": 217,
     "opcodes": 34,
     "opcode_vm": 34,
     "opcode_native": 34,
@@ -27,25 +27,25 @@
       "node": "Program",
       "vm": "emits",
       "interp": "no",
-      "used_in": 216
+      "used_in": 217
     },
     {
       "node": "Variable",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 208
+      "used_in": 209
     },
     {
       "node": "IntegerLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 191
+      "used_in": 192
     },
     {
       "node": "BinaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 169
+      "used_in": 170
     },
     {
       "node": "FuncApp",
@@ -57,31 +57,31 @@
       "node": "Lambda",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 160
+      "used_in": 161
     },
     {
       "node": "BasicType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 157
+      "used_in": 158
     },
     {
       "node": "FuncDef",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 157
+      "used_in": 158
     },
     {
       "node": "FuncType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 157
+      "used_in": 158
     },
     {
       "node": "TupleType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 126
+      "used_in": 127
     },
     {
       "node": "StringLit",
@@ -105,7 +105,7 @@
       "node": "FloatLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 87
+      "used_in": 88
     },
     {
       "node": "IfExpr",
@@ -213,7 +213,7 @@
       "node": "ImportDecl",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 21
+      "used_in": 20
     },
     {
       "node": "SliceExpr",

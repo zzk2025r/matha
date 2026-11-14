@@ -189,12 +189,17 @@ module 编译器 {
 
   func _编译程序(tree: Dict) -> Dict =
     let decls = tree["声明"] in
+    (* 同程序内联模块名：use 目标已内联合并（自举链多文件合并编译）时，
+       符号就在同一全局域，加载调用多余且会二次合并——导入改写为 no-op，
+       与宿主 compile_program 的 _inline_modules 预扫同构。 *)
+    let 模 = _收集模块名(decls, []) in
+    let decls2 = _清内联导入(decls, 模) in
     let bc1 = _bc元数表(_新bc(), _预扫元数(decls)) in
     (* 与宿主 compile_program 一致：顶层声明**按源码顺序**单遍编译
        （宿主 `for decl in program.decls: _compile_top_decl(...)`）。
        函数体在其声明出现处才编译，故常量池次序与宿主逐位一致。
        函数间互引（含前向引用）经 LOAD_GLOBAL 在运行期解析，编译顺序无关。 *)
-    let (主码, sc, bc2) = _编译声明列表(decls, [], _新主作用域(), bc1) in
+    let (主码, sc, bc2) = _编译声明列表(decls2, [], _新主作用域(), bc1) in
     {"常量": bc2["常量"], "函数": bc2["函数"],
      "主码": append(主码)([OP_HALT]), "模块名": _取模块名(decls)}
 
@@ -205,6 +210,26 @@ module 编译器 {
   func _取模块名走(decls: List, acc: String) -> String =
     decls = [] ? acc :
     _取模块名走(decls[1:], (decls[0]["类型"] = "模块" ? decls[0]["名"] : acc))
+
+  (* 同程序内联模块名收集：顶层 模块 声明的名字（宿主 _inline_modules 同构）。 *)
+  func _收集模块名(decls: List, acc: List) -> List =
+    decls = [] ? acc :
+    _收集模块名(decls[1:],
+      (decls[0]["类型"] = "模块" ? acc + [decls[0]["名"]] : acc))
+
+  func _名单含(名单: List, 名: String) -> Bool =
+    名单 = [] ? 假 : (名单[0] = 名 ? 真 : _名单含(名单[1:], 名))
+
+  (* 内联导入清除：被 use 模块在同一程序内联时把导入改写为 no-op
+     （模块名 置 空，_编译导入 的空名守卫即短路），模块内层声明递归。 *)
+  func _清内联导入(decls: List, 模: List) -> List =
+    decls = [] ? [] :
+    let d = decls[0] in
+    let d2 = d["类型"] = "导入" ?
+        (_名单含(模, d["模块名"]) ? dict_put(d, "模块名", "") : d) :
+        d["类型"] = "模块" ?
+            dict_put(d, "声明", _清内联导入(d["声明"], 模)) : d in
+    [d2] + _清内联导入(decls[1:], 模)
 
   (* 模块声明：与宿主 ModuleDecl 分支一致——先把模块内**直接**函数定义编译入
      函数表（支持函数间互引），再按序编译其余顶层声明。仅处理直接子函数，
@@ -218,7 +243,32 @@ module 编译器 {
       -> (List, List, Dict) =
     let inner = decl["声明"] in
     let bc2 = _编译直接函数(inner, bc) in
-    _编译非函数列表(inner, code, sc, bc2)
+    let (c2, sc2, bc3) = _编译非函数列表(inner, code, sc, bc2) in
+    (* 模块命名空间绑定（宿主 env[decl.name] = module_ns 同构，支持
+       模块.函数 点号调用）：成员 = 函数 / 模块级 let / 枚举名
+       （struct 工厂 VM 面无码，不收） *)
+    let names = _模块成员名(inner, []) in
+    names = [] ? (c2, sc2, bc3) :
+    let (c3, sc3, bc4) = _发加载全局们(names, c2, sc2, bc3) in
+    let (gidx, bc5) = _加常量名(bc4, decl["名"]) in
+    (_发(_发(c3, [OP_BUILD_DICT, len(names)]), [OP_STORE_GLOBAL, gidx]), sc3, bc5)
+
+  func _模块成员名(decls: List, acc: List) -> List =
+    decls = [] ? acc :
+    let t = decls[0]["类型"] in
+    ((t = "函数定义") or (t = "let绑定") or (t = "枚举")) ?
+      _模块成员名(decls[1:], append(acc)(decls[0]["名"])) :
+      _模块成员名(decls[1:], acc)
+
+  (* 每成员压 key（PUSH_CONST）+ value（LOAD_GLOBAL）两值——BUILD_DICT
+     按键值对弹出，与宿主编译器 EnumDef/命名空间发射同构 *)
+  func _发加载全局们(names: List, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    names = [] ? (code, sc, bc) :
+    let (kidx, bc2) = _加常量(bc, names[0]) in
+    let (vidx, bc3) = _加常量名(bc2, names[0]) in
+    let c2 = _发(_发(code, [OP_PUSH_CONST, kidx]), [OP_LOAD_GLOBAL, vidx]) in
+    _发加载全局们(names[1:], c2, sc, bc3)
 
   func _编译非函数列表(decls: List, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
@@ -334,16 +384,20 @@ module 编译器 {
     let (c2, sc2, bc2) = _发射表达式(decl, code, _重置主作用域计数(sc), bc) in
     (_发(c2, [OP_POP]), sc2, bc2)
 
-  (* use/import：M3V 单模块运行时无跨模块加载，记为全局标记供宿主检查。
-     与宿主 _emit_import 对齐：常量 "<import M>" 压栈后存入全局 "__import_M"。 *)
+  (* use/import：发射运行时模块加载调用（宿主 _emit_import 同构）——
+     LOAD_GLOBAL 加载模块 + PUSH_CONST 模块名 + CALL 1 + POP。官方入口
+     注入 vm-captured 加载模块（插件层 make_module_loader）：编译被 use
+     模块源码并把函数平铺合并进「同一个运行中 VM」（幂等）；裸 VM /
+     plugins="off" 无此全局 → 未定义名诚实报错。 *)
   func _编译导入(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let m = decl["模块名"] in
     m = "" ? (code, sc, bc) :
-    let (idx, bc2) = _加常量(bc, "<import " + m + ">") in
-    let (gidx, bc3) = _加常量名(bc2, "__import_" + m) in
-    let c2 = _发(_发(code, [OP_PUSH_CONST, idx]), [OP_STORE_GLOBAL, gidx]) in
-    (c2, sc, bc3)
+    let (gidx, bc2) = _加常量名(bc, "加载模块") in
+    let (midx, bc3) = _加常量(bc2, m) in
+    let c1 = _发(_发(code, [OP_LOAD_GLOBAL, gidx]), [OP_PUSH_CONST, midx]) in
+    let c2 = _发(c1, [OP_CALL, 1]) in
+    (_发(c2, [OP_POP]), sc, bc3)
 
   (* ===== 机械单元（#N：…）=====
      与宿主 _compile_stmt 的 MechUnit→GenStmt→OutputTrail→Output 透传链同构。
@@ -1506,8 +1560,10 @@ module 编译器 {
     let cn = _发(cm, [OP_INDEX_GET]) in
     let (m位置, sc3, bcm) = _分配临时(sc2, bcl, "try_msg") in
     let (co, bcm2) = _存临时(m位置, cn, bcm) in
-    e["捕获体"]["声明"] = [] ?
-      (* 无 catch：先 finally 后重抛消息 *)
+    e["捕获体"] = null ?
+      (* 无 catch（哨兵 null）：先 finally 后重抛消息；显式空 catch 走捕获
+         路径——空体 thunk 照常编译，吞错继续（宿主 catch_block None/空体
+         二分同构） *)
       let (p1, bcp) = _发调用fin(fin名, co, bcm2) in
       let (p2, bcq) = _压临时(p1, m位置, bcp) in
       let p3 = _发(p2, [OP_RAISE]) in

@@ -8,11 +8,11 @@
 `tests/test_doc_facts.py` 会核对文档与代码是否漂移（漂移即红）。
 
 - **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
-- **领域插件：** 82（`src/domains/` 共 84 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
+- **领域插件：** 83（`src/domains/` 共 85 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 9（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
-- **`.matha` 语料：** 169（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 143（`tests/`）
+- **`.matha` 语料：** 170（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
+- **测试文件：** 146（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -149,7 +149,7 @@ REPL 启动自动执行当前目录 `matha_term_extensions.msh`（其中 `退出
 ```
 matha/
 ├── src/                    # 核心源代码
-│   ├── domains/           # 82 个领域插件（+ 包初始化/注册表）
+│   ├── domains/           # 83 个领域插件（+ 包初始化/注册表）
 │   ├── kernel/            # L1 纯净内核（纯标准库）
 │   ├── plugins/           # 内核外工具插件
 │   ├── compiler/          # JIT/AOT 编译器（LLVM 子过进程属可选插件）
@@ -189,7 +189,7 @@ matha/
 - 类型系统
 - CSP 并发
 - SQLite 离线存储
-- 所有 82 个领域插件
+- 所有 83 个领域插件
 
 ### ⚠️ 需要网络（离线不可用）
 - 远程包安装/搜索

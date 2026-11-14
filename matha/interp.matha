@@ -382,9 +382,14 @@ module 解释器 {
     let 结果 = 调用捕获(try执行包装)([stmt.try体, env]) in
     if 结果[0] = "__正常__" then
       执行finally后(stmt, 结果[1][0], 结果[1][1])
-    else if stmt.捕获体.声明 = [] then
+    else if stmt.捕获体 = null then
+      (* 无 catch（哨兵 null）：finally 先执行，错误重抛——
+         对齐宿主 _exec_try 无 catch 路径（阶段 20e） *)
       let 忽略 = 执行finally后(stmt, null, env) in
       错误(结果[1])
+    else if stmt.捕获体.声明 = [] then
+      (* 显式空 catch：吞错继续——对齐宿主 catch 空体语义 *)
+      执行finally后(stmt, null, env)
     else
       let env3 = stmt.捕获变量 = "" ? env : 绑定环境(env, stmt.捕获变量, 结果[1]) in
       let 捕果 = 调用捕获(try执行包装)([stmt.捕获体, env3]) in

@@ -8,8 +8,8 @@
       早已支持（_STMT_NODES/_VALUE_STMTS）；函数体 Lambda 值位的 match 此前
       掉进兜底报「暂不支持的节点 MatchStmt」（14 语料）——自举镜像
       compiler_matha.matha _发射表达式 早有此分支，本轮主侧补齐闭合
-      主↔镜像反向差。switch 表达式位解析器本就拒绝（防御对称分支，
-      host _eval_switch_expr 同款保留）。
+      主↔镜像反向差。switch 表达式位旧登记「解析器拒绝」已由阶段 21c 真化
+      （主解析器 KW_SWITCH 表达式分支，本文件该锁改锁匹配形态双端同值）。
   19b MechUnit 裸 list body VM 真化：parser.py:626 `#N：命令` 后跟 `{ }`
       代码块时 body=[GenStmt, CodeBlock]（裸 Python list）——host
       _exec_stmt 链循环容忍，VM _compile_stmt 掉 _emit_expr 报
@@ -22,8 +22,9 @@
     RAISE_MATCH 值渲染 + finally 全链「先 finally 后重抛」同构）——专项
     锁在 test_semantic_parity_phase20.py，本文件保留收口后一致性轻锁。
   - bootstrap_test/v2 编译缺口修复后残留分歧转 C 类（自举链符号面）：
-    文件 use 词法器/运行时引擎 等，独立 VM 编译看不见被载模块符号
-    （与 interp.matha/interp_matha.matha 同界）。
+    〔勘误 2026-11 阶段 21b〕C 类已真化收口——编译面 use 解析为 CALL
+    加载模块，裸 VM 面诚实拒绝边界前移至加载器名（错误形态改锁）；
+    官方门面注入加载器后 vm 面跑通全程（专项锁 test_use_compile_phase21）。
 
 三锁封死：
   1. 对拍：语料型 func 体 match/绑定 match/顶层 match 语句/变量绑定模式/
@@ -184,10 +185,11 @@ class TestParity19aSwitch:
         )
 
     def test_switch_expr_position_parse_rejected(self):
-        # switch 表达式位解析器本就拒绝（登记边界）；VM _emit_expr 的
-        # SwitchStmt 分支为与 host _eval_switch_expr 对称的防御支持
-        with pytest.raises(ParseError):
-            parse("输出(switch 2 { case 1: 10 })\n")
+        # 〔勘误 2026-11 阶段 21c〕switch 表达式位已真化（主解析器 _parse_primary
+        # KW_SWITCH 分支落地，interp/_emit_expr 求值面 19a 早已就绪）——
+        # 旧登记拒绝形态除名，改锁新形态：匹配形态表达式位双端同值
+        # （无匹配+无 default → None 双端，专项锁见 test_semantic_parity_phase21）
+        _both("输出(switch 2 { case 2: 10 })\n", [10])
 
     def test_switch_stmt_no_default_silent(self):
         _both("switch 9 { case 1: 输出(10) }\n输出(7)\n", [7])
@@ -287,20 +289,23 @@ class TestBoundariesPhase19:
         assert isinstance(ho, str) and "未定义变量 'x'" in ho
 
     def test_bootstrap_test_v2_compiles_and_c_class_boundary(self):
-        # 编译缺口已修（不再「暂不支持的节点 list」）；残留分歧 = C 类
-        # 自举链符号面（use 运行时引擎，独立 VM 编译看不见被载模块符号）
+        # 编译缺口已修（不再「暂不支持的节点 list」）；〔勘误 2026-11 阶段 21b〕
+        # C 类符号面真化收口——编译面 use 解析为 CALL 加载模块，裸 VM 面诚实
+        # 拒绝边界前移：错误名由首个 use 符号变为加载器内建名（官方门面
+        # exec_api 注入加载器后 vm 面跑通全程，专项锁见 test_use_compile_phase21）
         src = (ROOT / "matha/bootstrap_test_v2.matha").read_text(encoding="utf-8")
         vo = _run_raw(src, "vm")
         assert isinstance(vo, str) and "暂不支持的节点" not in vo
-        assert "未定义变量 '运行时引擎'" in vo
+        assert "未定义变量 '加载模块'" in vo
         ho = _run_raw(src, "host")
         assert isinstance(ho, list) and ho[0] == 7
 
     def test_bootstrap_test_compiles_and_c_class_boundary(self):
+        # 〔勘误 2026-11 阶段 21b〕同上：裸 VM 诚实拒绝边界前移至加载器名
         src = (ROOT / "matha/bootstrap_test.matha").read_text(encoding="utf-8")
         vo = _run_raw(src, "vm")
         assert isinstance(vo, str) and "暂不支持的节点" not in vo
-        assert "未定义变量 '词法器'" in vo
+        assert "未定义变量 '加载模块'" in vo
         ho = _run_raw(src, "host")
         assert isinstance(ho, str) and "不可调用的值" in ho
 

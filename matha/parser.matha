@@ -1203,6 +1203,11 @@ module 语法器 {
       解析if表达式(p)
     else if 匹配(p, 类型.关键字) and 当前(p).文本 = "match" then
       解析match_stmt(p)
+    else if 匹配(p, 类型.关键字) and 当前(p).文本 = "switch" then
+      (* switch 表达式位：语句位由 解析声明/解析语句 的关键字分派先行，
+         此处补 let 右值/实参/块尾值 位（对齐宿主 _parse_primary KW_SWITCH
+         分支，阶段 21c）；分支花括号在 解析switch 内部消费 *)
+      解析switch(p)
     else if 匹配(p, 类型.关键字) and 当前(p).文本 = "let" then
       解析let表达式(p)
     else if 匹配(p, 类型.关键字) and 当前(p).文本 = "raise" then
@@ -2234,7 +2239,9 @@ module 语法器 {
         let p4g = 期望(p4f, 类型.右括号花) in
         (捕获变量, 捕获体, p4g)
       else
-        ("", 做Program([]), p4) in
+        (* 无 catch 哨兵：捕获体 = null（显式空 catch 仍为 做Program([])，
+           二者可区分——宿主面 无 catch 重抛 / 空 catch 吞错 同构对齐） *)
+        ("", null, p4) in
     if 匹配关键字文本(p5, "finally") then
       let p5a = 推进(p5) in
       let p5b = 期望(p5a, 类型.左括号花) in

@@ -549,20 +549,8 @@ def builtin_token(ttype):
     return with_text
 
 
-def builtin_parse_json(text: str):
-    """解析_JSON(json字符串) → 嵌套列表/字典。
-
-    把 JSON 数组 [a, b, c] 解析为 Python list，
-    供 codegen 的规格树使用。
-    """
-    import json
-    try:
-        result = json.loads(str(text))
-        logging.getLogger("matha.interp").debug(f"parse_json: {text!r} → {result!r}")
-        return result
-    except (json.JSONDecodeError, TypeError) as e:
-        logging.getLogger("matha.interp").debug(f"parse_json FAILED: {text!r} → {e}")
-        raise MathaRuntimeError(f"JSON 解析失败: {e}")
+# 解析_JSON：双面单一实现（VM _default_builtins 同源），实现见 src/kernel/json_builtin.py
+from src.kernel.json_builtin import parse_json as builtin_parse_json
 
 
 # ============================================================
@@ -861,6 +849,10 @@ def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
     if not path.exists():
         raise FileNotFoundError(f"找不到 Matha 模块: {path}")
     return path.read_text(encoding="utf-8")
+
+
+#: 插件层公开名（dep_audit 禁止插件导入下划线名）；VM 面 use 胶水经此读源文件
+load_matha_source = _load_matha_source
 
 
 def builtin_typeof(value) -> str:

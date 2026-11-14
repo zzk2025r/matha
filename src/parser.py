@@ -2384,6 +2384,15 @@ class Parser:
             elem_type = self._parse_type_name()
             return ast.ChanExpr(elem_type=elem_type, buffer_size=None)
 
+        # switch 表达式位（阶段 21c）：语句位由 _parse_statement/_parse_decl
+        # 先行分派不受影响；表达式位（let 右值/实参/块尾值）此前一律
+        # ParseError「期望表达式」——interp._eval_switch_expr 与编译器
+        # _emit_expr SwitchStmt 分支（阶段 19a）早已就绪，此处只补解析。
+        # `{` 在 _parse_switch 内于 _in_control_flow 下消费，不与字典
+        # 字面量歧义（对照 match 表达式位的字典劫持现状，登记不动）。
+        if tok.type == TokenType.KW_SWITCH:
+            return self._parse_switch()
+
         # 布尔
         if tok.type == TokenType.LIT_BOOL:
             self._advance()

@@ -708,6 +708,63 @@ def get_resolver(reload: bool = False) -> PluginResolver:
     return _resolver
 
 
+def _capability_module():
+    """capability 领域模块的动态装入口（契约层唯一 sanctioned 通道）。
+
+    经解析器按清单装入插件模块（importlib 动态 import，只在首次调用时
+    发生）——契约层不得静态 ``import src.domains.*``（命名卫生门禁
+    test_plugin_api_source_touches_no_core_private_members 静态扫描红线），
+    也不得让内核注入面急切带起任何领域模块（eval/auto 懒加载验收）。
+    """
+    plugin = get_resolver().plugin("capability")
+    if plugin is None:
+        raise RuntimeError("capability 插件未注册（领域清单缺失）")
+    return plugin.load_module()
+
+
+def make_capability_runtime(runtime) -> dict[str, object]:
+    """运行时能力胶水工厂（官方入口注入面）。
+
+    惰性跳板：构造时零 import，首次调用才经 _capability_module 装入
+    capability 插件并物化真内建（资源_加载/资源_成长：把资源函数平铺
+    合并进同一个 VM）。柯里化链的第二段直接命中真 Partial 返回值，
+    不再经过跳板。宿主面不经此路径——解释器内建表直接绑定运行本体。
+    """
+    cache: dict[str, object] = {}
+
+    def _物化(name: str):
+        if not cache:
+            cache.update(_capability_module().make_runtime(runtime))
+        return cache[name]
+
+    def _资源_加载(*args):
+        return _物化("资源_加载")(*args)
+
+    def _资源_成长(*args):
+        return _物化("资源_成长")(*args)
+
+    return {"资源_加载": _资源_加载, "资源_成长": _资源_成长}
+
+
+def make_module_loader(runtime) -> object:
+    """use 编译面加载胶水工厂（官方入口注入面）。
+
+    惰性跳板：首次调用才装入 capability 插件并 memo 真加载器实例
+    （loaded-set 幂等保真——同一运行内重复 use 不会重复合并）。绑定
+    运行中 VM 的 加载模块(模块名)：编译被 use 模块源码并把函数平铺合并
+    进同一个运行中 VM（幂等）。编译器 _emit_import 发 CALL 加载模块——
+    裸 VM / plugins="off" 无此全局，use 语句诚实报未定义名。
+    """
+    box: list = []
+
+    def _加载模块(模块名: str) -> list[str]:
+        if not box:
+            box.append(_capability_module().make_module_loader(runtime))
+        return box[0](模块名)
+
+    return _加载模块
+
+
 __all__ = [
     "PROTOCOL_VERSION",
     "MANIFEST_PATH",
@@ -718,4 +775,6 @@ __all__ = [
     "PluginResolver",
     "LazyBuiltinTable",
     "get_resolver",
+    "make_capability_runtime",
+    "make_module_loader",
 ]

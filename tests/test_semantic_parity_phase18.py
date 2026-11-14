@@ -45,6 +45,7 @@ sys.path.insert(0, str(ROOT))
 
 from src import ast_nodes  # noqa: E402
 from src.interp import Interpreter  # noqa: E402
+from src.kernel.errors import MathaUndefinedNameError  # noqa: E402
 from src.mbc.compiler import Compiler  # noqa: E402
 from src.mbc.vm import VM  # noqa: E402
 from src.parser import ParseError, parse  # noqa: E402
@@ -102,9 +103,14 @@ class TestParity18aSingleExec:
         )
 
     def test_corpus_parser_matha_single_emission(self):
+        # 〔勘误 2026-11 阶段 21b〕use 编译面真化后，裸 VM 面（无加载器注入）
+        # 在 use 位诚实拒绝——旧 vm==[1] 是 use 编译期 no-op 时代的影子形态
+        # （裸 VM 从未加载任何模块，[1] 只来自主文件自身自测块）；宿主面 [1]
+        # 不变（单次发射锁的本意），加载语义收敛专项锁在 test_use_compile_phase21。
         src = (ROOT / "matha" / "parser.matha").read_text(encoding="utf-8")
         assert _run_host(src) == [1]
-        assert _run_vm(src) == [1]
+        with pytest.raises(MathaUndefinedNameError, match="加载模块"):
+            _run_vm(src)
 
     def test_corpus_test_compile_single_emission(self):
         src = (ROOT / "matha" / "runtime" / "test_compile.matha").read_text(encoding="utf-8")
@@ -116,7 +122,11 @@ class TestParity18bLoadSkip:
     """use 加载跳过被载模块自测块（_loading_module 标志）。"""
 
     def test_use_module_no_selftest_leak(self):
-        _both("use 语法器\n输出(7)\n", [7])
+        # 〔勘误 2026-11 阶段 21b〕同上：裸 VM 面 use 位诚实拒绝；
+        # 宿主面加载语义（跳自测块、零泄漏）不变
+        with pytest.raises(MathaUndefinedNameError, match="加载模块"):
+            _run_vm("use 语法器\n输出(7)\n")
+        assert _run_host("use 语法器\n输出(7)\n") == [7]
 
     def test_load_api_no_selftest_outputs(self):
         interp = Interpreter(debug=False)
@@ -127,13 +137,19 @@ class TestParity18bLoadSkip:
 
     def test_nested_use_flag_restored(self):
         # 载入完成后标志恢复 False：主文件自身自测块仍执行
+        # 〔勘误 2026-11 阶段 21b〕裸 VM 面 use 位诚实拒绝（同上）
         src = "use 语法器\n#：{ 输出(42) }\n"
-        _both(src, [42])
+        assert _run_host(src) == [42]
+        with pytest.raises(MathaUndefinedNameError, match="加载模块"):
+            _run_vm(src)
 
     def test_corpus_compiler_matha_no_leak(self):
+        # 〔勘误 2026-11 阶段 21b〕宿主面 [] 不变（use 装入 + 自测块跳过）；
+        # 裸 VM 面 use 位诚实拒绝（旧 vm==[] 同为 no-op 时代影子形态）
         src = (ROOT / "matha" / "compiler_matha.matha").read_text(encoding="utf-8")
         assert _run_host(src) == []
-        assert _run_vm(src) == []
+        with pytest.raises(MathaUndefinedNameError, match="加载模块"):
+            _run_vm(src)
 
 
 class TestParity18cChannel:

@@ -71,6 +71,28 @@ def runnable_modes() -> list[str]:
 # 插件层接入（只经 src.plugin_api 契约）
 # ============================================================
 
+def _wire_plugin_runtime(vm) -> None:
+    """给运行中的 VM 注入插件运行时：领域解析器 + 效果面胶水 + use 加载胶水。
+
+    胶水由插件层工厂构造（src.plugin_api.make_capability_runtime →
+    src.domains.capability.make_runtime），绑定「同一个 VM」——资源
+    加载/成长把函数平铺合并进运行本体，与宿主面「合并进运行中的
+    解释器」同构。加载模块 承接编译器 use 发射（CALL 加载模块），把
+    被 use 模块函数平铺合并进同一个 VM。setdefault：程序自定义
+    同名函数不被覆盖。两工厂均为惰性跳板（构造零 import，首次调用
+    才经解析器动态装入插件）——eval/auto 的「零领域急切加载」语义
+    不因注入面而破坏。
+    """
+    vm.domain_resolver = _resolver()
+    from src.plugin_api import make_capability_runtime
+    for name, fn in make_capability_runtime(vm).items():
+        vm.globals.setdefault(name, fn)
+    from src.plugin_api import make_module_loader
+    loader = make_module_loader(vm)
+    vm.globals.setdefault("加载模块", loader)
+    vm.globals.setdefault("加载模块_文件", loader)
+
+
 def _resolver():
     """取默认插件解析器。清单驱动，调用本身不 import 任何领域模块。"""
     from src.plugin_api import get_resolver
@@ -173,7 +195,7 @@ def run_checked(source: str, mode: str = _MODE_MBC, *, plugins: str = "auto",
         return [], e
     vm = VM(mod, verbose=verbose)
     if plugins != "off":
-        vm.domain_resolver = _resolver()
+        _wire_plugin_runtime(vm)
     try:
         return list(vm.run()), None
     except BaseException as e:  # noqa: BLE001
@@ -185,7 +207,7 @@ def _run_mbc(source: str, *, plugins: str = "auto", verbose: bool = False) -> li
     mod = compile_module(source, plugins=plugins)
     vm = VM(mod, verbose=verbose)
     if plugins != "off":
-        vm.domain_resolver = _resolver()
+        _wire_plugin_runtime(vm)
     return vm.run()
 
 
@@ -217,7 +239,7 @@ def run_file_checked(path: str | Path, mode: str = _MODE_MBC, *, plugins: str = 
         return [], e
     vm = VM(mod, verbose=verbose)
     if plugins != "off":
-        vm.domain_resolver = _resolver()
+        _wire_plugin_runtime(vm)
     try:
         return list(vm.run()), None
     except BaseException as e:  # noqa: BLE001
@@ -229,7 +251,7 @@ def _run_mbc_module(p: Path, *, plugins: str = "auto", verbose: bool = False) ->
     from src.mbc.vm import VM
     vm = VM(read_mbc(str(p)), verbose=verbose)
     if plugins != "off":
-        vm.domain_resolver = _resolver()
+        _wire_plugin_runtime(vm)
     return vm.run()
 
 

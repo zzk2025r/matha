@@ -39,10 +39,18 @@ class Partial:
 
 
 class Frame:
-    __slots__ = ("fn_name", "code", "locals", "enclosing", "stack", "pc")
-    def __init__(self, fn_name, code, locals_, enclosing):
+    __slots__ = ("fn_name", "code", "consts", "functions", "locals", "enclosing", "stack", "pc")
+    def __init__(self, fn_name, code, locals_, enclosing, consts=None,
+                 functions=None):
         self.fn_name = fn_name
         self.code = code
+        # 本帧指令的常量池：常规帧与 VM 模块共享；跨模块合并的函数帧携带
+        # 来源模块的池（MFunction.consts），避免常量下标错位。
+        self.consts = consts
+        # 本帧 MAKE_CLOSURE 的函数表：常规帧 None = 落 VM 主模块表；跨模块
+        # 合并的函数帧携带来源模块的表（MFunction.functions），__lam_N 按模块
+        # 独立计数，不能落主模块表。
+        self.functions = functions
         self.locals = locals_
         self.enclosing = enclosing   # 定义帧（闭包链）
         self.stack: list = []
@@ -528,6 +536,7 @@ from src.kernel.file_builtin import (  # noqa: E402
     read_file as _builtin_read_file,
     write_file as _builtin_write_file,
 )
+from src.kernel.json_builtin import parse_json as _builtin_parse_json
 
 
 def _debug_matha_unavailable(_source=None) -> None:
@@ -581,6 +590,7 @@ def _default_builtins() -> dict:
     b.setdefault("chr", chr)
     b.setdefault("range", _curry2(_builtin_range))
     b.setdefault("type_of", _builtin_type_of)
+    b.setdefault("解析_JSON", _builtin_parse_json)
     # 柯里化的序列工具（Matha 代码以 get(xs)(i) / append(xs)(x) 形式调用）
     b.setdefault("get", _curry2(lambda c, i: c[i]))
     b.setdefault("slice", _curry3(lambda c, s, e: c[s:e]))
@@ -836,8 +846,13 @@ class VM:
         self.formulas = _fs.FormulaLibrary()
         self.verbose = verbose
         # 主帧（模块全局帧）
-        self.main_frame = Frame("__main__", mod.main_code, [], None)
+        self.main_frame = Frame("__main__", mod.main_code, [], None,
+                               consts=mod.constants)
         self.halted = False
+        # 内建名快照（GET_ATTR 缺失回退面）：与宿主 PathExpr「dict 缺失成员
+        # 退回内建表」（interp.py 模块属性 fallback）同构——标准库.len 一类
+        # 内建透传在 VM 面经此命中。在模块函数注册前快照，用户全局不混入。
+        self.builtin_names = frozenset(self.globals.keys())
         # 全局函数注册为闭包（定义帧 = 主帧，使函数间互引可达）
         for name, fn in mod.functions.items():
             self.globals[name] = Closure(fn, self.main_frame)
@@ -911,7 +926,7 @@ class VM:
         # 分派链按操作码实测出现频率排序（自举编译负载：LOAD_LOCAL 23%、
         # CALL 10%、LOAD_GLOBAL/BINOP 各 10%、JZ 8%、PUSH_CONST 7%、GET_ATTR 7%…），
         # 高频指令靠前可将近半指令的比较次数砍半。判定顺序不影响语义。
-        C = self.mod.constants
+        C = f.consts if f.consts is not None else self.mod.constants
         st = f.stack
 
         if op == OP.LOAD_LOCAL:
@@ -942,7 +957,15 @@ class VM:
             key = C[ins[1]]
             # dict 缺失字段返回 None（与宿主解释器 PathExpr 语义一致）
             if isinstance(obj, dict):
-                st.append(obj.get(key))
+                v = obj.get(key)
+                if v is not None:
+                    st.append(v)
+                elif key in self.builtin_names:
+                    # 模块属性 fallback：宿主 PathExpr 缺失成员退回内建表
+                    # （标准库.len / 运行时引擎.sin 一类内建透传）
+                    st.append(self.globals[key])
+                else:
+                    st.append(None)
             else:
                 st.append(obj[key])
         elif op == OP.DUP:
@@ -1000,7 +1023,8 @@ class VM:
         elif op == OP.STORE_GLOBAL:
             self.globals[C[ins[1]]] = st.pop()
         elif op == OP.MAKE_CLOSURE:
-            st.append(Closure(self.mod.functions[ins[1]], f))
+            table = f.functions if f.functions is not None else self.mod.functions
+            st.append(Closure(table[ins[1]], f))
         elif op == OP.UNARYOP:
             st.append(_UNARYOPS[C[ins[1]]](st.pop()))
         elif op == OP.BUILD_DICT:
@@ -1061,7 +1085,11 @@ class VM:
                 caller.stack.append(Partial(fn, args))
                 return
             locals_ = list(args[:arity]) + [None] * (fn.fn.nlocals - arity)
-            frames.append(Frame(fn.fn.name, fn.fn.code, locals_, fn.frame))
+            frames.append(Frame(fn.fn.name, fn.fn.code, locals_, fn.frame,
+                                consts=fn.fn.consts
+                                if fn.fn.consts is not None
+                                else self.mod.constants,
+                                functions=fn.fn.functions))
             return
 
         if callable(fn):

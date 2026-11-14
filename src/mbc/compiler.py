@@ -23,6 +23,14 @@ class MFunction:
     nlocals: int
     code: list = field(default_factory=list)
     params: list = field(default_factory=list)
+    # 本函数指令所引用的常量池。None = 与所属模块共享 mod.constants（同模块
+    # 编译的常规形态）；跨模块移植的函数（运行期插件合并进运行中 VM）必须
+    # 指向其来源模块的常量池，否则常量下标会读到宿主模块的错位值。
+    consts: list | None = None
+    # 本函数体 MAKE_CLOSURE 解析的函数表。None = 落到所属模块 mod.functions
+    # （同模块常规形态）；跨模块移植的函数必须指向来源模块的表——各模块的
+    # lambda 命名 __lam_N 按模块独立计数，平铺合并会静默解析到错误函数。
+    functions: dict | None = None
 
 
 @dataclass
@@ -325,6 +333,10 @@ class Compiler:
         # 判定与解释器运行期判定结果一致。
         self.formulas = _fs.FormulaLibrary()
         self.formula_matches: list = []
+        # 同程序内联模块名：use 的目标若已内联合并（自举链多文件合并编译），
+        # 符号就在同一全局域，发射加载调用既多余又会二次合并——抑制。
+        self._inline_modules = {
+            d.name for d in program.decls if isinstance(d, ast.ModuleDecl)}
         for decl in program.decls:
             self._compile_top_decl(decl, self.mod.main_code)
         self.mod.main_code.append((OP.HALT,))
@@ -347,6 +359,18 @@ class Compiler:
                 if isinstance(inner, ast.FuncDef):
                     continue
                 self._compile_top_decl(inner, code)
+            # 模块命名空间绑定（宿主 env[decl.name] = module_ns 同构，支持
+            # 模块.函数 点号调用）：成员 = 函数 / 模块级 let / 枚举名
+            # （struct 工厂 VM 面无码，不收——语料经 做X 函数构造）。
+            member_names = [inner.name for inner in decl.decls
+                            if isinstance(inner,
+                                          (ast.FuncDef, ast.LetBinding, ast.EnumDef))]
+            if member_names:
+                for nm in member_names:
+                    code.append((OP.PUSH_CONST, self.const(nm)))   # key
+                    code.append((OP.LOAD_GLOBAL, self.sconst(nm)))  # value
+                code.append((OP.BUILD_DICT, len(member_names)))
+                code.append((OP.STORE_GLOBAL, self.sconst(decl.name)))
         elif isinstance(decl, ast.FuncDef):
             self._compile_func(decl)
         elif isinstance(decl, ast.Binding):
@@ -1495,12 +1519,20 @@ class Compiler:
             code[jmp] = (OP.JMP, len(code))
 
     def _emit_import(self, node: ast.ImportDecl, code: list) -> None:
-        """use/import：M3V 单模块运行时无跨模块加载，记为全局标记供宿主检查。"""
-        if node.module_name:
-            code.append((OP.PUSH_CONST,
-                         self.const(f"<import {node.module_name}>")))
-            code.append((OP.STORE_GLOBAL,
-                         self.sconst(f"__import_{node.module_name}")))
+        """use/import：发射运行时模块加载调用（CALL 加载模块 + POP）。
+
+        官方入口注入 vm-captured 加载模块(module_name)（插件层
+        make_module_loader）：编译被 use 模块源码并把函数平铺合并进
+        「同一个运行中 VM」（幂等 loaded-set）。裸 VM / plugins="off"
+        无此全局 → 未定义名诚实报错（与能力符号同一架构哲学）。
+        被 use 模块已内联在同一程序（自举链多文件合并编译）时不发射：
+        符号就在本模块全局域，加载调用多余且会二次合并。
+        """
+        if node.module_name and node.module_name not in self._inline_modules:
+            code.append((OP.LOAD_GLOBAL, self.sconst("加载模块")))
+            code.append((OP.PUSH_CONST, self.const(node.module_name)))
+            code.append((OP.CALL, 1))
+            code.append((OP.POP,))
 
     def _emit_param_vars_unused(self, params):
         return self._param_vars(params)
