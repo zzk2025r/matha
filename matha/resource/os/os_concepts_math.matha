@@ -6,11 +6,12 @@ module 操作系统知识 {
   (* ===== 进程调度 ===== *)
   (* 平均周转时间 = Σ(完成时间 - 到达时间) / n *)
   func 平均周转时间(完成时间: List, 到达时间: List) -> Float =
-    (完成时间, 到达时间) =>
+    (完成时间, 到达时间) => {
     let n = len(完成时间) in
     let rec s(i: Int, acc: Float) -> Float =
     (i, acc) => (i >= n) ? acc : s(i+1, acc + 完成时间[i] - 到达时间[i])
     s(0, 0) / n
+    }
 
   (* 平均等待时间 = 平均周转时间 - 平均服务时间 *)
   func 平均等待时间(完成时间: List, 到达时间: List, 服务时间: List) -> Float =

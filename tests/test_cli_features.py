@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import features
-from src.interp import MathaRuntimeError, interpret
+from src.interp import interpret
 from src.matha_main import main
 
 _BLOCK_SRC = """func sum_list(xs: List) -> Int = (xs) => {
@@ -71,20 +71,19 @@ def test_cli_on_sets_flag():
 
 
 def test_noncore_module_gated_by_flag(block_file, capsys):
-    """灰度开关只影响遗留诊断后端，不影响主线 VM（实测记录，不是乐观推定）。
+    """灰度开关对主线 VM 与解释器面的输出不再构成行为差异（阶段 22c 后实测）。
 
-    实测两个事实（差异在解析层：开关决块内赋值生成 `Binding` 还是 `BinaryOp(op='=')`）：
-      * `legacy-interp`：开关关时把 `s = 0` 当**比较**，块内 `s` 从未绑定 → 报
-        「未定义变量 s」；开关开时当赋值 → [10]。
-      * 主线 mbc VM：两种形状都按赋值编译，开关关也得到 [10]。
+    〔勘误 2026-11 阶段 22c〕旧锁「开关关时遗留解释器把 `s = 0` 当比较 →
+    未定义变量 s 报错」锁的正是裸赋值双端分歧（docstring 旧版自己注明
+    「解释器把它当比较，主线编译器把它当赋值」）——22c 裸赋值真化把宿主
+    语句位对齐到 VM is_assign 面，两开关下解释器面与主线同值 [10]。
+    开关现只影响解析层形状（Binding vs BinaryOp，由下一测试锁定）。
 
-    主执行链已归一到 mbc，所以这里同时断言 CLI 端到端在两种开关下
-    都能跑通（旧版本曾以此处「`matha run` 跑不通」为由只测解释器，现已修正）。
+    主执行链已归一到 mbc，CLI 端到端在两种开关下都跑通（断言保留）。
     """
     src = Path(block_file).read_text(encoding="utf-8")
-    # 默认关闭：遗留后端失败，主线成功
-    with pytest.raises(MathaRuntimeError):
-        interpret(src)
+    # 两开关下解释器面均按赋值绑定（22c 双端对齐后形态）
+    assert interpret(src)[0] == [10]
     assert main(["run", block_file]) == 0
     assert capsys.readouterr().out.strip().endswith("10")
 

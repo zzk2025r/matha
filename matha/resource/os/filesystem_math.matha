@@ -90,30 +90,33 @@ module 文件系统 {
     (link_chain) => len(link_chain)
 
   func 软链接循环检测(link_chain: List) -> Bool =
-    (link_chain) =>
+    (link_chain) => {
     let rec has_cycle(i: Int, visited: List) -> Bool =
     (i, visited) =>
         if if i >= len(link_chain) then 假 else None
         elif visited包含(link_chain[i]): 真
         else: has_cycle(i + 1, visited + [link_chain[i]])
     has_cycle(0, [])
+    }
 
   func 列表包含(lst: List, item: Int) -> Bool =
-    (lst, item) =>
+    (lst, item) => {
     let rec check(i: Int) -> Bool =
     (i) =>
         if if i >= len(lst) then 假 else None
         elif lst[i] = item: 真
         else: check(i + 1)
     check(0)
+    }
 
   func join(lst: List, sep: String) -> String =
-    (lst, sep) =>
+    (lst, sep) => {
     let rec build(i: Int, result: String) -> String =
     (i, result) =>
         if if i >= len(lst) then result else None
         else: build(i + 1, result + (if i > 0 then sep else "") + str(lst[i]))
     build(0, "")
+    }
 
   func 浮点(n: Int) -> Float =
     (n) => n * 1.0

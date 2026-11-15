@@ -1,21 +1,29 @@
-"""Matha 移动端远程 API 客户端
+"""Matha 移动端远程 API 客户端（真实 HTTP）。
 
-提供与后端的 HTTP 通信功能：
-  - 用户认证
-  - 数据同步
-  - 冲突检测
+提供与后端的 HTTP 通信功能（阶段 22a 起为真实 stdlib HTTP，
+不再走内置 mock 假响应）：
+  - 用户认证（JWT Token）
+  - 数据同步（push/pull）
+  - 冲突检测（HTTP 409）
   - 文件上传/下载
+
+网络不可达时如实返回 status_code=0 与错误信息（不再伪造
+500 服务器响应或 mock 令牌）。
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
@@ -277,28 +285,51 @@ class MathaAPIClient:
         path: str,
         data: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
-        files: dict[str, bytes] | None = None,
     ) -> APIResponse:
         url = f"{self._base_url}{path}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
         headers = self._build_headers()
+        body = None
+        if data is not None:
+            body = json.dumps(data).encode("utf-8")
 
+        last_error = ""
         for attempt in range(self._max_retries):
             try:
-                result = await self._simulate_request(method, url, headers, data, params, files)
-                return APIResponse(
-                    status_code=result['status'],
-                    data=result.get('data'),
-                    error=result.get('error')
+                req = urllib.request.Request(
+                    url, data=body, headers=headers,
+                    method=method.value,
                 )
+                with urllib.request.urlopen(
+                        req, timeout=self._timeout) as resp:
+                    raw = resp.read()
+                    status = resp.status
+                return APIResponse(
+                    status_code=status, data=self._parse_body(raw))
+            except urllib.error.HTTPError as e:
+                raw = e.read()
+                return APIResponse(
+                    status_code=e.code, data=self._parse_body(raw),
+                    error=str(e.reason))
             except Exception as e:
+                last_error = str(e)
                 if attempt < self._max_retries - 1:
                     wait_time = 2 ** attempt
                     logger.warning(f"请求失败，{wait_time}s 后重试: {e}")
                     await self._delay(wait_time)
-                else:
-                    return APIResponse(status_code=500, error=str(e))
+        return APIResponse(
+            status_code=0,
+            error=f"网络错误（已重试 {self._max_retries} 次）: {last_error}")
 
-        return APIResponse(status_code=500, error="Max retries exceeded")
+    @staticmethod
+    def _parse_body(raw: bytes) -> dict[str, Any] | None:
+        if not raw:
+            return None
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return {"text": raw.decode("utf-8", errors="replace")}
 
     def _build_headers(self) -> dict[str, str]:
         headers = {
@@ -310,31 +341,6 @@ class MathaAPIClient:
         if self._api_key:
             headers['X-API-Key'] = self._api_key
         return headers
-
-    async def _simulate_request(self, method, url, headers, data, params, files):
-        await self._delay(0.1)
-        if '/auth/login' in url:
-            if data and data.get('username') == 'test':
-                return {
-                    'status': 200,
-                    'data': {
-                        'access_token': 'mock_token_123',
-                        'refresh_token': 'mock_refresh_123',
-                        'expires_in': 3600
-                    }
-                }
-            return {'status': 401, 'error': 'Invalid credentials'}
-        if '/sync/' in url:
-            if method == HTTPMethod.PUT and 'conflict' in str(data):
-                return {
-                    'status': 409,
-                    'data': {
-                        'remote_data': {'value': 'remote_version', 'timestamp': time.time()},
-                        'local_data': data
-                    }
-                }
-            return {'status': 200, 'data': {'success': True}}
-        return {'status': 200, 'data': {}}
 
     async def _delay(self, seconds: float) -> None:
         import asyncio
@@ -400,24 +406,3 @@ def get_api_client() -> MathaAPIClient:
 def set_api_client(client: MathaAPIClient) -> None:
     global _client
     _client = client
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def main():
-        client = MathaAPIClient(base_url="https://api.matha.test")
-
-        print("测试登录...")
-        response = await client.login("test", "test")
-        print(f"登录结果: {response.status_code}, success={response.success}")
-
-        print("\n测试推送数据...")
-        response = await client.push_data("history", "1", {"code": "x=1"})
-        print(f"推送结果: {response.status_code}, success={response.success}")
-
-        print("\n测试冲突检测...")
-        response = await client.push_data("history", "conflict", {"value": "conflict"})
-        print(f"冲突结果: {response.status_code}, is_conflict={response.is_conflict}")
-
-    asyncio.run(main())

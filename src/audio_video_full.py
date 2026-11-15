@@ -1,4 +1,11 @@
-"""Matha 音视频引擎：编解码、流媒体、特效。"""
+"""Matha 音视频引擎：数据结构 + 播放器状态机。
+
+能力边界（阶段 22a 假成功清算）：编解码、解复用、滤镜、
+媒体加载、RTMP 连接需要真实编解码/网络后端，本模块未实现
+——一律抛 NotImplementedError，不再返回截断字节 / 默认帧 /
+空列表 / 假 True。纯状态面（参数设置、包缓冲、播放器
+位置/音量）保持可用。
+"""
 from __future__ import annotations
 
 import collections
@@ -98,8 +105,8 @@ class VideoEncoder:
         self._frames_encoded = 0
 
     def encode(self, frame: Frame) -> bytes:
-        self._frames_encoded += 1
-        return frame.data[:min(len(frame.data), 1024)]
+        raise NotImplementedError(
+            f"视频编码 {self.codec.value} 需要编解码后端，未实现")
 
     def flush(self) -> bytes:
         return b""
@@ -116,8 +123,8 @@ class AudioEncoder:
         self._frames_encoded = 0
 
     def encode(self, frame: AudioFrame) -> bytes:
-        self._frames_encoded += 1
-        return frame.data[:min(len(frame.data), 512)]
+        raise NotImplementedError(
+            f"音频编码 {self.codec.value} 需要编解码后端，未实现")
 
     def flush(self) -> bytes:
         return b""
@@ -131,8 +138,8 @@ class VideoDecoder:
         self._frames_decoded = 0
 
     def decode(self, packet: bytes) -> Frame:
-        self._frames_decoded += 1
-        return Frame()
+        raise NotImplementedError(
+            f"视频解码 {self.codec.value} 需要编解码后端，未实现")
 
 
 class AudioDecoder:
@@ -143,8 +150,8 @@ class AudioDecoder:
         self._frames_decoded = 0
 
     def decode(self, packet: bytes) -> AudioFrame:
-        self._frames_decoded += 1
-        return AudioFrame()
+        raise NotImplementedError(
+            f"音频解码 {self.codec.value} 需要编解码后端，未实现")
 
 
 class StreamMuxer:
@@ -162,7 +169,8 @@ class StreamMuxer:
         self._packets.append(packet)
 
     def finalize(self) -> bytes:
-        return b""
+        raise NotImplementedError(
+            f"容器 {self.container} 封装需要编解码后端，未实现")
 
 
 class StreamDemuxer:
@@ -174,7 +182,8 @@ class StreamDemuxer:
         self._packets: list[MediaPacket] = []
 
     def read(self, data: bytes) -> list[MediaPacket]:
-        return []
+        raise NotImplementedError(
+            f"容器 {self.container} 解封装需要编解码后端，未实现")
 
 
 class Filter:
@@ -185,7 +194,8 @@ class Filter:
         self._params: dict[str, Any] = {}
 
     def apply(self, frame: Frame) -> Frame:
-        return frame
+        raise NotImplementedError(
+            f"滤镜 {self.name} 需要渲染管线，未实现")
 
     def set_param(self, key: str, value: Any) -> None:
         self._params[key] = value
@@ -201,9 +211,9 @@ class FilterGraph:
         self._filters.append(filter)
 
     def apply(self, frame: Frame) -> Frame:
-        for f in self._filters:
-            frame = f.apply(frame)
-        return frame
+        if not self._filters:
+            return frame
+        raise NotImplementedError("滤镜图应用需要渲染管线，未实现")
 
 
 class MediaPlayer:
@@ -220,8 +230,7 @@ class MediaPlayer:
         self._audio_stream: Stream | None = None
 
     def load(self, path: str) -> bool:
-        self._duration = 0.0
-        return True
+        raise NotImplementedError("媒体文件加载需要解复用后端，未实现")
 
     def play(self) -> None:
         self._playing = True
@@ -262,8 +271,8 @@ class RTMPStreamer:
         self._lock = threading.Lock()
 
     def connect(self) -> bool:
-        self._connected = True
-        return True
+        raise NotImplementedError(
+            "RTMP 连接需要网络后端，未实现（push_frame 的未连接守卫保持诚实拒绝）")
 
     def publish(self, stream_key: str) -> None:
         self._stream_key = stream_key

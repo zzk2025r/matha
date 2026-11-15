@@ -4,10 +4,12 @@
 锁定两条「未背书 / 版本单一源」红线，防止悄悄回退：
 
 1. **AI 前端未背书**（口径见 `docs/KNOWN_ISSUES.md` 第七节 7c）：
-   `src/ai_assistant*.py`、`src/ai_framework.py`、`src/openai_compat_server.py`
-   五个文件必须各自携带「未背书 / P2 降级」docstring 横幅，且不得被 L1 纯净
+   `src/ai_assistant.py`、`src/ai_framework.py`、`src/openai_compat_server.py`
+   三个文件必须各自携带「未背书 / P2 降级」docstring 横幅，且不得被 L1 纯净
    内核链（`lexer`/`parser`/`ast_nodes`/`kernel/`/`mbc/`）在**模块顶层**导入
-   ——它们只允许经宿主聚合入口 / CLI 子命令懒加载触达。
+   ——它们只允许经宿主聚合入口 / CLI 子命令懒加载触达
+   （原五文件中的 `ai_assistant_server.py` / `ai_assistant_desktop.py`
+   已于阶段 22b 孤儿清算删除，对应冒烟锁随源退役）。
 
 2. **mobile 版本单一源**（口径见 `docs/KNOWN_ISSUES.md` 第七节 7b）：
    mobile 构建 / 部署脚本不得再硬编旧版本号（曾为 4.4.16），必须从唯一版本源
@@ -20,11 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
-#: KNOWN_ISSUES 7c 登记的未背书 AI 前端文件
+#: KNOWN_ISSUES 7c 登记的未背书 AI 前端文件（阶段 22b 起三文件；
+#: 原 ai_assistant_server/desktop 已随孤儿清算删除）
 AI_FRONTEND = (
     "ai_assistant.py",
-    "ai_assistant_desktop.py",
-    "ai_assistant_server.py",
     "ai_framework.py",
     "openai_compat_server.py",
 )
@@ -41,7 +42,7 @@ def _head(text: str, n: int) -> str:
 
 
 def test_ai_frontend_files_carry_unbacked_banner():
-    """5 个 AI 前端文件都要在文件头 docstring 里标注未背书 / P2 降级。"""
+    """3 个 AI 前端文件都要在文件头 docstring 里标注未背书 / P2 降级。"""
     missing = []
     for name in AI_FRONTEND:
         p = SRC / name

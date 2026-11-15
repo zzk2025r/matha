@@ -68,7 +68,7 @@ module Web数学 {
     min(页码 * 每页, 总数)
 
   func 分页导航页码(当前页: Int, 总页数: Int) -> List =
-    (当前页, 总页数) =>
+    (当前页, 总页数) => {
     let start = max(1, 当前页 - 2) in
     let end_ = min(总页数, 当前页 + 2) in
     let rec pages(i: Int, result: List) -> List =
@@ -76,6 +76,7 @@ module Web数学 {
         if if i > end_ then result else None
         else: pages(i + 1, result + [i])
     pages(start, [])
+    }
 
   (* ===== 速率限制 ===== *)
   func 令牌桶剩余(容量: Int, 填充速率: Float, 已用: Int, 上次时间: Float, 当前时间: Float) -> Int =
@@ -85,13 +86,14 @@ module Web数学 {
     min(容量, 已用 - int(新增))
 
   func 滑动窗口计数(请求时间戳: List, 窗口大小: Float, 当前时间: Float) -> Int =
-    (请求时间戳, 窗口大小, 当前时间) =>
+    (请求时间戳, 窗口大小, 当前时间) => {
     let rec count(i: Int, acc: Int) -> Int =
     (i, acc) =>
         if if i >= len(请求时间戳) then acc else None
         elif 当前时间 - 请求时间戳[i] <= 窗口大小: count(i + 1, acc + 1)
         else: count(i + 1, acc)
     count(0, 0)
+    }
 
   (* ===== JWT 相关 ===== *)
   func JWT头部长度(header_json: String) -> Int =
@@ -109,13 +111,14 @@ module Web数学 {
 
   (* ===== CORS ===== *)
   func CORS允许源(请求源: String, 允许列表: List) -> Bool =
-    (请求源, 允许列表) =>
+    (请求源, 允许列表) => {
     let rec check(i: Int) -> Bool =
     (i) =>
         if if i >= len(允许列表) then 假 else None
         elif 允许列表[i] = 请求源 or 允许列表[i] = "*": 真
         else: check(i + 1)
     check(0)
+    }
 
   (* ===== 缓存 ===== *)
   func 缓存有效(最后修改时间: Int, 缓存时间: Int, 当前时间: Int) -> Bool =

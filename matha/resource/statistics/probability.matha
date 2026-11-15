@@ -30,10 +30,11 @@ module 概率基础 {
     (P_A) => 1 - P_A
 
   func 期望值(值列表: List, 概率列表: List) -> Float =
-    (值列表, 概率列表) =>
+    (值列表, 概率列表) => {
     let rec sum(i: Int, acc: Float) -> Float =
     (i, acc) =>
         (i >= len(值列表)) ? acc :
         sum(i+1, acc + 值列表[i] * 概率列表[i])
     sum(0, 0)
+    }
 }

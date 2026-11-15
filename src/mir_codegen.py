@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 
 from src import mir_opt
 from src.mir import (
@@ -273,6 +274,7 @@ class MIRToPythonGenerator:
         self._optimize = optimize
 
     def generate(self, mir_program: any) -> str:
+        """生成 Python 代码。"""
         try:
             pipeline = mir_opt.MIRPassPipeline.create_default()
             mir_program = pipeline.run(mir_program)
@@ -280,8 +282,8 @@ class MIRToPythonGenerator:
             try:
                 mir_program = mir_opt.MIRPassPipeline().run(mir_program, mir_opt.MIRPassPipeline.default_pipeline())
             except Exception:
-                pass
-        """生成 Python 代码。"""
+                print("MIR 优化管线不可用，按未优化程序生成",
+                      file=sys.stderr)
         lines = [
             "# -*- coding: utf-8 -*-",
             "# Matha MIR → Python 代码生成",

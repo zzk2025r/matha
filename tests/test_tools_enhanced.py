@@ -1,57 +1,15 @@
-"""工具模块增强测试：性能回归 / LLM 密钥配置 / 文档 API 变更检测。"""
+"""工具模块增强测试：LLM 密钥配置 / 文档 API 变更检测。
 
-import json
+（性能回归段随 src/tools/perf_profiler.py 一起退役——阶段 22b 孤儿清算，
+该模块全仓零消费。）
+"""
+
 import os
-import time
 
 import pytest
 
 from src.tools.doc_generator import MathaDocGenerator
 from src.tools.llm_config import LLMKeyConfig
-from src.tools.perf_profiler import MathaProfiler
-
-# ── 性能回归测试 ────────────────────────────────────────────────────────────
-
-class TestPerformanceRegression:
-    def test_run_performance_test_passes_within_threshold(self):
-        profiler = MathaProfiler()
-        ok = profiler.run_performance_test(
-            "fast_add", lambda a, b: a + b, 1, 2, threshold_ms=1000.0
-        )
-        assert ok is True
-
-    def test_run_performance_test_fails_over_threshold(self):
-        profiler = MathaProfiler()
-        ok = profiler.run_performance_test(
-            "slow_sleep", time.sleep, 0.02, threshold_ms=1.0
-        )
-        assert ok is False
-
-    def test_clear_results(self):
-        profiler = MathaProfiler()
-        profiler.run_performance_test("t1", lambda: 1, threshold_ms=1000.0)
-        profiler.clear_results()
-        assert len(profiler._results) == 0
-        assert len(profiler._benchmark_data) == 0
-
-    def test_generate_html_report(self, tmp_path):
-        profiler = MathaProfiler()
-        profiler.run_performance_test("t2", lambda: [None], threshold_ms=1000.0)
-        out = str(tmp_path / "report.html")
-        content = profiler.generate_html_report(out)
-        assert isinstance(content, str)
-        assert "性能" in content or "<html" in content.lower()
-        assert os.path.exists(out), "报告应写入指定路径"
-
-    def test_generate_json_report_valid(self, tmp_path):
-        profiler = MathaProfiler()
-        profiler.run_performance_test("t3", lambda: 42, threshold_ms=1000.0)
-        out = str(tmp_path / "report.json")
-        content = profiler.generate_json_report(out)
-        assert isinstance(content, str)
-        data = json.loads(content)
-        assert isinstance(data, dict)
-
 
 # ── LLM 密钥配置 ────────────────────────────────────────────────────────────
 

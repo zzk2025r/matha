@@ -1,4 +1,12 @@
-"""Matha 机器人引擎：ROS、运动规划、SLAM、传感器。"""
+"""Matha 机器人引擎：位姿数学 + PID 控制 + 虚拟状态机。
+
+能力边界（阶段 22a 假成功清算）：真实可用面——Pose 旋转矩阵、
+PID 控制器、正运动学（简化链式）、关节状态与轨迹时间插值、
+夹爪开合状态机。凡需要真实硬件或求解器的面一律显式拒绝，
+不再伪造：逆运动学（曾恒返全零）、路径规划（曾无视障碍物
+返回起终点）、SLAM 更新/定位（曾无视扫描）、传感器读取
+（曾伪造空读数）、抓取（曾假 True）、机器人连接。
+"""
 from __future__ import annotations
 
 import math
@@ -143,7 +151,8 @@ class Robot:
         return poses
 
     def inverse_kinematics(self, target: Pose) -> list[float]:
-        return [0.0] * len(self.joints)
+        raise NotImplementedError(
+            "逆运动学求解器未实现（不再返回全零关节角）")
 
     def set_joint_positions(self, positions: list[float]) -> None:
         for i, pos in enumerate(positions):
@@ -151,7 +160,8 @@ class Robot:
                 self.joints[i].position = pos
 
     def connect(self) -> None:
-        self._connected = True
+        raise NotImplementedError(
+            "连接真实机器人需要硬件后端，未实现")
 
     def disconnect(self) -> None:
         self._connected = False
@@ -172,8 +182,8 @@ class MotionPlanner:
 
     def plan(self, start: Pose, goal: Pose
                 ) -> list[Pose]:
-        self._path = [start, goal]
-        return self._path
+        raise NotImplementedError(
+            "路径规划需要真实规划器（曾无视障碍物返回起终点），未实现")
 
     def add_obstacle(self, pose: Pose) -> None:
         self._obstacles.append(pose)
@@ -182,7 +192,7 @@ class MotionPlanner:
         return self._path
 
     def smooth_path(self) -> list[Pose]:
-        return self._path
+        raise NotImplementedError("路径平滑需要真实规划器，未实现")
 
 
 class SLAM:
@@ -196,14 +206,13 @@ class SLAM:
 
     def update(self, scan: list[float],
                   pose: Pose) -> OccupancyGrid:
-        self._pose = pose
-        return self.grid
+        raise NotImplementedError("SLAM 建图需要真实激光/视觉后端，未实现")
 
     def get_map(self) -> OccupancyGrid:
         return self.grid
 
     def localize(self, scan: list[float]) -> Pose:
-        return self._pose
+        raise NotImplementedError("SLAM 定位需要真实激光/视觉后端，未实现")
 
 
 class SensorDriver:
@@ -216,16 +225,11 @@ class SensorDriver:
         self._connected = False
 
     def read(self) -> SensorReading:
-        self._reading = {
-            "type": self.sensor_type.value,
-            "timestamp": time.time(),
-            "data": [],
-        }
-        return self._reading
+        raise NotImplementedError(
+            "传感器读取需要真实硬件，未实现（不再伪造空读数）")
 
     def calibrate(self) -> bool:
-        self._connected = True
-        return True
+        raise NotImplementedError("传感器校准需要真实硬件，未实现")
 
     def set_frequency(self, freq: float) -> None:
         self._reading["frequency"] = freq
@@ -268,9 +272,30 @@ class Trajectory:
         self._time.append(t)
 
     def get_waypoint(self, t: float) -> Pose:
-        if self.waypoints:
+        if not self.waypoints:
+            return Pose()
+        if len(self._time) != len(self.waypoints):
             return self.waypoints[0]
-        return Pose()
+        if len(self.waypoints) == 1 or t <= self._time[0]:
+            return self.waypoints[0]
+        if t >= self._time[-1]:
+            return self.waypoints[-1]
+        for i in range(len(self.waypoints) - 1):
+            t0, t1 = self._time[i], self._time[i + 1]
+            if t0 <= t <= t1:
+                if t1 == t0:
+                    return self.waypoints[i]
+                f = (t - t0) / (t1 - t0)
+                a, b = self.waypoints[i], self.waypoints[i + 1]
+                return Pose(
+                    x=a.x + (b.x - a.x) * f,
+                    y=a.y + (b.y - a.y) * f,
+                    z=a.z + (b.z - a.z) * f,
+                    roll=a.roll + (b.roll - a.roll) * f,
+                    pitch=a.pitch + (b.pitch - a.pitch) * f,
+                    yaw=a.yaw + (b.yaw - a.yaw) * f,
+                )
+        return self.waypoints[-1]
 
     def get_duration(self) -> float:
         return self._time[-1] if self._time else 0.0
@@ -297,8 +322,7 @@ class Gripper:
         self._force = force
 
     def grasp(self) -> bool:
-        self.close_gripper()
-        return True
+        raise NotImplementedError("抓取需要真实夹爪硬件，未实现")
 
     def release(self) -> None:
         self.open_gripper()
@@ -320,7 +344,8 @@ class RobotArm(Robot):
         return angles
 
     def plan_motion(self, start: Pose, end: Pose) -> list[Pose]:
-        return [start, end]
+        raise NotImplementedError(
+            "机械臂运动规划需要真实规划器，未实现")
 
 
 def create_robot(name: str = "robot",

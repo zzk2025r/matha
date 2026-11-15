@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import features
-from src.interp import MathaRuntimeError, interpret
+from src.interp import interpret
 
 _ON = "SCOPED_BLOCKS"
 
@@ -63,9 +63,13 @@ def test_override_beats_env(monkeypatch):
 # ---------- 关闭：行为不变（旧语义） ----------
 
 def test_off_block_binding_is_equality():
-    # 关闭时 lambda 体内块语句 `y = x + 1` 为等于比较 → y 未定义
-    with pytest.raises(MathaRuntimeError):
-        interpret('func f(x: Int) -> Int = (x) => { y = x + 1\n y * 2 }\n[f(3)]')
+    # 〔勘误 2026-11 阶段 22c〕裸赋值真化后本形态翻转——旧锁「关闭时块语句
+    # `y = x + 1` 为等于比较 → y 未定义报错」锁的其实是宿主/VM 分歧（宿主
+    # 报错、VM 面按 is_assign 绑定 [8]）。宿主面 22c 起语句位裸赋值绑定
+    # （对齐 VM _emit_block），双端同值 [8]；SCOPED_BLOCKS 开关对裸赋值
+    # 形态不再构成行为差异。
+    features.set_feature(_ON, False)
+    assert interpret('func f(x: Int) -> Int = (x) => { y = x + 1\n y * 2 }\n[f(3)]')[0] == [8]
 
 
 # ---------- 开启：语句块语义 ----------

@@ -80,7 +80,7 @@ module D3变换 {
     (sx, sy, sz) => [sx,0,0,0, 0,sy,0,0, 0,0,sz,0]
 
   func 矩阵乘法_4x4(a: List, b: List) -> List =
-    (a, b) =>
+    (a, b) => {
     let rec mul(i: Int, j: Int, k: Int, acc: List) -> List =
     (i, j, k, acc) =>
         (i >= 4) ? acc :
@@ -88,4 +88,5 @@ module D3变换 {
         (k >= 4) ? mul(i, j+1, 0, acc) :
         mul(i, j, k+1, acc + [a[i*4+k] * b[k*4+j]])
     mul(0, 0, 0, [])
+    }
 }

@@ -2,19 +2,21 @@
    覆盖：平均值、方差、标准差、概率、组合
    ============================================================ *)
 
-func 求和(数据: List) -> Float = (数据) =>
+func 求和(数据: List) -> Float = (数据) => {
   let rec s(i: Int, acc: Float) -> Float =
     (i, acc) => (i >= len(数据)) ? acc : s(i+1, acc + 数据[i])
   s(0, 0)
+}
 
 func 平均值(数据: List) -> Float = (数据) =>
   求和(数据) / len(数据)
 
-func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) =>
+func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) => {
   let rec s(i: Int, acc: Float) -> Float =
     (i, acc) => (i >= len(数据)) ? acc :
       s(i+1, acc + (数据[i] - 均值)^2)
   s(0, 0) / len(数据)
+}
 
 func 标准差(方差: Float) -> Float = (方差) => 开方(方差)
 

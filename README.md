@@ -9,10 +9,10 @@
 
 - **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
 - **领域插件：** 83（`src/domains/` 共 85 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
-- **内核外工具插件：** 9（`src/plugins/`）
+- **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 170（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 146（`tests/`）
+- **测试文件：** 142（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -90,12 +90,11 @@ python scripts/verify_offline.py
 | **JIT 编译** | 函数级即时编译 + 自动 Memoization |
 | **自动缓存优化** | LRU 缓存 + 尾递归转换（Fibonacci 19526x 加速） |
 | **多语言代码生成** | C/Python/Rust/Go/Java/C++/JS/Matha 八语言转译 |
-| **性能 Profiler** | cProfile 集成 + 火焰图 + Markdown/JSON 报告 |
 | **LSP 语言服务器** | 补全/悬停/定义跳转/诊断 |
 | **类型系统** | 依赖类型/泛型/子类型/精炼类型 |
 | **CSP 并发** | 进程级并发绕过 Python GIL |
 | **离线存储** | SQLite 持久化 + 同步管理 |
-| **82 领域插件** | 物理/工程/AI/金融/生物/化学等；按需显式加载，不加载零 import 成本 |
+| **83 领域插件** | 物理/工程/AI/金融/生物/化学等；按需显式加载，不加载零 import 成本 |
 
 ---
 
@@ -183,7 +182,6 @@ matha/
 - 解释器/编译器（Lexer → Parser → MIR → CodeGen）
 - JIT 函数级编译 + 自动 Memoization
 - C/Python/Rust/Go/Java/C++/JS/Matha 代码生成
-- 性能 Profiler（火焰图 + 报告）
 - LSP 语言服务器
 - API 文档生成
 - 类型系统
@@ -239,12 +237,7 @@ python scripts/verify_offline.py
 （含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 39 逐字节 / `dep_audit` 违规 0 条；
 `native_parity` 38 过 + 1 例不计入分母（`18_domain_lazy_load`：native 不承载领域插件符号）；
 原 2 个类型校验静默错值缺口 NI-001/NI-002 已修复（未定义名与字符串参与 `-` 均抛可捕获异常），
-详见 `docs/KNOWN_ISSUES.md`。动态语义插件（`src/dynamics/`）已逐条落地 RV32IM 与 SYSTEM 子集
-（CSR 读改写 / FENCE / ECALL），并以 477 项
-对 SPIKE 权威解释器的逐指令对拍锁 + 规格黄金锁固化（内核、执行器与契约层 `src/dynamics/interface.py` 零改动；CSR 经
-鸭子类型可选探测机器的 `csr_read`/`csr_write` 能力、机器未提供则回退原生）。并已接入原生执行器试点：`SpikeMachine`
-适配器把真实 `RV32Sim` 映射到 `MachineView`，4 段真实 RV32I 程序（算术/访存、循环、调用返回、串口输出）逐条经
-`execute_or_default` 由插件驱动至停机，与 SPIKE 原生跑的寄存器堆/串口输出/停机码逐位相同（RV32I 端到端语义闭环；执行器对插件零感知）。代数数打印插件
+详见 `docs/KNOWN_ISSUES.md`。代数数打印插件
 （`src/algebra/`）已从二次域 ℚ(√d) 扩面到多根式域 ℚ(√d₁,…,√d_k) 与高次纯根 ⁿ√d（`√2+√3 → sqrt(2) + sqrt(3)`、
 `∛16 → 2*root(3,2)`），新增 25 项对 sympy 的结构化对拍锁与诚实边界锁（内核与接口零改动）。本轮全量跑零
 DeprecationWarning。旧快照的绝对数字
@@ -288,7 +281,7 @@ python scripts/build_exe.py
 | 许可证 | BSD-2-Clause |
 | GitHub | https://github.com/zzk2025r/matha |
 | 独立可执行文件 | 支持（本地自建，仓库不预构建发行版） |
-| 领域插件 | 82（按需加载） |
+| 领域插件 | 83（按需加载） |
 
 历史文档（118 份一次性报告）已归档到 [`docs/history/`](docs/history/)，
 不再作为现状依据；权威文档只有一张索引页：[`docs/index.md`](docs/index.md)。

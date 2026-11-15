@@ -6,7 +6,7 @@ module 离散进阶 {
 
   (* ===== 图遍历 ===== *)
   func DFS深度(邻接表: List, 起点: Int, visited: List) -> List =
-    (邻接表, 起点, visited) =>
+    (邻接表, 起点, visited) => {
     let rec visit(node: Int, result: List) -> List =
       (node, result) =>
         if 节点已访问(node, visited) { result } else {
@@ -18,18 +18,20 @@ module 离散进阶 {
           visit_neighbors(0, new_result)
         }
     visit(起点, [])
+    }
 
   func 节点已访问(node: Int, visited: List) -> Bool =
-    (node, visited) =>
+    (node, visited) => {
     let rec check(i: Int) -> Bool =
       (i) =>
         if i >= len(visited) { false } else {
           if visited[i] == node { true } else { check(i + 1) }
         }
     check(0)
+    }
 
   func BFS宽度(邻接表: List, 起点: Int) -> List =
-    (邻接表, 起点) =>
+    (邻接表, 起点) => {
     let rec explore(queue: List, visited: List, result: List) -> List =
       (queue, visited, result) =>
         if len(queue) == 0 { result } else {
@@ -45,9 +47,10 @@ module 离散进阶 {
           }
         }
     explore([起点], [], [])
+    }
 
   func 未访问邻居(node: Int, 邻接表: List, visited: List) -> List =
-    (node, 邻接表, visited) =>
+    (node, 邻接表, visited) => {
     let rec filter(i: Int, result: List) -> List =
       (i, result) =>
         if i >= len(邻接表[node]) { result } else {
@@ -55,6 +58,7 @@ module 离散进阶 {
           else { filter(i + 1, result + [邻接表[node][i]]) }
         }
     filter(0, [])
+    }
 
   (* ===== 最短路径 (Dijkstra简化) ===== *)
   func Dijkstra距离(节点数: Int, 边列表: List, 起点: Int) -> List =
@@ -80,11 +84,10 @@ module 离散进阶 {
 
   (* ===== 动态规划：斐波那契优化 ===== *)
   func 斐波那契优化(n: Int) -> Int =
-    (n) =>
-    if n <= 1 { n } else {
-      let rec fib(a: Int, b: Int, count: Int) -> Int =
-        (a, b, count) => if count <= 0 { a } else { fib(b, a + b, count - 1) }
-      fib(0, 1, n)
+    (n) => {
+    let rec fib(a: Int, b: Int, count: Int) -> Int =
+      (a, b, count) => (count <= 0) ? a : fib(b, a + b, count - 1)
+    (n <= 1) ? n : fib(0, 1, n)
     }
 
   (* ===== 贪心算法：硬币找零 ===== *)

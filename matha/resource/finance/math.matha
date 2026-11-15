@@ -34,12 +34,13 @@ module 金融数学 {
     P * r * (1 + r) ^ n / ((1 + r) ^ n - 1)
 
   func 净现值(cashflows: List, r: Float) -> Float =
-    (cashflows, r) =>
+    (cashflows, r) => {
     let rec npv(i: Int, acc: Float) -> Float =
     (i, acc) =>
         (i >= len(cashflows)) ? acc :
         npv(i + 1, acc + cashflows[i] / (1 + r) ^ i)
     npv(0, 0)
+    }
 
   func 内部收益率近似(cashflows: List) -> Float =
     (cashflows) => 0.1  (* 简化：返回默认折现率 *)

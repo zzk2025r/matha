@@ -1,8 +1,14 @@
-"""Matha 设备驱动框架：GPU/音频/USB/SSD/网卡。"""
+"""Matha 设备驱动框架：内存虚拟设备的登记与簿记模拟。
+
+能力边界（阶段 22a 假成功清算）：本框架是自洽的内存模拟——
+DMA 分配、USB 枚举、SSD 块存储、音频参数计算等簿记面真实可查。
+凡需要真实硬件后端的面一律显式拒绝，不再伪造：GPU 着色器
+编译与绘制、网卡收发、SMART 传感器读数（health/温度）、
+基类设备寄存器读写。
+"""
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -132,13 +138,13 @@ class DeviceDriver:
         return True
 
     def read(self, offset: int, size: int) -> bytes:
-        return b"\x00" * size
+        raise NotImplementedError("设备寄存器读取需要真实硬件，未实现")
 
     def write(self, offset: int, data: bytes) -> int:
-        return len(data)
+        raise NotImplementedError("设备寄存器写入需要真实硬件，未实现")
 
     def probe(self) -> bool:
-        return True
+        raise NotImplementedError("设备探测需要真实总线，未实现")
 
 
 class GPUDevice(DeviceDriver):
@@ -160,18 +166,11 @@ class GPUDevice(DeviceDriver):
         self._shaders: dict[str, bytes] = {}
         self._buffers: dict[str, list[float]] = {}
         self._textures: dict[str, tuple[int, int, int]] = {}
-        self._framebuffer: list[float] = [0.0] * 4
 
     def compile_shader(self, stage: str,
                         source: str) -> dict[str, Any]:
-        spv = source.encode("utf-8")
-        self._shaders[stage] = spv
-        return {
-            "stage": stage,
-            "size": len(spv),
-            "compiled": True,
-            "spirv_words": len(spv) // 4,
-        }
+        raise NotImplementedError(
+            f"GPU {stage} 着色器编译需要真实驱动后端，未实现")
 
     def create_buffer(self, name: str,
                         data: list[float]) -> bool:
@@ -189,16 +188,7 @@ class GPUDevice(DeviceDriver):
         return True
 
     def draw(self, vertex_count: int = 3) -> dict[str, Any]:
-        self._framebuffer[0] = vertex_count
-        self._framebuffer[1] = len(self._shaders)
-        self._framebuffer[2] = len(self._textures)
-        self._framebuffer[3] = time.time()
-        return {
-            "vertices": vertex_count,
-            "shaders": len(self._shaders),
-            "textures": len(self._textures),
-            "buffers": len(self._buffers),
-        }
+        raise NotImplementedError("GPU 绘制需要真实渲染管线，未实现")
 
     def readback(self, name: str) -> list[float]:
         return self._buffers.get(name, [])
@@ -295,7 +285,8 @@ class USBController(DeviceDriver):
         return self._devices.get(address)
 
     def reset_port(self, port: int) -> bool:
-        return True
+        ports = self.info.resources.get("ports", 0)
+        return 0 <= port < ports
 
 
 class SSDDevice(DeviceDriver):
@@ -326,6 +317,8 @@ class SSDDevice(DeviceDriver):
         return len(data)
 
     def trim(self, lba: int, count: int) -> bool:
+        for block in range(lba, lba + count):
+            self._blocks.pop(block, None)
         self._trimmed += count
         return True
 
@@ -334,11 +327,9 @@ class SSDDevice(DeviceDriver):
 
     def smart(self) -> dict[str, Any]:
         return {
-            "health": 100,
             "read_ops": self._read_ops,
             "write_ops": self._write_ops,
             "trimmed_blocks": self._trimmed,
-            "temperature": 38,
         }
 
 
@@ -361,13 +352,10 @@ class NICDevice(DeviceDriver):
         self._rx_bytes = 0
 
     def send(self, data: bytes) -> int:
-        self._tx_packets += 1
-        self._tx_bytes += len(data)
-        return len(data)
+        raise NotImplementedError("网卡发送需要真实网络栈，未实现")
 
     def receive(self, size: int = 1500) -> bytes:
-        self._rx_packets += 1
-        return b"\x00" * min(size, self.mtu)
+        raise NotImplementedError("网卡接收需要真实网络栈，未实现")
 
     def set_mtu(self, mtu: int) -> bool:
         if 68 <= mtu <= 9000:

@@ -1279,14 +1279,6 @@ func 求和(a, b) -> Int = (a, b) => a + b
             assert hasattr(tok, 'type')
             assert hasattr(tok, 'value')
 
-    def test_parser_pool_reference(self):
-        """ParserPool 引用。"""
-        try:
-            from src.parser_pool import ParserPool
-            assert ParserPool is not None or True
-        except ImportError:
-            pass
-
 
 # ============================================================
 # 17. 端到端集成测试

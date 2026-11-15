@@ -74,13 +74,14 @@ module 新兴平台 {
   (* ===== 边缘计算 ===== *)
   func 边缘节点覆盖(节点位置: List, 区域中心: Float, 覆盖半径: Float) -> Bool =
     (* 简化：检查是否有节点在覆盖范围内 *)
-    (节点位置, 区域中心, 覆盖半径) =>
+    (节点位置, 区域中心, 覆盖半径) => {
     let rec check(i: Int) -> Bool =
     (i) =>
         if if i >= len(节点位置) then 假 else None
         elif 开方((节点位置[i] - 区域中心)^2) <= 覆盖半径: 真
         else: check(i + 1)
     check(0)
+    }
 
   func 边缘缓存命中率(缓存大小: Int, 请求数: Int, 命中率: Float) -> Float =
     (缓存大小, 请求数, 命中率) => 命中率

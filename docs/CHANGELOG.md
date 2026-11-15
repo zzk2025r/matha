@@ -294,8 +294,9 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
 ### 三、插件联邦：83 个领域插件懒加载
 
 - **83 个领域插件**（`src/domains/`，清单 `manifest.json` 0 不可用）零改写接入
-  `MathaPlugin` 契约（`src/plugin_api.py`），另有 **9 个内核外工具插件**
-  （`src/plugins/`：toolchain_msvc/llvm、numpy_accel、ffi、tree_sitter 等）。
+  `MathaPlugin` 契约（`src/plugin_api.py`），另有 **7 个内核外工具插件**
+  （`src/plugins/`：toolchain_msvc/llvm、numpy_accel、ffi、tree_sitter 等；
+  原 9 个中的 ffi_sdk / legacy_mir_vm 已于阶段 22b 孤儿清算删除）。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

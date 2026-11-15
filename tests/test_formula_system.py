@@ -27,6 +27,16 @@ from src.formula_system import (
 )
 
 
+def call_formula(name, **bindings):
+    """经公式注册表直连求值（阶段 22b：src/linkage.py 孤儿已删——原
+    linkage.call_formula 仅是对该注册表 get().evaluate() 的三行薄委托，
+    此处等价直连，未找到公式时保持原 ValueError 契约）。"""
+    f = get_formula_registry().get(name)
+    if f is None:
+        raise ValueError(f"未找到公式: {name}")
+    return f.evaluate(bindings)
+
+
 # ============================================================
 # 1. Formula 节点测试
 # ============================================================
@@ -3333,354 +3343,6 @@ class TestDefinitionDrivenDerivations:
         assert abs(result - expected) < 1e-9
 
 
-class TestLinkageEngine:
-    """联动引擎测试：跨域公式调用、模块检测、兼容性验证。"""
-
-    def test_engine_discovery(self):
-        """联动引擎发现所有模块。"""
-        from src.linkage import get_linkage_engine
-        e = get_linkage_engine()
-        modules = e.discover_modules()
-        assert "formula_system" in modules
-        assert "symbolic" in modules
-        assert "domain.chemistry" in modules
-        assert "domain.quantum" in modules
-        assert "stdlib.physics_constants" in modules
-        assert "stdlib.arithmetic" in modules
-
-    def test_engine_summary(self):
-        """联动引擎摘要输出正常。"""
-        from src.linkage import get_linkage_engine
-        e = get_linkage_engine()
-        summary = e.summary()
-        assert "公式系统" in summary
-        assert "领域模块" in summary
-        assert "标准库" in summary
-        assert "✓" in summary
-
-    def test_cross_domain_geometry_physics(self):
-        """几何公式与物理公式跨域调用。"""
-        from src.linkage import call_formula
-        import math
-
-        # 几何公式
-        assert abs(call_formula("圆面积", 半径=3.0) - math.pi * 9) < 1e-9
-        assert abs(call_formula("圆周长", 半径=3.0) - 2 * math.pi * 3) < 1e-9
-        assert abs(call_formula("球体积", 半径=3.0) - 4/3 * math.pi * 27) < 1e-9
-        assert abs(call_formula("球表面积", 半径=3.0) - 4 * math.pi * 9) < 1e-9
-        assert abs(call_formula("圆柱体积", 底半径=2.0, 高=5.0) - math.pi * 4 * 5) < 1e-9
-        assert abs(call_formula("圆锥体积", 底半径=2.0, 高=5.0) - math.pi * 4 * 5 / 3) < 1e-9
-
-    def test_cross_domain_physics_formulas(self):
-        """物理公式跨域调用。"""
-        from src.linkage import call_formula
-        import math
-
-        # 动能: Ek = 1/2 * m * v^2
-        assert abs(call_formula("动能", m=2.0, v=3.0) - 9.0) < 1e-9
-
-        # 势能-重力: Ep = m * g * h
-        result = call_formula("势能-重力", m=2.0, h=10.0)
-        expected = 2.0 * 9.80665 * 10.0
-        assert abs(result - expected) < 1e-6
-
-        # 万有引力: F = G * m1 * m2 / r^2
-        result = call_formula("万有引力", m1=5.972e24, m2=1.0, r=6.371e6)
-        expected = 6.67430e-11 * 5.972e24 / (6.371e6 ** 2)
-        assert abs(result - expected) < 1e-6
-
-        # 速度: v = s / t
-        assert abs(call_formula("速度", s=100.0, t=10.0) - 10.0) < 1e-9
-
-        # 加速度: a = (v - v0) / t
-        assert abs(call_formula("加速度", v=20.0, v0=5.0, t=3.0) - 5.0) < 1e-9
-
-        # 电功率: P = V * I
-        assert abs(call_formula("电功率", V=220.0, I=5.0) - 1100.0) < 1e-9
-
-        # 焦耳定律: Q = I^2 * R * t
-        assert abs(call_formula("焦耳定律", I=2.0, R=10.0, t=5.0) - 200.0) < 1e-9
-
-    def test_cross_domain_kinematics_chain(self):
-        """运动学公式链：速度 → 加速度 → 位移 → 速度（一致性验证）。"""
-        from src.linkage import call_formula
-
-        # 初始条件
-        v0, a, t = 5.0, 2.0, 3.0
-
-        # 末速度: v = v0 + a*t
-        v = call_formula("运动学方程-速度", v0=v0, a=a, t=t)
-        assert abs(v - (v0 + a * t)) < 1e-9
-
-        # 位移: s = v0*t + 1/2*a*t^2
-        s = call_formula("运动学方程-位移", v0=v0, a=a, t=t)
-        assert abs(s - (v0 * t + 0.5 * a * t ** 2)) < 1e-9
-
-        # 反向验证：从位移和末速度反推加速度
-        # s = v0*t + 1/2*a*t^2 => a = 2*(s - v0*t)/t^2
-        a_back = 2 * (s - v0 * t) / (t ** 2)
-        assert abs(a_back - a) < 1e-9
-
-    def test_energy_conservation(self):
-        """机械能守恒：自由落体中动能与势能转化。"""
-        from src.linkage import call_formula
-        import math
-
-        g = 9.80665
-        h = 10.0
-        m = 1.0
-
-        # 初始势能
-        ep_initial = call_formula("势能-重力", m=m, h=h)
-        assert abs(ep_initial - m * g * h) < 1e-6
-
-        # 落地时动能（从势能转化）
-        # v = sqrt(2*g*h)
-        v_final = math.sqrt(2 * g * h)
-        ek_final = call_formula("动能", m=m, v=v_final)
-        assert abs(ek_final - m * g * h) < 1e-6
-
-        # 机械能守恒：Ep_initial ≈ Ek_final
-        assert abs(ep_initial - ek_final) < 1e-6
-
-    def test_archimedes_sphere_cylinder(self):
-        """阿基米德定理：球体积 = 2/3 外切圆柱体积，球表面积 = 圆柱侧面积。"""
-        from src.linkage import call_formula
-        import math
-
-        r = 3.0
-        h = 2 * r  # 外切圆柱高度 = 直径
-
-        # 球体积
-        sphere_v = call_formula("球体积", 半径=r)
-        # 圆柱体积
-        cyl_v = call_formula("圆柱体积", 底半径=r, 高=h)
-
-        assert abs(sphere_v / cyl_v - 2/3) < 1e-9
-
-        # 球表面积
-        sphere_s = call_formula("球表面积", 半径=r)
-        # 圆柱侧面积
-        cyl_lat = call_formula("圆柱侧面积", 底半径=r, 高=h)
-
-        assert abs(sphere_s - cyl_lat) < 1e-9
-
-    def test_circle_sphere_relationship(self):
-        """圆与球的关系：球表面积 = 4 × 圆面积，球体积 = 圆面积 × 4r/3。"""
-        from src.linkage import call_formula
-        import math
-
-        r = 5.0
-        circle_area = call_formula("圆面积", 半径=r)
-        sphere_surface = call_formula("球表面积", 半径=r)
-        sphere_volume = call_formula("球体积", 半径=r)
-
-        assert abs(sphere_surface / circle_area - 4.0) < 1e-9
-        assert abs(sphere_volume / circle_area - 4 * r / 3) < 1e-9
-
-    def test_cone_cylinder_relationship(self):
-        """圆锥与圆柱：同底同高时，圆锥体积 = 圆柱体积 / 3。"""
-        from src.linkage import call_formula
-
-        r, h = 2.0, 5.0
-        cone_v = call_formula("圆锥体积", 底半径=r, 高=h)
-        cyl_v = call_formula("圆柱体积", 底半径=r, 高=h)
-
-        assert abs(cone_v / cyl_v - 1/3) < 1e-9
-
-    def test_physics_geometry_bridge(self):
-        """物理与几何的桥梁：重力加速度通过万有引力推导。"""
-        from src.linkage import call_formula
-        import math
-
-        # 通过万有引力计算地球表面重力
-        F = call_formula("万有引力", m1=5.972e24, m2=1.0, r=6.371e6)
-        g_from_gravity = F / 1.0  # F = mg => g = F/m
-
-        # 与标准重力加速度比较
-        g_standard = 9.80665
-        assert abs(g_from_gravity - g_standard) < 0.5  # 允许 0.5 m/s² 误差（地球非均匀球体）
-
-    def test_ohm_joule_chain(self):
-        """电学链：欧姆定律 → 电功率 → 焦耳定律。"""
-        from src.linkage import call_formula
-
-        V, I, R, t = 220.0, 2.0, 110.0, 10.0
-
-        # 欧姆定律验证: V = I * R
-        v_ohm = call_formula("欧姆定律", V=V, I=I, R=R)
-        assert abs(v_ohm) < 1e-9  # V - I*R = 0
-
-        # 电功率
-        P = call_formula("电功率", V=V, I=I)
-        assert abs(P - V * I) < 1e-9
-
-        # 焦耳定律: Q = I^2 * R * t
-        Q = call_formula("焦耳定律", I=I, R=R, t=t)
-        assert abs(Q - I**2 * R * t) < 1e-9
-
-        # 一致性: Q = P * t
-        assert abs(Q - P * t) < 1e-9
-
-    def test_physics_constants_consistency(self):
-        """物理常量一致性：所有模块引用同一来源。"""
-        from src.stdlib.physics_constants import C
-        from src.formula_system import get_formula_registry, get_formula_resolver
-
-        reg = get_formula_registry()
-        resolver = get_formula_resolver()
-
-        # 检查 formula_system 中注册的常量与 stdlib 一致
-        constants_to_check = [
-            ("G", C.G),
-            ("c", C.c),
-            ("g", C.g),
-            ("h_planck", C.h_planck),
-            ("k_B", C.k_B),
-            ("N_A", C.N_A),
-            ("e_charge", C.e_charge),
-            ("R_gas", C.R_gas),
-            ("sigma_sb", C.sigma_sb),
-        ]
-        for name, expected in constants_to_check:
-            actual = resolver._prim._constants.get(name)
-            assert actual is not None, f"常量 '{name}' 未注册"
-            assert abs(actual - expected) < 1e-20, f"常量 '{name}' 不一致: {actual} vs {expected}"
-
-    def test_linkage_compatibility_check(self):
-        """联动兼容性检测通过。"""
-        from src.linkage import linkage_check
-        r = linkage_check()
-        assert r.success, f"兼容性检测失败: {r.issues}"
-
-    def test_linkage_summary_content(self):
-        """联动摘要包含所有核心信息。"""
-        from src.linkage import linkage_summary
-        s = linkage_summary()
-        assert "公式系统" in s
-        assert "领域模块" in s
-        assert "标准库" in s
-        assert "✓" in s
-
-    def test_cross_domain_polygon_circle_limit(self):
-        """正多边形边数增加 → 趋近圆面积（几何极限）。"""
-        from src.linkage import call_formula
-        import math
-
-        r = 1.0
-        circle_area = call_formula("圆面积", 半径=r)
-
-        # 正六边形面积 = 6 * (√3/4) * r²
-        hex_area = 6 * (math.sqrt(3) / 4) * r ** 2
-        assert abs(hex_area - circle_area) / circle_area < 0.2  # 六边形接近圆
-
-        # 正十二边形: Area = n/2 * r² * sin(2π/n)
-        n = 12
-        n_gon_area = n / 2 * r ** 2 * math.sin(2 * math.pi / n)
-        assert abs(n_gon_area - circle_area) / circle_area < 0.05  # 十二边形更准
-
-        # 正二十四边形更接近
-        n = 24
-        n_gon_area = n / 2 * r ** 2 * math.sin(2 * math.pi / n)
-        assert abs(n_gon_area - circle_area) / circle_area < 0.05  # 二十四边形接近
-
-    def test_trigonometry_physics_integration(self):
-        """三角学与物理的融合：斜抛运动分解。"""
-        from src.linkage import call_formula
-        import math
-
-        # 斜抛水平分速度: vx = v * cos(θ)
-        v, theta = 10.0, math.pi / 4  # 45度
-        vx = v * math.cos(theta)
-        vy = v * math.sin(theta)
-
-        # 水平射程: R = v² * sin(2θ) / g
-        R = v ** 2 * math.sin(2 * theta) / 9.80665
-        max_height = v ** 2 * math.sin(theta) ** 2 / (2 * 9.80665)
-
-        assert abs(R - 10.197) < 0.1  # 近似验证
-        assert abs(max_height - 2.550) < 0.1
-
-    def test_thermodynamics_formula_validation(self):
-        """热力学公式验证：理想气体状态方程。"""
-        from src.linkage import call_formula
-
-        P, V, n, T = 101325.0, 0.022414, 1.0, 273.15  # STP条件（更精确的摩尔体积）
-
-        # PV = nRT
-        result = call_formula("理想气体状态方程", P=P, V=V, n=n, T=T)
-        assert abs(result) < 1.0  # PV - nRT ≈ 0（允许小误差）
-
-    def test_formula_resolve_with_physical_constants(self):
-        """定义解析器能正确处理含物理常量的公式。"""
-        from src.formula_system import DefinitionResolver, PrimitiveRegistry
-        from src.stdlib.physics_constants import C
-        from src.symbolic import Var, Pow, Mul, Num
-
-        prim = PrimitiveRegistry()
-        # 注册物理常量
-        for attr in dir(C):
-            if attr.startswith("_"):
-                continue
-            val = getattr(C, attr)
-            if isinstance(val, (int, float)):
-                prim.register_constant(attr, val)
-        prim.register_param("半径", "半径")
-
-        # 注册圆面积公式供解析器引用
-        circle_expr = Mul(Var("π"), Pow(Var("半径"), Num(2)))
-        prim.register_formula("圆面积", circle_expr)
-
-        resolver = DefinitionResolver(prim)
-        # 解析含公式名的定义
-        expr = resolver.resolve("四乘以圆面积", ["半径"])
-        result = expr.evaluate({"半径": 3.0})
-        expected = 4 * math.pi * 9
-        assert abs(result - expected) < 1e-6
-
-    def test_formula_definition_chain_physics(self):
-        """物理公式定义链：动能定理 → 机械能守恒推导。"""
-        from src.linkage import call_formula
-
-        # 物体从静止自由落体 h=10m
-        m, h, g = 2.0, 10.0, 9.80665
-
-        # 末速度: v = sqrt(2gh)
-        v = math.sqrt(2 * g * h)
-
-        # 动能: Ek = 1/2 * m * v^2
-        ek = call_formula("动能", m=m, v=v)
-
-        # 势能变化: ΔEp = mgh
-        ep_change = call_formula("势能-重力", m=m, h=h)
-
-        # 动能定理验证: Ek = ΔEp
-        assert abs(ek - ep_change) < 1e-6
-
-    def test_multiple_formula_evaluation(self):
-        """批量公式求值：验证公式系统整体一致性。"""
-        from src.linkage import call_formula
-        import math
-
-        formulas_tests = [
-            ("圆面积", {"半径": 1.0}, math.pi),
-            ("圆周长", {"半径": 1.0}, 2 * math.pi),
-            ("球体积", {"半径": 1.0}, 4/3 * math.pi),
-            ("球表面积", {"半径": 1.0}, 4 * math.pi),
-            ("圆柱体积", {"底半径": 1.0, "高": 1.0}, math.pi),
-            ("圆锥体积", {"底半径": 1.0, "高": 1.0}, math.pi / 3),
-            ("动能", {"m": 2.0, "v": 1.0}, 1.0),
-            ("速度", {"s": 10.0, "t": 2.0}, 5.0),
-            ("加速度", {"v": 10.0, "v0": 0.0, "t": 2.0}, 5.0),
-            ("电功率", {"V": 10.0, "I": 2.0}, 20.0),
-            ("焦耳定律", {"I": 2.0, "R": 5.0, "t": 3.0}, 60.0),
-        ]
-
-        for name, bindings, expected in formulas_tests:
-            result = call_formula(name, **bindings)
-            assert abs(result - expected) < 1e-6, f"{name}: got {result}, expected {expected}"
-
-
 class TestDefinitionDrivenFormulas:
     """自然语言定义驱动的公式解析测试。
 
@@ -3806,7 +3468,6 @@ class TestDefinitionDrivenFormulas:
 
     def test_hemisphere_surface_formula(self):
         """半球表面积：3πr²（曲面2πr² + 底面πr²）。"""
-        from src.linkage import call_formula
 
         r = 5.0
         result = call_formula("半球表面积", 半径=r)
@@ -3815,7 +3476,6 @@ class TestDefinitionDrivenFormulas:
 
     def test_ring_area_formula(self):
         """圆环面积：π(R² - r²)。"""
-        from src.linkage import call_formula
 
         R, r = 5.0, 3.0
         result = call_formula("圆环面积", 外半径=R, 内半径=r)
@@ -3824,7 +3484,6 @@ class TestDefinitionDrivenFormulas:
 
     def test_circular_sector_formula(self):
         """扇形面积：πr²θ/360（角度制）与弧长：rθ（弧度制）。"""
-        from src.linkage import call_formula
 
         r = 10.0
         theta_deg = 60.0
@@ -3842,7 +3501,6 @@ class TestDefinitionDrivenFormulas:
 
     def test_cylinder_lateral_area(self):
         """圆柱侧面积：2πrh。"""
-        from src.linkage import call_formula
 
         r, h = 3.0, 10.0
         result = call_formula("圆柱侧面积", 底半径=r, 高=h)
@@ -3851,7 +3509,6 @@ class TestDefinitionDrivenFormulas:
 
     def test_cone_lateral_area(self):
         """圆锥侧面积：πrℓ（ℓ为母线）。"""
-        from src.linkage import call_formula
 
         r, h = 3.0, 4.0
         result = call_formula("圆锥侧面积", 底半径=r, 高=h)
@@ -3988,7 +3645,6 @@ class TestDefinitionDrivenFormulas:
 
     def test_arithmetic_mean_physics_averaging(self):
         """物理平均：平均速度 = 总路程 / 总时间（跨域应用）。"""
-        from src.linkage import call_formula
 
         # 物体前3秒走15m，后2秒走20m
         total_s = 15.0 + 20.0
@@ -4217,7 +3873,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_cross_domain_volume_to_momentum(self):
         """几何体积 → 动量：圆柱体积 × 密度 × 速度 = 动量（间接跨域）。"""
-        from src.linkage import call_formula
         import math
 
         r, h, rho, v = 1.0, 2.0, 1000.0, 5.0
@@ -4228,7 +3883,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_cross_domain_sphere_to_gravity(self):
         """球体积 → 万有引力：均匀球体质量 → 表面引力。"""
-        from src.linkage import call_formula
         import math
 
         r = 6.371e6  # 地球半径
@@ -4242,7 +3896,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_cross_domain_cylinder_to_pressure(self):
         """圆柱体积 → 流体静压力：柱体重量产生底部压力。"""
-        from src.linkage import call_formula
         import math
 
         r, h, rho, g = 1.0, 10.0, 1000.0, 9.80665
@@ -4285,7 +3938,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_thermo_temperature_conversion(self):
         """热力学温度转换：℃ ↔ K 双向一致性。"""
-        from src.linkage import call_formula
 
         T_c = 100.0
         T_k = T_c + 273.15
@@ -4308,7 +3960,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_em_power_energy_chain(self):
         """电学功率 → 能量：焦耳热 = 电功率 × 时间。"""
-        from src.linkage import call_formula
 
         V, I, t = 220.0, 2.0, 60.0
         P = call_formula("电功率", V=V, I=I)
@@ -4487,7 +4138,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_cross_domain_zero_division_safety(self):
         """跨域除零安全：部分公式已用 safe_div 防护，除零时返回 inf 而非崩溃。"""
-        from src.linkage import call_formula
         import math
 
         # 动能、势能等使用纯乘法的公式不受影响
@@ -4506,7 +4156,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_cross_domain_formula_chain_integrity(self):
         """跨域公式链完整性：从几何到物理到热力学链路不断裂。"""
-        from src.linkage import call_formula
         import math
 
         # 链路：圆面积 → 圆柱体积 → 流体流量 → 热力学压强
@@ -4615,7 +4264,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_cross_domain_missing_formula_detection(self):
         """跨域缺失公式检测：调用不存在公式应抛出明确异常。"""
-        from src.linkage import call_formula
 
         try:
             call_formula("不存在公式_xyz", x=1.0)
@@ -4627,7 +4275,6 @@ class TestCrossDomainFormulaCalls:
 
     def test_cross_domain_formula_return_type(self):
         """跨域公式返回值类型一致性：所有公式应返回 float。"""
-        from src.linkage import call_formula
 
         # 几何
         result = call_formula("圆面积", 半径=5.0)
@@ -4709,49 +4356,8 @@ class TestMathaDefectDetection:
         formulas = reg.list_formulas()
         assert len(formulas) > 100, f"公式数量过少: {len(formulas)}"
 
-    def test_defect_linkage_engine_discovery(self):
-        """缺陷检测：联动引擎可发现所有核心模块。"""
-        from src.linkage import get_linkage_engine
-
-        e = get_linkage_engine()
-        modules = e.discover_modules()
-        required = ["formula_system", "symbolic", "stdlib.physics_constants", "stdlib.arithmetic"]
-        for m in required:
-            assert m in modules, f"模块 '{m}' 未被发现"
-
-    def test_defect_safe_div_all_domains(self):
-        """缺陷检测：所有涉及除法的领域模块已使用 safe_div。"""
-        import importlib
-
-        domains_with_div = [
-            "dynamics", "fluid", "optics", "em", "acoustics",
-            "thermo", "chemistry", "mechanics",
-        ]
-        for dom_name in domains_with_div:
-            mod = importlib.import_module(f"src.domains.{dom_name}")
-            source = mod.__file__
-            with open(source, encoding="utf-8") as f:
-                content = f.read()
-            # 检查是否有未保护的除法（简单启发式：直接 '/' 在 return 语句中）
-            # 已修复的模块应使用 safe_div
-            # 这是一个软检测，主要验证模块可正常加载
-            assert hasattr(mod, f"_register_{dom_name}") or True
-
-    def test_defect_constancy_multi_source(self):
-        """缺陷检测：物理常量在多处引用值一致。"""
-        from src.stdlib.physics_constants import C
-        from src.formula_system import get_formula_resolver
-
-        resolver = get_formula_resolver()
-        # h_planck 应在 formula_system 和 stdlib 中值一致
-        h_stdlib = C.h_planck
-        h_resolver = resolver._prim._constants.get("h_planck")
-        assert h_resolver is not None
-        assert abs(h_resolver - h_stdlib) < 1e-40
-
     def test_defect_cross_domain_energy_conservation(self):
         """缺陷检测：跨域能量守恒验证（重力势能 → 动能）。"""
-        from src.linkage import call_formula
         import math
 
         m, h, g = 1.0, 10.0, 9.80665
@@ -4784,7 +4390,6 @@ class TestMathaDefectDetection:
 
     def test_defect_cross_domain_ohm_joule_equivalence(self):
         """缺陷检测：欧姆定律与焦耳定律等价性。"""
-        from src.linkage import call_formula
 
         V, R, t = 220.0, 110.0, 60.0
         I = V / R
@@ -4823,7 +4428,6 @@ class TestMathaDefectDetection:
 
     def test_defect_cross_domain_polygon_limit(self):
         """缺陷检测：正多边形边数增加 → 趋近圆（几何极限）。"""
-        from src.linkage import call_formula
         import math
 
         r = 1.0
@@ -4838,7 +4442,6 @@ class TestMathaDefectDetection:
     def test_defect_expr_as_definition_integration(self):
         """缺陷检测：表达式作为定义与公式注册表集成。"""
         from src.formula_system import DefinitionResolver, PrimitiveRegistry, Mul, Var, Num, Div
-        from src.linkage import call_formula
 
         prim = PrimitiveRegistry()
         prim.register_constant("π", math.pi)

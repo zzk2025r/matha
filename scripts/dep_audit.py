@@ -105,13 +105,14 @@ PLUGIN_PREFIXES: tuple[str, ...] = (
     "src.optimization", "src.tools", "src.stdlib",
 )
 LEGACY_PREFIXES: tuple[str, ...] = (
-    "src.interp", "src.vm", "src.m3v_vm", "src.interp_engine",
+    "src.interp", "src.interp_engine",
     "src.interp_stack", "src.interp_ic", "src.matha_bootstrap",
     "src.compiler", "src.hybrid_compiler", "src.bootstrap",
     "src.virtual_code", "src.matha_vm", "src.matha_runtime", "src.matha_engine",
     "src.matha_system", "src.unified", "src.repl", "src.symbolic",
     # src.deps / src.ffi / src.interop 已整件搬入 src/plugins/（工具链与外部
     # 能力探测不属遗留执行链，也不属内核），故不再列在这里。
+    # src.vm / src.m3v_vm 已删（阶段 11 / 22b），不再列入。
     "src.formula_system",
 )
 

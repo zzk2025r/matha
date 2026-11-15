@@ -43,7 +43,6 @@ a = Analysis(
         'src.stdlib.calculus',
         'src.stdlib.calculus_symbolic',
         'src.stdlib.linear_algebra',
-        'src.stdlib.probability_stats',
         'src.stdlib.logic',
         'src.intent_parser',
         'src.repl_completion',

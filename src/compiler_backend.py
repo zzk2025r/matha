@@ -1,9 +1,15 @@
-"""Matha 编译器后端：LLVM、WASM、AOT 编译、JIT 编译。"""
+"""Matha 编译器后端：符号表 / 链接器 / 调试信息等真实辅助面。
+
+能力边界（阶段 22a 假成功清算）：LLVM、WASM、AOT 编译需要真实
+编译后端，本模块未实现——一律抛 NotImplementedError，不再返回
+空 IRModule / 全零机器码 / 伪位码 / 伪 WASM 字节。真实可用面：
+JITCompiler.compile（Python 源码编译执行）、字节对象链接
+（AOTCompiler.link / MathaCompiler.link 拼接写出）、符号表、
+调试信息、IR 文本渲染。
+"""
 from __future__ import annotations
 
 import hashlib
-import io
-import struct
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -90,27 +96,21 @@ class LLVMBackend:
     def compile(self, source: str,
                  target: CompilerTarget = CompilerTarget.LLVM_IR
                  ) -> IRModule:
-        module = IRModule(name="matha_module", target=target)
-        self._module = module
-        return module
+        raise NotImplementedError(
+            f"LLVM 后端编译到 {target.value} 需要真实 LLVM，未实现")
 
     def optimize(self, module: IRModule,
                   level: OptimizationLevel = OptimizationLevel.O2
                   ) -> IRModule:
-        module.optimization_level = level
-        return module
+        raise NotImplementedError("LLVM 优化管线未实现")
 
     def generate_machine_code(self, module: IRModule
                                ) -> MachineCode:
-        return MachineCode(
-            binary=b"\x00\x00\x00\x00",
-            target=CompilerTarget.MACHINE_CODE,
-            size=0,
-        )
+        raise NotImplementedError("机器码生成需要真实后端，未实现")
 
     def generate_bitcode(self, module: IRModule
                           ) -> bytes:
-        return b"BC" + module.name.encode()
+        raise NotImplementedError("位码生成需要真实 LLVM，未实现")
 
 
 class WASMCompiler:
@@ -121,25 +121,14 @@ class WASMCompiler:
         self._functions: dict[str, bytes] = {}
 
     def compile(self, source: str) -> WASMModule:
-        wasm = WASMModule()
-        wasm.sections = [{"type": "type"}, {"type": "function"}]
-        return wasm
+        raise NotImplementedError("WASM 编译需要真实后端，未实现")
 
     def emit(self, wasm: WASMModule) -> bytes:
-        buffer = io.BytesIO()
-        buffer.write(wasm.magic)
-        buffer.write(struct.pack("<I", wasm.version))
-        for section in wasm.sections:
-            self._write_section(buffer, section)
-        return buffer.getvalue()
-
-    def _write_section(self, buffer: io.BytesIO,
-                        section: dict[str, Any]) -> None:
-        pass
+        raise NotImplementedError(
+            "WASM 字节发射需要真实的段编码器，未实现")
 
     def to_file(self, wasm: WASMModule, path: str) -> None:
-        with open(path, "wb") as f:
-            f.write(self.emit(wasm))
+        raise NotImplementedError("WASM 编译需要真实后端，未实现")
 
 
 class JITCompiler:
@@ -177,31 +166,14 @@ class AOTCompiler:
                  target: CompilerTarget = CompilerTarget.X86_64,
                  opt_level: OptimizationLevel = OptimizationLevel.O2
                  ) -> MachineCode:
-        if target == CompilerTarget.WASM32 or target == CompilerTarget.WASM64:
-            wasm = self._wasm.compile(source)
-            return MachineCode(
-                binary=self._wasm.emit(wasm),
-                target=target,
-                size=len(wasm.sections),
-            )
-        elif target == CompilerTarget.LLVM_IR:
-            module = self._backend.compile(source, target)
-            return MachineCode(
-                binary=self._backend.generate_bitcode(module),
-                target=target,
-                size=0,
-            )
-        else:
-            module = self._backend.compile(source, target)
-            module = self._backend.optimize(module, opt_level)
-            return self._backend.generate_machine_code(module)
+        raise NotImplementedError(
+            f"AOT 编译到 {target.value} 需要真实后端，未实现")
 
     def compile_file(self, path: str,
                       target: CompilerTarget = CompilerTarget.X86_64
                       ) -> MachineCode:
-        with open(path) as f:
-            source = f.read()
-        return self.compile(source, target)
+        raise NotImplementedError(
+            f"AOT 编译到 {target.value} 需要真实后端，未实现")
 
     def link(self, objects: list[bytes],
               output: str) -> bool:
@@ -325,7 +297,7 @@ class MathaCompiler:
     def optimize(self, source: str,
                   level: OptimizationLevel = OptimizationLevel.O2
                   ) -> str:
-        return source
+        raise NotImplementedError("源码优化管线未实现")
 
     def link(self, files: list[str],
               output: str) -> bool:

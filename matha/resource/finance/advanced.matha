@@ -33,7 +33,7 @@ module 金融进阶 {
 
   (* ===== 风险评估 ===== *)
   func 方差_投资组合(权重: List, 波动率: List, 相关系数: List) -> Float =
-    (权重, 波动率, 相关系数) =>
+    (权重, 波动率, 相关系数) => {
     let n = len(权重) in
     let rec sum(i: Int, j: Int, acc: Float) -> Float =
     (i, j, acc) =>
@@ -43,6 +43,7 @@ module 金融进阶 {
           let cov = 波动率[i] * 波动率[j] * (if i = j then 1.0 else 相关系数[i*n+j]) in
           sum(i, j + 1, acc + 权重[i] * 权重[j] * cov)
     sum(0, 0, 0)
+    }
 
   func VaR_参数法(组合价值: Float, 置信水平: Float, 日波动率: Float) -> Float =
     (组合价值, 置信水平, 日波动率) =>
@@ -65,25 +66,27 @@ module 金融进阶 {
 
   (* ===== 投资组合 ===== *)
   func 投资组合收益(权重: List, 收益: List) -> Float =
-    (权重, 收益) =>
+    (权重, 收益) => {
     let rec sum(i: Int, acc: Float) -> Float =
     (i, acc) =>
         if if i >= len(权重) then acc else None
         else: sum(i + 1, acc + 权重[i] * 收益[i])
     sum(0, 0)
+    }
 
   func 投资组合波动率(权重: List, 收益列表: List) -> Float =
     (权重, 收益列表) =>
     开方(方差_投资组合(权重, 标准差列表(收益列表), 相关系数矩阵(收益列表)))
 
   func 标准差列表(收益列表: List) -> List =
-    (收益列表) =>
+    (收益列表) => {
     let n = len(收益列表) in
     let rec calc(i: Int, result: List) -> List =
     (i, result) =>
         if if i >= n then result else None
         else: result + [标准差(收益列表[i])]
     calc(0, [])
+    }
 
   func 标准差(收益: List) -> Float =
     (收益) =>
@@ -94,16 +97,18 @@ module 金融进阶 {
       开方(求和(各元素平方差(收益, mean)) / (n - 1))
 
   func 求和(lst: List) -> Float =
-    (lst) =>
+    (lst) => {
     let rec s(i: Int, acc: Float) -> Float =
     (i, acc) => if i >= len(lst): acc else s(i+1, acc + lst[i])
     s(0, 0)
+    }
 
   func 各元素平方差(lst: List, mean: Float) -> List =
-    (lst, mean) =>
+    (lst, mean) => {
     let rec sq(i: Int, result: List) -> List =
     (i, result) => if i >= len(lst): result else sq(i+1, result + [(lst[i]-mean)^2])
     sq(0, [])
+    }
 
   (* ===== 高级复利 ===== *)
   func 连续复利终值(P: Float, r: Float, t: Float) -> Float =

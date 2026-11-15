@@ -88,7 +88,7 @@ module 工具数学 {
 
   func 数据熵(符号列表: List, 概率列表: List) -> Float =
     (* Shannon熵: -Σ p * log2(p) *)
-    (符号列表, 概率列表) =>
+    (符号列表, 概率列表) => {
     let n = min(len(符号列表), len(概率列表)) in
     let rec calc(i: Int, acc: Float) -> Float =
     (i, acc) =>
@@ -96,6 +96,7 @@ module 工具数学 {
         (概率列表[i] <= 0) ? calc(i+1, acc) :
         calc(i+1, acc - 概率列表[i] * log2(概率列表[i]))
     calc(0, 0)
+    }
 
   func 香农编码长度(概率: Float) -> Float =
     (* -log2(p) *)
@@ -116,10 +117,11 @@ module 工具数学 {
 
   func 色彩深度位数(颜色数: Int) -> Int =
     (* log2(颜色数) *)
-    (颜色数) =>
+    (颜色数) => {
     let rec log2(n: Int, acc: Int) -> Int =
     (n, acc) => if n <= 1: acc else log2(n/2, acc+1)
     log2(颜色数, 0)
+    }
 
   (* ===== 文件格式 ===== *)
   func JPEG压缩率(原始大小: Int, 压缩大小: Int) -> Float =

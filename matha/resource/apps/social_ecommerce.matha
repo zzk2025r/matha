@@ -17,10 +17,11 @@ module 社交电商 {
     (发送数 = 0) ? 0 : 送达数 / 发送数
 
   func 消息延迟均值(延迟列表: List) -> Float =
-    (延迟列表) =>
+    (延迟列表) => {
     let rec sum(i: Int, acc: Float) -> Float =
     (i, acc) => if i >= len(延迟列表): acc else sum(i+1, acc + 延迟列表[i])
     sum(0, 0) / len(延迟列表)
+    }
 
   (* ===== 用户关系 ===== *)
   func 关注互关率(互关数: Int, 总关注数: Int) -> Float =
@@ -41,15 +42,16 @@ module 社交电商 {
     (max_edges = 0) ? 0 : 关系数 / max_edges
 
   func 平均好友数(用户列表: List) -> Float =
-    (用户列表) =>
+    (用户列表) => {
     let rec sum(i: Int, acc: Int) -> Int =
     (i, acc) => if i >= len(用户列表): acc else sum(i+1, acc + 用户列表[i])
     sum(0, 0) / len(用户列表)
+    }
 
   (* ===== 推荐算法 ===== *)
   func 协同过滤相似度(user1Prefs: List, user2Prefs: List) -> Float =
     (* 简化：余弦相似度 *)
-    (user1Prefs, user2Prefs) =>
+    (user1Prefs, user2Prefs) => {
     let n = min(len(user1Prefs), len(user2Prefs)) in
     let rec dot(i: Int) -> Float =
     (i) => if i >= n: 0 else user1Prefs[i] * user2Prefs[i] + dot(i+1)
@@ -61,6 +63,7 @@ module 社交电商 {
     let m1 = 开方(mag1(0)) in
     let m2 = 开方(mag2(0)) in
     (m1 = 0 or m2 = 0) ? 0 : d / (m1 * m2)
+    }
 
   func 内容推荐评分(内容质量: Float, 用户兴趣: Float, 时效性: Float) -> Float =
     (内容质量, 用户兴趣, 时效性) =>
@@ -72,13 +75,14 @@ module 社交电商 {
 
   (* ===== 购物车 ===== *)
   func 购物车总价(商品列表: List, 价格列表: List, 数量列表: List) -> Float =
-    (商品列表, 价格列表, 数量列表) =>
+    (商品列表, 价格列表, 数量列表) => {
     let n = min(len(价格列表), len(数量列表)) in
     let rec sum(i: Int, acc: Float) -> Float =
     (i, acc) =>
         if if i >= n then acc else None
         else: sum(i+1, acc + 价格列表[i] * 数量列表[i])
     sum(0, 0)
+    }
 
   func 购物车折扣价(原价: Float, 折扣率: Float) -> Float =
     (原价, 折扣率) => 原价 * (1 - 折扣率)

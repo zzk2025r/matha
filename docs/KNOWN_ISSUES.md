@@ -121,6 +121,7 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 |---|---|---|
 | NI-007 | `import src.kernel` 本身零成本，但 `src/matha_system.py` 等聚合入口仍会拉起大量模块 | 内核纯净性由 `test_kernel_purity.py` 限定在 `lexer/parser/ast_nodes/kernel/mbc`；聚合入口不属内核 |
 | NI-008 | 仓库根与 `scripts/` 历史遗留的一次性调试脚本 | 已集中移入 `scripts/scratch/`；不再作为现状依据 |
+| NI-010 | 架构框架模块为**框架级实现，未接入 Matha 编译/执行主线**：`src/compiler/` 的 pass 管理器与 8 个优化 pass（操作鸭子类型泛型 IR，非 MBC 字节码）、backend 管理器（Cranelift/WASM/EVM/Native 四后端为诚实 NotImplementedError stub，LLVM 面委托既有 `matha_to_llvm_ir`）、自适应优化器（ML 路径 sklearn 可选、默认规则路径）、分布式编译器（HTTP 面可选 aiohttp、依赖图纯标准库）、增量编译器；`src/hal_drivers/`（硬件驱动框架，`src/hal` 名额保留给内核态仿真旧模块供领域注册表动态加载）；`src/conflict_resolution/`（OT/CRDT，`src/collaboration` 名额保留给协同会话旧模块）；`src/security/`、`src/pkg_manager_v3.py`（零消费者）。 | 2026-11 修复盘活批次：修复 3 文件语法损坏 + 2 处包遮蔽 + 3 项重依赖惰性化（pyproject 第三方依赖保持 0），import 面经 `src/compiler/__init__.py` 直接导出（无 try/except 静默吞错）。判据：`tests/test_framework_modules.py` 锁框架级行为与登记边界；接入 MBC 主线为独立工程项，不属现状承诺 |
 
 ## 六、性能声明的口径
 
@@ -1595,6 +1596,81 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   capability/json_builtin 插件移植胶水与 exec_api use 加载器注入面）；CHANGELOG 领域
   插件 82→83；勘误三处：阶段 16 收官条目 use no-op 影子形态（21b）、阶段 19 收官条目
   switch 解析拒绝（21c 已真化）、阶段 20 收官条目 catch{} 歧义维持登记（21c 已消解）。
+- **2026-11 阶段 22 收官（全面清算：假成功清算 + 孤儿删除/注册面清理 + 语料崩溃与裸赋值
+  分歧真化）**：用户拍板范围三件全选（① 假成功清算 ② 孤儿删除 + 注册面死条目清理
+  ③ 语料崩溃 + 裸赋值分歧真化），「只登记不修」候选被否。
+  **22a 假成功清算**：门面/引擎能力边界诚实化——database_sql（SQL 文本解析仅表名 +
+  WHERE 子句；UPDATE/DELETE 文本执行、savepoint、真实事务隔离未实现一律显式拒绝，
+  不再返回假 affected_rows=1 或假传感器数据）、device_driver（GPU 着色器编译绘制/
+  网卡收发/SMART 传感器读数/基类寄存器读写显式拒绝，簿记面保留）、robotics_full/
+  game_engine_extended/geospatial_full/audio_video(+full)/compiler_backend/
+  offline/mobile_api_client 同批（能力边界写入模块 docstring，未实现面 raise）；
+  吞错日志清算：`src/kernel/time_builtin.py` run_pending_tasks except→stderr 全量
+  记录不再静默吞、`src/matha_main.py` _cmd_absorb except→打印失败、_load_domain 删
+  adapt_module try 静默回退（计数走 `__all__`/vars 如实）、_cmd_device_driver 演示
+  面假读数（SMART 假健康度、无结果 nic.send 打印）清除。
+  **22b 孤儿删除（用户批准两轮复核）**：20 个 src 孤儿文件 ≈8.4k 行
+  （ai_assistant_desktop/server、ast_nodes.py.broken、collaboration、compiler/ir、
+  dynamics 三件、linkage、nl_definition/nl_pipeline/nl_semantic/nl_to_formula、
+  parser_pool、plugins/ffi_sdk、plugins/legacy_mir_vm、symbol_registry、
+  tools/perf_profiler、typesystem_v2——全仓零消费或不可达）；5 个孤儿测试档删除
+  （collab_enhanced 23 + ffi_sdk_honest 21 + nl_pipeline 39 + nl_pipeline_execution
+  24 + symbol_registry 8 = 115 条）+ 6 个在档测试退役 571 条
+  （plugin_algebra_dynamics −521〔被删插件契约面〕、formula_system −23〔dynamics
+  假语义〕、ai_servers_smoke −14、rust_python_features −7〔typesystem_v2〕、
+  tools_enhanced −5、unified_layers −1）——**退役合计 686 条**。
+  **22b-2 注册面死条目清理**：`src/domains/registry.py` 清掉模块未实际导出的函数名
+  死清单（178 行，模块真实 `__all__` 对齐）；`src/__init__.py` MiroptPass 死软项
+  除名；matha.spec `src.stdlib.probability_stats` 死 hiddenimport 除名；dep_audit
+  LEGACY_PREFIXES 除名 src.vm/m3v_vm（11/22b 已删，附注在案）；
+  matha/stdlib_symbols.matha 数据来源注释对齐（专属宿主工具已删）。
+  **22c 裸赋值分歧真化**：`src/interp.py` _exec_stmt 补语句位
+  `BinaryOp("=")` + 左值 Variable → 求值右值绑定 env + _sync_matha_env（对齐 VM
+  _emit_block is_assign 面；块尾值位不覆盖，仍比较，与 VM
+  `is_assign and not (last and leave_last)` 一致）；双镜像同步
+  matha/interp.matha + matha/interp_matha.matha 各加 语句位赋值或表达式
+  helper（if/then/else 外层形态——镜像解析器函数体首 `(ident.` 落 lambda 参数
+  前瞻，双重括号同样不可用）；35 语料修复（examples/04_pipeline + 34 个
+  knowledge/resource 文件）宿主/VM 双面 err→ok。
+  **旧锁改锁三处（均为 22c 直接面，勘误注明）**：phase19 os_concepts
+  「双端同错同消息（未定义变量 'else'）」→ 双端干净同值 []（语料修复后前提消失）；
+  test_scoped_blocks test_off_block_binding_is_equality「关闭态块语句 `y = x + 1`
+  为等于比较 → y 未定义报错」→ 双端绑定 [8]；test_cli_features
+  test_noncore_module_gated_by_flag「开关关时遗留解释器把 `s = 0` 当比较报
+  未定义变量」→ 两开关下解释器面均 [10]。后两处旧锁锁的正是裸赋值宿主/VM 分歧的
+  宿主半边（旧 docstring 自认「解释器把它当比较，主线编译器把它当赋值」），22c
+  真化消解分歧后按勘误协议改锁新形态；SCOPED_BLOCKS 开关对裸赋值形态不再构成
+  行为差异，仅存解析层形状差（Binding vs BinaryOp，原形状锁保留在场）。
+  三锁 59 条（`tests/test_semantic_parity_phase22.py`：_ASSIGN_CASES 4 形态
+  参数化 ×host/vm〔try 块/lambda 块/while/if〕+ 重绑定 + 块尾值位比较边界双面 +
+  AST 形态锁〔顶层 try=Binding、lambda 体 try=BinaryOp〕+ 双镜像锁
+  （预绑定函数 标记区分两解释器镜像 + 语句位赋值或表达式 在场断言）+
+  公式 DSL 边界（dynamics.matha parse 干净、运行时公式面 MathaRuntimeError 登记）+
+  _REPAIRED 36 文件 parse-clean 参数化 + pipeline 引号指令值）。
+  **零扰动证明**（HEAD 78535f1 worktree 基线对拍：223 语料 host/vm 双面 sweep）：
+  35 修复面 err→ok（04_pipeline + 34 knowledge/resource）+ 4 个 SCOPED_BLOCKS
+  黄金 host err→ok〔探针无旗标伪影——黄金 runner 按 manifest features 施旗标，
+  权威面黄金 39/39 在场〕+ dynamics.matha err→err 深层（ParseError L365 →
+  未定义变量 '公式'，公式系统运行时解释面缺位，登记不修）+ 6 项良性工件
+  （对象地址 ×3、随机浮点、worktree 绝对路径 ×2）+ 6 个基线缺失未跟踪生成件
+  （matha/generated，21 收官同批）；tracked 语料 170/217 逐位相同，VM 面零回归。
+  **登记不修六条（现状锁）**：①dynamics.matha 公式 DSL 运行时面（解析已修，
+  运行时 公式 未定义——公式系统解释面缺位，语料资源面非主线）；②
+  bootstrap_full_test 宿主面闭包作用域首错名 '不折叠'（VM 面已跑通全程，宿主面
+  闭包绑定序更深分歧维持登记）；③se_native sys_env 预览 scratch 面；④SCOPED_BLOCKS
+  黄金用例（06/08/11/17）依赖 manifest features 施旗标，无旗标直跑 host 面报错
+  为探针伪影、非产品路径；⑤interp_matha 镜像无 try 支持（顶层 try 沉默回退
+  Python 解释器，既有缺口）；⑥interp.matha 镜像无块表达式求值（未知表达式类型：
+  程序，既有缺口）。
+  **门禁 6770/6770**（三跑：首跑 6767/6770 三红 = 上述旧锁改锁三处〔22c 真化翻转
+  三处旧锁前提〕→ 改锁 → 三跑干净：tests 6667 + kernel_purity 14 + ast_vm_gap 11 +
+  golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：7294（21 收官 tests）− 686（22b 退役）+ 59（22 三锁）= 6667。
+  doc 同步：README 测试文件 146→142（22b 删 5 孤儿测试档 + 22 新增三锁档）；
+  ARCHITECTURE core_py_lines 32,285→32,287（+2 = time_builtin 吞错日志诚实化，
+  src/interp.py 不计入 core 体量定义）；CHANGELOG 内核外工具插件 9→7
+  （ffi_sdk/legacy_mir_vm 删除）；ast_vm_gap 快照重生成（语料修复 used_in 漂移
+  按协议 `scripts/ast_vm_matrix.py --write`）；KNOWN_ISSUES 本条目 + 测试退役明细。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

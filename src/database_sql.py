@@ -1,4 +1,11 @@
-"""Matha SQL 引擎：完整 SQL 解析、执行、优化。"""
+"""Matha SQL 引擎：内存表 + 简单 SELECT 子集。
+
+能力边界（阶段 22a 假成功清算）：真实可用面——CREATE TABLE /
+dict 式 INSERT / SELECT 全表扫描（LIMIT 生效）/ 索引登记与
+plan 索引选择 / 事务状态机。SQL 文本解析仅提取表名与 WHERE
+子句；UPDATE/DELETE 文本执行、savepoint、真实事务隔离未实现
+——一律显式拒绝，不再返回假 affected_rows=1 或假传感器数据。
+"""
 from __future__ import annotations
 
 import re
@@ -92,30 +99,48 @@ class SQLParser:
             return self._parse_delete(sql)
         elif sql.lower().startswith("create"):
             return self._parse_create(sql)
-        return SQLStatement(type=SQLType.SELECT)
+        raise ValueError(f"无法识别的 SQL 语句: {sql[:40]!r}")
 
     def _parse_select(self, sql: str) -> SQLStatement:
         stmt = SQLStatement(type=SQLType.SELECT)
-        # Simple parsing
         match = re.search(r"FROM\s+(\w+)", sql, re.IGNORECASE)
         if match:
             stmt.table = match.group(1)
         match = re.search(r"WHERE\s+(.*?)(?:\s+GROUP|\s+ORDER|\s+LIMIT|\s+JOIN)", sql, re.IGNORECASE)
         if match:
             stmt.where = match.group(1)
+        match = re.search(r"LIMIT\s+(\d+)", sql, re.IGNORECASE)
+        if match:
+            stmt.limit = int(match.group(1))
         return stmt
 
     def _parse_insert(self, sql: str) -> SQLStatement:
-        return SQLStatement(type=SQLType.INSERT)
+        stmt = SQLStatement(type=SQLType.INSERT)
+        match = re.search(r"INTO\s+(\w+)", sql, re.IGNORECASE)
+        if match:
+            stmt.table = match.group(1)
+        return stmt
 
     def _parse_update(self, sql: str) -> SQLStatement:
-        return SQLStatement(type=SQLType.UPDATE)
+        stmt = SQLStatement(type=SQLType.UPDATE)
+        match = re.search(r"UPDATE\s+(\w+)", sql, re.IGNORECASE)
+        if match:
+            stmt.table = match.group(1)
+        return stmt
 
     def _parse_delete(self, sql: str) -> SQLStatement:
-        return SQLStatement(type=SQLType.DELETE)
+        stmt = SQLStatement(type=SQLType.DELETE)
+        match = re.search(r"FROM\s+(\w+)", sql, re.IGNORECASE)
+        if match:
+            stmt.table = match.group(1)
+        return stmt
 
     def _parse_create(self, sql: str) -> SQLStatement:
-        return SQLStatement(type=SQLType.CREATE)
+        stmt = SQLStatement(type=SQLType.CREATE)
+        match = re.search(r"TABLE\s+(\w+)", sql, re.IGNORECASE)
+        if match:
+            stmt.table = match.group(1)
+        return stmt
 
 
 class QueryOptimizer:
@@ -129,7 +154,8 @@ class QueryOptimizer:
         plan = QueryPlan(
             table=parsed.table,
             type=parsed.type,
-            estimated_rows=100,
+            estimated_rows=self._stats.get(
+                parsed.table, {}).get("rows", 0),
             cost=1.0,
             steps=["seq_scan"],
         )
@@ -169,9 +195,12 @@ class QueryExecutor:
         result = QueryResult()
         if parsed.type == SQLType.SELECT:
             table = self._tables.get(parsed.table, [])
-            result.rows = table[:parsed.limit or len(table)]
-        elif parsed.type == SQLType.INSERT or parsed.type == SQLType.UPDATE or parsed.type == SQLType.DELETE:
-            result.affected_rows = 1
+            result.rows = (table[:parsed.limit]
+                           if parsed.limit is not None else table)
+        else:
+            raise NotImplementedError(
+                f"{parsed.type.value} 文本执行需要真实查询引擎，"
+                "未实现（INSERT 请用 QueryExecutor.insert）")
         return result
 
     def create_table(self, name: str, schema: dict[str, str]) -> bool:
@@ -226,7 +255,7 @@ class TransactionManager:
         return False
 
     def savepoint(self, name: str) -> bool:
-        return True
+        raise NotImplementedError("savepoint 需要真实事务引擎，未实现")
 
 
 def create_sql_parser() -> SQLParser:

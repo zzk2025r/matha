@@ -1,4 +1,11 @@
-"""Matha 地理空间引擎：GIS、坐标转换、空间分析。"""
+"""Matha 地理空间引擎：真实坐标/量算数学 + 空间查询。
+
+能力边界（阶段 22a 假成功清算）：真实可用面——WGS84↔Web 墨卡托
+转换、haversine 距离、鞋带公式面积、质心、瓦片换算、bbox 索引与
+图层 bbox/点查询、GeoJSON 读写、栅格存取。未实现面显式拒绝：
+GCJ02/BD09 纠偏（返回恒等是假成功）、任意 SRS 对转换、
+缓冲区分析、intersect/contains 拓扑判定。
+"""
 from __future__ import annotations
 
 import json
@@ -137,17 +144,18 @@ class CoordinateTransformer:
             return coord.to_mercator()
         if coord.srs == SRS.GOOGLE_MERCATOR and target_srs == SRS.WGS84:
             return coord.to_wgs84()
-        return coord
+        raise NotImplementedError(
+            f"{coord.srs.value} → {target_srs.value} 坐标转换未实现")
 
     def transform_batch(self, coords: list[Coordinate],
                            target_srs: SRS) -> list[Coordinate]:
         return [self.transform(c, target_srs) for c in coords]
 
     def gcj02_to_wgs84(self, lat: float, lng: float) -> tuple[float, float]:
-        return lat, lng
+        raise NotImplementedError("GCJ02 纠偏未实现")
 
     def bd09_to_gcj02(self, lat: float, lng: float) -> tuple[float, float]:
-        return lat, lng
+        raise NotImplementedError("BD09 纠偏未实现")
 
 
 class Raster:
@@ -183,11 +191,39 @@ class VectorLayer:
     def add_geometry(self, geom: Any) -> None:
         self.geometries.append(geom)
 
+    @staticmethod
+    def _geometry_bbox(geom: Any) -> BoundingBox | None:
+        coords: list[Coordinate] = []
+        if isinstance(geom, Point):
+            coords = [geom.coordinate]
+        elif isinstance(geom, LineString):
+            coords = geom.coordinates
+        elif isinstance(geom, Polygon):
+            coords = geom.exterior
+        else:
+            return None
+        if not coords:
+            return None
+        xs = [c.x for c in coords]
+        ys = [c.y for c in coords]
+        return BoundingBox(min_x=min(xs), min_y=min(ys),
+                           max_x=max(xs), max_y=max(ys))
+
     def query_by_bbox(self, bbox: BoundingBox) -> list[Any]:
-        return [g for g in self.geometries]
+        hits = []
+        for g in self.geometries:
+            gb = self._geometry_bbox(g)
+            if gb is None:
+                continue
+            if (gb.min_x <= bbox.max_x and gb.max_x >= bbox.min_x and
+                    gb.min_y <= bbox.max_y and gb.max_y >= bbox.min_y):
+                hits.append(g)
+        return hits
 
     def query_by_point(self, point: Point) -> list[Any]:
-        return [g for g in self.geometries]
+        return self.query_by_bbox(BoundingBox(
+            min_x=point.coordinate.x, min_y=point.coordinate.y,
+            max_x=point.coordinate.x, max_y=point.coordinate.y))
 
 
 class SpatialAnalyzer:
@@ -224,13 +260,13 @@ class SpatialAnalyzer:
         return Coordinate(x=cx, y=cy)
 
     def buffer(self, point: Point, distance: float) -> Polygon:
-        return Polygon(exterior=[])
+        raise NotImplementedError("缓冲区分析需要真实几何引擎，未实现")
 
     def intersect(self, geom1: Any, geom2: Any) -> bool:
-        return True
+        raise NotImplementedError("拓扑相交判定需要真实几何引擎，未实现")
 
     def contains(self, geom1: Any, geom2: Any) -> bool:
-        return True
+        raise NotImplementedError("拓扑包含判定需要真实几何引擎，未实现")
 
 
 class GeoJSON:

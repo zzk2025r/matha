@@ -52,13 +52,14 @@ module Web网络 {
     script_snippet包含("<script") or script_snippet包含("javascript:")
 
   func script_snippet包含(text: String, substr: String) -> Bool =
-    (text, substr) =>
+    (text, substr) => {
     let rec find(i: Int) -> Bool =
     (i) =>
         (i + len(substr) > len(text)) ? 假 :
         (text[i:i+len(substr)] == substr) ? 真 :
         find(i + 1)
     find(0)
+    }
 
   (* ===== 会话管理 ===== *)
   func 会话ID熵(bit数: Int) -> Int =

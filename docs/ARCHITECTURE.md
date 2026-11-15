@@ -17,9 +17,9 @@ src/lexer.py → src/parser.py → src/ast_nodes.py
 - `src/mbc/cli.py`：`compile_source → run_module` 统一入口，`repl.py` /
   `matha_main.py` / `exec_api` 都走它，不再有第二条执行链。
 - **已删除的转译执行路径**：`convert(source,"matha","python") + exec()`。
-- **已归档的第三条 VM**：`src/vm.py`（MIR 栈式 VM）已移为
-  `src/plugins/legacy_mir_vm.py`，只能显式 `from src.plugins.legacy_mir_vm import MathaVM`
-  使用，不在默认路径、不进文档宣传；`src/m3v_vm.py`（重复实现，内含坏导入
+- **已归档的第三条 VM**：`src/vm.py`（MIR 栈式 VM）经阶段 11 移入
+  `src/plugins/legacy_mir_vm.py`，阶段 22b 孤儿清算确认全仓零引用后删除；
+  `src/m3v_vm.py`（重复实现，内含坏导入
   `import compiler_matha`）已删除。
 - `src/mir.py` / `src/mir_opt.py` 只作优化分析 IR，**不承担执行**。
 - `src/interp.py`（4k+ 行）降级为诊断后端：执行轨迹 / 单步调试，
@@ -27,7 +27,7 @@ src/lexer.py → src/parser.py → src/ast_nodes.py
   仅测试与调试可见）。全仓库 `src.interp` 的引用已改指门面。
 
 核心体量：`src/lexer.py + src/parser.py + src/ast_nodes.py + src/kernel/ + src/mbc/`
-共 **32,285 行**（`repo_facts.core_py_lines`，阶段 11 孤儿清算 −2,653 行；阶段 12b 终端 OS 胶水内建 +141 行；阶段 13 终端补全 os 域 升级包/执行命令输入 胶水 +29 行；阶段 14 解析器踩界真化 +113 行——词法器续行判定 + 主解析器 then 行首/参数跨行 skip；阶段 15 双端语义对齐 +8 行——VM 顶层裸表达式发射 + host 顶层 IfExpr 真执行；阶段 16 双端语义第二片 +10 行——let-in 列表体丢死兼容 + 顶层裸表达式求值丢弃 + 严格值相等三端登记 + 词法器剥 BOM；阶段 17 全面清算 +9 行——解析器 _CMP_ALIASES 归一化常量与三处 op 取值位点；阶段 18 双端语义第三片 +56 行——解释器删模块递归双执行 + use 加载自测块跳过标志 + 通道收发 host 求值 + 解析器全中缀回退与 `_bracket_followed_by_infix`；阶段 19 双端语义第四片 +16 行——VM 编译器 match/switch 表达式位 + MechUnit 裸 list body 逐元素编译 + 成长引擎规则聚合；阶段 20 match 收口 + finally 全链 +176 行——编译器 match 动态兜底/守卫先求值/try 三路径重抛、VM RAISE_MATCH 0x63 处理器、原生 RAISE_MATCH 与 repr 渲染运行时、解释器 match 无匹配口径对齐、opcode 登记；阶段 21 插件符号 VM 面 + use 编译解析 + catch 哨兵 +119 行——VM Frame functions 表与 MAKE_CLOSURE 逐帧函数表解析、GET_ATTR 内建名回退、解析器 switch 表达式位、capability/json_builtin 插件移植胶水与 exec_api use 加载器注入面（惰性跳板经解析器动态装入，eval/auto 零领域急切加载语义保真）。
+共 **32,287 行**（`repo_facts.core_py_lines`，阶段 11 孤儿清算 −2,653 行；阶段 12b 终端 OS 胶水内建 +141 行；阶段 13 终端补全 os 域 升级包/执行命令输入 胶水 +29 行；阶段 14 解析器踩界真化 +113 行——词法器续行判定 + 主解析器 then 行首/参数跨行 skip；阶段 15 双端语义对齐 +8 行——VM 顶层裸表达式发射 + host 顶层 IfExpr 真执行；阶段 16 双端语义第二片 +10 行——let-in 列表体丢死兼容 + 顶层裸表达式求值丢弃 + 严格值相等三端登记 + 词法器剥 BOM；阶段 17 全面清算 +9 行——解析器 _CMP_ALIASES 归一化常量与三处 op 取值位点；阶段 18 双端语义第三片 +56 行——解释器删模块递归双执行 + use 加载自测块跳过标志 + 通道收发 host 求值 + 解析器全中缀回退与 `_bracket_followed_by_infix`；阶段 19 双端语义第四片 +16 行——VM 编译器 match/switch 表达式位 + MechUnit 裸 list body 逐元素编译 + 成长引擎规则聚合；阶段 20 match 收口 + finally 全链 +176 行——编译器 match 动态兜底/守卫先求值/try 三路径重抛、VM RAISE_MATCH 0x63 处理器、原生 RAISE_MATCH 与 repr 渲染运行时、解释器 match 无匹配口径对齐、opcode 登记；阶段 21 插件符号 VM 面 + use 编译解析 + catch 哨兵 +119 行——VM Frame functions 表与 MAKE_CLOSURE 逐帧函数表解析、GET_ATTR 内建名回退、解析器 switch 表达式位、capability/json_builtin 插件移植胶水与 exec_api use 加载器注入面（惰性跳板经解析器动态装入，eval/auto 零领域急切加载语义保真）；阶段 22 全面清算 +2 行——22a time_builtin 吞错日志清算诚实化（err 面全量记录不再静默吞）；22c 语句位裸赋值真化在解释器面（src/interp.py _exec_stmt），不计入本体量。
 
 ## 二、L1 纯净内核与 import 白名单
 
@@ -93,10 +93,11 @@ functools unicodedata textwrap heapq datetime importlib`。
   同名。原因：物化插件执行 `target.update(table)`（同名即覆盖），而清单符号名会经
   `LazyBuiltinTable.__contains__` 在全进程生效 —— 导出 `x` 会改掉「未定义名即报错」
   的内核契约，导出 `符号` 会抬掉 `stdlib_symbols.matha` 的自举符号表构造函数。
-- 重型/逃逸能力全部外移：`src/plugins/`（14 个）——
-  `numpy_accel` / `deps_probe` / `ffi` / `ffi_sdk` / `interop` / `device_config` /
+- 重型/逃逸能力全部外移：`src/plugins/`（12 个）——
+  `numpy_accel` / `deps_probe` / `ffi` / `interop` / `device_config` /
   `tree_sitter_backends` / `tree_sitter_cext` / `parallel_parser` /
-  `toolchain_llvm` / `toolchain_msvc` / `toolchain_signature` / `legacy_mir_vm`。
+  `toolchain_llvm` / `toolchain_msvc` / `toolchain_signature`（`ffi_sdk` /
+  `legacy_mir_vm` 于阶段 22b 孤儿清算确认全仓零引用后删除）。
   核心解析单线程确定（`threading`/`concurrent.futures` 已移出 `src/parser.py`）。
 - **消除静默假成功**：外部工具链不可用 → 显式失败 + 诊断，不再 `mode:"simulated"`
   冒充成功（`src/compiler/llvm_hybrid.py`；原 `src/mbc/native_link.py` 已移出内核

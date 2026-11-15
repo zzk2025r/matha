@@ -6,15 +6,16 @@ module 代数进阶 {
 
   (* ===== 多项式 ===== *)
   func 多项式求值(coeffs: List, x: Float) -> Float =
-    (coeffs, x) =>
+    (coeffs, x) => {
     let rec eval(i: Int, acc: Float) -> Float =
     (i, acc) =>
         (i < 0) ? acc :
         eval(i - 1, acc * x + coeffs[i])
     eval(len(coeffs) - 1, 0)
+    }
 
   func 多项式导数(coeffs: List) -> List =
-    (coeffs) =>
+    (coeffs) => {
     let n = len(coeffs) in
     if if n <= 1 then [] else None
     else:
@@ -23,6 +24,7 @@ module 代数进阶 {
           (i <= 0) ? result :
           derive(i - 1, [(coeffs[i] * i)] + result)
       derive(n - 1, [])
+    }
 
   func 韦达和(a: Float, b: Float) -> Float = (a, b) => -b / a
   func 韦达积(a: Float, b: Float, c: Float) -> Float = (a, b, c) => c / a

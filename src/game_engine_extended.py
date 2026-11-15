@@ -1,4 +1,10 @@
-"""Matha 游戏引擎：完整 3D 渲染、物理、音频、动画。"""
+"""Matha 游戏引擎扩展：向量/矩阵数学 + 物理积分 + 场景簿记。
+
+能力边界（阶段 22a 假成功清算）：真实可用面——Vector3/Matrix4x4
+数学、物理体重力积分、场景资源登记（着色器/网格/材质/光源/骨骼）。
+凡需要 GPU 管线、真实碰撞系统、音频输出、动画文件加载的面一律
+显式拒绝，不再返回空帧缓冲 / 恒 None 射线 / 假 True。
+"""
 from __future__ import annotations
 
 import math
@@ -247,8 +253,7 @@ class Renderer:
         self.lights.append(light)
 
     def render(self, scene: list[Any]) -> Framebuffer:
-        fb = Framebuffer(width=self.width, height=self.height)
-        return fb
+        raise NotImplementedError("场景渲染需要真实 GPU 管线，未实现")
 
     def generate_mipmap(self, texture_id: str) -> None:
         used_by = next(
@@ -324,10 +329,10 @@ class PhysicsWorld:
 
     def ray_cast(self, origin: Vector3, direction: Vector3
                     ) -> dict[str, Any] | None:
-        return None
+        raise NotImplementedError("射线检测需要真实碰撞系统，未实现")
 
     def detect_collisions(self) -> list[tuple[int, int]]:
-        return []
+        raise NotImplementedError("碰撞检测需要真实碰撞系统，未实现")
 
 
 class AudioEngine:
@@ -344,13 +349,10 @@ class AudioEngine:
         self._playing = False
 
     def load_sound(self, path: str) -> dict[str, Any]:
-        source = {"path": path, "playing": False}
-        self._sources.append(source)
-        return source
+        raise NotImplementedError("音频文件加载需要解码后端，未实现")
 
     def play(self, source: dict[str, Any]) -> None:
-        source["playing"] = True
-        self._playing = True
+        raise NotImplementedError("音频播放需要真实输出设备，未实现")
 
     def pause(self) -> None:
         self._playing = False
@@ -382,8 +384,7 @@ class AnimationController:
         self._blend_tree: dict[str, Any] = {}
 
     def load_animation(self, name: str, path: str) -> bool:
-        self._animations[name] = {"path": path, "playing": False}
-        return True
+        raise NotImplementedError("动画文件加载需要真实加载器，未实现")
 
     def play(self, name: str) -> bool:
         if name in self._animations:
@@ -397,7 +398,7 @@ class AnimationController:
 
     def blend(self, name1: str, name2: str,
                  factor: float = 0.5) -> bool:
-        return True
+        raise NotImplementedError("动画混合需要真实动画系统，未实现")
 
     def add_skeleton(self, name: str,
                         joints: list[str]) -> bool:

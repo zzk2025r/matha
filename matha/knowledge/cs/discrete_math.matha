@@ -51,12 +51,13 @@ module 离散数学 {
     所有偶数(度列表)
 
   func 所有偶数(lst: List) -> Bool =
-    (lst) =>
+    (lst) => {
     let rec check(i: Int) -> Bool =
     (i) =>
         (i >= len(lst)) ? 真 :
         (lst[i] % 2 = 0) ? check(i + 1) : 假
     check(0)
+    }
 
   (* ===== 组合 ===== *)
   func 排列数(n: Int, r: Int) -> Int =

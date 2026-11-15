@@ -1,9 +1,11 @@
-"""Rust 构造子模式、Python for 解构、类型推断增强测试。"""
+"""Rust 构造子模式、Python for 解构、in/belongs 运行时测试。
+
+（类型推断增强段随 src/typesystem_v2.py 一起退役——阶段 22b 孤儿清算，
+该模块全仓零消费。）
+"""
 import sys
 sys.path.insert(0, r"D:\trae")
 from src.interp import interpret, MathaRuntimeError
-from src.typesystem_v2 import EnhancedTypeInferencer
-from src.parser import parse
 
 
 # ============================================================
@@ -149,80 +151,6 @@ def test_for_var_cleanup():
     out, _ = interpret(s)
     assert out[0] == 999, out  # 原始值恢复
     print("test_for_var_cleanup ✓")
-
-
-# ============================================================
-# 类型推断增强
-# ============================================================
-
-def test_type_tuple_expr():
-    """TupleExpr 类型推断"""
-    checker = EnhancedTypeInferencer()
-    ast = parse("(1, \"hello\", true)")
-    errors = checker.infer(ast)
-    error_count = len([e for e in errors if "error" in e.lower() or "Error" in e])
-    assert error_count == 0, errors
-    print("test_type_tuple_expr ✓")
-
-
-def test_type_slice_expr():
-    """SliceExpr 类型推断"""
-    checker = EnhancedTypeInferencer()
-    ast = parse("lst[0:2]")
-    errors = checker.infer(ast)
-    error_count = len([e for e in errors if "error" in e.lower() or "Error" in e])
-    assert error_count == 0, errors
-    print("test_type_slice_expr ✓")
-
-
-def test_type_belongs():
-    """Belongs (∈) 类型推断返回 Bool"""
-    checker = EnhancedTypeInferencer()
-    ast = parse("x ∈ lst")
-    errors = checker.infer(ast)
-    error_count = len([e for e in errors if "error" in e.lower() or "Error" in e])
-    assert error_count == 0, errors
-    print("test_type_belongs ✓")
-
-
-def test_type_typeof():
-    """TypeOfExpr 类型推断返回 String"""
-    checker = EnhancedTypeInferencer()
-    ast = parse("typeof(42)")
-    errors = checker.infer(ast)
-    error_count = len([e for e in errors if "error" in e.lower() or "Error" in e])
-    assert error_count == 0, errors
-    print("test_type_typeof ✓")
-
-
-def test_type_for_stmt():
-    """ForStmt 类型推断"""
-    checker = EnhancedTypeInferencer()
-    ast = parse("for x in items { result = x }")
-    errors = checker.infer(ast)
-    error_count = len([e for e in errors if "error" in e.lower() or "Error" in e])
-    assert error_count == 0, errors
-    print("test_type_for_stmt ✓")
-
-
-def test_type_if_else_stmt():
-    """IfElseStmt 类型推断"""
-    checker = EnhancedTypeInferencer()
-    ast = parse("if x > 0 { result = 1 } 否则 { result = 2 }")
-    errors = checker.infer(ast)
-    error_count = len([e for e in errors if "error" in e.lower() or "Error" in e])
-    assert error_count == 0, errors
-    print("test_type_if_else_stmt ✓")
-
-
-def test_type_switch_stmt():
-    """SwitchStmt 类型推断"""
-    checker = EnhancedTypeInferencer()
-    ast = parse("switch x { case 1: result = 10 default: result = 0 }")
-    errors = checker.infer(ast)
-    error_count = len([e for e in errors if "error" in e.lower() or "Error" in e])
-    assert error_count == 0, errors
-    print("test_type_switch_stmt ✓")
 
 
 # ============================================================

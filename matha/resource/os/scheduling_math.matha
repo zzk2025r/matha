@@ -6,20 +6,21 @@ module 调度算法 {
 
   (* ===== FCFS 先来先服务 ===== *)
   func FCFS周转时间(到达时间: List,  Burst时间: List) -> List =
-    (到达时间, Burst时间) =>
+    (到达时间, Burst时间) => {
     let n = len(到达时间) in
     let rec calc(i: Int, 当前时间: Float, result: List) -> List =
     (i, 当前时间, result) =>
         if if i >= n then result else None
         else:
           let start = if 当前时间 < 到达时间[i] then 到达时间[i] else 当前时间 in
-          let完成 = start + Burst时间[i] in
+          let 完成 = start + Burst时间[i] in
           calc(i + 1, 完成, result + [完成 - 到达时间[i]])
     calc(0, 0, [])
+    }
 
   (* ===== SJF 短作业优先（非抢占）===== *)
   func SJF周转时间(到达时间: List, Burst时间: List) -> List =
-    (到达时间, Burst时间) =>
+    (到达时间, Burst时间) => {
     let n = len(Burst时间) in
     let sorted_burst = 升序排序(Burst时间) in
     let rec calc_sjf(i: Int, 当前时间: Float, result: List) -> List =
@@ -27,9 +28,10 @@ module 调度算法 {
         if if i >= n then result else None
         else:
           let start = if 当前时间 < 到达时间[i] then 到达时间[i] else 当前时间 in
-          let完成 = start + sorted_burst[i] in
+          let 完成 = start + sorted_burst[i] in
           calc_sjf(i + 1, 完成, result + [完成 - 到达时间[i]])
     calc_sjf(0, 0, [])
+    }
 
   (* ===== RR 轮转调度 ===== *)
   func RR周转时间(到达时间: List, Burst时间: List, quantum: Int) -> List =
@@ -60,12 +62,13 @@ module 调度算法 {
     (周转时间列表) => 求和(周转时间列表) / len(周转时间列表)
 
   func 平均等待时间(周转时间列表: List, Burst时间列表: List) -> Float =
-    (周转时间列表, Burst时间列表) =>
+    (周转时间列表, Burst时间列表) => {
     let rec wait_sum(i: Int, acc: Float) -> Float =
     (i, acc) =>
         if if i >= len(周转时间列表) then acc else None
         else: wait_sum(i + 1, acc + 周转时间列表[i] - Burst时间列表[i])
     wait_sum(0, 0) / len(周转时间列表)
+    }
 
   func 调度开销(上下文切换次数: Int, 每次切换时间: Float) -> Float =
     (上下文切换次数, 每次切换时间) => 上下文切换次数 * 每次切换时间
@@ -75,14 +78,15 @@ module 调度算法 {
     (总执行时间 = 0) ? 0 : 有效工作时间 / 总执行时间
 
   func 求和(lst: List) -> Float =
-    (lst) =>
+    (lst) => {
     let rec s(i: Int, acc: Float) -> Float =
     (i, acc) => if i >= len(lst): acc else s(i + 1, acc + lst[i])
     s(0, 0)
+    }
 
   (* ===== 辅助：升序排序（selection sort）===== *)
   func 升序排序(lst: List) -> List =
-    (lst) =>
+    (lst) => {
     let n = len(lst) in
     let rec sort_helper(k: Int, arr: List) -> List =
     (k, arr) =>
@@ -92,10 +96,11 @@ module 调度算法 {
           let swapped = 交换元素(k, min_idx, arr) in
           sort_helper(k + 1, swapped)
     sort_helper(0, lst)
+    }
 
   (* ===== 辅助：找最小元素的索引 ===== *)
   func 找最小索引(start: Int, end_val: Int, arr: List) -> Int =
-    (start, end_val, arr) =>
+    (start, end_val, arr) => {
     let rec find_min(k: Int, best: Int) -> Int =
     (k, best) =>
         if if k >= end_val then best else None
@@ -103,10 +108,11 @@ module 调度算法 {
           let candidate = if arr[k] < arr[best] then k else best in
           find_min(k + 1, candidate)
     find_min(start + 1, start)
+    }
 
   (* ===== 辅助：交换列表位置 i 和 j 的元素 ===== *)
   func 交换元素(i: Int, j: Int, lst: List) -> List =
-    (i, j, lst) =>
+    (i, j, lst) => {
     let temp = lst[i] in
     let rec set_at(k: Int, result: List) -> List =
     (k, result) =>
@@ -115,4 +121,5 @@ module 调度算法 {
           let val = if k == i then lst[j] else if k == j then temp else lst[k] in
           set_at(k + 1, result + [val])
     set_at(0, [])
+    }
 }

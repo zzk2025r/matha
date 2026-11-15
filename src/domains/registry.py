@@ -91,13 +91,9 @@ class DomainRegistry:
             "description": "机器学习、深度学习、数据挖掘、统计分析",
             "module": "src.domains.ai_data_science",
             "functions": [
-                "sigmoid", "relu", "softmax", "cross_entropy",
-                "mse", "mae", "log_loss", "accuracy",
-                "linear_regression", "logistic_regression",
-                "gradient_descent", "adam_update",
-                "forward_prop", "backward_prop",
-                "relu_deriv", "sigmoid_deriv",
-                "dot_product", "matrix_mult", "transpose",
+                "sigmoid", "relu", "softmax", "cross_entropy", "mse", "mae",
+                "log_loss", "accuracy", "gradient_descent", "forward_prop", "backward_prop", "relu_deriv",
+                "sigmoid_deriv", "dot_product", "matrix_mult", "transpose",
             ],
             "constants": {
                 "LR": 0.001,        # 学习率默认值
@@ -113,12 +109,9 @@ class DomainRegistry:
             "description": "Web后端、API设计、数据库、架构模式",
             "module": "src.domains.software_app",
             "functions": [
-                "http_get", "http_post", "http_put", "http_delete",
-                "db_query", "db_insert", "db_update", "db_delete",
-                "jwt_decode", "jwt_encode", "bcrypt_hash",
-                "middleware_chain", "route_register",
-                "cache_get", "cache_set", "cache_invalidate",
-                "queue_enqueue", "queue_dequeue",
+                "http_get", "http_post", "http_put", "http_delete", "db_query", "db_insert",
+                "db_update", "db_delete", "jwt_decode", "jwt_encode", "bcrypt_hash", "cache_get",
+                "cache_set", "cache_invalidate", "queue_enqueue", "queue_dequeue",
             ],
             "constants": {
                 "DEFAULT_PORT": 8080,
@@ -153,12 +146,7 @@ class DomainRegistry:
             "display_name": "自动化与效率提升",
             "description": "工作流自动化、RPA、任务调度、数据处理管道",
             "module": "src.domains.automation",
-            "functions": [
-                "workflow_run", "task_schedule", "task_retry",
-                "pipeline_process", "pipeline_filter", "pipeline_map",
-                "file_watch", "auto_backup", "report_generate",
-                "cron_add", "cron_remove", "cron_list",
-            ],
+            "functions": [],
             "constants": {
                 "MAX_RETRIES": 3,
                 "RETRY_DELAY": 1.0,
@@ -172,14 +160,7 @@ class DomainRegistry:
             "display_name": "物联网与硬件控制",
             "description": "传感器、执行器、MQTT、边缘计算、物联网协议",
             "module": "src.domains.iot_hardware",
-            "functions": [
-                "mqtt_publish", "mqtt_subscribe", "mqtt_connect",
-                "sensor_read", "sensor_calibrate",
-                "actuator_control", "actuator_pwm",
-                "gpio_setup", "gpio_write", "gpio_read",
-                "i2c_read", "i2c_write", "spi_transfer",
-                "edge_compute", "ota_update",
-            ],
+            "functions": [],
             "constants": {
                 "MQTT_QOS": 1,
                 "SENSOR_SAMPLE_RATE": 100.0,
@@ -193,14 +174,7 @@ class DomainRegistry:
             "display_name": "底层系统与网络安全",
             "description": "操作系统、网络协议、加密、渗透测试",
             "module": "src.domains.os_network",
-            "functions": [
-                "syscall_exec", "syscall_read", "syscall_write",
-                "socket_bind", "socket_listen", "socket_accept",
-                "tcp_handshake", "tls_encrypt", "tls_decrypt",
-                "hash_md5", "hash_sha256", "hash_blake3",
-                "encrypt_aes", "decrypt_aes",
-                "packet_parse", "packet_construct",
-            ],
+            "functions": [],
             "constants": {
                 "PAGE_SIZE": 4096,
                 "TCP_PORT_MAX": 65535,
@@ -214,14 +188,7 @@ class DomainRegistry:
             "display_name": "区块链与Web3开发",
             "description": "智能合约、共识算法、加密钱包、DeFi",
             "module": "src.domains.blockchain",
-            "functions": [
-                "block_create", "block_verify", "chain_validate",
-                "hash_block", "merkle_root",
-                "sign_transaction", "verify_signature",
-                "poW_mine", "poS_validate",
-                "smart_contract_deploy", "smart_contract_call",
-                "token_transfer", "token_balance",
-            ],
+            "functions": [],
             "constants": {
                 "BLOCK_TIME": 12.0,
                 "DIFFICULTY_ADJUST": 2016,
@@ -235,14 +202,7 @@ class DomainRegistry:
             "display_name": "图形学与渲染技术",
             "description": "光线追踪、光栅化、着色器、3D变换",
             "module": "src.domains.graphics",
-            "functions": [
-                "ray_intersect", "ray_trace", "shade_phong",
-                "matrix_translate", "matrix_rotate", "matrix_scale",
-                "matrix_multiply", "matrix_invert",
-                "triangle_rasterize", "barycentric_interp",
-                "texture_sample", "normal_transform",
-                "project_perspective", "project_orthographic",
-            ],
+            "functions": [],
             "constants": {
                 "NEAR_PLANE": 0.1,
                 "FAR_PLANE": 1000.0,
@@ -256,14 +216,7 @@ class DomainRegistry:
             "display_name": "科学计算与高性能计算",
             "description": "并行计算、矩阵运算、数值方法、MPI/OpenMP",
             "module": "src.domains.hpc",
-            "functions": [
-                "matrix_mul", "matrix_add", "matrix_transpose",
-                "matrix_inverse", "matrix_det",
-                "gauss_elim", "gauss_seidel",
-                "laplace_solve", "wave_solve", "heat_solve",
-                "parallel_reduce", "parallel_scan",
-                "fft_parallel", "mpi_bcast", "mpi_send", "mpi_recv",
-            ],
+            "functions": [],
             "constants": {
                 "DEFAULT_THREADS": 4,
                 "BLOCK_SIZE": 64,
@@ -278,12 +231,7 @@ class DomainRegistry:
             "description": "定价模型、风险管理、回测引擎、风险分析",
             "module": "src.domains.fintech",
             "functions": [
-                "black_scholes", "binomial_option",
-                "black_scholes_greeks",
-                "var_calculate", "cvar_calculate",
-                "portfolio_optimize", "夏普比率",
-                "backtest_strategy", "monte_carlo_pricer",
-                "yield_curve", "duration_convexity",
+                "夏普比率",
             ],
             "constants": {
                 "RISK_FREE_RATE": 0.03,
@@ -298,14 +246,7 @@ class DomainRegistry:
             "display_name": "自动驾驶与具身智能",
             "description": "感知、规划、控制、SLAM、运动学",
             "module": "src.domains.autonomous",
-            "functions": [
-                "pid_control", "pure_pursuit", "mpc_predict",
-                "kalman_filter", "ekf_update", "ukf_predict",
-                "kinematics_bicycle", "kinematics_invert",
-                "path_planning_rrt", "path_planning_a_star",
-                "obstacle_detect", "lane_detect",
-                "lidar_point_cloud", "camera_projection",
-            ],
+            "functions": [],
             "constants": {
                 "MAX_SPEED": 30.0,
                 "LOOKAHEAD_DIST": 5.0,
@@ -319,13 +260,7 @@ class DomainRegistry:
             "display_name": "航空航天与国防工业",
             "description": "轨道力学、弹道、飞行控制、遥测",
             "module": "src.domains.aerospace",
-            "functions": [
-                "orbit_period", "orbit_velocity", "hohmann_transfer",
-                "ballistic_trajectory", "drag_force",
-                "thrust_required", "delta_v_budget",
-                "attitude_control", "gain_scheduler",
-                "telemetry_decode", "error_correction",
-            ],
+            "functions": [],
             "constants": {
                 "GM_EARTH": 3.986e14,
                 "R_EARTH": 6371000.0,
@@ -339,13 +274,7 @@ class DomainRegistry:
             "display_name": "生物计算与合成生物学",
             "description": "基因组学、蛋白质折叠、代谢网络、系统生物学",
             "module": "src.domains.bio_computing",
-            "functions": [
-                "dna_translate", "rna_fold", "gc_content",
-                "protein_mass", "isoelectric_point",
-                "metabolic_flux", "enzyme_kinetics",
-                "population_growth", "epidemic_sir",
-                "phylogenetic_distance",
-            ],
+            "functions": [],
             "constants": {
                 "NUCLEOTIDE_MW": 330.0,
                 "AMINO_ACID_AVG_MW": 110.0,
@@ -359,14 +288,7 @@ class DomainRegistry:
             "display_name": "极客硬件与逆向工程",
             "description": "固件提取、协议分析、芯片调试、信号捕获",
             "module": "src.domains.hardware_reverse",
-            "functions": [
-                "crc32_calculate", "crc16_calculate",
-                "bit_field_extract", "bit_field_insert",
-                "uart_decode", "uart_encode",
-                "spi_parse", "i2c_scan",
-                "jtag_read", "jtag_write",
-                "firmware_extract", "entropy_check",
-            ],
+            "functions": [],
             "constants": {
                 "UART_BAUD": 115200,
                 "SPI_CLK_MAX": 1000000.0,
@@ -380,13 +302,7 @@ class DomainRegistry:
             "display_name": "空间计算与元宇宙基础设施",
             "description": "3D空间定位、空间锚点、数字孪生、空间索引",
             "module": "src.domains.spatial_meta",
-            "functions": [
-                "spatial_anchor_create", "spatial_anchor_get",
-                "point_cloud_register", "mesh_reconstruct",
-                "occlusion_query", "depth_estimate",
-                "spatial_hash", "octree_build", "octree_query",
-                "digital_twin_sync",
-            ],
+            "functions": [],
             "constants": {
                 "ANCHOR_MAX": 1024,
                 "POINT_CLOUD_RES": 0.01,
@@ -400,13 +316,7 @@ class DomainRegistry:
             "display_name": "算法交易与高频撮合引擎",
             "description": "订单簿、撮合引擎、做市策略、延迟优化",
             "module": "src.domains.algo_trading",
-            "functions": [
-                "orderbook_add", "orderbook_remove", "orderbook_match",
-                "orderbook_depth", "orderbook_spread",
-                "market_order", "limit_order", "stop_order",
-                "maker_fee", "taker_fee",
-                "latency_estimate", "throughput_max",
-            ],
+            "functions": [],
             "constants": {
                 "MATCH_INTERVAL_NS": 100,
                 "MAX_ORDER_DEPTH": 1000,
@@ -420,13 +330,7 @@ class DomainRegistry:
             "display_name": "计算化学与材料科学",
             "description": "分子模拟、量子化学、晶体学、分子动力学",
             "module": "src.domains.comp_chem",
-            "functions": [
-                "hartree_fock_iter", "dft_energy",
-                "molecular_orbital", "homo_lumo_gap",
-                "radial_distribution", "pair_correlation",
-                "lattice_energy", "bragg_angle",
-                "reaction_rate", "activation_energy",
-            ],
+            "functions": [],
             "constants": {
                 "PLANCK": 6.62607015e-34,
                 "AVOGADRO": 6.02214076e23,
@@ -440,14 +344,7 @@ class DomainRegistry:
             "display_name": "绿色科技",
             "description": "可再生能源、碳排放、能效优化、环境建模",
             "module": "src.domains.green_tech",
-            "functions": [
-                "solar_irradiance", "wind_power",
-                "battery_capacity", "battery_soc",
-                "carbon_footprint", "emission_factor",
-                "energy_return_on_investment",
-                "thermodynamic_efficiency",
-                "hydro_flow", "hydro_power",
-            ],
+            "functions": [],
             "constants": {
                 "SOLAR_CONSTANT": 1361.0,
                 "CO2_PER_KWH": 0.475,
@@ -461,13 +358,7 @@ class DomainRegistry:
             "display_name": "元宇宙与虚拟世界的建筑师",
             "description": "虚拟世界构建、经济系统、社交引擎、内容创作",
             "module": "src.domains.metaverse_arch",
-            "functions": [
-                "world_create", "world_spawn", "world_destroy",
-                "avatar_move", "avatar_animate",
-                "economy_issue", "economy_transfer", "economy_balance",
-                "social_connect", "social_message",
-                "asset_mint", "asset_transfer", "assetBurn",
-            ],
+            "functions": [],
             "constants": {
                 "MAX_AVALARS_PER_WORLD": 10000,
                 "TICK_RATE": 30.0,
@@ -481,13 +372,7 @@ class DomainRegistry:
             "display_name": "数字版权与去中心化信任",
             "description": "数字版权管理、零知识证明、信任网络、NFT",
             "module": "src.domains.digital_rights",
-            "functions": [
-                "drm_license", "drm_verify",
-                "zk_proof_generate", "zk_proof_verify",
-                "nft_mint", "nft_transfer", "nft_metadata",
-                "trust_score", "reputation_accumulate",
-                " watermark_embed", "watermark_extract",
-            ],
+            "functions": [],
             "constants": {
                 "ZK_CIRCUIT_SIZE": 1024,
                 "NFT_GAS_LIMIT": 150000,
@@ -502,11 +387,7 @@ class DomainRegistry:
             "description": "生成艺术、数据可视化、交互艺术、创意计算",
             "module": "src.domains.creative_coding",
             "functions": [
-                "noise_2d", "noise_3d", "perlin_noise",
-                "flow_field", "particle_system", "attraction_force",
-                "fractal_dim", "mandelbrot_iter", "julius_iter",
-                "color_hsl_to_rgb", "color_lerp",
-                "audio_reactive", "visual_midi",
+                "particle_system", "color_hsl_to_rgb", "color_lerp", "audio_reactive", "visual_midi",
             ],
             "constants": {
                 "CANVAS_WIDTH": 800,
@@ -522,10 +403,7 @@ class DomainRegistry:
             "description": "进化计算、遗传算法、神经进化、自动编程",
             "module": "src.domains.genetic_algo",
             "functions": [
-                "ga_evolve", "ga_select", "ga_crossover", "ga_mutate",
-                "fitness_eval", "elitism_preserve",
-                "neuro_evolve", "nesma_estimate",
-                "code_generation", "code_optimizer",
+                "ga_evolve", "elitism_preserve", "neuro_evolve", "nesma_estimate", "code_generation", "code_optimizer",
                 "hyperparameter_search",
             ],
             "constants": {
@@ -562,11 +440,7 @@ class DomainRegistry:
             "description": "混沌系统、分形几何、吸引子、非线性动力学",
             "module": "src.domains.chaos_fractal",
             "functions": [
-                "lorenz_attractor", "lorenz_deriv",
-                "henon_map", "logistic_map",
-                "mandelbrot_set", "julia_set",
-                "fractal_dimension", "lyapunov_exp",
-                "bifurcation_diagram", "attractor_draw",
+                "lorenz_attractor", "lorenz_deriv", "henon_map", "logistic_map", "mandelbrot_set", "julia_set",
             ],
             "constants": {
                 "LORENZ_SIGMA": 10.0,

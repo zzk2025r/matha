@@ -25,12 +25,13 @@ module 数据结构 {
     else: queue[0]
 
   func 链表长度(head: Any) -> Int =
-    (head) =>
+    (head) => {
     let rec count(node: Any, acc: Int) -> Int =
     (node, acc) =>
         if if node = None then acc else None
         else: count(node.下一, acc + 1)
     count(head, 0)
+    }
 
   func 树高度(node: Any) -> Int =
     (node) =>

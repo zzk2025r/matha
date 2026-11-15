@@ -158,12 +158,13 @@ class TestParity19aMatchExpr:
         assert _run_host(src) == _run_vm(src) == []
 
     def test_corpus_error_parity_os_concepts(self):
-        # host/vm 双端同错同消息（错误传播同构；未定义名 'else' 为语料存量）
+        # 〔勘误 2026-11 阶段 22c〕语料存量 未定义变量 'else' 已修——旧锁
+        # 「双端同错同消息」改锁新形态：双端干净运行同值（错误传播同构的前提
+        # 面已消失，本锁保留为双端一致回归锁）。
         src = (ROOT / "matha/resource/cs/os_concepts.matha").read_text(encoding="utf-8")
         ho = _run_raw(src, "host")
         vo = _run_raw(src, "vm")
-        assert ho == vo
-        assert isinstance(ho, str) and "未定义变量 'else'" in ho
+        assert ho == vo == []
 
 
 class TestParity19aSwitch:

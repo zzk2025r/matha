@@ -56,16 +56,17 @@ module 内存管理 {
 
   (* ===== 内存分配算法 ===== *)
   func 首次适配(可用块: List, 大小: Int) -> Int =
-    (可用块, 大小) =>
+    (可用块, 大小) => {
     let rec find(i: Int) -> Int =
     (i) =>
         if if i >= len(可用块) then -1 else None
         elif 可用块[i] >= 大小: i
         else: find(i + 1)
     find(0)
+    }
 
   func 最佳适配(可用块: List, 大小: Int) -> Int =
-    (可用块, 大小) =>
+    (可用块, 大小) => {
     let rec find(i: Int, best: Int, best_size: Int) -> Int =
     (i, best, best_size) =>
         if if i >= len(可用块) then best else None
@@ -73,9 +74,10 @@ module 内存管理 {
           find(i + 1, i, 可用块[i])
         else: find(i + 1, best, best_size)
     find(0, -1, 999999)
+    }
 
   func 循环首次适配(可用块: List, 大小: Int, 上次位置: Int) -> Int =
-    (可用块, 大小, 上次位置) =>
+    (可用块, 大小, 上次位置) => {
     let n = len(可用块) in
     let rec find(i: Int, start: Int) -> Int =
     (i, start) =>
@@ -83,10 +85,11 @@ module 内存管理 {
         elif 可用块[i] >= 大小: i
         else: find(i + 1, start)
     find(上次位置 % n, 上次位置 % n)
+    }
 
   (* ===== 淘汰算法 ===== *)
   func FIFO缺页次数(页面序列: List, 帧数: Int) -> Int =
-    (页面序列, 帧数) =>
+    (页面序列, 帧数) => {
     let n = len(页面序列) in
     let rec count(i: Int, 帧列表: List, 缺页数: Int) -> Int =
     (i, 帧列表, 缺页数) =>
@@ -98,13 +101,15 @@ module 内存管理 {
         else:
           count(i + 1, 帧列表[1:] + [页面序列[i]], 缺页数 + 1)
     count(0, [], 0)
+    }
 
   func 帧列表包含(帧列表: List, 页面: Int) -> Bool =
-    (帧列表, 页面) =>
+    (帧列表, 页面) => {
     let rec check(i: Int) -> Bool =
     (i) =>
         if if i >= len(帧列表) then 假 else None
         elif 帧列表[i] = 页面: 真
         else: check(i + 1)
     check(0)
+    }
 }

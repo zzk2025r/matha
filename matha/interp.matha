@@ -281,9 +281,24 @@ module 解释器 {
     stmt.类型 = "定义运算符" ?
       (* 自定义运算符声明：解析期已登记，运行期无副作用（对齐宿主 NOOP） *)
       (None, env) :
+    stmt.类型 = "二元运算" ?
+      语句位赋值或表达式(stmt, env) :
     (* 其余节点视为表达式语句（顶层裸表达式，如 是偶数(10)） *)
     let v = 求值(stmt, env) in
     (v, env)
+
+  (* 语句位裸赋值（宽容消解，对齐宿主 interp.py _exec_stmt 与 VM _emit_block
+     is_assign 面）：`名 = 表达式` 在语句位求值右侧并绑定（已有名更新、
+     未有名新绑定）；其余二元表达式语句仍按表达式求值。 *)
+  func 语句位赋值或表达式(stmt: Dict, env: List) -> (Value, List) =
+    if stmt.运算符 = "=" and stmt.左.类型 = "变量" then
+      let v = 求值(stmt.右, env) in
+      if 环境包含(env, stmt.左.名) then
+        (v, 更新绑定值(env, stmt.左.名, v))
+      else
+        (v, 绑定环境(env, stmt.左.名, v))
+    else
+      let v = 求值(stmt, env) in (v, env)
 
   (* 函数定义执行：求值 lambda 闭包并绑定（支持自递归与互递归）。
      参数存于 decl.参数（Variable 节点列表），decl.体 为裸函数体，

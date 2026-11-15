@@ -68,8 +68,8 @@ func gdt_data_desc() -> String = """
 
 func prot_mode_switch_steps() -> Int = 8
 func a20_port() -> Int = 0x92
-func code_seg_sel() -> Int = 0x08    ; 代码段选择子
-func data_seg_sel() -> Int = 0x10    ; 数据段选择子
+func code_seg_sel() -> Int = 0x08    (* 代码段选择子 *)
+func data_seg_sel() -> Int = 0x10    (* 数据段选择子 *)
 
 (* ── IDT 描述符 ──────────────────────────────────────────── *)
 (*
@@ -83,7 +83,7 @@ func data_seg_sel() -> Int = 0x10    ; 数据段选择子
 
 func idt_entry_size() -> Int = 8
 func idt_total_entries() -> Int = 256
-func idt_total_size() -> Int = idt_entry_size() * idt_total_entries()  ; 2048 字节
+func idt_total_size() -> Int = idt_entry_size() * idt_total_entries()  (* 2048 字节 *)
 
 (* 中断门：DPL=0，用于内核异常 *)
 func idt_interrupt_gate() -> Int = 0x8E
@@ -93,4 +93,4 @@ func idt_syscall_gate() -> Int = 0xEF
 
 (* ── 引导扇区签名检查 ───────────────────────────────────── *)
 func is_valid_boot_signature(sig: Int) -> Bool = (sig) => sig == 0xAA55
-func boot_sector_checksum() -> Int = 0  ; MBR 不要求校验和
+func boot_sector_checksum() -> Int = 0  (* MBR 不要求校验和 *)

@@ -550,8 +550,8 @@ def _cmd_absorb(args) -> int:
     try:
         result = entry()
         print(f"  调用结果: {result}")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  调用失败: {type(e).__name__}: {e}")
     return 0
 
 
@@ -1201,12 +1201,8 @@ def _load_domain(plugin_name: str) -> int:
         return 1
     n = int(entry["symbols"] or 0)
     if not n:
-        try:
-            from src.plugin_api import adapt_module
-            n = len(adapt_module(mod).exports())
-        except Exception:
-            n = len(getattr(mod, "__all__", []) or
-                    [k for k in vars(mod) if not k.startswith("_")])
+        n = len(getattr(mod, "__all__", []) or
+                [k for k in vars(mod) if not k.startswith("_")])
     print(f"已加载领域插件 {plugin_name}（{entry['display_name']}）："
           f"导出符号 {n} 个")
     return 0
@@ -1593,11 +1589,12 @@ def _cmd_device_driver(args) -> int:
     ssd.write_blocks(0, b"\x00" * 512)
     reg.register(ssd)
     nic = create_nic_device()
-    nic.send(b"ping")
     reg.register(nic)
+    smart = ssd.smart()
     print(f"已注册驱动: {', '.join(reg.list_drivers())}")
     print(f"USB 设备数: {len(usb.enumerate())} (地址 {addr})")
-    print(f"SMART: {ssd.smart()['health']}% 健康")
+    print(f"SMART: 读 {smart['read_ops']} 写 {smart['write_ops']}"
+          f" 修剪 {smart['trimmed_blocks']}")
     return 0
 
 

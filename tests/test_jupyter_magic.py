@@ -72,13 +72,20 @@ class TestExecuteCore:
         assert "未执行" in out
 
     def test_mir_is_display_only(self, offline, capsys, monkeypatch):
-        """execute_mir/compile_mir 不得再被 magic 调用（历史断点防回归）。"""
-        import src.compiler.ir as ir
+        """execute_mir/compile_mir 不得再被 magic 调用（历史断点防回归）。
+
+        src/compiler/ir.py 已删（阶段 22b 孤儿清算）；这里向 sys.modules 注入
+        假模块哨兵——若 magic 重新引入 MIR 执行链并调用它，哨兵立即炸。
+        """
+        import sys
+        import types
 
         def boom(*a, **k):
             raise AssertionError("MIR 执行链不应被调用")
-        monkeypatch.setattr(ir, "execute_mir", boom)
-        monkeypatch.setattr(ir, "compile_mir", boom)
+        fake_ir = types.ModuleType("src.compiler.ir")
+        fake_ir.execute_mir = boom
+        fake_ir.compile_mir = boom
+        monkeypatch.setitem(sys.modules, "src.compiler.ir", fake_ir)
         assert MathaMagics(None).execute("计算 3 加 5") == 8
         out = capsys.readouterr().out
         assert "MIR 预览（仅展示，不参与执行）" in out

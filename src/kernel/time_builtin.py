@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import calendar
 import datetime
+import sys
 import time
 
 # ============================================================
@@ -231,8 +232,9 @@ def run_pending_tasks() -> list[str]:
             try:
                 task["callback"]()
                 executed.append(task["name"])
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"定时任务 {task['name']} 执行失败: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
             task["next_run"] = current + task["interval"]
     return executed
 

@@ -2246,6 +2246,17 @@ class Interpreter:
                 self.trace.append(f"# {stmt.text}")
                 if self.debug:
                     self._log(logging.DEBUG, f"ForeignDecl: #{stmt.text}")
+        elif isinstance(stmt, ast.BinaryOp) and stmt.op == "=" and isinstance(stmt.left, ast.Variable):
+            # 语句位裸赋值（宽容消解，对齐 VM _emit_block is_assign 面）：
+            # parser 在 lambda 体/块内把 `名 = 表达式` 产为 BinaryOp("=")
+            # 比较（非 Binding），解释面此前走 _eval_binary 按相等比较
+            # 求值 → 读未绑定名报 MathaUndefinedNameError，而 VM 编译面
+            # 按槽位赋值（首现即声明）。对齐：语句位求值右侧并绑定。
+            # 块尾留值位不经本分支（_eval_block_value 对末条走 _eval，
+            # 仍为相等比较），边界同 VM `is_assign and not (last and leave_last)`。
+            val = self._eval(stmt.right)
+            self.env[stmt.left.name] = val
+            self._sync_matha_env(stmt.left.name, val)
         elif isinstance(stmt, dict):
             self._exec_dict_stmt(stmt)
         else:

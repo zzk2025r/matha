@@ -55,7 +55,7 @@ func fork_overhead_cycles(tsc_mhz: Int) -> Float =
 (* ── 进程调度器滴答开销 ──────────────────────────────────── *)
 (* 典型滴答率：100Hz → 10ms/tick *)
 func scheduler_tick_latency_us(tsc_mhz: Int) -> Float =
-    (tsc_mhz) => 10.0  ; 固定 10μs（调度器自身开销）
+    (tsc_mhz) => 10.0  (* 固定 10μs（调度器自身开销） *)
 
 (* ── 最大吞吐任务数 ──────────────────────────────────────── *)
 (* 基于上下文切换开销估算 *)
