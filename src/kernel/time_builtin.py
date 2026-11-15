@@ -275,25 +275,40 @@ def _ignore_unit(func):
 
 
 def _register_time(builtins: dict) -> None:
-    builtins["获取时间戳"] = _ignore_unit(now)
-    builtins["获取日期"] = _ignore_unit(today)
-    builtins["获取日期时间"] = _ignore_unit(now_datetime)
-    builtins["获取UTC时间"] = _ignore_unit(now_utc)
-    builtins["格式化时间"] = _curry2(format_time)
-    builtins["解析时间"] = _curry2(parse_time)
-    builtins["当前时间"] = _ignore_unit(time_str)
-    builtins["当前日期"] = _ignore_unit(date_str)
-    builtins["日期加减"] = _curry2(date_add)
-    builtins["日期差"] = _curry2(date_diff)
-    builtins["星期几"] = day_of_week
-    builtins["闰年判断"] = is_leap_year
-    builtins["月份天数"] = _curry2(days_in_month)
-    builtins["创建计时器"] = _ignore_unit(make_timer)
-    builtins["时区偏移"] = timezone_offset
-    builtins["时区转换"] = _curry3(convert_timezone)
-    builtins["注册任务"] = _curry3(schedule_task)
-    builtins["执行待办"] = _ignore_unit(run_pending_tasks)
-    builtins["待办列表"] = _ignore_unit(get_pending_tasks)
+    builtins.update(make_time_builtins())
+
+
+def make_time_builtins() -> dict:
+    """构造全部 19 个时间内建（``_register_time`` 的物化面）。
+
+    阶段 23a：注册点改为懒物化（src/kernel/lazy_kernel.py LazyKernelFn），
+    程序用到任一时间符号时才 import 本模块。清单与
+    lazy_kernel.TIME_BUILTIN_NAMES 单源对齐，漂移在此显式暴露。
+    """
+    from src.kernel.lazy_kernel import TIME_BUILTIN_NAMES
+    b: dict = {
+        "获取时间戳": _ignore_unit(now),
+        "获取日期": _ignore_unit(today),
+        "获取日期时间": _ignore_unit(now_datetime),
+        "获取UTC时间": _ignore_unit(now_utc),
+        "格式化时间": _curry2(format_time),
+        "解析时间": _curry2(parse_time),
+        "当前时间": _ignore_unit(time_str),
+        "当前日期": _ignore_unit(date_str),
+        "日期加减": _curry2(date_add),
+        "日期差": _curry2(date_diff),
+        "星期几": day_of_week,
+        "闰年判断": is_leap_year,
+        "月份天数": _curry2(days_in_month),
+        "创建计时器": _ignore_unit(make_timer),
+        "时区偏移": timezone_offset,
+        "时区转换": _curry3(convert_timezone),
+        "注册任务": _curry3(schedule_task),
+        "执行待办": _ignore_unit(run_pending_tasks),
+        "待办列表": _ignore_unit(get_pending_tasks),
+    }
+    assert set(b) == set(TIME_BUILTIN_NAMES), "时间符号清单与 lazy_kernel 漂移"
+    return b
 
 
 def _time_symtab_names() -> list[str]:

@@ -45,7 +45,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
@@ -60,8 +59,9 @@ from src import features
 from src import formula_schema as _fs
 from src import text_encoding as _te
 from src.interp_ic import InlineCache
-from src.kernel import terminal_builtin as _tb
 from src.kernel.errors import MathaRuntimeError, MathaUndefinedNameError  # noqa: F401  （再导出，保持旧 import 路径可用）
+from src.kernel.lazy_kernel import (JSON_BUILTIN_NAMES, TERMINAL_BUILTIN_NAMES,
+                                    lazy_section)
 
 logger = logging.getLogger("matha.interp")
 # 模块默认挂 NullHandler，避免「No handlers could be found」警告；
@@ -549,8 +549,22 @@ def builtin_token(ttype):
     return with_text
 
 
-# 解析_JSON：双面单一实现（VM _default_builtins 同源），实现见 src/kernel/json_builtin.py
-from src.kernel.json_builtin import parse_json as builtin_parse_json
+# 解析_JSON：双面单一实现（VM _default_builtins 同源），实现见 src/kernel/json_builtin.py。
+# 阶段 23a：注册面改为惰性占位（LazyKernelFn），首调才 import json_builtin（json 链 ≈38ms）。
+def _load_json_builtin():
+    from src.kernel.json_builtin import parse_json
+    return {"解析_JSON": parse_json}
+
+
+_JSON_LAZY = lazy_section(_load_json_builtin, JSON_BUILTIN_NAMES)
+
+
+def _load_terminal_builtins():
+    from src.kernel import terminal_builtin as _tb
+    return _tb.make_terminal_builtins(lambda fn: _curry_module(2, fn))
+
+
+_TERMINAL_LAZY = lazy_section(_load_terminal_builtins, TERMINAL_BUILTIN_NAMES)
 
 
 # ============================================================
@@ -817,6 +831,38 @@ def _matha_dir() -> Path:
     return Path(__file__).parent.parent / "matha"
 
 
+def _package_module_source(module_name: str) -> str | None:
+    """从已安装扩展包（.matha_packages/<包>/）解析模块源码；无命中返回 None。
+
+    阶段 23d 扩展包能力：`use 包名` / 加载模块(包名) 在 matha/ 目录未命中时
+    回退到已安装包。入口文件优先取包 manifest.json 的 "entry" 字段，缺省
+    试 <包名>.matha；manifest 标记 "enabled": false 的包如实跳过（扩展启停）。
+    纯回退路径——matha/ 内置模块解析不受影响。
+    """
+    import json as _json
+
+    for root in (Path.cwd(), Path(__file__).parent.parent):
+        pkg_dir = root / ".matha_packages" / module_name
+        manifest = pkg_dir / "manifest.json"
+        if not pkg_dir.is_dir():
+            continue
+        entry: str | None = None
+        if manifest.exists():
+            try:
+                meta = _json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                meta = {}
+            if meta.get("enabled") is False:
+                return None
+            entry = meta.get("entry")
+        for cand in ([entry] if entry else []) + [f"{module_name}.matha"]:
+            if cand:
+                p = pkg_dir / cand
+                if p.exists():
+                    return p.read_text(encoding="utf-8")
+    return None
+
+
 def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
     """读取 .matha 源文件。"""
     d = matha_dir or _matha_dir()
@@ -847,6 +893,9 @@ def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
     else:
         path = d / f"{module_name}.matha"
     if not path.exists():
+        packaged = _package_module_source(module_name)
+        if packaged is not None:
+            return packaged
         raise FileNotFoundError(f"找不到 Matha 模块: {path}")
     return path.read_text(encoding="utf-8")
 
@@ -951,7 +1000,7 @@ BUILTINS: dict[str, object] = {
     "list": builtin_list,
     "token": builtin_token,
     "type_of": builtin_type_of,
-    "解析_JSON": builtin_parse_json,
+    "解析_JSON": _JSON_LAZY["解析_JSON"],
     # 类型转换
     "float": float,
     "int": int,
@@ -967,19 +1016,10 @@ BUILTINS: dict[str, object] = {
     "追加文件": _curry_module(2, lambda path, content: builtin_append_file(path, content)),
     "读JSON文件": builtin_parse_json_file,
     "写JSON文件": _curry_module(2, lambda path, data: builtin_write_json_file(path, data)),
-    # 终端 I/O 原语（阶段 12b；实现下沉 src/kernel/terminal_builtin.py，VM 同批注册）
-    "输入行": _tb.read_line,
-    "管道输入": _tb.pipe_feed,
-    "管道结束": _tb.pipe_end,
-    "列目录": _tb.list_dir,
-    "建目录": _tb.make_dir,
-    "删除路径": _tb.delete_path,
-    "复制文件": _curry_module(2, _tb.copy_file),
-    "改名": _curry_module(2, _tb.rename_path),
-    "当前目录": _tb.get_cwd,
-    "换目录": _tb.change_dir,
-    "路径存在": _tb.path_exists,
-    "执行Matha": _tb.run_matha,
+    # 终端 I/O 原语（阶段 12b；实现下沉 src/kernel/terminal_builtin.py，VM 同批注册。
+    # 阶段 23a：惰性占位（LazyKernelFn），首调才 import（shutil 链 ≈69ms 冷导入）；
+    # 柯里化形状保持宿主 _curry_module lambda 链不变）
+    **_TERMINAL_LAZY,
     "调试Matha": builtin_debug_matha,
     # 字符串操作
     "截取": builtin_字符串截取,
@@ -3962,6 +4002,7 @@ class Interpreter:
     def _normalize_spec(self, spec):
         """规格归一化：字符串 → 解析为 JSON 列表；列表原样返回。"""
         if isinstance(spec, str):
+            import json
             try:
                 return json.loads(spec)
             except Exception:

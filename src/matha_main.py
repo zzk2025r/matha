@@ -60,6 +60,7 @@ def _harden_std_streams() -> None:
 
 def _cmd_repl(args) -> int:
     """启动交互式 REPL。--llm 启用 nl 模式 LLM 链（等价 MATHA_REPL_LLM=1）。"""
+    _sync_extension_state()
     if getattr(args, 'llm', False):
         os.environ["MATHA_REPL_LLM"] = "1"
     from src.repl import MathaREPL
@@ -151,6 +152,7 @@ def _cmd_eval(args) -> int:
     旧实现直接调 `src.interp.interpret`（树走式解释器）。它现在只剩
     `--backend=legacy-interp` 一个显式诊断入口，默认路径不经过它。
     """
+    _sync_extension_state()
     from src.kernel import exec_api
     try:
         outputs, err = exec_api.run_expr_checked(args.expr,
@@ -177,6 +179,7 @@ def _cmd_run(args) -> int:
     Python 解释器）：两条路径语义不一致且降级无声，因此改为只认门面主线；
     自举实现仍由 `tests/test_mbc_bootstrap.py` 直接驱动，不再当 CLI 默认后端。
     """
+    _sync_extension_state()
     from src.kernel import exec_api
     backend = getattr(args, 'backend', 'vm')
     try:
@@ -757,12 +760,96 @@ def _cmd_scene(args) -> int:
 def _cmd_features(args) -> int:
     """列出已知特性开关及其当前状态（灰度推进时查询）。"""
     from src import features as ft
-    known = ["SCOPED_BLOCKS"]
-    _print_utf8("特性开关（默认关闭，可用 --feature NAME[=on|off] 切换）:")
-    for name in known:
-        state = "on" if ft.is_enabled(name) else "off"
-        _print_utf8(f"  {name:20} {state}")
+    _print_utf8("特性开关（--feature NAME[=on|off] 切换；默认值随开关而异）:")
+    for name, state in ft.known_states().items():
+        _print_utf8(f"  {name:20} {'on' if state else 'off'}")
     return 0
+
+
+# ============================================================
+# ext — 统一扩展管理（阶段 23d：四面同一协议：版本/启停/来源）
+# ============================================================
+
+_EXT_KINDS_CN = {
+    "domain": "领域插件", "feature": "特性开关",
+    "package": "扩展包", "terminal": "终端扩展",
+}
+
+
+def _sync_extension_state() -> None:
+    """run/eval/repl 执行前把扩展启停状态真实落到各面（无状态文件 = 零开销）。"""
+    from src.extensions import apply_state
+    apply_state()
+
+
+def _cmd_ext(args) -> int:
+    """matha ext — 扩展枚举/启停/安装/升级统一入口。"""
+    action = args.ext_action
+    if action == "list":
+        from src.extensions import list_extensions
+        rows = list_extensions()
+        if not rows:
+            _print_utf8("（未发现任何扩展）")
+            return 0
+        _print_utf8(f"{'种类':6} {'名称':24} {'版本':8} {'状态':4} 来源 · 详情")
+        for e in rows:
+            mark = "on " if e.enabled else "off"
+            _print_utf8(f"{_EXT_KINDS_CN[e.kind]:6} {e.name:24} {e.version:8} "
+                        f"[{mark}] {e.source} · {e.detail}")
+        counts = {}
+        for e in rows:
+            counts[e.kind] = counts.get(e.kind, 0) + 1
+        _print_utf8("  合计 " + "，".join(
+            f"{_EXT_KINDS_CN[k]} {counts[k]}" for k in
+            ("domain", "feature", "package", "terminal") if k in counts))
+        return 0
+
+    if action in ("enable", "disable"):
+        from src.extensions import set_enabled
+        on = action == "enable"
+        set_enabled(args.kind, args.name, on)
+        _print_utf8(f"{_EXT_KINDS_CN[args.kind]} {args.name} 已{'启用' if on else '停用'}"
+                    f"（下次 run/eval/repl 生效）")
+        return 0
+
+    if action == "install":
+        from src.extensions import install_local, install_registry
+        spec = str(args.spec)
+        if spec.endswith(".msh"):
+            # 终端扩展：注册进 extensions.json（terminal 条目，文件留在原地）
+            from pathlib import Path as _P
+            from src.extensions import set_enabled
+            f = _P(spec)
+            if not f.is_file():
+                _print_utf8(f"安装失败: 找不到终端扩展文件 {spec}", file=sys.stderr)
+                return 1
+            set_enabled("terminal", f.name, True)
+            _print_utf8(f"终端扩展 {f.name} 已注册（REPL 自启动执行）")
+            return 0
+        if "/" in spec or "\\" in spec or Path(spec).is_dir():
+            meta = install_local(spec)
+            _print_utf8(f"扩展包 {meta['name']}=={meta['version']} 已安装"
+                        f"（入口 {meta['entry']}；use {meta['name']} 即可加载）")
+        else:
+            deps = install_registry(spec)
+            _print_utf8(f"注册表包 {spec} 已安装（依赖: {', '.join(deps) or '无'}）")
+        return 0
+
+    if action == "upgrade":
+        from src.extensions import upgrade_package
+        try:
+            result = upgrade_package(str(args.name))
+        except RuntimeError as e:
+            _print_utf8(f"升级失败: {e}", file=sys.stderr)
+            return 1
+        if len(result) == 4:
+            _print_utf8(f"{result[0]}: {result[3]}（版本 {result[1]}）")
+        else:
+            _print_utf8(f"{result[0]} {result[1]} -> {result[3]}")
+        return 0
+
+    _print_utf8(f"未知 ext 子命令: {action}", file=sys.stderr)
+    return 1
 
 
 def _apply_cli_features(args) -> None:
@@ -784,9 +871,8 @@ def _apply_cli_features(args) -> None:
         features.set_feature(name, on)
 
 
-def main(argv=None) -> int:
-    """统一 CLI 入口。"""
-    _harden_std_streams()
+def _build_parser() -> argparse.ArgumentParser:
+    """构建统一 CLI 解析器（23d 命令表化：注册点收敛，main 只做解析分发）。"""
     parser = argparse.ArgumentParser(
         prog="matha",
         description="Matha 数学编程语言 — 解释器 + 编译器 + 调试工具",
@@ -904,6 +990,21 @@ def main(argv=None) -> int:
 
     # info
     sub.add_parser("info", help="工具链信息").set_defaults(func=_cmd_info)
+
+    # ext — 统一扩展管理（23d：domain/feature/package/terminal 四面同一协议）
+    p_ext = sub.add_parser("ext", help="扩展管理：枚举/启停/安装/升级")
+    ext_sub = p_ext.add_subparsers(dest="ext_action", required=True)
+    ext_sub.add_parser("list", help="枚举全部扩展（四面，含版本/启停/来源）")
+    for act, hlp in (("enable", "启用一个扩展"), ("disable", "停用一个扩展")):
+        q = ext_sub.add_parser(act, help=hlp)
+        q.add_argument("kind", choices=["domain", "feature", "terminal"],
+                       help="扩展种类（package 走包 manifest，不在此面）")
+        q.add_argument("name", help="扩展名")
+    q = ext_sub.add_parser("install", help="安装扩展包或注册终端扩展")
+    q.add_argument("spec", help="本地目录（.matha 包）| 注册表名 | .msh 文件")
+    q = ext_sub.add_parser("upgrade", help="升级一个扩展包")
+    q.add_argument("name", help="已安装的包名")
+    p_ext.set_defaults(func=_cmd_ext)
 
     # debug
     p_debug = sub.add_parser("debug", help="调试模式（显示 AST/MIR）")
@@ -1050,38 +1151,50 @@ def main(argv=None) -> int:
     for _name, _plugin in _dom_cmds.items():
         sub.add_parser(_name, help=f"加载领域插件 {_plugin}").set_defaults(
             func=lambda a, _p=_plugin: _load_domain(_p))
-    # 有真实 src 后端的命令：接线到既有模块（替换旧「就绪」假成功存根）
-    sub.add_parser("typecheck", help="类型检查（type_system）").set_defaults(func=_cmd_typecheck)
-    sub.add_parser("mtest", help="测试框架自检（test_framework）").set_defaults(func=_cmd_mtest)
-    sub.add_parser("format", help="代码格式化（code_formatter）").set_defaults(func=_cmd_format)
-    sub.add_parser("async", help="异步运行时自检（async_runtime）").set_defaults(func=_cmd_async)
-    sub.add_parser("doc", help="文档生成（tools.doc_generator）").set_defaults(func=_cmd_doc)
-    sub.add_parser("viz", help="数据可视化仪表盘（visualizer）").set_defaults(func=_cmd_viz)
-    sub.add_parser("compile2", help="编译工具").set_defaults(func=_cmd_compile2)
-    sub.add_parser("http", help="HTTP服务器工具").set_defaults(func=_cmd_http)
-    sub.add_parser("git", help="版本控制工具").set_defaults(func=_cmd_git)
-    sub.add_parser("bld", help="构建系统工具").set_defaults(func=_cmd_build2)
-    sub.add_parser("db", help="数据库引擎工具").set_defaults(func=_cmd_db)
-    sub.add_parser("ai", help="AI框架工具").set_defaults(func=_cmd_ai)
-    sub.add_parser("compiler", help="编译器后端工具").set_defaults(func=_cmd_compiler)
-    sub.add_parser("game2", help="游戏引擎工具").set_defaults(func=_cmd_game2)
-    sub.add_parser("sec2", help="安全工具").set_defaults(func=_cmd_sec)
-    sub.add_parser("ui", help="UI框架工具").set_defaults(func=_cmd_ui)
-    sub.add_parser("devops", help="DevOps工具").set_defaults(func=_cmd_devops)
-    sub.add_parser("blockchain2", help="区块链工具").set_defaults(func=_cmd_blockchain2)
-    sub.add_parser("media", help="音视频工具").set_defaults(func=_cmd_media)
-    sub.add_parser("geo2", help="地理空间工具").set_defaults(func=_cmd_geo2)
-    sub.add_parser("robot2", help="机器人工具").set_defaults(func=_cmd_robot2)
-    sub.add_parser("devdrv", help="设备驱动框架").set_defaults(func=_cmd_device_driver)
-    sub.add_parser("osapi", help="操作系统API").set_defaults(func=_cmd_os_api)
-    sub.add_parser("gfxdrv", help="图形驱动").set_defaults(func=_cmd_graphics_driver)
-    sub.add_parser("crypto", help="密码学基座").set_defaults(func=_cmd_crypto)
-    sub.add_parser("mathbase", help="数学基座").set_defaults(func=_cmd_math_foundation)
-    sub.add_parser("browser", help="浏览器内核").set_defaults(func=_cmd_browser)
-    sub.add_parser("mobile", help="移动SDK").set_defaults(func=_cmd_mobile)
-    sub.add_parser("law", help="计算法学").set_defaults(func=_cmd_law)
-    sub.add_parser("geek", help="极客安全").set_defaults(func=_cmd_geek)
+    # 有真实 src 后端的命令：命令表统一注册（23d 结构优化——与 _dom_cmds 同形，
+    # 注册点收敛到一张表，新增命令 = 加一行）
+    _tool_cmds = {
+        "typecheck": ("类型检查（type_system）", _cmd_typecheck),
+        "mtest": ("测试框架自检（test_framework）", _cmd_mtest),
+        "format": ("代码格式化（code_formatter）", _cmd_format),
+        "async": ("异步运行时自检（async_runtime）", _cmd_async),
+        "doc": ("文档生成（tools.doc_generator）", _cmd_doc),
+        "viz": ("数据可视化仪表盘（visualizer）", _cmd_viz),
+        "compile2": ("编译工具", _cmd_compile2),
+        "http": ("HTTP服务器工具", _cmd_http),
+        "git": ("版本控制工具", _cmd_git),
+        "bld": ("构建系统工具", _cmd_build2),
+        "db": ("数据库引擎工具", _cmd_db),
+        "ai": ("AI框架工具", _cmd_ai),
+        "compiler": ("编译器后端工具", _cmd_compiler),
+        "game2": ("游戏引擎工具", _cmd_game2),
+        "sec2": ("安全工具", _cmd_sec),
+        "ui": ("UI框架工具", _cmd_ui),
+        "devops": ("DevOps工具", _cmd_devops),
+        "blockchain2": ("区块链工具", _cmd_blockchain2),
+        "media": ("音视频工具", _cmd_media),
+        "geo2": ("地理空间工具", _cmd_geo2),
+        "robot2": ("机器人工具", _cmd_robot2),
+        "devdrv": ("设备驱动框架", _cmd_device_driver),
+        "osapi": ("操作系统API", _cmd_os_api),
+        "gfxdrv": ("图形驱动", _cmd_graphics_driver),
+        "crypto": ("密码学基座", _cmd_crypto),
+        "mathbase": ("数学基座", _cmd_math_foundation),
+        "browser": ("浏览器内核", _cmd_browser),
+        "mobile": ("移动SDK", _cmd_mobile),
+        "law": ("计算法学", _cmd_law),
+        "geek": ("极客安全", _cmd_geek),
+    }
+    for _name, (_h, _fn) in _tool_cmds.items():
+        sub.add_parser(_name, help=_h).set_defaults(func=_fn)
 
+    return parser
+
+
+def main(argv=None) -> int:
+    """统一 CLI 入口。"""
+    _harden_std_streams()
+    parser = _build_parser()
     args = parser.parse_args(argv)
     _apply_cli_features(args)
     if getattr(args, "list_domains", False):

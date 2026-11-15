@@ -39,12 +39,17 @@ def register_kernel_builtins(builtins: dict[str, object] | None = None) -> dict[
     from src.kernel.math_builtin import _register_math_builtins, _register_unit_builtins
     from src.kernel.regex_builtin import _register_regex_builtins
     from src.kernel.file_builtin import _register_file
-    from src.kernel.time_builtin import _register_time
+    from src.kernel.lazy_kernel import TIME_BUILTIN_NAMES, lazy_section
 
     _register_math_builtins(builtins)
     _register_unit_builtins(builtins)
     _register_regex_builtins(builtins)
-    _register_time(builtins)
+    # 时间内建懒物化（阶段 23a）：同名占位进表（清单类语义零变化），
+    # 首调才 import time_builtin（calendar/locale 链 ≈35ms 冷导入）。
+    def _load_time():
+        from src.kernel.time_builtin import make_time_builtins
+        return make_time_builtins()
+    builtins.update(lazy_section(_load_time, TIME_BUILTIN_NAMES))
     _register_file(builtins)
     return builtins
 

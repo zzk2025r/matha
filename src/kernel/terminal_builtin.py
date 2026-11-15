@@ -144,3 +144,30 @@ def run_matha(source) -> list:
     if error is not None:
         raise RuntimeError(f"执行Matha 错误: {error}")
     return list(outputs)
+
+
+def make_terminal_builtins(curry2) -> dict:
+    """构造 12 个终端 I/O 内建（宿主/VM 注册面的物化面）。
+
+    阶段 23a：注册点改为懒物化（src/kernel/lazy_kernel.py LazyKernelFn），
+    程序用到任一终端符号时才 import 本模块。柯里化形状由调用方注入——
+    宿主传 ``lambda fn: _curry_module(2, fn)``（lambda 链），VM 传 ``_curry2``
+    （_Curried 类），物化值与旧急切值逐字节同形状。
+    """
+    from src.kernel.lazy_kernel import TERMINAL_BUILTIN_NAMES
+    b: dict = {
+        "输入行": read_line,
+        "管道输入": pipe_feed,
+        "管道结束": pipe_end,
+        "列目录": list_dir,
+        "建目录": make_dir,
+        "删除路径": delete_path,
+        "复制文件": curry2(copy_file),
+        "改名": curry2(rename_path),
+        "当前目录": get_cwd,
+        "换目录": change_dir,
+        "路径存在": path_exists,
+        "执行Matha": run_matha,
+    }
+    assert set(b) == set(TERMINAL_BUILTIN_NAMES), "终端符号清单与 lazy_kernel 漂移"
+    return b

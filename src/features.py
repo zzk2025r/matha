@@ -13,6 +13,8 @@
 已知开关：
   - ``SCOPED_BLOCKS``：`{ }` 代码块作为**语句上下文**——块内 `名 = 值` 解析为绑定，
     且块（作为 lambda 体时）拥有独立子作用域，从而原生支持多语句函数体与循环。
+  - ``PARSE_CACHE``：进程内解析缓存（按「源码 + 开关状态 + 自定义运算符版本」
+    命中 LRU，上限 32 条），默认关闭。
 """
 from __future__ import annotations
 
@@ -22,6 +24,27 @@ _TRUE = frozenset({"1", "true", "yes", "on", "y", "t"})
 _FALSE = frozenset({"0", "false", "no", "off", "n", "f", ""})
 
 _overrides: dict[str, bool] = {}
+
+
+#: 全部已知开关 → 默认值（单源；matha features 查询面与此对齐——旧形态只列
+#: SCOPED_BLOCKS，STACK_ENGINE/INLINE_CACHE 存在却不出现在查询面，属诚实化缺口）
+DEFAULTS = {"SCOPED_BLOCKS": False, "STACK_ENGINE": False, "INLINE_CACHE": True,
+            "PARSE_CACHE": False}
+KNOWN_FEATURES = tuple(DEFAULTS)
+
+
+def known_states() -> dict[str, bool]:
+    """全部已知开关的当前状态（各用自己的默认值，供 matha features 查询面）。"""
+    return {name: is_enabled(name, default=default) for name, default in DEFAULTS.items()}
+
+
+def state_tuple() -> tuple:
+    """全部已知开关的已解析状态快照（供解析缓存等按输入取键的调用方）。
+
+    解析输出只受这些开关影响（custom_ops 注册表另见 ``custom_ops.version``）；
+    未知名的进程内覆盖不改变解析形态，故不入键。
+    """
+    return tuple(sorted(known_states().items()))
 
 
 def _env_key(name: str) -> str:
@@ -97,5 +120,10 @@ def inline_cache() -> bool:
     return is_enabled("INLINE_CACHE", default=True)
 
 
-__all__ = ["is_enabled", "set_feature", "clear_feature", "scoped_blocks",
-           "stack_engine", "inline_cache"]
+def parse_cache() -> bool:
+    """PARSE_CACHE：进程内解析缓存（键=源码+开关状态+自定义运算符版本，默认关闭）。"""
+    return is_enabled("PARSE_CACHE", default=False)
+
+
+__all__ = ["KNOWN_FEATURES", "known_states", "state_tuple", "is_enabled", "set_feature",
+           "clear_feature", "scoped_blocks", "stack_engine", "inline_cache", "parse_cache"]

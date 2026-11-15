@@ -69,9 +69,42 @@ def _autorun(run) -> None:
     不允许隐式杀掉用户会话）。无自启动文件时静默跳过。
     """
     p = Path.cwd() / AUTORUN_FILE
-    if not p.is_file():
+    if p.is_file():
+        _run_msh_lines(run, p.read_text(encoding="utf-8").splitlines(),
+                       prefix="自启动")
+    _autorun_extensions(run)
+
+
+def _autorun_extensions(run) -> None:
+    """统一扩展面（23d）：执行 .matha/extensions.json 里启用的 terminal 条目。
+
+    每个条目名 = 当前目录下相对路径（通常为 .msh 文件）；禁用条目跳过；
+    文件缺失如实打印后继续。仅 REPL 触发（-c / 批处理不注入扩展）。
+    """
+    from src.extensions import load_state
+
+    p = Path.cwd() / ".matha" / "extensions.json"
+    if not p.exists():
         return
-    for lineno, raw in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+    try:
+        state = load_state().get("state", {}).get("terminal", {})
+    except (OSError, ValueError, RuntimeError) as e:
+        print(f"自启动(扩展) 错误: {e}", flush=True)
+        return
+    for name, on in sorted(state.items()):
+        if not on or name == AUTORUN_FILE:
+            continue
+        f = Path.cwd() / name
+        if not f.is_file():
+            print(f"自启动(扩展) 错误: 找不到终端扩展文件 {name}", flush=True)
+            continue
+        _run_msh_lines(run, f.read_text(encoding="utf-8").splitlines(),
+                       prefix=f"自启动(扩展 {name})")
+
+
+def _run_msh_lines(run, lines, *, prefix: str) -> None:
+    """逐行执行 .msh 行（注释/空行跳过；错误如实打印后继续；退出标志忽略）。"""
+    for lineno, raw in enumerate(lines, 1):
         line = raw.rstrip()
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -79,10 +112,10 @@ def _autorun(run) -> None:
         try:
             result = run(line)
         except RuntimeError as e:
-            print(f"自启动(第 {lineno} 行) 错误: {e}", flush=True)
+            print(f"{prefix}(第 {lineno} 行) 错误: {e}", flush=True)
             continue
         except Exception as e:  # noqa: BLE001
-            print(f"自启动(第 {lineno} 行) 错误: {type(e).__name__}: {e}", flush=True)
+            print(f"{prefix}(第 {lineno} 行) 错误: {type(e).__name__}: {e}", flush=True)
             continue
         _emit(result)
 

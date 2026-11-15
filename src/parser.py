@@ -4502,9 +4502,30 @@ class Parser:
 # 便捷入口
 # ============================================================
 
+#: 解析缓存本体（仅 PARSE_CACHE 开启时写入；dict 保持插入序，最旧键先驱逐）
+_PARSE_CACHE_MAX = 32
+_PARSE_CACHE: dict[tuple, ast.Program] = {}
+
+
 def parse(source: str) -> ast.Program:
-    """解析 Matha 源码，返回 AST。"""
-    return Parser(source).parse()
+    """解析 Matha 源码，返回 AST。
+
+    `--feature PARSE_CACHE`（或进程内 set_feature）开启时走进程内 LRU 缓存
+    （上限 32 条，键 = 源码 + 开关状态 + 自定义运算符版本）。解析输出只由
+    这三者决定——AST 树本身被双面（解释面/编译面）只读消费、全仓核查无就地
+    改写（阶段 23c），故命中可安全共享同一棵树；任一输入变化即未命中。
+    """
+    if not features.parse_cache():
+        return Parser(source).parse()
+    key = (source, features.state_tuple(), custom_ops.version())
+    cached = _PARSE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    program = Parser(source).parse()
+    if len(_PARSE_CACHE) >= _PARSE_CACHE_MAX:
+        _PARSE_CACHE.pop(next(iter(_PARSE_CACHE)))
+    _PARSE_CACHE[key] = program
+    return program
 
 
 def parse_file(path: str) -> ast.Program:

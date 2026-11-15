@@ -30,15 +30,26 @@ class CustomOp:
 #: symbol → CustomOp
 REGISTRY: dict[str, CustomOp] = {}
 
+#: 注册表版本号（每次 register/clear 自增）——解析缓存键用它感知注册面变化，
+#: 避免 O(注册表) 的指纹计算。
+_version: int = 0
+
+
+def version() -> int:
+    """注册表当前版本号（单调递增；注册/清空都会 +1）。"""
+    return _version
+
 
 def register(symbol: str, precedence: int, assoc: str,
              handler: str | None = None) -> CustomOp:
     """注册（或覆盖）一个自定义运算符。"""
+    global _version
     if assoc not in ("left", "right"):
         raise ValueError(f"结合性应为 left 或 right，实际: {assoc!r}")
     op = CustomOp(symbol=symbol, precedence=precedence, assoc=assoc,
                   handler=handler)
     REGISTRY[symbol] = op
+    _version += 1
     return op
 
 
@@ -52,4 +63,6 @@ def is_custom_op(symbol: str) -> bool:
 
 def clear() -> None:
     """清空注册表（主要用于测试隔离）。"""
+    global _version
     REGISTRY.clear()
+    _version += 1

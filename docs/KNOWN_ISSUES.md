@@ -1671,6 +1671,64 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   src/interp.py 不计入 core 体量定义）；CHANGELOG 内核外工具插件 9→7
   （ffi_sdk/legacy_mir_vm 删除）；ast_vm_gap 快照重生成（语料修复 used_in 漂移
   按协议 `scripts/ast_vm_matrix.py --write`）；KNOWN_ISSUES 本条目 + 测试退役明细。
+- **2026-11 阶段 23 收官（臃肿/性能清算 + 结构收敛 + 统一扩展/升级系统；不删功能不删插件
+  硬约束下）**：用户拍板范围三件全选（性能：内建惰性化 + CLI 启动瘦身 + 解析缓存 opt-in；
+  结构：matha_main 命令表化；扩展：统一扩展协议 + `matha ext` CLI + 四面接入 + 用户扩展包）。
+  **23a 内建惰性化（Interpreter 构造瘦身）**：`src/kernel/lazy_kernel.py` 新增 LazyKernelFn
+  惰性跳板（注册即薄对象、首次调用才 import 对应 kernel 模块物化真实现），`src/interp.py`
+  模块级 BUILTINS 与 `src/mbc/vm.py::_default_builtins()` 的 终端/时间/JSON 三段内核内建改
+  lazy_section 注册（宿主面 BUILTINS 常驻段收缩——time 段仅存于 VM defaults 所用的
+  register_kernel_builtins，双面各自 lazy 全集不同属既定架构分工）；`callable()` 是双面唯一
+  的函数性判定位（自检/内建表扫描不改）。import 权重探针（`python -X importtime -c "import
+  src.interp"`，单轮）：全链 261ms→199ms。行为面零变化：惰性物化真值锁（VM 获取时间戳 /
+  宿主 解析_JSON）+ 旧锁 test_parse_json_single_source_both_faces 改锁 LazyKernelFn 形态 +
+  单参行为同值（勘误：23a 靶向跑时未察觉该旧锁，23d 回归面揪出，属惰性化的合法影子形态）。
+  **23b features 单源诚实化 + CLI 命令表化**：`src/features.py` DEFAULTS 单源
+  （SCOPED_BLOCKS/STACK_ENGINE/INLINE_CACHE/PARSE_CACHE——INLINE_CACHE 文档面与实际一致，
+  默认开，不再两处漂移），known_states() 单一读取口 + state_tuple()/parse_cache() 派生；
+  `src/custom_ops.py` 版本计数 version()（register/clear 递增）；`src/matha_main.py` 30 个
+  工具子命令收敛为 _tool_cmds 命令表循环注册 + 抽出 _build_parser()（main 只解析分发，
+  注册点单点；`tests/test_extension_system_phase23.py` 命令表 parity 锁）。
+  **23c 解析缓存 opt-in**：`src/parser.py::parse()` 加 PARSE_CACHE 特性开关（默认关），
+  LRU 32 条，键 = (source, features.state_tuple(), custom_ops.version())——AST 只读消费
+  （grep 证实无节点改写）故命中共享树安全；两个真实输入面（features 翻转 / custom_ops
+  注册）精确失效；默认路径零影响（开关关不进缓存分支）。探针级实测（单轮，非第六节量具
+  口径、不构成性能背书）：stdlib.matha 全文冷解析 112ms → 命中 0.05ms。
+  **23d 统一扩展/升级系统**：新模块 `src/extensions.py`（~340 行）单一协议——四类扩展
+  domain/feature/package/terminal 统一 ExtensionInfo（version/enabled/source/installed_at），
+  状态文件 `.matha/extensions.json`（protocol_version 1；损坏/降版本/无 state 键诚实拒绝）；
+  CLI `matha ext list/enable/disable/install/upgrade`（enable/disable 对 package 关闭——包
+  启停经自身 manifest 单源，见下）；apply_state 在 _cmd_run/_cmd_eval/_cmd_repl 执行前应用
+  （无状态文件零开销）。四面真启停（非表面）：①domain = PluginResolver.unregister / 公开
+  reload()（unregister 掉的插件经 reload 从清单找回）+ 幂等门 _manifest_has_plugin（清单内
+  但未注册 = 幂等跳过；清单外 = 诚实拒绝；exec_api 实测热力学停用后 输出(R_气体常数)
+  未定义）；②feature = set_feature 直通；③package = 写入包自身 manifest.json "enabled"
+  字段（单源），内核 use 回退 `_package_module_source` 读包 manifest（cwd + 仓库根
+  `.matha_packages/`，entry 取清单 "entry" 否则 `<名>.matha`）——停用包 use 诚实失败，
+  内核只读包内元数据不读 CLI 状态；④terminal = 状态文件 .msh 条目 REPL 启动自动执行
+  （`_autorun_extensions`，跳过 legacy 文件名，缺文件如实打印）+ legacy
+  matha_term_extensions.msh 原路径保留（_run_msh_lines 共享执行器）。install：目录（≥1
+  .matha，清单含 enabled/source/installed_at）或注册表包名（MathaPackage().install）；
+  upgrade：本地源重装按源版本判「已最新/old→new」。三锁 31 条
+  （`tests/test_extension_system_phase23.py`：features 单源 / LazyKernelFn 物化 / import
+  权重子进程锁（heavy: []）/ 缓存开关·命中·双输入面失效·LRU 上限·共享树 / 协议形状 /
+  状态校验 / apply_state 四面 / domain 真启停+幂等+未知拒绝 / package 真盘安装·use→42·
+  停用·内建优先·升级 / terminal 执行面 / CLI ext 全动作 / 命令表 parity / matha features
+  4 开关）。
+  **零扰动证明**（23c+23d 前后 164 语料 host/vm 双面 sweep）：1 差异 =
+  08_auto_optimize 对象地址（已登记良性工件）。
+  **登记不修两条（现状锁）**：①CLI 启动地板——python 启动 ~89ms + stdlib（logging
+  113ms，Python 3.14 固定成本）+ argparse + 子进程 spawn，探针实测 `matha features`
+  ~288ms / `run stdlib.matha` ~514ms / `eval` ~405ms，≤200ms 目标在当前解释器架构不可达
+  （native exe 是唯一出口，另立片；探针级实测非量具口径）；②终端 注册命令
+  matha_term_registry.txt（12e 引擎内注册表，matha/term_engine.matha 自读）不在 ext
+  统一面——引擎自身读 txt，ext 状态文件不拦截；登记范围边界，如需统一另立片。
+  **门禁 6801/6801**（首跑即净：tests 6698 + kernel_purity 14 + ast_vm_gap 11 + golden 39 +
+  dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。算术闭合：6770（22
+  收官）+ 31（23 三锁）= 6801。doc 同步：README 测试文件 142→143 + 新增 `matha ext`
+  用法节；ARCHITECTURE core_py_lines 32,287→32,439（+152 = 23a lazy_kernel 惰性面 +
+  interp/vm 注册改造 + 23b features 派生 + 23c parser 缓存 + custom_ops 版本 + 23d
+  extensions 协议模块 + matha_main 命令表化 + matha_term autorun 面）；KNOWN_ISSUES 本条目。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

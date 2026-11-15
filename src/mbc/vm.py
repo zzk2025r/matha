@@ -536,7 +536,8 @@ from src.kernel.file_builtin import (  # noqa: E402
     read_file as _builtin_read_file,
     write_file as _builtin_write_file,
 )
-from src.kernel.json_builtin import parse_json as _builtin_parse_json
+from src.kernel.lazy_kernel import (JSON_BUILTIN_NAMES, TERMINAL_BUILTIN_NAMES,
+                                    TIME_BUILTIN_NAMES, lazy_section)
 
 
 def _debug_matha_unavailable(_source=None) -> None:
@@ -548,29 +549,33 @@ def _debug_matha_unavailable(_source=None) -> None:
 
 
 def _default_builtins() -> dict:
-    """VM 内建：复用宿主 mathlib 注册的同一套数学/工具函数。"""
+    """VM 内建：复用宿主 mathlib 注册的同一套数学/工具函数。
+
+    阶段 23a：时间/终端/JSON 三节改为惰性占位（LazyKernelFn，首调才
+    import；合计 ≈140ms 冷导入在不用这些符号的程序上全免）。清单类语义
+    零变化（同名条目照常在表）；柯里化形状保持 VM _curry2（_Curried 类）。
+    """
     from src.kernel.math_builtin import _register_math_builtins
     from src.kernel.regex_builtin import _register_regex_builtins
-    from src.kernel.time_builtin import _register_time
-    from src.kernel import terminal_builtin as _tb
     b: dict = {}
     _register_math_builtins(b)
     _register_regex_builtins(b)
-    _register_time(b)
-    # 终端 I/O 原语（阶段 12b；与宿主 src.interp.BUILTINS 同批同名注册。
+    # 时间/终端/JSON 懒物化（阶段 23a；与宿主 src.interp 同批同名注册。
     # 调试Matha 需宿主解释器内部轨迹/环境快照——VM 侧显式拒绝，非静默降级）
-    b.setdefault("输入行", _tb.read_line)
-    b.setdefault("管道输入", _tb.pipe_feed)
-    b.setdefault("管道结束", _tb.pipe_end)
-    b.setdefault("列目录", _tb.list_dir)
-    b.setdefault("建目录", _tb.make_dir)
-    b.setdefault("删除路径", _tb.delete_path)
-    b.setdefault("复制文件", _curry2(_tb.copy_file))
-    b.setdefault("改名", _curry2(_tb.rename_path))
-    b.setdefault("当前目录", _tb.get_cwd)
-    b.setdefault("换目录", _tb.change_dir)
-    b.setdefault("路径存在", _tb.path_exists)
-    b.setdefault("执行Matha", _tb.run_matha)
+    def _load_time():
+        from src.kernel.time_builtin import make_time_builtins
+        return make_time_builtins()
+    b.update(lazy_section(_load_time, TIME_BUILTIN_NAMES))
+
+    def _load_terminal():
+        from src.kernel import terminal_builtin as _tb
+        return _tb.make_terminal_builtins(_curry2)
+    b.update(lazy_section(_load_terminal, TERMINAL_BUILTIN_NAMES))
+
+    def _load_json():
+        from src.kernel.json_builtin import parse_json
+        return {"解析_JSON": parse_json}
+    b.update(lazy_section(_load_json, JSON_BUILTIN_NAMES))
     b.setdefault("调试Matha", _debug_matha_unavailable)
     # 正则内建 `匹配` 与引导文件 matha/parser.matha 的顶层 `func 匹配` 同名：二者
     # 合入同一模块时后者会遮蔽前者。故额外暴露一个不冲突的别名，供 matha/vm.matha
@@ -590,7 +595,7 @@ def _default_builtins() -> dict:
     b.setdefault("chr", chr)
     b.setdefault("range", _curry2(_builtin_range))
     b.setdefault("type_of", _builtin_type_of)
-    b.setdefault("解析_JSON", _builtin_parse_json)
+    # 解析_JSON 已由上方 JSON 懒节注册（阶段 23a）
     # 柯里化的序列工具（Matha 代码以 get(xs)(i) / append(xs)(x) 形式调用）
     b.setdefault("get", _curry2(lambda c, i: c[i]))
     b.setdefault("slice", _curry3(lambda c, s, e: c[s:e]))

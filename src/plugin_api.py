@@ -343,6 +343,13 @@ class PluginResolver:
                 continue
             self.register(plugin)
 
+    def reload(self) -> None:
+        """重读清单并补注册缺失的插件（已注册的不动；register 幂等）。
+
+        扩展启停面的回位通道：unregister 掉的插件经本方法从清单找回。
+        """
+        self._load_manifest()
+
     # ---- 注册与查询（不触发 import）----
     def register(self, plugin: LegacyModulePlugin) -> None:
         if plugin.name in self._plugins:

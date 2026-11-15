@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 170（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 142（`tests/`）
+- **测试文件：** 143（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -140,6 +140,23 @@ REPL 启动自动执行当前目录 `matha_term_extensions.msh`（其中 `退出
 错误不落盘）；`升级 [包名]` 无参 = 本地检查，带名 = 真安装（真盘重写
 `.matha_packages/<包>/manifest.json` 并复核版本；本地目录升级不联网；
 `升级 解释器` 显式拒绝）。
+
+### matha ext（统一扩展管理，阶段 23）
+```bash
+matha ext list                              # 四面扩展一览（领域/特性/扩展包/终端）
+matha ext enable  domain thermo             # 启用一个扩展（domain|feature|terminal）
+matha ext disable domain thermo             # 停用一个扩展（下次 run/eval/repl 生效）
+matha ext install 目录/                     # 安装用户 .matha 扩展包（真复制进 .matha_packages/）
+matha ext install demo.msh                  # 注册终端扩展（REPL 自启动执行）
+matha ext install arithmetic                # 按内置注册表安装
+matha ext upgrade  包名                     # 升级一个扩展包（本地源重装 / 注册表升级）
+```
+
+四面同一协议（版本/启停/来源）：领域插件启停走 `PluginResolver`（停用 =
+`unregister`，符号真实不可用；启用 = 清单 `reload` 回位）；特性开关即
+`matha features` 四开关；扩展包启停写在包自己的 `manifest.json "enabled"`
+（`use 包名` 内核回退面如实尊重）；终端扩展条目持久化在
+`.matha/extensions.json`。安装的用户扩展包直接 `use 包名` 加载。
 
 ---
 

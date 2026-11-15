@@ -267,10 +267,19 @@ def test_cross_module_closure_carries_source_pool():
 
 
 def test_parse_json_single_source_both_faces():
-    """解析_JSON 双面同源：宿主 BUILTINS 与 VM defaults 注册同一实现。"""
-    assert BUILTINS["解析_JSON"] is parse_json
+    """解析_JSON 双面同源：宿主 BUILTINS 与 VM defaults 首调都解析到同一实现。
+
+    阶段 23a 起该符号注册为 LazyKernelFn（首调才 import json_builtin），
+    同源锁由「惰性跳板物化后 is 同一函数对象」承载，不再锁注册期身份。
+    """
+    host = BUILTINS["解析_JSON"]
     from src.mbc.vm import _default_builtins
-    assert _default_builtins()["解析_JSON"] is parse_json
+    vm_side = _default_builtins()["解析_JSON"]
+    assert type(host).__name__ == "LazyKernelFn"
+    assert type(vm_side).__name__ == "LazyKernelFn"
+    from src.kernel.json_builtin import parse_json
+    assert host('{"a": 1}') == parse_json('{"a": 1}') == {"a": 1}
+    assert vm_side('{"a": 1}') == {"a": 1}
 
 
 def test_library_list_read_remain_uncovered_boundary():
