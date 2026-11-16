@@ -753,6 +753,38 @@ def make_capability_runtime(runtime) -> dict[str, object]:
     return {"资源_加载": _资源_加载, "资源_成长": _资源_成长}
 
 
+def _simulation_module():
+    """simulation 领域模块的动态装入口（与 _capability_module 同构）。"""
+    plugin = get_resolver().plugin("simulation")
+    if plugin is None:
+        raise RuntimeError("simulation 插件未注册（领域清单缺失）")
+    return plugin.load_module()
+
+
+def make_simulation_runtime(runtime) -> dict[str, object]:
+    """建模仿真运行时胶水工厂（官方入口注入面）。
+
+    惰性跳板：构造零 import，首次调用才经 _simulation_module 装入
+    simulation 插件并物化真内建（仿真_欧拉/仿真_龙格库塔——导函数
+    回调绑定运行本体 invoke_value，宿主解释器与 VM 同名协议）。
+    单参透传（规格字典形态，无柯里化链）。
+    """
+    cache: dict[str, object] = {}
+
+    def _物化(name: str):
+        if not cache:
+            cache.update(_simulation_module().make_runtime(runtime))
+        return cache[name]
+
+    def _仿真_欧拉(spec):
+        return _物化("仿真_欧拉")(spec)
+
+    def _仿真_龙格库塔(spec):
+        return _物化("仿真_龙格库塔")(spec)
+
+    return {"仿真_欧拉": _仿真_欧拉, "仿真_龙格库塔": _仿真_龙格库塔}
+
+
 def make_module_loader(runtime) -> object:
     """use 编译面加载胶水工厂（官方入口注入面）。
 
@@ -772,6 +804,29 @@ def make_module_loader(runtime) -> object:
     return _加载模块
 
 
+def make_hotreload_runtime(runtime) -> dict[str, object]:
+    """热启动/热重载 运行时胶水工厂（阶段 24g，官方入口注入面）。
+
+    惰性跳板：构造零 import，首次调用才经 _capability_module 装入
+    capability 插件并物化真内建（热启动 mtime 快照装载 / 热重载变更
+    检测重合并进运行中 VM——globals 直接覆盖）。单参透传。
+    """
+    cache: dict[str, object] = {}
+
+    def _物化(name: str):
+        if not cache:
+            cache.update(_capability_module().make_hotreload_runtime(runtime))
+        return cache[name]
+
+    def _热启动(目标):
+        return _物化("热启动")(目标)
+
+    def _热重载(目标):
+        return _物化("热重载")(目标)
+
+    return {"热启动": _热启动, "热重载": _热重载}
+
+
 __all__ = [
     "PROTOCOL_VERSION",
     "MANIFEST_PATH",
@@ -783,5 +838,7 @@ __all__ = [
     "LazyBuiltinTable",
     "get_resolver",
     "make_capability_runtime",
+    "make_simulation_runtime",
     "make_module_loader",
+    "make_hotreload_runtime",
 ]

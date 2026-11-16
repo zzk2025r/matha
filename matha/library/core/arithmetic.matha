@@ -1,3 +1,4 @@
+module arithmetic {
 (* 资源库：核心算术 *)
 (* 保护隔离：只读，子文件通过 资源_加载 读取 *)
 
@@ -8,3 +9,4 @@ func 除(x: Int, y: Int) -> Float = (a, b) => a / b
 func 幂(x: Int, y: Int) -> Int = (a, b) => a ^ b
 func 平方(x: Int) -> Int = (x) => x * x
 func 立方(x: Int) -> Int = (x) => x * x * x
+}

@@ -290,6 +290,9 @@ class Library:
         """
         header = f"(* 资源库：{discipline} — {requirement} *)\n"
         header += "(* 自主成长生成：保护隔离 *)\n\n"
+        # 阶段 24a：新资源出生即带 module 声明（声明名 = 文件 stem），
+        # 可直接 `use <名>` 当代码加载；verbatim 包裹形态与既有资源一致。
+        header += f"module {name} {{\n"
 
         req = ''.join(requirement.split())
         while True:
@@ -302,7 +305,7 @@ class Library:
         body = self._TEMPLATES.get(req)
         if body is None:
             return None
-        return header + body
+        return header + body + "}\n"
 
     # ---------- 保护隔离检查 ----------
 

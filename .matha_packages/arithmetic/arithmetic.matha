@@ -1,0 +1,12 @@
+module arithmetic {
+(* 资源包：核心算术 —— 阶段 24a 坏包修复（原安装只有 manifest.json 无源码） *)
+(* 经 use arithmetic 加载；与资源库 core/arithmetic 同源同函数面 *)
+
+func 加(x: Int, y: Int) -> Int = (a, b) => a + b
+func 减(x: Int, y: Int) -> Int = (a, b) => a - b
+func 乘(x: Int, y: Int) -> Int = (a, b) => a * b
+func 除(x: Int, y: Int) -> Float = (a, b) => a / b
+func 幂(x: Int, y: Int) -> Int = (a, b) => a ^ b
+func 平方(x: Int) -> Int = (a) => a * a
+func 立方(x: Int) -> Int = (a) => a * a * a
+}

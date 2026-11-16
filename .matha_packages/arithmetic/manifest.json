@@ -1,8 +1,8 @@
 {
   "name": "arithmetic",
   "version": "0.1.0",
-  "dependencies": [
-    "arithmetic==0.1.0"
-  ],
+  "entry": "arithmetic.matha",
+  "description": "核心算术资源包（阶段 24a 修复：原安装只有 manifest 无源码的假成功包）",
+  "dependencies": [],
   "installed_at": 1786973663.7354724
 }

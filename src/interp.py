@@ -512,6 +512,24 @@ def _norm_output(v):
     return "<function>" if _is_matha_function(v) else v
 
 
+# 动态解析（阶段 24d）尾值声明形态：这些顶层声明是裸表达式，其值作为
+# 动态求值的返回值。与 VM 面 src.mbc.vm._DYNAMIC_VALUE_DECLS **逐项同值**
+# （host 判定分离尾裸表达式直接 _eval；VM 判定同一形态变换为哨兵函数）。
+# BinaryOp("=") 是语句位赋值形态，不属尾值（块尾留值位同 VM is_assign 边界）；
+# GlobalIdStmt/Output/Binding/LetBinding/控制流语句是语句语义 → 执行、返回 null。
+_DYNAMIC_VALUE_DECLS = (ast.BinaryOp, ast.UnaryOp, ast.IntegerLit, ast.FloatLit,
+                        ast.StringLit, ast.BoolLit, ast.ListLiteral,
+                        ast.DictLiteral, ast.Variable, ast.FuncApp,
+                        ast.IfExpr, ast.Lambda)
+
+
+def _is_dynamic_value_decl(decl) -> bool:
+    """顶层声明是否为动态解析的尾值形态（裸表达式）。"""
+    if isinstance(decl, ast.BinaryOp) and decl.op == "=":
+        return False
+    return isinstance(decl, _DYNAMIC_VALUE_DECLS)
+
+
 def builtin_type_of(v) -> str:
     """返回值类型名称（Matha 类型）。供 stdlib 与自举代码使用，
     避免 stdlib 自实现的 type_of 与 str 互相调用造成死循环。"""
@@ -831,6 +849,23 @@ def _matha_dir() -> Path:
     return Path(__file__).parent.parent / "matha"
 
 
+def _library_module_source(module_name: str) -> str | None:
+    """从资源库（matha/library/**）按文件 stem 递归解析模块源码；无命中 None。
+
+    阶段 24a 缺陷修复「资源库可以当代码使用/调用/编程」：全部资源文件带
+    module 声明（声明名 = 文件 stem；index.matha = 资源索引），可经
+    `use <stem>` 双面加载。解析序位于安装包之后——已安装扩展包可覆盖
+    同名内置资源（可升级语义）；停用包回退落到资源库内置面。
+    """
+    root = _matha_dir() / "library"
+    if not root.is_dir():
+        return None
+    for p in sorted(root.rglob("*.matha")):
+        if p.stem == module_name:
+            return p.read_text(encoding="utf-8")
+    return None
+
+
 def _package_module_source(module_name: str) -> str | None:
     """从已安装扩展包（.matha_packages/<包>/）解析模块源码；无命中返回 None。
 
@@ -863,29 +898,32 @@ def _package_module_source(module_name: str) -> str | None:
     return None
 
 
+#: 中文模块名 → 英文文件名映射（模块声明用中文，源文件用英文）
+_CN2FILE = {
+    "词法器": "lexer.matha",
+    "语法器": "parser.matha",
+    "标准库": "stdlib.matha",
+    "解释器": "interp.matha",
+    "虚拟机": "vm/matha_vm.matha",
+    "自举加载器": "bootstrap_matha.matha",
+    "编译器": "compiler_matha.matha",
+    "自然语言词法器": "nl_lexer.matha",
+    "自然语言句法器": "nl_parser.matha",
+    "自然语言执行器": "nl_engine.matha",
+    "用户词典": "nl_dict.matha",
+    "自然语言英语词法器": "nl_lexer_en.matha",
+    "自然语言英语句法器": "nl_parser_en.matha",
+    "自然语言英语执行器": "nl_engine_en.matha",
+    "终端词法器": "term_lexer.matha",
+    "终端句法器": "term_parser.matha",
+    "终端执行器": "term_engine.matha",
+    "资源索引": "library/index.matha",
+}
+
+
 def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
     """读取 .matha 源文件。"""
     d = matha_dir or _matha_dir()
-    # 中文模块名 → 英文文件名映射（模块声明用中文，源文件用英文）
-    _CN2FILE = {
-        "词法器": "lexer.matha",
-        "语法器": "parser.matha",
-        "标准库": "stdlib.matha",
-        "解释器": "interp.matha",
-        "虚拟机": "vm/matha_vm.matha",
-        "自举加载器": "bootstrap_matha.matha",
-        "编译器": "compiler_matha.matha",
-        "自然语言词法器": "nl_lexer.matha",
-        "自然语言句法器": "nl_parser.matha",
-        "自然语言执行器": "nl_engine.matha",
-        "用户词典": "nl_dict.matha",
-        "自然语言英语词法器": "nl_lexer_en.matha",
-        "自然语言英语句法器": "nl_parser_en.matha",
-        "自然语言英语执行器": "nl_engine_en.matha",
-        "终端词法器": "term_lexer.matha",
-        "终端句法器": "term_parser.matha",
-        "终端执行器": "term_engine.matha",
-    }
     if module_name == "运行时引擎":
         path = d / "runtime" / "matha_runtime.matha"
     elif module_name in _CN2FILE:
@@ -896,8 +934,92 @@ def _load_matha_source(module_name: str, matha_dir: Path | None = None) -> str:
         packaged = _package_module_source(module_name)
         if packaged is not None:
             return packaged
-        raise FileNotFoundError(f"找不到 Matha 模块: {path}")
+        library = _library_module_source(module_name)
+        if library is not None:
+            return library
+        raise FileNotFoundError(
+            f"找不到 Matha 模块: {module_name}"
+            f"（已查 matha/、.matha_packages/ 扩展包、matha/library/ 资源库）")
     return path.read_text(encoding="utf-8")
+
+
+def _matha_module_path(module_name: str, matha_dir: Path | None = None) -> Path | None:
+    """解析模块名 → 源文件路径（matha/ → 安装包 → 资源库）；未命中 None。
+
+    与 _load_matha_source 三级解析序逐位一致（含禁用包跳过语义）；
+    热启动 mtime 快照与热重载变更检测用。
+    """
+    d = matha_dir or _matha_dir()
+    if module_name == "运行时引擎":
+        path = d / "runtime" / "matha_runtime.matha"
+    elif module_name in _CN2FILE:
+        path = d / _CN2FILE[module_name]
+    else:
+        path = d / f"{module_name}.matha"
+    if path.exists():
+        return path
+    pkg = _package_module_path(module_name)
+    if pkg is not None:
+        return pkg
+    return _library_module_path(module_name)
+
+
+def _package_module_path(module_name: str) -> Path | None:
+    """已安装扩展包入口文件路径（与 _package_module_source 同解析序）。"""
+    import json as _json
+
+    for root in (Path.cwd(), Path(__file__).parent.parent):
+        pkg_dir = root / ".matha_packages" / module_name
+        manifest = pkg_dir / "manifest.json"
+        if not pkg_dir.is_dir():
+            continue
+        entry: str | None = None
+        if manifest.exists():
+            try:
+                meta = _json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                meta = {}
+            if meta.get("enabled") is False:
+                return None
+            entry = meta.get("entry")
+        for cand in ([entry] if entry else []) + [f"{module_name}.matha"]:
+            if cand:
+                p = pkg_dir / cand
+                if p.exists():
+                    return p
+    return None
+
+
+def _library_module_path(module_name: str) -> Path | None:
+    """资源库模块源文件路径（与 _library_module_source 同解析序）。"""
+    root = _matha_dir() / "library"
+    if not root.is_dir():
+        return None
+    for p in sorted(root.rglob("*.matha")):
+        if p.stem == module_name:
+            return p
+    return None
+
+
+def _hot_pair(target: str) -> tuple[str, Path | None]:
+    """热启动/热重载目标解析 → (源码文本, 可跟踪源文件路径或 None)。
+
+    目标可为 .matha 文件路径（存在即按路径装载，mtime 可跟踪）或模块名
+    （matha/ → 安装包 → 资源库 三级解析）；两级都未命中交给
+    _load_matha_source 抛 FileNotFoundError（路径 None = 纯文本面）。
+    """
+    p = Path(target)
+    if p.is_file():
+        return p.read_text(encoding="utf-8"), p
+    mp = _matha_module_path(target)
+    if mp is not None:
+        return mp.read_text(encoding="utf-8"), mp
+    return _load_matha_source(target), None
+
+
+#: 插件层公开名（dep_audit 禁止插件导入下划线名）；VM 面热启动/热重载胶水经此解析
+matha_module_path = _matha_module_path
+hot_reload_pair = _hot_pair
 
 
 #: 插件层公开名（dep_audit 禁止插件导入下划线名）；VM 面 use 胶水经此读源文件
@@ -1128,6 +1250,9 @@ class Interpreter:
         # use 加载中：True 时跳过被载模块的自测块（#：{ } MechUnit），
         # 与 VM 编译 use 模块不执行其自测代码对齐（阶段 18b）
         self._loading_module: bool = False
+        # 热启动快照（阶段 24g）：目标 → (源文件路径 str, mtime float|None)
+        # 热重载按 mtime 判断是否重装载；路径空串 = 纯文本面不可跟踪
+        self._hot_mtimes: dict[str, tuple[str, float | None]] = {}
         # 虚拟代码引擎（自动定义/自动注册）：由 MathaEngine/MathaSystem 接入
         self._virtual_registry = None
         # 自动自愈：None → 仅在接入虚拟注册表或 MATHA_AUTO_HEAL 时启用
@@ -1536,8 +1661,12 @@ class Interpreter:
                     if nm in self.env:
                         module_ns[nm] = self.env[nm]
                 self.modules[decl.name] = module_ns
-                # 将模块命名空间作为变量绑定到 env，支持 模块.函数 语法
-                self.env[decl.name] = module_ns
+                # 模块命名空间作为变量绑定到 env，支持 模块.函数 语法。
+                # 同名冲突（module X { func X }，资源_成长 生成的资源形态）
+                # 不绑定：平面函数可调用面优先，命名空间 dict 不得遮蔽它
+                # （VM 面编译器同规则，阶段 24a）。
+                if decl.name not in local_set:
+                    self.env[decl.name] = module_ns
         elif isinstance(decl, ast.Binding):
             # 顶层绑定（如 inc = (x) => x + 1）写入全局 env，
             # 使 lambda 变量在各段内可见，与 func 定义行为一致。
@@ -3690,6 +3819,57 @@ class Interpreter:
             raise RuntimeError("自然语言执行英语：加载 自然语言英语执行器 模块失败")
         return self._call_func_or_closure(self.funcs["NL英语执行"], [sentence])
 
+    def _b_dynamic_eval(self, source: str):
+        """内建 动态解析(源码串)（阶段 24d）：语言级动态求值。
+
+        解析源码并在**当前解释器环境**执行：绑定/函数/副作用持久（与 VM 面
+        `_make_dynamic_eval` 共享全局作用域同语义）；尾裸表达式的值作为
+        返回值，无尾裸表达式返回 null。与 执行Matha 的区别：共享当前环境
+        （可读写既有变量、动态定义函数）且返回值——执行Matha 是进程隔离
+        全新运行。源码非文本显式拒绝；解析/运行错误如实上抛。
+        """
+        if not isinstance(source, str):
+            raise MathaRuntimeError(
+                f"动态解析: 需要文本源码，得到 {self._fmt(source)}")
+        from src.parser import parse
+        prog = parse(source)
+        decls = list(prog.decls)
+        tail = None
+        if decls and _is_dynamic_value_decl(decls[-1]):
+            tail = decls[-1]
+            decls = decls[:-1]
+        self._log(logging.INFO,
+                  f"动态解析: {len(decls)} 声明 + 尾值={tail is not None}")
+        # 与 run() 同序：注册声明 → 延迟调用收集 → 执行（都在当前环境）
+        for decl in decls:
+            self._register(decl)
+        self._deferred_calls = set()
+        self._collect_deferred_calls(decls, self._deferred_calls, ())
+        self._exec_with_deferreds(decls, self._deferred_calls, ())
+        if tail is not None:
+            return self._eval(tail)
+        return None
+
+    def _b_sim_euler(self, spec):
+        """内建 仿真_欧拉(规格)（阶段 24e）：欧拉法数值积分。
+
+        委托 src.domains.simulation 纯数值核心；导函数每步经本解释器
+        invoke_value 回调（宿主闭包元组自带捕获环境）。与 VM 注入面
+        （make_simulation_runtime → 同名 make_runtime）同语义。
+        """
+        from src.domains.simulation import integrate_euler
+        return integrate_euler(spec, self)
+
+    def _b_sim_rk4(self, spec):
+        """内建 仿真_龙格库塔(规格)（阶段 24e）：四阶龙格-库塔数值积分。"""
+        from src.domains.simulation import integrate_rk4
+        return integrate_rk4(spec, self)
+
+    def _b_mcu(self, op: str, spec):
+        """单片机内建统一入口（阶段 24f）：委托 src.domains.mcu.dispatch。"""
+        from src.domains import mcu
+        return mcu.dispatch(op, spec)
+
     def _b_hybrid_translate(self, source: str, target_lang: str) -> list:
         """内建 转译语言(源码, 目标语言名)。双向语言转译。"""
         from src.hybrid_compiler import HybridCompiler
@@ -3799,6 +3979,21 @@ class Interpreter:
         b["自然语言执行"] = self._curry(1, self._b_nl_run)
         # 自然语言执行英语内建（阶段 8d：独立命名，委托纯 Matha 英语 NL 执行链）
         b["自然语言执行英语"] = self._curry(1, self._b_nl_run_en)
+        # 动态解析内建（阶段 24d：语言级动态求值——当前环境解析+执行，
+        # 尾裸表达式值返回；与 VM 面 _make_dynamic_eval 同语义）
+        b["动态解析"] = self._curry(1, self._b_dynamic_eval)
+        # 建模仿真内建（阶段 24e：欧拉/RK4 数值积分——导函数经
+        # invoke_value 双面协议回调 Matha 函数，与 VM 注入面同语义）
+        b["仿真_欧拉"] = self._curry(1, self._b_sim_euler)
+        b["仿真_龙格库塔"] = self._curry(1, self._b_sim_rk4)
+        # 单片机内建（阶段 24f：图纸/编程/控制/烧录/驱动/写入——纯规格面
+        # 无 Matha 回调，宿主与 VM 清单物化面共用 src.domains.mcu 同一实现）
+        for _op in ("图纸", "编程", "控制", "烧录", "驱动"):
+            b[f"单片机_{_op}"] = self._curry(
+                1, (lambda o: lambda spec: self._b_mcu(o, spec))(_op))
+        b["单片机_写入"] = self._curry(
+            2, lambda 路径, 内容: self._b_mcu(
+                "写入", {"路径": 路径, "内容": 内容}))
         b["转译语言"] = self._curry(2, self._b_hybrid_translate)
         b["重构_matha"] = self._curry(2, self._b_hybrid_refactor)
         # 自主能力内建（调试 / 优化 / 成长）
@@ -3854,12 +4049,88 @@ class Interpreter:
         b["清杀日志"] = self._curry(0, self._b_net_elimination_log)
         # 自举模块加载
         b["加载模块_文件"] = self._curry(1, self._b_load_matha_module)
+        # 热启动/热重载（阶段 24g：mtime 热重载——装载+快照 / 变更检测重装载；
+        # VM 面经 exec_api 注入 capability.make_hotreload_runtime，同语义）
+        b["热启动"] = self._curry(1, self._b_hot_start)
+        b["热重载"] = self._curry(1, self._b_hot_reload)
 
     # ---- 状态化内建实现（返回普通容器，供 Matha 侧消费） ----
 
     def _b_load_matha_module(self, module_name: str) -> bool:
         """内建 加载模块(模块名) → 从文件系统加载 .matha 模块。"""
         return self.load_matha_module(module_name)
+
+    def _b_hot_start(self, target: str) -> dict:
+        """内建 热启动(目标)（阶段 24g）：装载模块并记录源文件 mtime 快照。
+
+        目标可为 .matha 文件路径（存在即按路径）或模块名（matha/ → 安装包
+        → 资源库 三级解析）。装载与 load_matha_module 同构（跳过被载模块
+        自测块），解析/运行错误如实上抛（不吞）；快照供 热重载 变更检测。
+        """
+        from src.domains.capability import HOT_TARGET_ERR
+        from src.parser import parse as _python_parse
+        if not isinstance(target, str) or not target:
+            raise MathaRuntimeError(HOT_TARGET_ERR)
+        source, path = _hot_pair(target)
+        prog = _python_parse(source)
+        actual = target
+        for decl in prog.decls:
+            if isinstance(decl, ast.ModuleDecl):
+                actual = decl.name
+                break
+        prev_loading = self._loading_module
+        self._loading_module = True
+        try:
+            self.run(prog)
+        finally:
+            self._loading_module = prev_loading
+        mtime = path.stat().st_mtime if path is not None else None
+        self._hot_mtimes[target] = (str(path) if path is not None else "",
+                                    mtime)
+        return {"模块": actual, "已加载": True, "声明数": len(prog.decls),
+                "路径": str(path) if path is not None else "",
+                "时间戳": mtime if mtime is not None else 0.0}
+
+    def _b_hot_reload(self, target: str) -> dict:
+        """内建 热重载(目标)（阶段 24g）：mtime 变更检测 + 真重装载。
+
+        未变更如实返回 重载=False（不假重载）；已变更重跑模块声明
+        （覆盖既有定义，长运行程序轮询此内建即可热更新），快照同步。
+        必须先 热启动；源文件被删、纯文本面目标均显式拒绝。
+        """
+        from src.domains.capability import (HOT_NO_FILE, HOT_NO_PATH,
+                                            HOT_NOT_STARTED, HOT_TARGET_ERR)
+        from src.parser import parse as _python_parse
+        if not isinstance(target, str) or not target:
+            raise MathaRuntimeError(HOT_TARGET_ERR)
+        snap = self._hot_mtimes.get(target)
+        if snap is None:
+            raise MathaRuntimeError(HOT_NOT_STARTED.format(target))
+        path_str, old_mtime = snap
+        if not path_str:
+            raise MathaRuntimeError(HOT_NO_PATH)
+        p = Path(path_str)
+        if not p.is_file():
+            raise MathaRuntimeError(HOT_NO_FILE.format(path_str))
+        cur = p.stat().st_mtime
+        if cur == old_mtime:
+            return {"模块": target, "重载": False, "声明数": 0,
+                    "路径": path_str, "时间戳": cur}
+        prog = _python_parse(p.read_text(encoding="utf-8"))
+        actual = target
+        for decl in prog.decls:
+            if isinstance(decl, ast.ModuleDecl):
+                actual = decl.name
+                break
+        prev_loading = self._loading_module
+        self._loading_module = True
+        try:
+            self.run(prog)
+        finally:
+            self._loading_module = prev_loading
+        self._hot_mtimes[target] = (path_str, cur)
+        return {"模块": actual, "重载": True, "声明数": len(prog.decls),
+                "路径": path_str, "时间戳": cur}
 
     def _b_probe_state(self, _=None) -> dict:
         return self.probe().state()

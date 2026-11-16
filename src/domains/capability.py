@@ -274,6 +274,78 @@ def make_module_loader(runtime):
     return _加载模块
 
 
+# ---- 阶段 24g：热启动/热重载（mtime 热重载，双面同文消息） ----
+
+HOT_TARGET_ERR = "热启动/热重载: 目标须为非空文本（模块名或 .matha 文件路径）"
+HOT_NOT_STARTED = "热重载: 「{}」尚未热启动——先调用 热启动(模块名或路径)"
+HOT_NO_FILE = "热重载: 源文件已不存在: {}"
+HOT_NO_PATH = "热重载: 无法跟踪源文件（模块来自纯文本解析面），热重载不可用"
+
+
+def make_hotreload_runtime(runtime):
+    """热启动/热重载 运行时胶水工厂（阶段 24g，官方入口注入面）。
+
+    与宿主面 src.interp 内建 _b_hot_start/_b_hot_reload 同语义：
+    热启动(目标) 装载模块（.matha 文件路径优先，模块名走 matha/ →
+    安装包 → 资源库 三级解析）+ 记录 mtime 快照；热重载(目标) 对比
+    mtime——未变更如实返回 重载=False，已变更重编译合并（globals
+    直接覆盖，与 use 合并同机制）+ 更新快照。消息常量与宿主面同源
+    （src.interp 惰性导入），双面逐字一致；声明数同口径（parse 顶层
+    声明数）。被载模块自测块不执行（_merge_module_source 只合并
+    函数/枚举/let，与宿主 _loading_module 跳过同构）。
+    """
+    from src.interp import hot_reload_pair
+    from src.parser import parse
+    from pathlib import Path
+    snaps: dict[str, tuple[str, float | None]] = {}
+
+    def _装载(source, target):
+        from src import ast_nodes as ast
+        prog = parse(source)
+        actual = target
+        for decl in prog.decls:
+            if isinstance(decl, ast.ModuleDecl):
+                actual = decl.name
+                break
+        _merge_module_source(runtime, source)
+        return actual, len(prog.decls)
+
+    def _热启动(target):
+        if not isinstance(target, str) or not target:
+            raise ValueError(HOT_TARGET_ERR)
+        source, path = hot_reload_pair(target)
+        actual, n = _装载(source, target)
+        mtime = path.stat().st_mtime if path is not None else None
+        snaps[target] = (str(path) if path is not None else "", mtime)
+        return {"模块": actual, "已加载": True, "声明数": n,
+                "路径": str(path) if path is not None else "",
+                "时间戳": mtime if mtime is not None else 0.0}
+
+    def _热重载(target):
+        if not isinstance(target, str) or not target:
+            raise ValueError(HOT_TARGET_ERR)
+        snap = snaps.get(target)
+        if snap is None:
+            raise ValueError(HOT_NOT_STARTED.format(target))
+        path_str, old_mtime = snap
+        if not path_str:
+            raise ValueError(HOT_NO_PATH)
+        p = Path(path_str)
+        if not p.is_file():
+            raise ValueError(HOT_NO_FILE.format(path_str))
+        cur = p.stat().st_mtime
+        if cur == old_mtime:
+            return {"模块": target, "重载": False, "声明数": 0,
+                    "路径": path_str, "时间戳": cur}
+        source, _ = p.read_text(encoding="utf-8"), p
+        actual, n = _装载(source, target)
+        snaps[target] = (path_str, cur)
+        return {"模块": actual, "重载": True, "声明数": n,
+                "路径": path_str, "时间戳": cur}
+
+    return {"热启动": _热启动, "热重载": _热重载}
+
+
 def _register_capability(builtins: dict) -> None:
     builtins["自主_调试"] = _curry2(_自主_调试)
     builtins["自主_优化"] = _curry2(_自主_优化)
@@ -303,5 +375,6 @@ __all__ = [
     "_生成_系统", "_生成_游戏", "_生成_建模",
     "_register_capability", "_capability_symtab_names",
     "_merge_source_functions", "_merge_module_source",
-    "make_runtime", "make_module_loader",
+    "make_runtime", "make_module_loader", "make_hotreload_runtime",
+    "HOT_TARGET_ERR", "HOT_NOT_STARTED", "HOT_NO_FILE", "HOT_NO_PATH",
 ]

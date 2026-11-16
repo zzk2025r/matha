@@ -365,7 +365,10 @@ class Compiler:
             member_names = [inner.name for inner in decl.decls
                             if isinstance(inner,
                                           (ast.FuncDef, ast.LetBinding, ast.EnumDef))]
-            if member_names:
+            # 同名冲突（module X { func X }，资源_成长 资源形态）不发射命名
+            # 空间绑定——STORE_GLOBAL 会遮蔽同名函数全局；与宿主 env 同规则：
+            # 平面函数可调用面优先（阶段 24a）。
+            if member_names and decl.name not in member_names:
                 for nm in member_names:
                     code.append((OP.PUSH_CONST, self.const(nm)))   # key
                     code.append((OP.LOAD_GLOBAL, self.sconst(nm)))  # value

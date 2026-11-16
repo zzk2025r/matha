@@ -1729,6 +1729,79 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   用法节；ARCHITECTURE core_py_lines 32,287→32,439（+152 = 23a lazy_kernel 惰性面 +
   interp/vm 注册改造 + 23b features 派生 + 23c parser 缓存 + custom_ops 版本 + 23d
   extensions 协议模块 + matha_main 命令表化 + matha_term autorun 面）；KNOWN_ISSUES 本条目。
+- **2026-11 阶段 24 收官（缺陷修复：资源库代码化 + 十项新能力域双面真化）**：用户拍板
+  范围四件全选（① 资源库代码化=全量代码化 ② 动态解析=语言级动态求值 ③ 媒体=
+  PNG+SVG+GIF ④ 单片机=工具链检测真烧录）；硬性缺陷「Matha 资源库必须可以当代码
+  使用/调用/编程」由 24a 落地。
+  **24a 资源库全量代码化（缺陷修复）**：matha/library/ 资源文件全量补 module 声明
+  可 use 可调用（宿主 _library_module_source 三级解析 matha/ → 安装包
+  → 资源库 + src/library.py 资源索引 _CN2FILE 映射；VM 编译器 +3 行——
+  模块同名冲突（module X { func X }）命名空间绑定不发射，平面函数可调用面优先，
+  与宿主 env 同规则）；.matha_packages/arithmetic 落真模块 arithmetic.matha +
+  manifest 启用；tests/test_library_as_code_phase24.py 43 条（use 可达/调用/编程
+  双面 + 资源索引计数锁 19 条起步后随 24h 增至 21）。
+  **24b 画布域 + 图片生成输出**：src/domains/graphics_engine.py 画布域真化——
+  PNG（纯标准库 zlib+CRC 真编码）/SVG/PPM 三格式生成与 文本真落盘 输出；
+  tests/test_graphics_canvas_phase24.py 28 条（字节级编码对拍 + 落盘闭环）。
+  **24c 视频生成输出**：GIF89a 纯标准库真编码（帧序列 → 逻辑屏/色表/LZW 压缩
+  块级字节真产物）；tests/test_gif_video_phase24.py 21 条（GIF 头/块结构/LZW
+  字节对拍）。
+  **24d 动态解析（语言级动态求值双面）**：host interp `_b_dynamic_eval`
+  （parse→decls 依 run() 同序注册执行、尾值 `_eval`，绑定持久落共享 env）+ VM
+  `_make_dynamic_eval`（尾值包装哨兵零参 FuncDef 编译进嵌套 VM、
+  nested.globals = vm.globals 对象共享、跨模块 fn.consts/fn.functions 钉池、
+  尾值经 globals.pop 哨兵 invoke_value 取回零污染）+68 行；tests/
+  test_dynamic_eval_phase24.py 27 条（双面对拍 + 绑定持久 + 跨模块钉池）。
+  **24e 建模仿真**：src/domains/simulation.py 仿真_欧拉/仿真_龙格库塔 数值积分
+  （导函数回调绑定运行本体 invoke_value，双面同名协议；exec_api
+  make_simulation_runtime 惰性注入 +4 行）；tests/test_simulation_phase24.py
+  29 条（RK4 y'=-y n=1000 收敛 exp(-2) 1e-9 / Euler 5e-3 手算对拍 + 回调面）。
+  **24f 单片机面**：src/domains/mcu.py 六符号——图纸（SVG 电路图真渲染）、
+  编程（Arduino C 真代码生成：pinMode/digitalWrite/analogWrite/delay）、
+  控制（载荷归一化 matha-mcu-ctl/1 + 串口实时收发显式拒绝）、烧录（工具链真
+  检测 shutil.which：avrdude/st-flash/esptool/openocd 按板族路由 uno/nano/
+  mega/stm32/esp32/rp2040 → 真 subprocess；工具缺失/hex 缺失/退出码非零均
+  显式拒绝）、驱动（GPIO-UART-I2C-SPI-PWM 五类模板）、写入（文本真落盘）；
+  tests/test_mcu_phase24.py 41 条（C 代码形态对拍 + 可注入 argv 工具链测试面 +
+  显式拒绝矩阵）。
+  **24g 热启动与运行（mtime 热重载双面）**：host _b_hot_start/_b_hot_reload
+  （热启动=装载+mtime 快照 self._hot_mtimes；热重载=变更检测重装载，覆盖既有
+  定义；未热启动/源文件被删/纯文本面均显式拒绝；被载模块自测块不执行）+ VM
+  capability make_hotreload_runtime 惰性注入 +5 行（消息常量与宿主同源）；
+  tests/test_hotreload_phase24.py 16 条（双面对拍 + 单运行内自改自重载 + 诚实
+  拒绝 + 装配面快照）。
+  **24h 资源库新能力模块（纯 Matha 组合层）**：matha/library/simulation/
+  建模仿真.matha（双法对比/步长扫描/轨迹抽样——函数体块尾禁止裸列表字面量约束
+  写入 docstring）+ matha/library/mcu/单片机.matha（闪灯程序/闪灯图纸/呼吸灯
+  斜坡/控制载荷）并入资源索引（19→21 条）；tests/test_library_capability_
+  phase24.py 16 条（库函数双面对拍 + 非_PWM 引脚双面诚实拒绝）。
+  **登记不修六条（现状锁）**：①VM 面热重载快照生命周期=单次运行（跨运行如实报
+  「尚未热启动」——宿主面才跨 run() 持久，test_vm_snapshot_lifecycle_is_per_run
+  锁双面相反形态）；②VM 面文件 I/O 内建名不对称（_write_file 有、读文件缺——
+  单运行内自改自重载 VM 面走 _write_file，读侧缺口登记）；③单片机串口实时收发
+  显式拒绝（纯标准库无串口传输，ctypes 为内核红线——串口开始/打印 仅进 C 代码
+  生成与控制载荷，不假收发）；④.hex 编译需外部工具链 arduino-cli，域边界外
+  （代码生成产物是 C 源码文本，编译链显式不在域内）；⑤烧录真执行面不背书——
+  装了工具链接了板即真写芯片（真 subprocess），测试经可注入 argv 面验证调用形态，
+  真硬件结果不背书；⑥裸 VM plugins="off" 无插件符号——与原生 exe 同一架构哲学
+  （21 收官已登记维持）。
+  **门禁三跑**：首跑 7019/7022——3 红 test_doc_facts = 收官 doc 同步编辑与门禁
+  运行并发（README/ARCHITECTURE 数字中跑漂移），自伤伪影非代码缺陷，单文件复跑
+  18/18 绿；重跑 7021/7022——1 红 tests/test_hotreload_phase24.py::
+  test_reload_picks_up_change_in_run 仅全量序下显现：Windows 同刻度两写 mtime
+  量化竞态（热启动快照与运行内 写文件 覆写落入同一时间戳刻度 → mtime 未变 →
+  重载=False）——产品 mtime 检测语义正确（双面 `cur == old_mtime`），测试面加固：
+  初版 mtime os.utime 回拨（now−10s）保证覆写严格更新，单跑 5/5 绿；三跑干净
+  **7022/7022**（tests 6919 + kernel_purity 14 + ast_vm_gap 11 + golden 39 +
+  dep_audit 1 + native_parity 38，native 1 例已知未实现不计入分母）。
+  算术闭合：6801（23 收官）+ 221（24a-24h 三锁 43+28+21+27+29+41+16+16）= 7022。
+  doc 同步：README 测试文件 143→151（+8 新档 test_*_phase24.py 八件）、语料
+  170→173（.matha_packages/arithmetic/arithmetic.matha + 建模仿真.matha +
+  单片机.matha）、领域插件 83→85（src/domains/ 85→87 个 .py：新增 mcu.py/
+  simulation.py）；ARCHITECTURE core_py_lines 32,439→32,519（+80 = 24a VM 编译器
+  同名冲突绑定 +3、24d 动态求值双面 +68、24e 仿真注入面 +4、24g 热重载注入面
+  +5）；CHANGELOG 领域插件 83→85；ast_vm_gap 快照重生成（corpus_files 217→220，
+  解析失败 0）；KNOWN_ISSUES 本条目。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

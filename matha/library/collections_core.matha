@@ -1,3 +1,4 @@
+module collections_core {
 (* ============================================================
    Matha 标准库·基础序列集合 collections_core
    ------------------------------------------------------------
@@ -96,3 +97,4 @@ func _比(s, sep, i, k) -> Bool = (s, sep, i, k) => (k == len(sep)) ? true
    f(a)(b) 单参逐步应用口径（native 契约，见 native.py 砖块 17）。 *)
 func gcd(a, b) -> Int =
   (a, b) => 最大公约数(a)(b)
+}

@@ -1,3 +1,4 @@
+module 资源索引 {
 (* 资源库索引 *)
 (* 保护隔离：记录所有可用资源 *)
 (* 子文件通过 资源_列表 / 资源_加载 读取 *)
@@ -6,10 +7,23 @@
   "core/arithmetic",
   "core/geometry",
   "core/trigonometry",
+  "core/圆柱体积",
+  "core/球体积",
+  "core/计算动能",
+  "core/计算球体积",
+  "algebra_simplify",
+  "calculus_diff",
+  "calculus_limit",
+  "calculus_series",
+  "collections_core",
   "mechanics/shaft",
   "mechanics/bearing",
   "mechanics/stress",
   "structural/beam",
   "structural/column",
-  "physics/mechanics"
+  "physics/mechanics",
+  "graphics/绘画辅助",
+  "simulation/建模仿真",
+  "mcu/单片机"
 ]
+}

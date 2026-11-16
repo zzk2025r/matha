@@ -78,14 +78,23 @@ def _wire_plugin_runtime(vm) -> None:
     src.domains.capability.make_runtime），绑定「同一个 VM」——资源
     加载/成长把函数平铺合并进运行本体，与宿主面「合并进运行中的
     解释器」同构。加载模块 承接编译器 use 发射（CALL 加载模块），把
-    被 use 模块函数平铺合并进同一个 VM。setdefault：程序自定义
-    同名函数不被覆盖。两工厂均为惰性跳板（构造零 import，首次调用
-    才经解析器动态装入插件）——eval/auto 的「零领域急切加载」语义
-    不因注入面而破坏。
+    被 use 模块函数平铺合并进同一个 VM。建模仿真（阶段 24e）同样经
+    make_simulation_runtime 注入——导函数回调绑定运行本体 invoke_value；
+    热启动/热重载（阶段 24g）经 make_hotreload_runtime 注入——mtime
+    快照装载与重合并绑定运行本体。
+    setdefault：程序自定义同名函数不被覆盖。两工厂均为惰性跳板（构造零
+    import，首次调用才经解析器动态装入插件）——eval/auto 的「零领域
+    急切加载」语义不因注入面而破坏。
     """
     vm.domain_resolver = _resolver()
     from src.plugin_api import make_capability_runtime
     for name, fn in make_capability_runtime(vm).items():
+        vm.globals.setdefault(name, fn)
+    from src.plugin_api import make_simulation_runtime
+    for name, fn in make_simulation_runtime(vm).items():
+        vm.globals.setdefault(name, fn)
+    from src.plugin_api import make_hotreload_runtime
+    for name, fn in make_hotreload_runtime(vm).items():
         vm.globals.setdefault(name, fn)
     from src.plugin_api import make_module_loader
     loader = make_module_loader(vm)

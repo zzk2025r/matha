@@ -711,6 +711,71 @@ def _make_nl_run_en(vm: "VM"):
     return run
 
 
+# 动态解析（阶段 24d）尾值声明形态：与宿主面 src.interp._DYNAMIC_VALUE_DECLS
+# **逐项同值**（host 分离尾裸表达式直接 _eval；VM 把同一形态变换为哨兵
+# 零参函数经 invoke_value 取值）。BinaryOp("=") 是语句位赋值形态不属尾值；
+# GlobalIdStmt/Output/Binding/LetBinding/控制流语句是语句语义 → 执行、返回 null。
+_DYNAMIC_VALUE_DECLS = None  # 惰性填充（ast_nodes 按需导入，见 _dynamic_tail_decl）
+
+
+def _dynamic_tail_decl(decl) -> bool:
+    """顶层声明是否为动态解析的尾值形态（裸表达式）。"""
+    global _DYNAMIC_VALUE_DECLS
+    if _DYNAMIC_VALUE_DECLS is None:
+        from src import ast_nodes as _ast
+        _DYNAMIC_VALUE_DECLS = (_ast.BinaryOp, _ast.UnaryOp, _ast.IntegerLit,
+                                _ast.FloatLit, _ast.StringLit, _ast.BoolLit,
+                                _ast.ListLiteral, _ast.DictLiteral,
+                                _ast.Variable, _ast.FuncApp, _ast.IfExpr,
+                                _ast.Lambda)
+    if isinstance(decl, _DYNAMIC_VALUE_DECLS[0]) and decl.op == "=":
+        return False
+    return isinstance(decl, _DYNAMIC_VALUE_DECLS)
+
+
+def _make_dynamic_eval(vm: "VM"):
+    """`动态解析(源码串)` 内建（阶段 24d）：语言级动态求值。
+
+    解析源码 → 编译 → 在**共享外层全局作用域**（同一 _GlobalScope 对象，
+    含内建/已定义函数/插件解析器）的嵌套 VM 中执行：绑定/函数/枚举经
+    STORE_GLOBAL 落共享表持久（与宿主面 _b_dynamic_eval 当前环境语义同构），
+    输出并入本 VM 输出流（共享 输出 内建），尾裸表达式的值变换为哨兵零参
+    函数经 invoke_value 取回（函数跨模块常量池/函数表按 21a/21b 纪律钉源，
+    动态定义的函数随后在外层程序可调用）。无尾裸表达式返回 null。源码非
+    文本显式拒绝；解析/运行错误如实上抛。公式模式库不跨 VM 合并。
+    """
+    _SENTINEL = "__动态解析值__"
+
+    def run(source):
+        if not isinstance(source, str):
+            raise MathaRuntimeError(
+                f"动态解析: 需要文本源码，得到 {_fmt_match_value(source)}")
+        from src import ast_nodes as ast
+        from src.parser import parse
+        prog = parse(source)
+        decls = list(prog.decls)
+        tail = decls[-1] if decls and _dynamic_tail_decl(decls[-1]) else None
+        if tail is not None:
+            # 尾裸表达式 → 哨兵零参函数（调用取值，零全局污染——取后即弹出）
+            prog.decls = decls[:-1] + [
+                ast.FuncDef(name=_SENTINEL,
+                            body=ast.Lambda(params=[], body=tail))]
+        from src.mbc.compiler import compile_program
+        mod = compile_program(prog)
+        nested = VM(mod)
+        nested.globals = vm.globals  # 共享同一全局作用域对象（持久落点）
+        nested.builtin_names = frozenset(vm.globals.keys())
+        for name, fn in mod.functions.items():
+            fn.consts = mod.constants      # 跨模块常量池（21a 纪律）
+            fn.functions = mod.functions   # MAKE_CLOSURE 逐帧函数表（21b 纪律）
+            vm.globals[name] = Closure(fn, vm.main_frame)
+        nested.run()
+        if tail is None:
+            return None
+        return vm.invoke_value(vm.globals.pop(_SENTINEL), [])
+    return run
+
+
 def _builtin_typeof(value):
     """typeof(v) → Matha 类型名。"""
     if value is None:
@@ -842,6 +907,9 @@ class VM:
         self.globals.setdefault("print", _make_output(self))
         self.globals.setdefault("自然语言执行", _make_nl_run(self))
         self.globals.setdefault("自然语言执行英语", _make_nl_run_en(self))
+        # 动态解析内建（阶段 24d：语言级动态求值——共享全局作用域嵌套 VM
+        # 执行，绑定/函数持久，尾裸表达式值返回；与宿主 _b_dynamic_eval 同语义）
+        self.globals.setdefault("动态解析", _make_dynamic_eval(self))
         self.globals.setdefault("typeof", _builtin_typeof)
         self.globals.setdefault("安全索引", _curry2(_builtin_safe_index))
         self.globals.setdefault("安全取属性", _curry2(_builtin_safe_attr))

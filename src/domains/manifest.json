@@ -1,7 +1,7 @@
 {
   "_comment": "Matha 领域插件清单 —— 纯数据，由 scripts/gen_domain_manifest.py 生成，请勿手改。运行时 src/plugin_api.PluginResolver 只读此文件即可完成符号→插件的归属判定，从而不在启动时 import 任何领域模块。plugins 数组的顺序即加载顺序（沿用旧 interp eager 注册顺序），跨领域重名符号按后者覆盖。",
   "protocol_version": 1,
-  "generated_at": "2026-11-14T20:34:54",
+  "generated_at": "2026-11-16T09:40:45",
   "generator": "scripts/gen_domain_manifest.py",
   "plugins": [
     {
@@ -2848,14 +2848,13 @@
       "name": "audio_video",
       "module": "src.domains.audio_video",
       "display_name": "音视频处理",
-      "cn_name": "音频合成、视频编辑、特效、转码",
+      "cn_name": "",
       "category": "creative",
       "description": "音频合成、视频编辑、特效、转码",
       "aliases": [
         "audio_video",
         "AudioVideo",
-        "音视频处理",
-        "音频合成、视频编辑、特效、转码"
+        "音视频处理"
       ],
       "registers": [
         "_register_av"
@@ -3806,16 +3805,23 @@
         "_register_graphics"
       ],
       "symbols": [
+        "保存图片",
         "保存画布",
+        "像素值",
         "创建字体",
         "创建帧缓冲",
         "创建渐变",
         "创建渲染器",
         "创建画布",
         "创建着色器",
+        "图片PNG",
+        "图片PPM",
+        "图片SVG",
+        "图片尺寸",
         "垂直翻转",
         "填充圆形",
         "填充矩形",
+        "填色",
         "描边圆形",
         "描边矩形",
         "旋转画布",
@@ -3826,8 +3832,16 @@
         "清除画布",
         "清除缓冲",
         "生成Mipmap",
+        "生成动图",
+        "画圆",
+        "画圆边框",
         "画布JSON",
+        "画底色",
         "画文字",
+        "画文本",
+        "画点",
+        "画矩形",
+        "画矩形边框",
         "画笔",
         "画线",
         "绑定帧缓冲",
@@ -3978,6 +3992,31 @@
         "调度滴答",
         "页表开销",
         "页表项数"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
+      "name": "mcu",
+      "module": "src.domains.mcu",
+      "display_name": "单片机",
+      "cn_name": "单片机",
+      "category": "general",
+      "description": "",
+      "aliases": [
+        "mcu",
+        "单片机"
+      ],
+      "registers": [
+        "_register_mcu"
+      ],
+      "symbols": [
+        "单片机_写入",
+        "单片机_图纸",
+        "单片机_控制",
+        "单片机_烧录",
+        "单片机_编程",
+        "单片机_驱动"
       ],
       "declared_symbols": [],
       "legacy": false
@@ -4281,6 +4320,27 @@
         "解密数据",
         "验证令牌",
         "验证签名"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
+      "name": "simulation",
+      "module": "src.domains.simulation",
+      "display_name": "建模仿真",
+      "cn_name": "建模仿真",
+      "category": "general",
+      "description": "",
+      "aliases": [
+        "simulation",
+        "建模仿真"
+      ],
+      "registers": [
+        "_register_simulation"
+      ],
+      "symbols": [
+        "仿真_欧拉",
+        "仿真_龙格库塔"
       ],
       "declared_symbols": [],
       "legacy": false
