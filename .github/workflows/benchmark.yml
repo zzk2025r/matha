@@ -1,22 +1,16 @@
 # DORMANT(ci-hygiene): 不再参与 push/PR 门禁（已移除 push.branches 与每周 cron），
 # 仅保留手动触发。原因：本工作流的失败均不可通过改代码消除——
-#   1) 原「运行性能基准测试」把 4 行 shell `echo … >> $GITHUB_OUTPUT` 写在
-#      `python -c "…"` 的双引号字符串内，Python 把它们当源码解析，报
-#      SyntaxError: invalid decimal literal（已改为在 Python 内写 GITHUB_OUTPUT）；
-#   2) 钉钉通知步骤因仓库未配置 DINGTALK_WEBHOOK / DINGTALK_SECRET（secrets 总数
-#      为 0）而拿到空参，curl 报 "option : blank argument" 并 exit 2。
+# 原「运行性能基准测试」把 4 行 shell `echo … >> $GITHUB_OUTPUT` 写在
+# `python -c "…"` 的双引号字符串内，Python 把它们当源码解析，报
+# SyntaxError: invalid decimal literal（已改为在 Python 内写 GITHUB_OUTPUT）。
+# 阶段 25e 去外部凭据：钉钉通知（外部 webhook/secret 凭据无法获得）
+# 删除，改为 GitHub Step Summary——零 secrets 面。
 name: HAL Performance Benchmark
 
 on:
   workflow_dispatch:
 
-# ============================================================
-# 钉钉通知配置（从共享配置加载）
-# 参考: .github/configs/dingtalk_notify.yml
-# ============================================================
 env:
-  DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-  DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
   MATHA_ENV: production
 
 jobs:
@@ -108,41 +102,48 @@ jobs:
           retention-days: 90
 
       # ============================================================
-      # 钉钉通知（引用共享配置）
+      # 运行摘要（零 secrets 面：写入 $GITHUB_STEP_SUMMARY）
       # ============================================================
-      - name: 钉钉通知 - 成功
+      - name: 写运行摘要 - 成功
         if: success()
-        run: bash .github/configs/dingtalk_templates.sh success
-        env:
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          MATHA_ENV: ${{ env.MATHA_ENV }}
-          CURRENT_THROUGHPUT: ${{ steps.benchmark.outputs.single_rate }}
-          BASELINE_THROUGHPUT: "100000"
+        run: |
+          {
+            echo "### HAL 性能基准测试 — 成功"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 结果 | ${{ job.status }} |"
+            echo "| 提交 | ${{ github.sha }} |"
+            echo "| 单次写入速率 | ${{ steps.benchmark.outputs.single_rate }} ops/sec |"
+            echo "| 批量写入速率 | ${{ steps.benchmark.outputs.batch_rate }} ops/sec |"
+            echo ""
+            echo "[运行详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 钉钉通知 - 失败
+      - name: 写运行摘要 - 失败
         if: failure()
-        run: bash .github/configs/dingtalk_templates.sh failure
-        env:
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          MATHA_ENV: ${{ env.MATHA_ENV }}
+        run: |
+          {
+            echo "### HAL 性能基准测试 — 失败"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 结果 | ${{ job.status }} |"
+            echo "| 提交 | ${{ github.sha }} |"
+            echo ""
+            echo "[运行详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 钉钉通知 - 性能告警
+      - name: 写运行摘要 - 性能告警
         if: always() && steps.benchmark.outputs.single_rate < 50000
-        run: bash .github/configs/dingtalk_templates.sh performance_alert
-        env:
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          CURRENT_THROUGHPUT: ${{ steps.benchmark.outputs.single_rate }}
-          BASELINE_THROUGHPUT: "100000"
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          MATHA_ENV: production
+        run: |
+          {
+            echo "### HAL 性能告警"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 当前吞吐 | ${{ steps.benchmark.outputs.single_rate }} ops/sec |"
+            echo "| 基线吞吐 | 100000 ops/sec |"
+            echo ""
+            echo "[运行详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"

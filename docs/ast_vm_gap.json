@@ -1,6 +1,6 @@
 {
   "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
-  "generated_at": "2026-11-16T10:27:50",
+  "generated_at": "2026-11-17T01:21:07",
   "generator": "scripts/ast_vm_matrix.py",
   "corpus_dirs": [
     "matha",
@@ -16,7 +16,7 @@
     "noop": 19,
     "missing": 0,
     "blocking": 0,
-    "corpus_files": 220,
+    "corpus_files": 221,
     "opcodes": 34,
     "opcode_vm": 34,
     "opcode_native": 34,
@@ -27,85 +27,85 @@
       "node": "Program",
       "vm": "emits",
       "interp": "no",
-      "used_in": 220
+      "used_in": 221
     },
     {
       "node": "Variable",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 212
+      "used_in": 213
     },
     {
       "node": "IntegerLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 195
+      "used_in": 196
     },
     {
       "node": "BinaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 173
+      "used_in": 174
     },
     {
       "node": "FuncApp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 172
+      "used_in": 173
     },
     {
       "node": "Lambda",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 164
+      "used_in": 165
     },
     {
       "node": "BasicType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 161
+      "used_in": 162
     },
     {
       "node": "FuncDef",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 161
+      "used_in": 162
     },
     {
       "node": "FuncType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 161
+      "used_in": 162
     },
     {
       "node": "ModuleDecl",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 137
+      "used_in": 138
     },
     {
       "node": "TupleType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 130
+      "used_in": 131
     },
     {
       "node": "StringLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 118
+      "used_in": 119
     },
     {
       "node": "CodeBlock",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 93
+      "used_in": 94
     },
     {
       "node": "LetBinding",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 93
+      "used_in": 94
     },
     {
       "node": "FloatLit",
@@ -117,19 +117,19 @@
       "node": "IfExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 87
+      "used_in": 88
     },
     {
       "node": "ListLiteral",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 69
+      "used_in": 70
     },
     {
       "node": "IndexExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 67
+      "used_in": 68
     },
     {
       "node": "Output",
@@ -141,25 +141,25 @@
       "node": "UnaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 57
+      "used_in": 58
     },
     {
       "node": "Generate",
       "vm": "noop",
       "interp": "no",
-      "used_in": 55
+      "used_in": 56
     },
     {
       "node": "MechUnit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 55
+      "used_in": 56
     },
     {
       "node": "Binding",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 48
+      "used_in": 49
     },
     {
       "node": "OutputTrail",
@@ -171,7 +171,7 @@
       "node": "BoolLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 38
+      "used_in": 39
     },
     {
       "node": "GenStmt",
@@ -213,7 +213,7 @@
       "node": "ImportDecl",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 20
+      "used_in": 21
     },
     {
       "node": "SliceExpr",
@@ -231,7 +231,7 @@
       "node": "GlobalIdStmt",
       "vm": "noop",
       "interp": "yes",
-      "used_in": 15
+      "used_in": 16
     },
     {
       "node": "PathExpr",
@@ -303,7 +303,7 @@
       "node": "TryStmt",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 5
+      "used_in": 6
     },
     {
       "node": "StructDef",

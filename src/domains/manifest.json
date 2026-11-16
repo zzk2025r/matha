@@ -1,7 +1,7 @@
 {
   "_comment": "Matha 领域插件清单 —— 纯数据，由 scripts/gen_domain_manifest.py 生成，请勿手改。运行时 src/plugin_api.PluginResolver 只读此文件即可完成符号→插件的归属判定，从而不在启动时 import 任何领域模块。plugins 数组的顺序即加载顺序（沿用旧 interp eager 注册顺序），跨领域重名符号按后者覆盖。",
   "protocol_version": 1,
-  "generated_at": "2026-11-16T09:40:45",
+  "generated_at": "2026-11-16T23:31:02",
   "generator": "scripts/gen_domain_manifest.py",
   "plugins": [
     {
@@ -4116,18 +4116,18 @@
         "HTTP_POST",
         "HTTP请求",
         "Ping检测",
-        "Socket发送",
-        "Socket接收",
         "URL构建",
         "URL编码",
         "URL解析",
         "URL解码",
         "下载文件",
         "取网址",
-        "网络状态",
-        "网络监听",
-        "网络绑定",
-        "网络连接"
+        "网络_关闭",
+        "网络_发",
+        "网络_接受",
+        "网络_收",
+        "网络_服务",
+        "网络状态"
       ],
       "declared_symbols": [],
       "legacy": false
@@ -4341,6 +4341,27 @@
       "symbols": [
         "仿真_欧拉",
         "仿真_龙格库塔"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
+      "name": "store",
+      "module": "src.domains.store",
+      "display_name": "store",
+      "cn_name": "",
+      "category": "general",
+      "description": "",
+      "aliases": [
+        "store"
+      ],
+      "registers": [
+        "_register_store"
+      ],
+      "symbols": [
+        "商店_吊销令牌",
+        "商店_校验令牌",
+        "商店_签发令牌"
       ],
       "declared_symbols": [],
       "legacy": false

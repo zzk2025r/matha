@@ -917,6 +917,7 @@ _CN2FILE = {
     "终端词法器": "term_lexer.matha",
     "终端句法器": "term_parser.matha",
     "终端执行器": "term_engine.matha",
+    "应用中心": "store_engine.matha",
     "资源索引": "library/index.matha",
 }
 
@@ -3636,8 +3637,14 @@ class Interpreter:
             # 将当前已绑定的参数纳入 captured，确保后续偏应用能访问
             # 必须原地修改 captured（list 时）或保留引用（dict 时）
             if isinstance(captured, list):
-                # 原地追加：后续从 captured 创建 dict 时能看到新绑定
-                captured.extend((self._param_name(p), a) for p, a in zip(params, args))
+                # 拷贝追加而非原地 extend：模块 FuncDef 闭包（interp 模块加载
+                # 存 env 的 ("__closure__", ...) 元组）的 captured 列表被该函数
+                # 的所有调用链共享，原地追加会让交错链（外层柯里调用挂起期间
+                # 嵌套了同名函数的另一条链）的绑定经 dict(captured) 末值优先
+                # 互相覆盖——应用中心 发布落盘 索引形状错位即此根因。
+                captured = list(captured) + [
+                    (self._param_name(p), a) for p, a in zip(params, args)
+                ]
                 self._matha_env = captured
             elif isinstance(self._matha_env, list):
                 self._matha_env = list(self._matha_env) + [

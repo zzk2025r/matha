@@ -72,7 +72,6 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')   # 仅 tag 触发发布
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -82,18 +81,18 @@ jobs:
           python-version: "3.14"
 
       - name: Install build tools
-        run: pip install build twine
+        run: pip install build
 
       - name: Build package
         run: |
           cd packages
           python -m build
 
-      - name: Publish to private PyPI
-        run: |
-          cd packages
-          twine upload dist/* \
-            --repository-url https://pypi.your-company.com/simple/
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+      # 阶段 25e 去外部凭据：不再上传 PyPI（原私有源占位域名 + PYPI_TOKEN
+      # 无法获得），产物以 workflow artifact 交付——零 secrets 面。
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: matha-package
+          path: packages/dist/*
+          if-no-files-found: error

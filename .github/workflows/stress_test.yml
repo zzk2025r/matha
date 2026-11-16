@@ -6,20 +6,14 @@
 # 仍休眠的原因：步骤引用的 tests/stress_test_10khz.py、tests/test_hal_perf.py、
 # tests/test_hal_multiprocessing.py 均不在仓库中（已用 git ls-files 核实），
 # 每日 cron 只会制造无意义红报。改为仅手动触发。
+# 阶段 25e 去外部凭据：钉钉通知（外部 webhook/secret 凭据无法获得）
+# 删除，改为 GitHub Step Summary——零 secrets 面。
 name: HAL Stress Test
 
 on:
   workflow_dispatch:  # 仅允许手动触发（已移除 push.branches 与每日 schedule）
 
-# ============================================================
-# 钉钉通知配置（从共享配置加载）
-# 参考: .github/configs/dingtalk_notify.yml
-# 注：仓库当前未配置 DINGTALK_WEBHOOK / DINGTALK_SECRET，通知步骤只会在
-# 手动 dispatch 时走到，不会在 push/PR 上产生红灯。
-# ============================================================
 env:
-  DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-  DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
   MATHA_WORKERS: 4  # 默认 4 Worker（根据实际 CPU 核数自动调整）
 
 jobs:
@@ -90,32 +84,21 @@ jobs:
           retention-days: 30
 
       # ============================================================
-      # 钉钉通知（引用共享配置）
-      # 参考: .github/configs/dingtalk_templates.sh
+      # 运行摘要（零 secrets 面：写入 $GITHUB_STEP_SUMMARY）
       # ============================================================
-      - name: 钉钉通知 - 成功
-        if: success()
-        run: bash .github/configs/dingtalk_templates.sh success
-        env:
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          MATHA_ENV: ${{ matrix.env }}
-
-      - name: 钉钉通知 - 失败
-        if: failure()
-        run: bash .github/configs/dingtalk_templates.sh failure
-        env:
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          MATHA_ENV: ${{ matrix.env }}
+      - name: 写运行摘要
+        if: always()
+        run: |
+          {
+            echo "### HAL 压力测试（${{ matrix.env }}）"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 结果 | ${{ job.status }} |"
+            echo "| 提交 | ${{ github.sha }} |"
+            echo ""
+            echo "[运行详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   regression-test:
     name: 回归测试 (${{ matrix.env }})
@@ -144,24 +127,20 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" -v
 
       # ============================================================
-      # 钉钉通知（引用共享配置）
+      # 运行摘要（零 secrets 面：写入 $GITHUB_STEP_SUMMARY）
       # ============================================================
-      - name: 钉钉通知
+      - name: 写运行摘要
         if: always()
         run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            bash .github/configs/dingtalk_templates.sh success
-          else
-            bash .github/configs/dingtalk_templates.sh failure
-          fi
-        env:
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          MATHA_ENV: ${{ matrix.env }}
+          {
+            echo "### 回归测试（${{ matrix.env }}）"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 结果 | ${{ job.status }} |"
+            echo ""
+            echo "[运行详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================================
   # 性能告警检测
@@ -188,13 +167,16 @@ jobs:
           python -m pytest tests/test_hal_perf.py::TestBenchmark -v --benchmark
           echo "baseline=$(python -c "import sys; sys.path.insert(0, '.'); from tests.test_hal_perf import *; import time; ops=SystemUnderTest().ops; t=time.perf_counter(); [ops.写入('gpio_18', True) for _ in range(10000)]; print(int(10000/(time.perf_counter()-t)))")" >> $GITHUB_OUTPUT
 
-      - name: 钉钉通知 - 性能告警
+      - name: 写运行摘要 - 性能告警
         if: steps.benchmark.outputs.baseline < 100000
-        run: bash .github/configs/dingtalk_templates.sh performance_alert
-        env:
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          CURRENT_THROUGHPUT: ${{ steps.benchmark.outputs.baseline }}
-          BASELINE_THROUGHPUT: "100000"
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          MATHA_ENV: production
+        run: |
+          {
+            echo "### HAL 性能告警"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 当前吞吐 | ${{ steps.benchmark.outputs.baseline }} ops/sec |"
+            echo "| 基线吞吐 | 100000 ops/sec |"
+            echo ""
+            echo "[运行详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"

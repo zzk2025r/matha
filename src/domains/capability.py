@@ -171,7 +171,23 @@ def _eval_module_let(node, runtime):
     raise RuntimeError(f"模块级 let 含暂不支持的形态 {type(node).__name__}")
 
 
-def _merge_module_source(runtime, source: str) -> tuple[str | None, list[str]]:
+def _module_import_names(prog) -> list[str]:
+    """收集程序里的 use 目标名（顶层 + ModuleDecl 内嵌，按出现序去重）。"""
+    from src import ast_nodes as ast
+    names: list[str] = []
+    for decl in prog.decls:
+        scopes = [decl]
+        if isinstance(decl, ast.ModuleDecl):
+            scopes = decl.decls
+        for inner in scopes:
+            if isinstance(inner, ast.ImportDecl) and inner.module_name:
+                if inner.module_name not in names:
+                    names.append(inner.module_name)
+    return names
+
+
+def _merge_module_source(runtime, source: str, *, _加载依赖=None,
+                         _已载=None) -> tuple[str | None, list[str]]:
     """use 编译面：模块级合并——函数/枚举/模块级 let 落 globals + 命名空间绑定。
 
     与宿主 ModuleDecl 注册同构（self.modules[name] = module_ns 且
@@ -180,6 +196,10 @@ def _merge_module_source(runtime, source: str) -> tuple[str | None, list[str]]:
     （支持 类型.整数 点号访问）；模块级 let 按 _eval_module_let 物化。
     被载模块的自测块不执行（与宿主 _loading_module 跳过同构）。
     返回 (模块声明名, 合并函数名列表)。
+
+    嵌套 use（模块内部 use 标准库 {...}）：宿主面加载模块经解释器逐
+    decl 处理 ImportDecl 自然递归；VM 合并路径不执行 main_code，故由
+    _加载依赖 回调显式递归（已载集合防环，与宿主幂等语义同构）。
     """
     from src import ast_nodes as ast
     from src.parser import parse
@@ -191,6 +211,11 @@ def _merge_module_source(runtime, source: str) -> tuple[str | None, list[str]]:
         if isinstance(decl, ast.ModuleDecl):
             actual_name = decl.name
             break
+    if _加载依赖 is not None and _已载 is not None:
+        if actual_name is not None:
+            _已载.add(actual_name)
+        for dep in _module_import_names(prog):
+            _加载依赖(dep)
     mod = compile_program(prog)
     ns: dict = {}
     for name, fn in mod.functions.items():
@@ -265,8 +290,9 @@ def make_module_loader(runtime):
         name = str(模块名)
         if name in loaded:
             return []
-        actual, merged = _merge_module_source(runtime, load_matha_source(name))
         loaded.add(name)
+        actual, merged = _merge_module_source(runtime, load_matha_source(name),
+                                              _加载依赖=_加载模块, _已载=loaded)
         if actual is not None:
             loaded.add(actual)
         return merged

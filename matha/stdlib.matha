@@ -28,12 +28,24 @@ module 标准库 {
 
   func chr_matha(n: Int) -> String = chr(n)
 
-  (* 字符串截取：截取(s, start, end) → 子串 *)
+  (* 字符串截取：截取(s, start, end) → 子串
+     分块递归：块内 ≤24 字符（浅递归），块间按剩余长度推进（深度 ≈ n/24）。
+     纯逐字符递归（_copy(i+1, acc+s[i])）在宿主面每字符耗一层 Python
+     栈，~140 字符即撞 RecursionError——阶段 25c 应用中心引擎长请求体
+     踩中后真化；语义与旧实现逐字节一致（含 start<0 时 Python 负下标
+     回绕的历史行为）。 *)
   func 截取(s: String, start: Int, end: Int) -> String =
-    let rec _copy(i: Int, acc: String) -> String =
-      if i >= end then acc
-      else _copy(i + 1, acc + s[i])
-    in _copy(start, "")
+    let rec _拷(j: Int, 停: Int, acc: String) -> String =
+      if j >= 停 then acc
+      else _拷(j + 1, 停, acc + s[j])
+    in
+    let rec _块(i: Int, 剩: Int, acc: String) -> String =
+      if 剩 <= 0 then acc
+      else if 剩 < 24 then _块(i + 剩, 0, acc + _拷(i, i + 剩, ""))
+      else _块(i + 24, 剩 - 24, acc + _拷(i, i + 24, ""))
+    in
+    if end <= start then ""
+    else _块(start, end - start, "")
 
   (* 字符串拼接 *)
   func 拼接(a: String, b: String) -> String = a + b
@@ -51,11 +63,19 @@ module 标准库 {
     let ll = len(s) in
     if sl = 0 or sl > ll then -1
     else
-      let rec _search(i: Int) -> Int =
-        if i > ll - sl then -1
+      let 上界 = ll - sl in
+      let rec _段扫(i: Int, 停: Int) -> Int =
+        if i > 停 or i > 上界 then -1
         else if _str_eq_at(sub, s, i, 0, sl) then i
-        else _search(i + 1)
-      in _search(0)
+        else _段扫(i + 1, 停)
+      in
+      let rec _大扫(窗起: Int) -> Int =
+        if 窗起 > 上界 then -1
+        else
+          let 命中 = _段扫(窗起, 窗起 + 63) in
+          if 命中 != -1 then 命中
+          else _大扫(窗起 + 64)
+      in _大扫(0)
 
   (* 字符串替换：replace(s, old, new) → 替换后的字符串 *)
   func replace(s: String, old: String, new_str: String) -> String =

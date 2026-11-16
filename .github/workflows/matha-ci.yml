@@ -225,13 +225,12 @@ jobs:
   # 6. 发布到 PyPI (仅 tag 触发)
   # ============================================================
   publish:
-    name: Publish to PyPI
+    name: Build and attach package
     runs-on: ubuntu-latest
     needs: [lint, test, build-exe]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      contents: read
-      id-token: write
+      contents: write   # GitHub Release 附件（GITHUB_TOKEN 自生面，25e）
     steps:
       - uses: actions/checkout@v4
 
@@ -252,24 +251,21 @@ jobs:
         run: |
           twine check dist/*
 
-      - name: Publish to PyPI
-        run: |
-          twine upload dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-
       - name: Generate release notes
         run: |
           python scripts/generate_release_notes.py > RELEASE_NOTES_${GITHUB_REF_NAME}.md
           cat RELEASE_NOTES_${GITHUB_REF_NAME}.md
 
+      # 阶段 25e 去外部凭据：PyPI 上传（TWINE_PASSWORD: PYPI_TOKEN）删除，
+      # 发行物改为 GitHub Release 附件——凭据仅 actions 自动注入的 GITHUB_TOKEN。
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             dist/matha.exe
             dist/matha-cc.exe
+            dist/*.whl
+            dist/*.tar.gz
           body_path: RELEASE_NOTES_${GITHUB_REF_NAME}.md
           draft: false
           prerelease: false

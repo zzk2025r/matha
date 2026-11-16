@@ -294,11 +294,11 @@ def ping(host: str, timeout: float = 2.0) -> bool:
 # ============================================================
 
 def _register_networking(builtins: dict) -> None:
-    builtins["网络连接"] = lambda host, port: MathaSocket().connect(host, port)
-    builtins["网络绑定"] = lambda host, port: MathaSocket().bind(host, port)
-    builtins["网络监听"] = MathaSocket().listen
-    builtins["Socket发送"] = lambda sock, data: sock.send(data) if hasattr(sock, 'send') else 0
-    builtins["Socket接收"] = lambda sock, size=4096: sock.recv(size) if hasattr(sock, 'recv') else b""
+    builtins["网络_服务"] = _socket_serve
+    builtins["网络_接受"] = lambda 监听器: lambda 超时秒=5.0: _socket_accept(监听器, 超时秒)
+    builtins["网络_收"] = lambda 连接: lambda 字节数=4096: _socket_recv(连接, 字节数)
+    builtins["网络_发"] = lambda 连接: lambda 文本: _socket_send(连接, 文本)
+    builtins["网络_关闭"] = _socket_close
     builtins["HTTP_GET"] = http_get
     builtins["HTTP_POST"] = http_post
     builtins["HTTP请求"] = http_request
@@ -314,9 +314,83 @@ def _register_networking(builtins: dict) -> None:
     builtins["Ping检测"] = ping
 
 
+def _socket_serve(port):
+    """网络_服务(端口)：绑定+监听，返回带真实句柄的监听器。
+    端口 0 = 系统分配（测试面用）。旧面 网络连接/网络绑定/网络监听/
+    Socket发送/Socket接收 为无句柄假面（22a 同类清算），已由本组替换。"""
+    if not isinstance(port, int) or isinstance(port, bool) or not (0 <= port <= 65535):
+        raise ValueError("网络_服务: 端口须为 0-65535 整数")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("", port))
+        sock.listen(16)
+    except OSError as exc:
+        sock.close()
+        raise ValueError(f"网络_服务: 端口 {port} 绑定失败: {exc}") from exc
+    host, actual = sock.getsockname()
+    return {"监听器": MathaSocket(sock), "端口": actual, "主机": host}
+
+
+def _socket_accept(监听器, 超时秒=5.0):
+    sock = 监听器.get("监听器") if isinstance(监听器, dict) else None
+    if not isinstance(sock, MathaSocket) or sock._sock is None:
+        raise ValueError("网络_接受: 目标须为 网络_服务 返回的监听器")
+    sock._sock.settimeout(float(超时秒))
+    try:
+        conn, addr = sock._sock.accept()
+    except TimeoutError:
+        return {"超时": True}
+    except OSError as exc:
+        raise ValueError(f"网络_接受: {exc}") from exc
+    return {"连接": {"套接字": MathaSocket(conn)},
+            "地址": [addr[0], addr[1]], "超时": False}
+
+
+def _socket_conn(连接, 动作):
+    sock = 连接.get("套接字") if isinstance(连接, dict) else None
+    if not isinstance(sock, MathaSocket) or sock._sock is None:
+        raise ValueError(f"网络_{动作}: 目标须为 网络_接受 返回的连接")
+    return sock._sock
+
+
+def _socket_recv(连接, 字节数=4096):
+    sock = _socket_conn(连接, "收")
+    try:
+        data = sock.recv(int(字节数))
+    except TimeoutError as exc:
+        raise ValueError("网络_收: 接收超时") from exc
+    except OSError as exc:
+        raise ValueError(f"网络_收: {exc}") from exc
+    return data.decode("utf-8", errors="replace")
+
+
+def _socket_send(连接, 文本):
+    sock = _socket_conn(连接, "发")
+    if not isinstance(文本, str):
+        文本 = str(文本)
+    try:
+        return sock.send(文本.encode("utf-8"))
+    except (TimeoutError, OSError) as exc:
+        raise ValueError(f"网络_发: {exc}") from exc
+
+
+def _socket_close(目标):
+    sock = None
+    if isinstance(目标, dict):
+        sock = 目标.get("套接字") or 目标.get("监听器")
+    elif isinstance(目标, MathaSocket):
+        sock = 目标
+    if not isinstance(sock, MathaSocket):
+        raise ValueError("网络_关闭: 目标须为 网络_接受 的连接或 网络_服务 的监听器")
+    sock.close()
+    return True
+
+
 def _networking_symtab_names() -> list[str]:
     return [
-        "网络连接", "网络绑定", "HTTP_GET", "HTTP_POST", "HTTP请求",
+        "网络_服务", "网络_接受", "网络_收", "网络_发", "网络_关闭",
+        "HTTP_GET", "HTTP_POST", "HTTP请求",
         "取网址", "下载文件",
         "URL解析", "URL构建", "URL编码", "URL解码",
         "DNS解析", "DNS查询", "网络状态", "Ping检测",

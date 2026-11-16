@@ -533,8 +533,10 @@ class DomainRegistry:
             "description": "Socket通信、HTTP客户端、DNS、URL处理",
             "module": "src.domains.networking",
             "functions": [
-                "网络连接", "网络绑定", "HTTP_GET", "HTTP_POST",
-                "HTTP请求", "URL解析", "URL构建", "URL编码", "URL解码",
+                "网络_服务", "网络_接受", "网络_收", "网络_发", "网络_关闭",
+                "HTTP_GET", "HTTP_POST", "HTTP请求",
+                "取网址", "下载文件",
+                "URL解析", "URL构建", "URL编码", "URL解码",
                 "DNS解析", "DNS查询", "网络状态", "Ping检测",
             ],
             "constants": {"DEFAULT_TIMEOUT": 10.0, "MAX_CONNECTIONS": 100},

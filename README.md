@@ -8,11 +8,11 @@
 `tests/test_doc_facts.py` 会核对文档与代码是否漂移（漂移即红）。
 
 - **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
-- **领域插件：** 85（`src/domains/` 共 87 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
+- **领域插件：** 86（`src/domains/` 共 88 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
-- **`.matha` 语料：** 173（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 151（`tests/`）
+- **`.matha` 语料：** 174（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
+- **测试文件：** 156（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -158,6 +158,31 @@ matha ext upgrade  包名                     # 升级一个扩展包（本地�
 （`use 包名` 内核回退面如实尊重）；终端扩展条目持久化在
 `.matha/extensions.json`。安装的用户扩展包直接 `use 包名` 加载。
 
+### matha app（应用中心/商店，阶段 25）
+
+自生凭据面：商店自签发 HMAC 令牌（首发随机 secret 落
+`.matha/store/secret.key`，令牌三段式 `主体.到期戳.HMAC`，发布需令牌、
+安装开放）；引擎是纯 Matha（`matha/store_engine.matha`：HTTP 请求解析/
+路由/索引落盘），Python 只出 socket 驱动（`src/app_cli.py`）。
+
+```bash
+matha app serve --port 8080                  # 启动应用中心（默认 127.0.0.1:8787）
+matha app token --subject 甲                 # 签发发布令牌（--ttl 秒，默认 3600）
+matha app publish 应用 --file 应用.matha      # 发布（本地自动取令牌；远程须 --token）
+matha app upgrade 应用 --file v2.matha       # 升级（应用不存在诚实拒绝）
+matha app list                               # 全部应用（码点升序）
+matha app search 关键词                       # 名称子串过滤
+matha app install 应用 [--version 1.0]       # 安装到 .matha/apps/<应用>/<入口>
+matha app import-release 组/仓库 --tag 发行标签 --asset 应用.matha
+                                             # 从 GitHub Release 附件导入（CI 闭环）
+# 远程操作加 --store http://127.0.0.1:8080
+```
+
+CI→商店闭环（阶段 25e）：CI 只用 actions 自动注入的 `GITHUB_TOKEN`
+（PyPI/Marketplace/钉钉等外部凭据面已整体删除，发行物一律 Release 附件），
+附件经 `matha app import-release` 导入本地应用中心；卫生锁
+`tests/test_ci_hygiene_phase25.py` 钉住 secrets 白名单 = {GITHUB_TOKEN}。
+
 ---
 
 ## 项目结构
@@ -165,7 +190,7 @@ matha ext upgrade  包名                     # 升级一个扩展包（本地�
 ```
 matha/
 ├── src/                    # 核心源代码
-│   ├── domains/           # 85 个领域插件（+ 包初始化/注册表）
+│   ├── domains/           # 86 个领域插件（+ 包初始化/注册表）
 │   ├── kernel/            # L1 纯净内核（纯标准库）
 │   ├── plugins/           # 内核外工具插件
 │   ├── compiler/          # JIT/AOT 编译器（LLVM 子过进程属可选插件）
@@ -204,7 +229,7 @@ matha/
 - 类型系统
 - CSP 并发
 - SQLite 离线存储
-- 所有 85 个领域插件
+- 所有 86 个领域插件
 
 ### ⚠️ 需要网络（离线不可用）
 - 远程包安装/搜索

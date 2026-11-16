@@ -1802,6 +1802,73 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   同名冲突绑定 +3、24d 动态求值双面 +68、24e 仿真注入面 +4、24g 热重载注入面
   +5）；CHANGELOG 领域插件 83→85；ast_vm_gap 快照重生成（corpus_files 217→220，
   解析失败 0）；KNOWN_ISSUES 本条目。
+- **2026-11 阶段 25 收官（自生凭据与应用中心：商店/CLI/CI 去外部凭据五片全落）**：用户拍板
+  「外部凭据无法获得 → 直接为 Matha 创造自身凭据与环境」，范围三面：全自生凭据面 +
+  内部软件分发中心 + 成为 Matha 的应用中心/商店；商店形态 = 纯 Matha 自举（Python 只出
+  socket 驱动）；凭据 = 商店自签发 HMAC 令牌；CI 集成 = Release 附件 + 商店导入；休眠
+  CI 家族 = 删 cd-full 三件、其余保留。
+  **25a socket 服务端域胶水**：src/domains/networking.py 网络_服务/接受/收/发/关闭
+  （真监听器句柄，端口 0 = 系统分配测试面，接受超时面 {"超时": True}）替换旧无句柄
+  假面（网络连接/网络绑定/网络监听/Socket发送/Socket接收，22a 同类清算）；
+  tests/test_socket_server_phase25.py 11 条 + 1 平台 skip（Windows SO_REUSEADDR 强制
+  复用语义，绑定失败 ValueError 路径 POSIX 可复现）。
+  **25b 商店 HMAC 令牌**：src/domains/store.py 三符号 商店_签发令牌/校验令牌/
+  吊销令牌（HMAC-SHA256，header.payload.sig 三段式 + jti 8 字节随机；密钥首启
+  secrets.token_bytes(32) 自生成落 <root>/.matha/store/secret.key——无外部凭据；
+  吊销表 <root>/.matha/store/revoked.json jti→exp 持久化 + 过期条目回收；篡改/过期/
+  吊销/形态错均诚实拒绝）；tests/test_store_token_phase25.py 15 条。
+  **25c 纯 Matha 应用中心引擎**：matha/store_engine.matha——HTTP/1.1 文本面解析 +
+  路由（GET /apps、GET /apps/<名>、GET /search?q=、POST /token、POST /publish、
+  POST /revoke）+ 索引持久化 .matha/store/index.json，Python 仅 socket 驱动。引擎
+  实现踩中并真化两处深层缺陷：① stdlib 截取/find 逐字符递归宿主面 ~140 字符即撞
+  RecursionError → 分块真化（块内 ≤24/64 字符浅递归、块间推进，语义与旧实现逐字节
+  一致；残余深递归项维持第二节登记）；② 解释器柯里化共享捕获表缺陷——模块 FuncDef
+  闭包的 captured 列表被同函数全部调用链共享，部分应用路径原地 extend 让交错链
+  （外层柯里调用挂起期间嵌套同名函数的另一条链）的绑定经 dict(captured) 末值优先
+  互相覆盖（发布落盘索引形状错位根因）→ src/interp.py _call_lambda 改拷贝追加
+  （+11 行，debug 轨迹取证）；tests/test_store_engine_phase25.py 17 条（路由/持久化/
+  错误面/socket e2e/VM 面发布回环）。
+  **25d matha app CLI**：src/app_cli.py 八子命令 serve/token/publish/upgrade/list/
+  search/install/import-release——本地面在进程内直驱引擎 处理请求；远程面 raw socket
+  HTTP/1.1 客户端（Connection: close 定界）；import-release 走 urllib HTTPS 拉
+  GitHub Release 附件（URL 段 quote、repo 段 safe='/' 保形）；安装落
+  .matha/apps/<应用>/<入口> + manifest.json（入口名单段校验）；matha_main app 命令族
+  接线；tests/test_app_cli_phase25.py 14 条（真 socket serve 子进程 e2e 全回环 +
+  诚实拒绝矩阵：缺令牌/版本不符/应用不存在/商店不可达/404）。
+  **25e CI 去外部凭据**：休眠 CD 家族删除（cd-full.yml / docker_build_push.yml /
+  multilang_benchmark.yml + .github/configs/ 钉钉共享配置两件，git rm）；ci.yml PyPI
+  上传（PYPI_TOKEN）→ upload-artifact；matha-ci.yml publish → GitHub Release 附件
+  （whl/tar.gz + exe，contents: write）；publish_matha_auth.yml → gh release upload；
+  release.yml VSIX（VSCE_PAT/OVSX_PAT）→ Release 附件、钉钉通知 →
+  $GITHUB_STEP_SUMMARY；benchmark.yml / stress_test.yml 同改 Step Summary；卫生锁
+  tests/test_ci_hygiene_phase25.py 7 条（secrets 白名单 = {GITHUB_TOKEN}、
+  your-company == 0、dingtalk == 0、删除负存在、无 id-token/twine upload、
+  Step Summary 在位、CI→商店闭环 import-release 存在）。
+  **登记不修八条（现状锁）**：①商店引擎查询参数原样匹配（无 URL 百分号解码）——
+  非 ASCII 查询经 CLI 本地面可用，HTTP 线上面由调用方编码、引擎不解码；②响应定界
+  走 Connection: close（无 Content-Length，RFC 7230 §3.3.3 规则 7），serve 单线程
+  串行（每连接顺序处理，无并发面）；③远程商店客户端仅 http:// 明文（无 TLS——纯
+  标准库 socket 面不背书 TLS）；④import-release 仅公开 Release 附件可导（urllib
+  HTTPS 真 github.com 无凭据，私有仓库 404 诚实失败）；⑤令牌无密钥轮换面（
+  secret.key 一次生成永用；删除重生成即全体旧令牌失效，中途撤销由吊销表按 jti
+  补足）；⑥matha-ci.yml publish job 的 Release 附件清单含 dist/matha.exe /
+  dist/matha-cc.exe，但 exe 由 windows build-exe job 产出且仅上传为 artifact——
+  publish（ubuntu）工作区无 dist/*.exe，tag 发布前须补 download-artifact 步骤
+  （维持原状登记，25e 未扩面）；⑦休眠工作流（benchmark/stress_test/riscv_baremetal/
+  release/publish_matha_auth）引用不存在测试文件的死路径维持 9d 登记（仅手动触发
+  不产生自动 run）；⑧release.yml 引用 install_tools.py/check_files.py 等死路径维持
+  9d 登记。
+  **门禁两跑**：首跑 7085/7086——1 红 tests/test_single_version = README matha app
+  节示例 `--tag` 带了版本记号形态（v数字.数字）撞版本记号锁（doc 编辑自伤伪影非
+  代码缺陷，同阶段 24 类），改占位符复跑；二跑干净 **7086/7086 通过率 100%**（tests 6983 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现
+  与 socket 1 例平台 skip 不计入分母）。算术闭合：7022（24 收官）+ 65（25a-25e 三锁
+  12+15+17+14+7）= 7087 条件 = 7086 通过 + 1 平台 skip。doc 同步：README 领域插件
+  85→86、语料 173→174、测试文件 151→156 + 新增 `matha app` 用法节；ARCHITECTURE
+  85→86 插件、清单 87、测试文件 156、指令码 33→34/34/34（陈旧勘误）、语料 174 +
+  阶段 25 台账注记 + 应用中心段；CHANGELOG 领域插件 85→86 + 阶段 25 条目 + 指令码
+  34；ast_vm_gap 快照重生成（corpus_files 220→221，解析失败 0）；KNOWN_ISSUES 本
+  条目 + 9d/9e 勘误。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。
@@ -2077,6 +2144,12 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   仓库中不存在的 `scripts/k8s_failover_drill.py`、`docs/release_report.json`、`check_files.py`、
   `check_git.py`、`tests/test_jupyter_magic.py`、`tests/test_pkg_manager_dependency.py`、
   `extensions/vscode-matha/package-lock.json`。
+  【阶段 25 勘误：`cd-full.yml` / `docker_build_push.yml` / `multilang_benchmark.yml`
+  三件已于阶段 25e git rm 删除（外部凭据面依赖，负存在由
+  `tests/test_ci_hygiene_phase25.py::test_deleted_dormant_cd_family_absent` 上锁）；
+  `benchmark.yml` / `stress_test.yml` 的钉钉通知步骤已改为 `$GITHUB_STEP_SUMMARY`
+  写入（零 secrets 面）。本清单其余条目（riscv_baremetal / release /
+  publish_matha_auth 的死路径）维持登记。】
 
 ### 9e. 登记但不修（诚实面，不在本 PR 范围）
 
@@ -2085,6 +2158,12 @@ release.yml 的 uses+run、cd-full.yml 的多行纯量），不存在「无牙�
   `PYPI_TOKEN`、`OVSX_PAT`、`VSCE_PAT`、`PROD_KUBECONFIG`、`STAGING_KUBECONFIG`、
   `JWT_SECRET` 等。凭据不就绪，全部通知/镜像/发布类步骤不可能成功——这是基础设施缺失，
   不是代码缺陷，也不该靠 mock 刷绿。
+  【阶段 25 勘误：外部凭据依赖面已按「自生凭据」拍板整体删除——CI secrets 引用白名单
+  收敛为 {GITHUB_TOKEN}（actions 自动注入），PyPI/VS Marketplace/Open VSX/钉钉通知等
+  步骤改为 Release 附件 / upload-artifact / $GITHUB_STEP_SUMMARY，白名单由
+  `tests/test_ci_hygiene_phase25.py::test_secrets_whitelist_github_token_only` 上锁。
+  本条其余历史登记（镜像/K8s/JWT 等面的基础设施缺失）随之失效——对应工作流已删除
+  或不再引用这些 secrets。】
 - 两份 spec 里 3 处死 `hiddenimports`（`matha.spec` 的 `src.tree_sitter_backends` 与
   `src.domains.hal`、`matha-cc.spec` 的 `src.domains.hal`）仍会让 PyInstaller 打
   `ERROR: Hidden import … not found`，但实测**不阻断构建**（修完 `matha-cc.spec` 后本地重跑

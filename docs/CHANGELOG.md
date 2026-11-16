@@ -291,12 +291,23 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   `regex_builtin`、`time_builtin`、`file_builtin`、`errors`；
   修复了 `vm.py` 反向 import 领域层（`domains.time_module`）的内核污染。
 
-### 三、插件联邦：85 个领域插件懒加载
+### 三、插件联邦：86 个领域插件懒加载
 
-- **85 个领域插件**（`src/domains/`，清单 `manifest.json` 0 不可用）零改写接入
+- **86 个领域插件**（`src/domains/`，清单 `manifest.json` 0 不可用）零改写接入
   `MathaPlugin` 契约（`src/plugin_api.py`），另有 **7 个内核外工具插件**
   （`src/plugins/`：toolchain_msvc/llvm、numpy_accel、ffi、tree_sitter 等；
   原 9 个中的 ffi_sdk / legacy_mir_vm 已于阶段 22b 孤儿清算删除）。
+- 阶段 25 自生凭据与应用中心：新增 `store` 插件（商店_签发令牌/校验令牌/
+  吊销令牌，HMAC-SHA256 自签发，首发 secret 落 `.matha/store/secret.key`）；
+  应用中心引擎 `matha/store_engine.matha` 为纯 Matha（HTTP 解析/路由/索引），
+  Python 侧仅 socket 驱动 `src/app_cli.py`（`matha app` serve/token/publish/
+  upgrade/list/search/install/import-release 八子命令）；socket 服务端域胶水
+  （网络_服务/接受/收/发/关闭，真监听器句柄）替换旧无句柄假面（网络连接/
+  绑定/监听/Socket发送/Socket接收）。CI 去外部凭据（25e）：secrets 白名单 =
+  {GITHUB_TOKEN}（卫生锁 `tests/test_ci_hygiene_phase25.py`），PyPI/VS
+  Marketplace/钉钉通知等外部凭据面删除，发行物一律 GitHub Release 附件，
+  经 `matha app import-release` 导入本地应用中心；休眠 CD 家族
+  （cd-full/docker_build_push/multilang_benchmark）与钉钉共享配置删除。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。
@@ -322,7 +333,7 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
 
 - AST×VM 覆盖矩阵：78 节点中 59 发射 / 19 有意无码 / **0 不认识、0 阻塞缺口**；
   202 份语料 **0 解析失败**（`docs/ast_vm_gap.md`，机器生成）。
-- 指令码 33 条 VM 全分派、native 全发射；黄金用例 **39** 例 vm ↔ interp
+- 指令码 34 条 VM 全分派、native 全发射；黄金用例 **39** 例 vm ↔ interp
   逐字节一致，`--native` 真 exe 对拍已知缺口 **0** 例
   （`golden_tests/manifest.json` `native_known_gaps`；
   `18_domain_lazy_load` 属设计内 SKIP——exe 无 Python 宿主，不承载领域符号，

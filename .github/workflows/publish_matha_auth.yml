@@ -1,8 +1,9 @@
-# ci-hygiene: 仅 tag + 手动触发，不参与 push.branches / pull_request 门禁。已知
-# 未满足的前置：仓库 secrets 总数为 0，TWINE_PASSWORD 引用的 PYPI_TOKEN 为空，
-# 且 TWINE_REPOSITORY_URL 仍是占位域名 pypi.your-company.com（近 1 次 tag 触发
-# 已因此 failure）。真实发布通道建立后再启用。
-name: Publish matha-auth to PyPI
+# ci-hygiene: 仅 tag + 手动触发，不参与 push.branches / pull_request 门禁。
+# 阶段 25e 去外部凭据：原 PyPI 私有源（占位域名 + PYPI_TOKEN，仓库无法配置）
+# 已删除；发行物改为 GitHub Release 附件——凭据仅 actions 自动注入的
+# GITHUB_TOKEN（零用户 secrets）。附件可由 `matha app import-release` 导入
+# 本地应用中心（阶段 25d）。
+name: Attach matha-auth package to Release
 
 on:
   push:
@@ -10,11 +11,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish:
+  attach:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write  # PyPI trusted publishing
+      contents: write   # Release 创建与附件上传
 
     steps:
       - name: Checkout
@@ -32,11 +32,17 @@ jobs:
         run: |
           cd packages
           python -m build
+          twine check dist/*
 
-      - name: Publish to PyPI (private)
+      - name: Ensure release exists
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-          TWINE_REPOSITORY_URL: https://pypi.your-company.com/simple/
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          twine upload packages/dist/*
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Upload to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" packages/dist/* --clobber
