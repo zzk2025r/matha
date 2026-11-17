@@ -30,7 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 sys.setrecursionlimit(max(30000, sys.getrecursionlimit()))
 
-_FILES = ["matha/stdlib.matha", "matha/term_lexer.matha", "matha/term_parser.matha",
+_FILES = ["matha/stdlib.matha", "matha/os/kernel.matha", "matha/os/desktop.matha",
+          "matha/term_lexer.matha", "matha/term_parser.matha",
           "matha/term_engine.matha"]
 
 

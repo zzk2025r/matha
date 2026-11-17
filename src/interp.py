@@ -918,6 +918,8 @@ _CN2FILE = {
     "终端句法器": "term_parser.matha",
     "终端执行器": "term_engine.matha",
     "应用中心": "store_engine.matha",
+    "内核": "os/kernel.matha",
+    "桌面": "os/desktop.matha",
     "资源索引": "library/index.matha",
 }
 

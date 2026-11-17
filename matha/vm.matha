@@ -17,7 +17,7 @@
 
 module 字节码虚拟机 {
 
-  use 标准库 { len | list_slice | list_get | matha_type_of | 原地设置 }
+  use 标准库 { len | list_slice | list_get | matha_type_of | 原地设置 | float }
 
   (* ===== M3V 操作码 ===== *)
   func 压入常量() -> Int = 1
@@ -49,7 +49,9 @@ module 字节码虚拟机 {
   func 解包() -> Int     = 87
   func 复制() -> Int     = 88
   func 弹栈() -> Int     = 89
-  func 输出() -> Int     = 96
+  (* 输出码：不叫 输出()——joined 自举形态下该名会覆盖内建名表的 "输出"
+     marker，层-2 driver 的 输出(x) 被静默劫持为常量函数（实参被丢、无记录） *)
+  func 输出码() -> Int   = 96
   func 抛出() -> Int     = 97
   func 停机() -> Int     = 255
 
@@ -355,11 +357,12 @@ module 字节码虚拟机 {
 
   func 字符码(c: String) -> Int = ord(c)
 
-  (* float(x)：数值 → 浮点；字符串经宿主 _to_float 转换 *)
+  (* float(x)：数值 → 浮点；字符串委托标准库 float（Matha 解析器：
+     十进制/科学计数法）——27b 脱宿主：VM² 层内不再依赖宿主 _to_float *)
   func 函数float(x) -> Float =
     if matha_type_of(x) = "Float" then x
-    else if matha_type_of(x) = "Int" then _to_float(x)
-    else if matha_type_of(x) = "String" then _to_float(x)
+    else if matha_type_of(x) = "Int" then x * 1.0
+    else if matha_type_of(x) = "String" then float(x)
     else 0.0
 
   (* ===== 内建分发 =====
@@ -704,14 +707,14 @@ module 字节码虚拟机 {
     else if op = 写局部() then
       let (v, 栈1) = 栈弹(栈) in
       let 忽略 = 原地设置(帧步[1], 指令[1], v) in
-      ["__下一__", 帧栈步, 全局]
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈1)), 全局]
     else if op = 建盒() then
-      let 忽略2 = 原地设置(帧步[1], 指令[1], [null]) in
+      let 忽略2 = 原地设置(帧步[1], 指令[1], [null, null]) in
       ["__下一__", 帧栈步, 全局]
     else if op = 写盒() then
       let (v2, 栈2) = 栈弹(栈) in
       let 忽略3 = 原地设置(帧步[1][指令[1]], 1, v2) in
-      ["__下一__", 帧栈步, 全局]
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈2)), 全局]
     else if op = 读外部() then
       let 外层 = 找外层(帧步, 指令[1]) in
       压回并继续(帧栈步, 全局, 外层[1][指令[2]])
@@ -802,7 +805,7 @@ module 字节码虚拟机 {
     else if op = 弹栈() then
       let (v9, 栈p) = 栈弹(栈) in
       ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈p)), 全局]
-    else if op = 输出() then
+    else if op = 输出码() then
       let (v10, 栈q) = 栈弹(栈) in
       let 新输出 = 输出指针[1] + [v10] in
       let 忽略4 = 原地设置(输出指针, 1, 新输出) in
@@ -851,8 +854,7 @@ module 字节码虚拟机 {
   (* 解包序列：push seq[i]（越界 → null），按索引顺序入栈 *)
   func 解包栈(序列, n: Int, 栈: List) -> List =
     if n = 0 then 栈
-    else if n = 1 then 栈 + [解包项(序列, 0)]
-    else 解包栈(序列, n - 1, 栈 + [解包项(序列, n - 1)])
+    else 解包栈(序列[1:], n - 1, 栈 + [解包项(序列, 0)])
 
   func 解包项(序列, i: Int) -> Value =
     if 序列 = null then null
@@ -967,7 +969,7 @@ module 字节码虚拟机 {
     let g15 = 设全局(g14, "π", 3.141592653589793) in
     let g16 = 设全局(g15, "τ", 6.283185307179586) in
     let g17 = 设全局(g16, "φ", 1.618033988749895) in
-    let g18 = 设全局(g17, "∞", _to_float("inf")) in
+    let g18 = 设全局(g17, "∞", ∞) in
     设全局(g18, "_empty_dict", _empty_dict)
 
   func 注册内建一批(全局: List, 表: List) -> List =
@@ -979,6 +981,9 @@ module 字节码虚拟机 {
     let 主帧 = [程序.主码, [], null, [], 0] in
     let 综合全局 = 注册程序全局(程序, 主帧) in
     let 结果 = 执行([主帧], 综合全局, 输出指针, 程序, 0) in
-    输出指针[1]
+    (* 对齐宿主 VM.call 抛错面：目标程序错误真抛出（宿主面 MathaError），
+       不得静默吞为部分输出；上层 Matha VM 经 调用捕获 捕获。 *)
+    if 结果[0] = "__抛错__" then 错误(结果[1])
+    else 输出指针[1]
 
 }

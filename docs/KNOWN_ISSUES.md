@@ -1941,6 +1941,70 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   测试文件 161/本体量 32,519→32,562（+43 = 26a 注册表条目化 + 工厂收敛）+ 阶段 26a
   台账注记；CHANGELOG 插件联邦节 86→88 + 阶段 26 条目；ast_vm_gap 快照预检无漂移
   （78 节点/59 发射/19 无码/指令码 34/0 解析失败，无重生成）。
+- **2026-11 阶段 27 收官（共生体：Matha 既是桌面/移动软件又是操作系统——stage-4 脱宿主
+  闭环 + 纯 Matha OS 内核 + 单元管理器五形态统一 + TUI 桌面 + 资源库三分支全落）**：
+  用户拍板四项：①自举深度=先通过 Matha 编译器解释器编译 stage-4，再以此为跳板完成
+  其它目的；②桌面=纯 Matha TUI 桌面；③单元管理器=五形态统一；④资源库=os+desktop+
+  compat 三分支。全部本体为纯 Matha 模块跑在 Matha 自身解释器/VM 上，Python 层只留
+  IO/进程原语薄桥。
+  **27b stage-4 脱宿主闭环**：tests/test_stage4_closure_phase27.py 9 项（tier C
+  joined 逐位一致/tier A 编译产物实例化对拍/tier B 全脱宿主 VM²——单档 ~10.5 min，
+  跑前留足超时）；脱宿主真化：stdlib/vm.matha _to_float 依赖消除 + 运行M3V __抛错__
+  真抛出（对齐宿主 MathaRuntimeError 面）+ 输出() 改名 输出码() 防内建劫持 + 三处
+  vm.matha 模拟器缺陷修复（建盒 1 槽盒→[null,null] 双槽、解包栈逆序压栈→顺序、
+  写局部/写盒缺换栈——连续 STORE 弹同一栈顶；主码级解包走写全局有换栈，故简单语料
+  侥幸全绿，取证链在测试档 docstring）；tier C 扩证 joined+driver 新形态 Matha 编译器
+  ≡ 宿主编译 0 函数差异。27b 发现的字典值误析（{"k": [...]} 值位双端同源误析）登记
+  27g，已在 27f 窄化修复中修复。
+  **27c 纯 Matha OS 内核**：matha/os/kernel.matha（module 内核）进程/服务/单元生命周期
+  （装载/启动/停止/卸载/升级/回滚）+ requires 兼容协商（26c 语义的 Matha 镜像）；
+  探针踩中即修内核 4 缺陷：空转轮步数翻倍→非就绪增量 [事件,0]、_卸载落地记录表破坏
+  →_滤记、_步进第二元素继续旗标→步数增量恒 1、服务占用协商失效→对偶感知 _占用名；
+  test_os_kernel_phase27.py 11 项。
+  **27d 单元管理器五形态统一**：src/os_runtime.py 桥（app←25d manifest/包←24a/域插件
+  ←PluginResolver/终端命令←12e registry/服务←register_service 五形态统一 + 外部单元
+  subprocess spawn/poll/stop + 升级/回滚/卸载 + inspect 健康桥）；test_os_runtime_
+  phase27.py 12 项。
+  **27e TUI 桌面**：matha/os/desktop.matha（纯 Matha，use 标准库 {len|str} + use 内核；
+  演示桌面预装载三单元 时钟/回声/便签；按键 j/k 焦点环绕、s 启动、t 停止、u 卸载、
+  p 进程、d 步进、q 退出，全部动作经 OS 内核协商面，拒绝如实回传消息行）+ term_engine
+  ⑤b `桌面` 命令（一次性确定性键序脚本，别名 desktop，≤16 键，缺省
+  [d s p d d d d t u q]）；test_desktop_phase27.py 13 项。
+  **27f 资源库三分支 + 解析器字典值语境窄化修复**：matha/library/{os,desktop,compat}/
+  六模块（进程管理/单元清单/单元工厂/桌面组件/包适配器/命令适配器）+ 资源索引 21→27
+  条；test_library_os_phase27.py 18 项。解析器修复：src/parser.py 新增 _parse_dict_
+  value + _in_dict_value 旗标三处（init/括号消解链/字典字面量值位包装）——{"k": [x]}
+  值位 [x] 为列表字面量而非输出命令，与三元分支/return 操作数同口径。**首稿宽面
+  OP_COLON 加入运算符右值 token 表被回退**（与门禁挂起疑云的因果未证实，见复盘段），
+  窄化修复以 AST 探针兜底（_probe_ast_dump.py：182 语料 pickle+sha256 双跑确定性）：
+  boot 链六文件零扰动、唯一差异面 matha/vm/matha_vm.matha:66 帧栈构造
+  {"帧栈": [新帧("<主>")]} host 面此前误析 Output→真列表（12b 19 + mbc_vm_matha 114 +
+  library_os 18 = 151 项复跑全绿）——27b 登记的双端同源误析就此修复。
+  **门禁两跑**：首跑 7263/7268 99.93%——5 红全为 doc 漂移+目录锁计数（test_doc_facts
+  4 + test_library_as_code_phase24 资源目录 21→27 计数锁 1），doc 同步 + 改锁后
+  doc 子集 73 项绿，二跑干净 **7268/7268 通过率 100%**（pytest 7165 过 2201.0s +
+  kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，
+  native 1 例已知未实现与 socket 1 例平台 skip 不计入分母）。算术闭合：7200（26 收官
+  条件）+ 69（5 新档 63 = stage4 9+kernel 11+os_runtime 12+desktop 13+library_os 18，
+  加 test_library_as_code_phase24 _library_stems() 资源库动态参数化随 21→27 面 +6）
+  = 7269 条件 = 7268 通过 + 1 平台 skip。
+  **门禁挂起疑云复盘**（经验登记）：27f 期间一次全量门禁被误判「挂起」中止——事后
+  证实 stage4_closure 与 mbc_vm_matha 两档各 ~10.5 min 固有成本（7 分钟前台超时判
+  「挂起」是伪影，revert 后 stage4 638.97s 绿跑自然收尾）+ tail 管道缓冲 11 分钟零
+  输出加重误判；宽面 OP_COLON 与该挂起的因果未证实。经验：VM²/自举重档单档预算
+  >12 min 再判挂起；后台长跑勿经 tail 管道读中途输出。
+  doc 同步：README `.matha` 语料 174→182（matha/os/ ×2 + matha/library/ ×6）+ 测试
+  文件 161→166 + 树 166 + 新增 `matha 桌面` 用法节；ARCHITECTURE 本体量
+  32,562→32,578（+16 = 27f 解析器字典值语境三处）+ 阶段 27f 台账注记 + 测试文件 166 +
+  语料 182 + 新增共生体 OS 面节；CHANGELOG 阶段 27 共生体条目 + stage-4 自举注记；
+  ast_vm_gap 快照 27f 重生成（scripts/ast_vm_matrix.py --write：corpus_files 221→229
+  对应 +8 新语料；78 节点/59 发射/19 无码/指令码 34/0 解析失败不变，门禁 --check 绿）。资源库参数化面：test_library_as_code_
+  phase24 _library_stems() 随 27f 六新模块 +6 项（目录计数锁 21→27 同步）。
+  登记不修六条：①lambda/柯里块体内语句位条件赋值 `var = cond ? a : b` 折损为比较
+  （语言形态，双端同源）；②缺失字典键 host=None/vm=KeyError（语义分歧，双端同源
+  登记待统一）；③str() 数字专用（非数字入参诚实拒绝）；④semver 0.x 预发布包升级面
+  诚实拒绝；⑤桌面为一次性确定性脚本形态（真交互逐键会话超出本阶段范围）；⑥VM²
+  重档门禁预算与观测口径（见复盘段——非产品缺陷，操作经验）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

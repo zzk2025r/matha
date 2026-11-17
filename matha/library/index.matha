@@ -24,6 +24,12 @@ module 资源索引 {
   "physics/mechanics",
   "graphics/绘画辅助",
   "simulation/建模仿真",
-  "mcu/单片机"
+  "mcu/单片机",
+  "os/进程管理",
+  "os/单元清单",
+  "os/单元工厂",
+  "desktop/桌面组件",
+  "compat/包适配器",
+  "compat/命令适配器"
 ]
 }

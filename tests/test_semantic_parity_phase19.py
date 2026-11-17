@@ -315,8 +315,9 @@ class TestBoundariesPhase19:
 # 4. 19c：终端管道态修复——段内出错 catch 清态后重抛，不再泄漏
 # ============================================================
 
-_TERM_FILES = ["matha/stdlib.matha", "matha/term_lexer.matha",
-               "matha/term_parser.matha", "matha/term_engine.matha"]
+_TERM_FILES = ["matha/stdlib.matha", "matha/os/kernel.matha", "matha/os/desktop.matha",
+               "matha/term_lexer.matha", "matha/term_parser.matha",
+               "matha/term_engine.matha"]
 
 
 def _term_vm():

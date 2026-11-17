@@ -328,6 +328,28 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   插件（第 88 个域，硬件_信息/自身_状况/软件_清单/模块_清单/插件_冲突
   五符号双面）+ `matha sys` CLI 六子节（hardware/self/plugins/software/
   modules/all，JSON 输出）；插件使用口径 = 物化时刻（plugin_usage）。
+- 阶段 27 共生体（Matha 既是桌面软件又是操作系统，五片全落，四项拍板全走
+  推荐项）：**27b stage-4 脱宿主闭环**——stdlib+vm.matha joined 闭包经
+  boot 链 VM²（编译出的 VM 编译）与宿主编译逐字节一致（tier A 内层 VM /
+  tier B VM² 跑编译码 / tier C joined 编译同一三层锁
+  `tests/test_stage4_closure_phase27.py`）；附带真化 stdlib/vm.matha 五处
+  `_to_float` 宿主依赖（×1.0 / String parse 委托 / ∞ 字面量）；**27c 纯
+  Matha OS 内核**——`matha/os/kernel.matha`（单元生命周期状态机/进程表与
+  协作调度/服务注册表 + 兼容协商），探针踩中即修四缺陷（空转轮步数翻倍、
+  卸载落地记录表破坏、步进返回口径、服务占用协商），11 锁；**27d 单元管理
+  器五形态统一**——`src/os_runtime.py` 宿主桥将 app（25d manifest）/包
+  （24a）/域插件（PluginResolver）/终端命令（12e registry）/服务
+  （register_service）翻译为内核描述符 + 外部单元（spawn/poll/stop/
+  升级回滚/卸载）+ inspect 健康桥，12 锁；**27e TUI 桌面**——
+  `matha/os/desktop.matha`（纯 Matha，`use 内核`，演示单元 时钟/回声/便签，
+  j/k 焦点 s 启动 t 停止 u 卸载 p 进程 d 步进 q 退出，动作经内核协商面拒绝
+  如实回传）+ 终端 `桌面` 命令（一次性确定性键序脚本，别名 desktop，至多
+  16 键），13 锁；**27f 资源库三分支**——`matha/library/{os,desktop,compat}`
+  六模块（进程管理/单元清单/单元工厂/桌面组件/包适配器/命令适配器）并入
+  资源索引 21→27 条 + 宿主解析器字典值语境窄化修复（`_parse_dict_value`
+  值位旗标：`{"k": [x]}` 值位 `[x]` 为列表字面量而非输出命令；boot 链六
+  文件 AST 逐字节探针零扰动，唯一差异面 `matha/vm/matha_vm.matha:66` 帧栈
+  构造修正为真列表），18 锁。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。
@@ -342,6 +364,10 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
 - 引导链 `lexer.matha / stdlib.matha / parser.matha / interp.matha /
   compiler_matha.matha` 五文件全部由自举编译器编译并在宿主 VM 上执行
   （`tests/test_mbc_bootstrap.py`，M3V 闭环）。
+- **stage-4 脱宿主闭环（阶段 27b）**：vm.matha 加入 joined 闭包后，
+  【stdlib + vm.matha】经 boot 链 VM²（编译出的编译器 + 编译出的 VM）编译
+  与宿主编译逐字节一致；VM² 内可跑编译出的代码（tier B）并实例化独立 VM
+  运行自举产物（tier A）——`tests/test_stage4_closure_phase27.py`。
 - **stage-2 不动点**：用自举编译器编译【整条引导链】得到 stage-2 编译器，
   再用它编译 `matha/vm.matha`，产物与 stage-1 及宿主编译 gold **逐位一致**
   ——编译器自编译后行为不变（`tests/test_mbc_vm_matha.py`，标 slow）。

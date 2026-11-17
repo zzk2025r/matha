@@ -11,8 +11,8 @@
 - **领域插件：** 88（`src/domains/` 共 90 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
-- **`.matha` 语料：** 174（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 161（`tests/`）
+- **`.matha` 语料：** 182（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
+- **测试文件：** 166（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -141,6 +141,21 @@ REPL 启动自动执行当前目录 `matha_term_extensions.msh`（其中 `退出
 `.matha_packages/<包>/manifest.json` 并复核版本；本地目录升级不联网；
 `升级 解释器` 显式拒绝）。
 
+### matha 桌面（纯 Matha TUI 桌面，阶段 27）
+```bash
+matha 桌面                              # 终端内一次性确定性 TUI（缺省键序 d s p d d d d t u q）
+matha 桌面 j s d d q                    # 自定义键序（至多 16 键；别名 desktop）
+python -m src.matha_term -c "桌面"       # 单命令形态（同一入口）
+```
+
+桌面本体为纯 Matha 模块（`matha/os/desktop.matha`，`use 标准库 { len | str }` +
+`use 内核`），演示桌面预装载三单元（时钟/回声/便签）；按键集 `j/k` 焦点环绕、
+`s` 启动、`t` 停止、`u` 卸载、`p` 进程、`d` 步进、`q` 退出，全部动作经 OS 内核
+（`matha/os/kernel.matha`，单元生命周期/进程表/服务注册表 + 兼容协商）协商面，
+拒绝如实回传消息行。终端命令为一次性确定性脚本；配套 `src/os_runtime.py`
+单元管理器桥（app/包/域插件/终端命令/服务五形态统一 + 外部单元）与
+`matha/library/{os,desktop,compat}` 资源库三分支（资源索引 21→27 条）。
+
 ### matha ext（统一扩展管理，阶段 23）
 ```bash
 matha ext list                              # 四面扩展一览（领域/特性/扩展包/终端）
@@ -218,7 +233,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（71 个文件）
+├── tests/                  # 测试套件（166 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

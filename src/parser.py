@@ -128,6 +128,8 @@ class Parser:
         # 正在解析 return 的操作数：此语境下 [expr] 是表达式（列表字面量），
         # 而非输出命令——避免 return [x] 被误编译成 ReturnStmt(Output(x))。
         self._in_return_value = False
+        # 正在解析字典字面量的值位：{"k": [x]} 的 [x] 是列表字面量而非输出命令。
+        self._in_dict_value = False
         self._if_depth: int = 0        # 当前 if 表达式嵌套深度
         # 正在解析 @(a|b|c) 括号式设定：此语境 `|` 是**项分隔符**而非位或
         self._in_setup_paren = False
@@ -1321,7 +1323,7 @@ class Parser:
         # 第一个键值对
         key = self._parse_expr()
         self._expect(TokenType.OP_COLON, ":")
-        value = self._parse_expr()
+        value = self._parse_dict_value()
         keys.append(key)
         values.append(value)
         # 后续键值对
@@ -1332,12 +1334,22 @@ class Parser:
                 break  # 允许尾随逗号
             key = self._parse_expr()
             self._expect(TokenType.OP_COLON, ":")
-            value = self._parse_expr()
+            value = self._parse_dict_value()
             keys.append(key)
             values.append(value)
         self._skip_newlines()
         self._expect(TokenType.PUNCT_RBRACE, "字典字面量闭括号 }")
         return ast.DictLiteral(keys=keys, values=values)
+
+    def _parse_dict_value(self):
+        """解析字典键值对的值：此语境下 `[expr]`（含单元素 `[x]`）是列表字面量，
+        而非输出命令——与三元分支 / return 操作数同口径。"""
+        saved = self._in_dict_value
+        self._in_dict_value = True
+        try:
+            return self._parse_expr()
+        finally:
+            self._in_dict_value = saved
 
     def _scan_for_annot_before_newline(self) -> bool:
         """本行（自 pos 起）是否在换行/EOF 之前出现标注起始 `*/`。"""
@@ -2449,6 +2461,10 @@ class Parser:
                 return self._parse_list_literal()
             # 三元 ? / : 分支：此语境 [expr] 为列表字面量（含单元素 [x]）
             if self._in_ternary_branch:
+                return self._parse_list_literal()
+            # 字典值语境：{"k": [x]} 的值位 [x] 为列表字面量（键值对 : 右侧），
+            # 与三元分支 / return 操作数同口径——避免单元素列表被误判为输出命令。
+            if self._in_dict_value:
                 return self._parse_list_literal()
             # return 操作数语境：`return [x]` 中的 [x] 为列表字面量（表达式），
             # 而非输出命令——修复单元素列表无法作为返回值的语句位陷阱。

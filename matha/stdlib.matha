@@ -371,12 +371,12 @@ module 标准库 {
   (* 字符串 → 浮点数（数值入参直接做类型转换；支持科学计数法 e/E）。
      采用大整数缩放实现【正确舍入】：把全部有效数字拼成整数 digits，
      再按十进制指数 k = exp - 小数位 施加。k ≥ 0 时 digits * 10^k 为精确
-     大整数，_to_float 一次舍入；k < 0 时 digits / 10^(-k) 为整数真除法，
+     大整数，× 1.0 一次舍入；k < 0 时 digits / 10^(-k) 为整数真除法，
      同样一次舍入。故与宿主 float() 逐位一致——不再用 pow(10.0, n)（对
      |n| > 22 不精确）。 *)
   func float(s: String) -> Float =
     if matha_type_of(s) = "Float" then s
-    else if matha_type_of(s) = "Int" then _to_float(s)
+    else if matha_type_of(s) = "Int" then s * 1.0
     else
     let s = strip(s) in
     if len(s) = 0 then 错误("float(): 空字符串")
@@ -409,7 +409,7 @@ module 标准库 {
     let digits_str = int_part + frac_part in
     let digits = if digits_str = "" then 0 else int(digits_str) in
     let k = exp - frac in
-    if k >= 0 then _to_float(digits * (10 ** k))
+    if k >= 0 then digits * (10 ** k) * 1.0
     else digits / (10 ** (0 - k))
 
   (* 数值 → 字符串 *)

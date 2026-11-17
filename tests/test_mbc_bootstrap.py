@@ -1795,7 +1795,7 @@ def test_m13_setop_ascii_tilde_is_unary_bitnot(boot_vm):
 # _UNARY_OPS/_fold_unary 增 cbrt。自举：lexer.matha ÷→除、单位码折入数字文本；
 # parser.matha 增 是开方号/是立方根号、解析主要 增 符号分支（∅→空列表，余→变量）；
 # compiler_matha 一元运算表/折叠 增 cbrt；vm.matha 应用一元 增 cbrt、引导 注册
-# π τ φ ∞（∞ 用 _to_float("inf")，因自举 float 实现不解析 "inf"）。
+# π τ φ ∞（∞ 直接以 ∞ 字面量种子——27b 脱宿主后 VM² 层内不再依赖宿主 _to_float）。
 # 语义：单位纯字符串标签（运行期丢弃，仅取值）；√/∛ 整数完全平方/立方回退整型。
 _M14_SYMBOL_CASES = [
     ("pi", "#：[π]\n", [math.pi]),
