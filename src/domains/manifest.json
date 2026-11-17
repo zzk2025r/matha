@@ -1,7 +1,7 @@
 {
   "_comment": "Matha 领域插件清单 —— 纯数据，由 scripts/gen_domain_manifest.py 生成，请勿手改。运行时 src/plugin_api.PluginResolver 只读此文件即可完成符号→插件的归属判定，从而不在启动时 import 任何领域模块。plugins 数组的顺序即加载顺序（沿用旧 interp eager 注册顺序），跨领域重名符号按后者覆盖。",
   "protocol_version": 1,
-  "generated_at": "2026-11-16T23:31:02",
+  "generated_at": "2026-11-17T08:57:16",
   "generator": "scripts/gen_domain_manifest.py",
   "plugins": [
     {
@@ -3400,6 +3400,37 @@
       "legacy": false
     },
     {
+      "name": "compiler_framework",
+      "module": "src.domains.compiler_framework",
+      "display_name": "编译器框架",
+      "cn_name": "编译器框架",
+      "category": "general",
+      "description": "",
+      "aliases": [
+        "compiler_framework",
+        "编译器框架"
+      ],
+      "registers": [
+        "_register_compiler_framework"
+      ],
+      "symbols": [
+        "任务_提交",
+        "任务_清单",
+        "优化遍_列表",
+        "优化遍_启停",
+        "优化遍_执行",
+        "优化遍_注册",
+        "内置遍_安装",
+        "后端_列表",
+        "后端_执行",
+        "增量_编译",
+        "程序_分析",
+        "策略_推荐"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
       "name": "computational_law",
       "module": "src.domains.computational_law",
       "display_name": "计算法学",
@@ -4426,6 +4457,30 @@
       "symbols": [
         "sum_series",
         "级数求和"
+      ],
+      "declared_symbols": [],
+      "legacy": false
+    },
+    {
+      "name": "system_monitor",
+      "module": "src.domains.system_monitor",
+      "display_name": "设备管理器",
+      "cn_name": "设备管理器",
+      "category": "general",
+      "description": "",
+      "aliases": [
+        "system_monitor",
+        "设备管理器"
+      ],
+      "registers": [
+        "_register_system_monitor"
+      ],
+      "symbols": [
+        "插件_冲突",
+        "模块_清单",
+        "硬件_信息",
+        "自身_状况",
+        "软件_清单"
       ],
       "declared_symbols": [],
       "legacy": false

@@ -1869,6 +1869,78 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   阶段 25 台账注记 + 应用中心段；CHANGELOG 领域插件 85→86 + 阶段 25 条目 + 指令码
   34；ast_vm_gap 快照重生成（corpus_files 220→221，解析失败 0）；KNOWN_ISSUES 本
   条目 + 9d/9e 勘误。
+- **2026-11 阶段 26 收官（类插件化收官：运行时注册表泛化 + 编译器框架域 + 插件兼容/
+  冲突面 + 设备/任务管理器四片全落）**：用户拍板五面：①提交（.zcode 融合变更集先行
+  落盘 acce660）；②五个框架模块插件化并跟踪与消费（拍板「域化暴露」）；③Matha 所有
+  功能类插件化——拆分/融合/互相调用/替换/扩展/升级含解释器/编译器（拍板「运行时
+  注册表泛化 + 工厂收敛」）；④插件调用兼容/同步运行/冲突解决；⑤设备/任务管理器
+  （拍板「CLI 子命令族 + 域双面」+「纯标准库 + 只读 subprocess」——pyproject
+  dependencies=0 约束不变）。
+  **26a 运行时注册表泛化**：src/kernel/exec_api.py 后端注册表条目化（_BackendEntry：
+  description/enabled/factory）+ unregister_backend/set_backend_enabled（未登记诚实
+  拒绝）+ backend_info（只列已登记项）+ make_vm 工厂（4 处 VM 构造收敛）+
+  _wire_plugin_runtime 增 make_compiler_framework_runtime 注入面；主线 vm/native
+  维持不在注册表（available_modes() 描述面权威、native 只产 exe 不可 run 诚实拒绝）；
+  register→run→unregister 回环 + 停用后 run 诚实拒绝 + 主线零扰动锁
+  tests/test_runtime_registry_phase26.py 11 条。
+  **26b 编译器框架域（87th 插件）**：src/domains/compiler_framework.py——五框架模块
+  （pass_manager/program_analyzer/strategy_selector/incremental_compiler/
+  distributed_compiler，acce660 进主线）消费面 12 符号：程序_分析/策略_推荐/
+  内置遍_安装/优化遍_列表/优化遍_启停/优化遍_执行/优化遍_注册/后端_列表/后端_执行/
+  增量_编译/任务_提交/任务_清单 + 内置遍两件真实现（常量折叠遍 add/sub/mul/div
+  数值字面量→load_const、除零不折叠诚实保留；死代码消除遍纯运算无后继使用者删除）+
+  Matha 回调遍双面（清单物化面共享语境解释器回调、VM 闭包直注诚实拒绝；官方入口
+  make_runtime 绑定运行本体 invoke_value，VM/宿主同名协议逐参柯里化）；踩中并修复
+  PassManager 真缺陷——run() 只遍历 _pass_order、_ensure_order 序空才全量拓扑，内置
+  遍装完后注册的回调遍永不执行（统计恒空）→ _attach_order（序空全量拓扑/非空追加尾）；
+  跨运行时对拍锁（后端_执行 legacy-interp/vm 双面同值 + native「只产 exe」诚实拒绝）
+  tests/test_compiler_framework_domain_phase26.py 24 条。
+  **26c 插件兼容面**：src/plugin_api.py register() requires 依赖校验（缺依赖诚实拒绝
+  LEVEL_ERROR「注册被拒」诊断 + _rejected 记录，依赖须已注册且注册序在前）+ 事后依赖
+  缺失报告（unregister 后 report()「依赖缺失」如实列出、不自动注销）+ conflicts()
+  多属主符号冲突面（语义维持清单最后声明者覆盖，报告只如实列出）+ report() 八键汇总
+  （插件总数/已加载/符号总数/可加载符号/冲突/注册被拒/依赖缺失/诊断数）+ plugin_usage()
+  全清单 [{名, 已加载, 物化时刻}]；tests/test_plugin_compat_phase26.py 14 条（拒绝/
+  依赖序/事后缺失/冲突三面/八键形状 + 真注册表健康锁新鲜构造零耦合）。
+  **26d 设备/任务管理器（88th 插件）**：src/system_inventory.py 信息层——
+  hardware_info（静态平台面/内存面 + GPU nvidia-smi 只读查询：缺席·退出码·异常三路
+  诚实降级 + MCU 工具链 shutil.which 四工具按板族路由 uno/nano/mega/stm32/esp32/
+  rp2040，which/run 可注入测试面）；self_status（版本/工作目录/插件 report()/运行时
+  后端/features/扩展状态/状态目录盘点/进程内存）；software_inventory（.matha/apps +
+  .matha_packages 清单真解析，损坏条目跳过不伪造）；modules_inventory（自定义运算符
+  REGISTRY/终端注册命令/优化遍/插件使用 四节）；src/domains/system_monitor.py 五符号
+  （硬件_信息/自身_状况/软件_清单/模块_清单/插件_冲突）+ matha sys CLI 六节 hardware/
+  self/plugins/software/modules/all（--root 隔离、JSON default=str、缺节 exit 2）；
+  tests/test_system_inventory_phase26.py 27 条（可注入诚实降级矩阵 + 域双面对拍 +
+  CLI 六节 e2e）。
+  **登记不修八条（现状锁）**：①IncrementalCompiler._compile_file 模拟桩（不产真目标
+  码 success=False 如实——增量面只报告受影响集，真编译走 mbc 主线）；②
+  DistributedCompiler 任务执行需事件循环（域只提交/清单/状态查询，不调度执行）；
+  ③插件使用口径=物化时刻（逐符号调用计数需包住每次内建调用，性能面负担）；④进程
+  内存 psutil/resource 缺席诚实降级（Windows 无 resource 面，内存字段可空）；⑤GPU
+  检测仅 nvidia-smi 只读查询（不设状态不管理——设备管理动作与 mcu 域真烧录分工，
+  本面只盘点）；⑥PassManager 全局统计跨跑累积（全局单例进程级，重启即清零）；⑦全局
+  注册表共享态——扩展启停测试的生命周期态对同进程后续读者可见（本阶段门禁首跑 4 红
+  根因，见门禁段）；⑧matha sys 只读盘点（检测/加载软件=清单面读取，不安装不管理）。
+  **门禁两跑**：首跑 7092/7096——4 红全落登记⑦（测试套件全局态污染，非产品缺陷）：
+  tests/test_plugin_compat_phase26.py TestReportAndRealRegistry 真注册表两处 ≥89
+  计数断言 + tests/test_system_inventory_phase26.py TestSelfStatus::
+  test_shape_and_identity + TestModulesInventory::test_four_sections_present 同类；
+  根因 tests/test_extension_system_phase23.py test_disabled_domain_symbols_unavailable
+  停用 thermo 无回位 → 全局注册表 88 插件（e23+system_inventory 两档 58 条稳定复现
+  2 红）；修复三处不改任何锁定语义——①e23 补 thermo 卫生回位（回位路径本来就有，
+  quantum 同款断言）；②compat 真注册表三测试改 PluginResolver() 新鲜构造（同一真实
+  清单，健康锁以清单单源为准，消除套件顺序耦合）；③system_inventory 两处计数断言
+  降为形态锁（≥1，健康计数锁归 compat 新鲜构造面）；修复后 e23+compat+system_inventory
+  72 条绿，二跑干净 **7199/7199 通过率 100%**（tests 7096 + kernel_purity 14 +
+  ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，native 1 例已知未实现
+  与 socket 1 例平台 skip 不计入分母）。算术闭合：7124（融合收官条件：7123 通过 +
+  1 平台 skip）+ 76（26a-26d 三锁 11+24+14+27）= 7200 条件 = 7199 通过 + 1 平台
+  skip。doc 同步：README 领域插件 86→88（src/domains/ 88→90 个 .py，表格/树/导语
+  多处）+ 测试文件 157→161 + 新增 `matha sys` 用法节；ARCHITECTURE 88 插件/清单 89/
+  测试文件 161/本体量 32,519→32,562（+43 = 26a 注册表条目化 + 工厂收敛）+ 阶段 26a
+  台账注记；CHANGELOG 插件联邦节 86→88 + 阶段 26 条目；ast_vm_gap 快照预检无漂移
+  （78 节点/59 发射/19 无码/指令码 34/0 解析失败，无重生成）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

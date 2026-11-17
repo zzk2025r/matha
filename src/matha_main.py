@@ -1074,6 +1074,52 @@ def _build_parser() -> argparse.ArgumentParser:
     q.add_argument("--root", default=None, help="安装根目录")
     q.set_defaults(func=_app_handler("import-release"))
 
+    # sys —— 设备/任务管理器（阶段 26d：五节只读盘点；与 system_monitor 域同信息层）
+    def _sys_handler(section):
+        def _run(args) -> int:
+            import json as _json
+            from src import system_inventory as inv
+            if section == "hardware":
+                data = inv.hardware_info()
+            elif section == "self":
+                data = inv.self_status(args.root)
+            elif section == "plugins":
+                from src.plugin_api import get_resolver
+                r = get_resolver()
+                data = {"汇总": r.report(), "使用": r.plugin_usage(),
+                        "冲突": r.conflicts()}
+            elif section == "software":
+                data = inv.software_inventory(args.root)
+            elif section == "modules":
+                data = inv.modules_inventory(args.root)
+            else:  # all
+                from src.plugin_api import get_resolver
+                r = get_resolver()
+                data = {"硬件": inv.hardware_info(),
+                        "自身": inv.self_status(args.root),
+                        "插件": {"汇总": r.report(), "使用": r.plugin_usage(),
+                                 "冲突": r.conflicts()},
+                        "软件": inv.software_inventory(args.root),
+                        "模块": inv.modules_inventory(args.root)}
+            print(_json.dumps(data, ensure_ascii=False, indent=2, default=str))
+            return 0
+        return _run
+
+    p_sys = sub.add_parser("sys", help="设备/任务管理器：硬件/自身/插件/软件/模块盘点（只读）")
+    sys_sub = p_sys.add_subparsers(dest="sys_section", required=True)
+    sys_sub.add_parser("hardware", help="硬件与状况（平台/CPU/内存/GPU/单片机工具链）")
+    q = sys_sub.add_parser("self", help="Matha 自身（版本/插件/后端/features/扩展/状态目录/进程内存）")
+    q.add_argument("--root", default=None, help="状态目录根（默认当前目录）")
+    sys_sub.add_parser("plugins", help="插件加载与使用情况（汇总/使用/冲突）")
+    q = sys_sub.add_parser("software", help="软件清单（.matha/apps 应用 + .matha_packages 包）")
+    q.add_argument("--root", default=None, help="状态目录根（默认当前目录）")
+    q = sys_sub.add_parser("modules", help="模块清单（自定义运算符/终端注册命令/优化遍/插件使用）")
+    q.add_argument("--root", default=None, help="状态目录根（默认当前目录）")
+    q = sys_sub.add_parser("all", help="全部五节一次盘点")
+    q.add_argument("--root", default=None, help="状态目录根（默认当前目录）")
+    for _sys_name in ("hardware", "self", "plugins", "software", "modules", "all"):
+        sys_sub.choices[_sys_name].set_defaults(func=_sys_handler(_sys_name))
+
     # debug
     p_debug = sub.add_parser("debug", help="调试模式（显示 AST/MIR）")
     p_debug.add_argument("file", help=".matha 源文件路径")

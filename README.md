@@ -8,11 +8,11 @@
 `tests/test_doc_facts.py` 会核对文档与代码是否漂移（漂移即红）。
 
 - **版本：** v4.6.0（唯一版本源 [`src/__version__.py`](src/__version__.py)）
-- **领域插件：** 86（`src/domains/` 共 88 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
+- **领域插件：** 88（`src/domains/` 共 90 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 174（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 157（`tests/`）
+- **测试文件：** 161（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -94,7 +94,7 @@ python scripts/verify_offline.py
 | **类型系统** | 依赖类型/泛型/子类型/精炼类型 |
 | **CSP 并发** | 进程级并发绕过 Python GIL |
 | **离线存储** | SQLite 持久化 + 同步管理 |
-| **83 领域插件** | 物理/工程/AI/金融/生物/化学等；按需显式加载，不加载零 import 成本 |
+| **88 领域插件** | 物理/工程/AI/金融/生物/化学等；按需显式加载，不加载零 import 成本 |
 
 ---
 
@@ -183,6 +183,27 @@ CI→商店闭环（阶段 25e）：CI 只用 actions 自动注入的 `GITHUB_TO
 附件经 `matha app import-release` 导入本地应用中心；卫生锁
 `tests/test_ci_hygiene_phase25.py` 钉住 secrets 白名单 = {GITHUB_TOKEN}。
 
+### matha sys（设备/任务管理器，阶段 26）
+
+只读盘点五节：硬件与状况 / Matha 自身 / 插件加载与使用 / 软件清单 /
+模块清单（与领域符号 `硬件_信息` / `自身_状况` / `软件_清单` / `模块_清单` /
+`插件_冲突` 共用同一信息层 `src/system_inventory.py`，输出 JSON）。
+
+```bash
+matha sys hardware                # 平台/CPU/内存/GPU(nvidia-smi)/单片机工具链（只读探测）
+matha sys self                    # 版本/插件汇总/运行时后端/features/扩展状态/.matha 盘点/进程内存
+matha sys plugins                 # 插件汇总（89 清单）/使用（物化时刻）/冲突（多属主符号）
+matha sys software                # .matha/apps 安装应用 + .matha_packages 包
+matha sys modules                 # 自定义运算符/终端注册命令/优化遍/插件使用
+matha sys all                     # 五节一次盘点
+# 缺失工具（psutil/nvidia-smi/烧录工具链）诚实降级为「不可得」，不伪装成功
+```
+
+插件兼容面（阶段 26c）：清单声明 `requires` 依赖的插件缺失则注册诚实拒绝
+（`注册被拒` 可见、ERROR 诊断在案）；依赖事后被注销（`matha ext disable`）
+则 `sys plugins` 的 `依赖缺失` 如实报告，不自动注销；多属主符号在 `冲突`
+节如实列出（取值语义维持清单最后声明者覆盖）。
+
 ---
 
 ## 项目结构
@@ -190,7 +211,7 @@ CI→商店闭环（阶段 25e）：CI 只用 actions 自动注入的 `GITHUB_TO
 ```
 matha/
 ├── src/                    # 核心源代码
-│   ├── domains/           # 86 个领域插件（+ 包初始化/注册表）
+│   ├── domains/           # 88 个领域插件（+ 包初始化/注册表）
 │   ├── kernel/            # L1 纯净内核（纯标准库）
 │   ├── plugins/           # 内核外工具插件
 │   ├── compiler/          # JIT/AOT 编译器（LLVM 子过进程属可选插件）
@@ -229,7 +250,7 @@ matha/
 - 类型系统
 - CSP 并发
 - SQLite 离线存储
-- 所有 86 个领域插件
+- 所有 88 个领域插件
 
 ### ⚠️ 需要网络（离线不可用）
 - 远程包安装/搜索
@@ -323,7 +344,7 @@ python scripts/build_exe.py
 | 许可证 | BSD-2-Clause |
 | GitHub | https://github.com/zzk2025r/matha |
 | 独立可执行文件 | 支持（本地自建，仓库不预构建发行版） |
-| 领域插件 | 83（按需加载） |
+| 领域插件 | 88（按需加载） |
 
 历史文档（118 份一次性报告）已归档到 [`docs/history/`](docs/history/)，
 不再作为现状依据；权威文档只有一张索引页：[`docs/index.md`](docs/index.md)。

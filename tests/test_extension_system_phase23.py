@@ -282,6 +282,12 @@ def test_disabled_domain_symbols_unavailable(ext_root):
     apply_state(ext_root)
     outputs, err = exec_api.run_checked("输出(R_气体常数)")
     assert err is not None and outputs == []
+    # 卫生回位：全局注册表恢复全清单（后续测试共享同一 resolver）。
+    (ext_root / ".matha" / "extensions.json").write_text(
+        json.dumps({"protocol_version": 1,
+                    "state": {"domain": {"thermo": True}}}),
+        encoding="utf-8")
+    assert apply_state(ext_root).get("domain") == ["thermo=回位"]
 
 
 # ============================================================

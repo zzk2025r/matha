@@ -291,9 +291,9 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   `regex_builtin`、`time_builtin`、`file_builtin`、`errors`；
   修复了 `vm.py` 反向 import 领域层（`domains.time_module`）的内核污染。
 
-### 三、插件联邦：86 个领域插件懒加载
+### 三、插件联邦：88 个领域插件懒加载
 
-- **86 个领域插件**（`src/domains/`，清单 `manifest.json` 0 不可用）零改写接入
+- **88 个领域插件**（`src/domains/`，清单 `manifest.json` 89 插件、0 不可用）零改写接入
   `MathaPlugin` 契约（`src/plugin_api.py`），另有 **7 个内核外工具插件**
   （`src/plugins/`：toolchain_msvc/llvm、numpy_accel、ffi、tree_sitter 等；
   原 9 个中的 ffi_sdk / legacy_mir_vm 已于阶段 22b 孤儿清算删除）。
@@ -308,6 +308,26 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   Marketplace/钉钉通知等外部凭据面删除，发行物一律 GitHub Release 附件，
   经 `matha app import-release` 导入本地应用中心；休眠 CD 家族
   （cd-full/docker_build_push/multilang_benchmark）与钉钉共享配置删除。
+- 阶段 26 类插件化与设备/任务管理器（四片全落，四项拍板全走推荐项）：
+  **26a 运行时注册表泛化**——exec_api 后端注册表条目化
+  （unregister_backend / set_backend_enabled / backend_info 三面，停用后 run
+  诚实拒绝；主线 vm/native 保留名不可注册），VM 构造收敛为唯一工厂
+  `make_vm`（4 处构造点归一）；**26b 编译器框架域**——新增
+  `compiler_framework` 插件（第 87 个 src.domains 域）：五框架模块
+  （pass_manager/adaptive_optimizer/incremental_compiler/distributed_compiler
+  + exec_api 注册表）首次获得真实消费者——内置优化遍真化（常量折叠/死代码
+  消除，PassManager 此前零具体遍）、程序_分析/策略_推荐/增量_编译/任务_提交
+  /后端_执行（真跨运行时调用）十二符号双面，Matha 回调遍经运行本体
+  invoke_value 双面注册（清单物化面共享语境解释器、VM 面官方入口注入面）；
+  **26c 插件兼容面**——清单声明 `requires` 依赖缺失注册诚实拒绝
+  （注册被拒 + ERROR 诊断，绝不静默跳过），conflicts() 多属主符号冲突报告
+  （取值语义维持清单最后声明者覆盖），report() 八键汇总 + 依赖事后被注销
+  （ext disable）如实报告；**26d 设备/任务管理器**——`src/system_inventory.py`
+  信息层（硬件与状况/自身状况/软件清单/模块清单四节，纯标准库 + 只读探测，
+  psutil/nvidia-smi/烧录工具链缺失诚实降级「不可得」）+ `system_monitor`
+  插件（第 88 个域，硬件_信息/自身_状况/软件_清单/模块_清单/插件_冲突
+  五符号双面）+ `matha sys` CLI 六子节（hardware/self/plugins/software/
+  modules/all，JSON 输出）；插件使用口径 = 物化时刻（plugin_usage）。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

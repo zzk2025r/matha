@@ -20,18 +20,27 @@ MIR 栈式 VM、`m3v_vm.py`、以及 `convert(...)+exec()` 的转译执行）。
 """
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Any, Callable
 
 __all__ = [
     "run", "run_file", "run_expr", "compile_module", "build_exe", "run_checked",
     "run_file_checked", "run_expr_checked",
-    "register_backend", "available_modes", "runnable_modes",
+    "make_vm", "register_backend", "unregister_backend", "set_backend_enabled",
+    "backend_info", "available_modes", "runnable_modes",
     "list_domains", "domain_symbol_index",
 ]
 
 #: 内核自带后端；其余由遗留层显式注册（见 src/interp.py 末尾）。
-_BACKENDS: dict[str, tuple[Callable[..., list], str]] = {}
+@dataclasses.dataclass
+class _BackendEntry:
+    fn: Callable[..., list]
+    description: str
+    enabled: bool = True
+
+
+_BACKENDS: dict[str, _BackendEntry] = {}
 
 _MODE_MBC = "vm"      # 唯一主线：mbc 字节码 VM
 _MODE_NATIVE = "native"
@@ -45,16 +54,43 @@ def register_backend(mode: str, fn: Callable[..., list], *, description: str = "
     """登记一个额外执行后端。`mode` 不得覆盖主线。"""
     if mode in (_MODE_MBC, _MODE_NATIVE):
         raise ValueError(f"后端名 {mode!r} 保留给核心主线")
-    _BACKENDS[mode] = (fn, description)
+    _BACKENDS[mode] = _BackendEntry(fn=fn, description=description)
+
+
+def unregister_backend(mode: str) -> bool:
+    """注销一个已登记的后端；主线（vm/native）不在注册表内，恒返回 False。"""
+    return _BACKENDS.pop(mode, None) is not None
+
+
+def set_backend_enabled(mode: str, enabled: bool) -> None:
+    """启停一个已登记的后端；停用后 run(mode) 诚实拒绝，主线不受此面管辖。"""
+    entry = _BACKENDS.get(mode)
+    if entry is None:
+        raise ValueError(f"未知后端 {mode!r}；可启停：{', '.join(sorted(_BACKENDS)) or '（无）'}")
+    entry.enabled = bool(enabled)
+
+
+def backend_info() -> list[dict[str, Any]]:
+    """已登记后端的描述面（设备/任务管理器与 matha sys 消费）。"""
+    out = []
+    for mode in sorted(_BACKENDS):
+        e = _BACKENDS[mode]
+        out.append({
+            "mode": mode,
+            "description": e.description,
+            "enabled": e.enabled,
+            "factory": getattr(e.fn, "__qualname__", repr(e.fn)),
+        })
+    return out
 
 
 def available_modes() -> dict[str, str]:
-    """当前可用的执行后端 → 说明。"""
+    """当前可用的执行后端 → 说明（停用的后端不在候选内）。"""
     out = {
         _MODE_MBC: "核心主线：mbc.compiler → mbc.vm",
         _MODE_NATIVE: "机器码发射（只产出 exe，不可用于 run；见 build_exe）",
     }
-    out.update({k: v[1] for k, v in sorted(_BACKENDS.items())})
+    out.update({k: v.description for k, v in sorted(_BACKENDS.items()) if v.enabled})
     return out
 
 
@@ -92,6 +128,9 @@ def _wire_plugin_runtime(vm) -> None:
         vm.globals.setdefault(name, fn)
     from src.plugin_api import make_simulation_runtime
     for name, fn in make_simulation_runtime(vm).items():
+        vm.globals.setdefault(name, fn)
+    from src.plugin_api import make_compiler_framework_runtime
+    for name, fn in make_compiler_framework_runtime(vm).items():
         vm.globals.setdefault(name, fn)
     from src.plugin_api import make_hotreload_runtime
     for name, fn in make_hotreload_runtime(vm).items():
@@ -142,6 +181,12 @@ def list_domains() -> list[dict]:
 # 编译 / 运行
 # ============================================================
 
+def make_vm(module, *, verbose: bool = False):
+    """VM 构造唯一工厂：全仓进程内执行都经此构造（替换点收敛于一处）。"""
+    from src.mbc.vm import VM
+    return VM(module, verbose=verbose)
+
+
 def compile_module(source: str, *, plugins: str = "auto"):
     """编译源码为 mbc 模块；`plugins="strict"` 时启用未加载领域的编译期诊断。
 
@@ -181,7 +226,9 @@ def run(source: str, mode: str = _MODE_MBC, *, plugins: str = "auto",
     backend = _BACKENDS.get(mode)
     if backend is None:
         raise ValueError(f"未知执行后端 {mode!r}；可用：{', '.join(available_modes())}")
-    return backend[0](source)
+    if not backend.enabled:
+        raise ValueError(f"后端 {mode!r} 已停用；可用：{', '.join(available_modes())}")
+    return backend.fn(source)
 
 
 def run_checked(source: str, mode: str = _MODE_MBC, *, plugins: str = "auto",
@@ -197,12 +244,11 @@ def run_checked(source: str, mode: str = _MODE_MBC, *, plugins: str = "auto",
             return run(source, mode, plugins=plugins, verbose=verbose), None
         except BaseException as e:  # noqa: BLE001
             return [], e
-    from src.mbc.vm import VM
     try:
         mod = compile_module(source, plugins=plugins)
     except BaseException as e:  # noqa: BLE001
         return [], e
-    vm = VM(mod, verbose=verbose)
+    vm = make_vm(mod, verbose=verbose)
     if plugins != "off":
         _wire_plugin_runtime(vm)
     try:
@@ -212,9 +258,8 @@ def run_checked(source: str, mode: str = _MODE_MBC, *, plugins: str = "auto",
 
 
 def _run_mbc(source: str, *, plugins: str = "auto", verbose: bool = False) -> list[Any]:
-    from src.mbc.vm import VM
     mod = compile_module(source, plugins=plugins)
-    vm = VM(mod, verbose=verbose)
+    vm = make_vm(mod, verbose=verbose)
     if plugins != "off":
         _wire_plugin_runtime(vm)
     return vm.run()
@@ -241,12 +286,11 @@ def run_file_checked(path: str | Path, mode: str = _MODE_MBC, *, plugins: str = 
         return run_checked(p.read_text(encoding="utf-8"), mode,
                            plugins=plugins, verbose=verbose)
     from src.mbc import read_mbc
-    from src.mbc.vm import VM
     try:
         mod = read_mbc(str(p))
     except BaseException as e:  # noqa: BLE001
         return [], e
-    vm = VM(mod, verbose=verbose)
+    vm = make_vm(mod, verbose=verbose)
     if plugins != "off":
         _wire_plugin_runtime(vm)
     try:
@@ -257,8 +301,7 @@ def run_file_checked(path: str | Path, mode: str = _MODE_MBC, *, plugins: str = 
 
 def _run_mbc_module(p: Path, *, plugins: str = "auto", verbose: bool = False) -> list[Any]:
     from src.mbc import read_mbc
-    from src.mbc.vm import VM
-    vm = VM(read_mbc(str(p)), verbose=verbose)
+    vm = make_vm(read_mbc(str(p)), verbose=verbose)
     if plugins != "off":
         _wire_plugin_runtime(vm)
     return vm.run()

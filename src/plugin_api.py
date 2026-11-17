@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import time
 from collections.abc import Callable, Iterable, Mapping, MutableMapping
 from types import MappingProxyType
 from dataclasses import dataclass, field
@@ -198,6 +199,8 @@ class LegacyModulePlugin:
     description: str = ""
     aliases: tuple[str, ...] = ()
     legacy: bool = False
+    #: 依赖的插件唯一名（阶段 26c）：须在本插件注册前已在注册表内，缺失则注册被拒
+    requires: tuple[str, ...] = ()
 
     @classmethod
     def from_spec(cls, spec: dict) -> "LegacyModulePlugin":
@@ -208,6 +211,9 @@ class LegacyModulePlugin:
         aliases = tuple(spec.get("aliases") or ()) or (stem,)
         if spec["name"] not in aliases:
             aliases = (spec["name"],) + aliases
+        requires = spec.get("requires") or ()
+        if isinstance(requires, str):
+            requires = (requires,)
         return cls(
             name=spec["name"],
             module=spec["module"],
@@ -220,6 +226,7 @@ class LegacyModulePlugin:
             description=spec.get("description", ""),
             aliases=aliases,
             legacy=bool(spec.get("legacy", False)),
+            requires=tuple(requires),
         )
 
     # ---- 协议实现 ----
@@ -312,6 +319,10 @@ class PluginResolver:
         self._exported_owners: dict[str, list[str]] = {}
         self._contexts: dict[str, PluginContext] = {}
         self._load_errors: list[PluginDiagnostic] = []
+        # 注册被拒记录（阶段 26c）：插件名 → {"缺少依赖": [...]}——诚实拒绝不静默
+        self._rejected: dict[str, dict] = {}
+        # 物化时刻（阶段 26d）：插件名 → 首次加载的 epoch 秒（插件使用情况盘点）
+        self._load_times: dict[str, float] = {}
         self._load_manifest()
 
     # ---- 清单 ----
@@ -354,7 +365,17 @@ class PluginResolver:
     def register(self, plugin: LegacyModulePlugin) -> None:
         if plugin.name in self._plugins:
             return
+        # 依赖校验（阶段 26c）：requires 须指向已注册插件（清单顺序内依赖在前）；
+        # 缺失则诚实拒绝注册并记录，不静默降级。
+        missing = [d for d in plugin.requires if d not in self._plugins]
+        if missing:
+            self._rejected[plugin.name] = {"缺少依赖": missing}
+            self._load_errors.append(PluginDiagnostic(
+                LEVEL_ERROR,
+                f"插件 {plugin.name} 注册被拒：缺少依赖 {missing}", plugin=plugin.name))
+            return
         self._plugins[plugin.name] = plugin
+        self._rejected.pop(plugin.name, None)
         self._order.append(plugin.name)
         self._legacy[plugin.name] = plugin.legacy
         self._alias_index.setdefault(plugin.name, plugin.name)
@@ -389,6 +410,7 @@ class PluginResolver:
         self._plugins.pop(name)
         self._order.remove(name)
         self._contexts.pop(name, None)
+        self._load_times.pop(name, None)
         return True
 
     def normalize(self, name: str) -> str | None:
@@ -503,6 +525,7 @@ class PluginResolver:
         ctx = PluginContext(canonical)
         plugin.on_load(ctx)
         self._contexts[canonical] = ctx
+        self._load_times.setdefault(canonical, time.time())
         self._load_errors.extend(ctx.diagnostics)
         table = ctx._materialized()
         # 清单与实际导出可能漂移（领域模块改了名），此处以实际为准补齐索引，
@@ -570,6 +593,54 @@ class PluginResolver:
 
     def loaded(self) -> list[str]:
         return sorted(self._contexts)
+
+    def plugin_usage(self) -> list[dict]:
+        """插件加载与使用情况（阶段 26d）：全清单 → [{名, 已加载, 物化时刻}]。
+
+        「使用」的口径是物化（首次加载）——逐符号调用计数需要包住每次内建
+        调用（性能面），登记不修；本面只如实报告加载态与物化时刻。
+        """
+        out = []
+        for name in self._order:
+            loaded = name in self._contexts
+            out.append({
+                "名": name,
+                "已加载": loaded,
+                "物化时刻": self._load_times.get(name),
+            })
+        return out
+
+    def conflicts(self) -> list[dict]:
+        """多属主符号冲突报告（阶段 26c）：可加载符号被 2+ 插件声明。
+
+        取值语义维持「清单最后声明者覆盖」（owners[-1] 生效），本报告只
+        如实列出冲突面，供设备/任务管理器与 matha sys 消费。
+        """
+        return [{"symbol": sym, "owners": list(owners)}
+                for sym, owners in self._exported_owners.items()
+                if len(owners) > 1]
+
+    def report(self) -> dict:
+        """插件体系汇总报告（阶段 26c）：数量/加载面/冲突/被拒/依赖缺失。
+
+        依赖缺失 = 已注册插件的 requires 中已有插件被注销（ext 停用等）
+        ——注册时校验通过但当前不满足，如实报告不自动注销。
+        """
+        missing_deps: dict[str, list[str]] = {}
+        for name, plugin in self._plugins.items():
+            absent = [d for d in plugin.requires if d not in self._plugins]
+            if absent:
+                missing_deps[name] = absent
+        return {
+            "插件总数": len(self._plugins),
+            "已加载": len(self._contexts),
+            "符号总数": len(self._symbol_owners),
+            "可加载符号": len(self._exported_owners),
+            "冲突": self.conflicts(),
+            "注册被拒": dict(self._rejected),
+            "依赖缺失": missing_deps,
+            "诊断数": len(self.diagnostics()),
+        }
 
     def diagnostics(self) -> list[PluginDiagnostic]:
         out = list(self._load_errors)
@@ -785,6 +856,34 @@ def make_simulation_runtime(runtime) -> dict[str, object]:
     return {"仿真_欧拉": _仿真_欧拉, "仿真_龙格库塔": _仿真_龙格库塔}
 
 
+def _compiler_framework_module():
+    """compiler_framework 领域模块的动态装入口（与 _simulation_module 同构）。"""
+    plugin = get_resolver().plugin("compiler_framework")
+    if plugin is None:
+        raise RuntimeError("compiler_framework 插件未注册（领域清单缺失）")
+    return plugin.load_module()
+
+
+def make_compiler_framework_runtime(runtime) -> dict[str, object]:
+    """编译器框架运行时胶水工厂（阶段 26b，官方入口注入面）。
+
+    惰性跳板：构造零 import，首次调用才经 _compiler_framework_module 装入
+    插件并物化真内建（优化遍_注册——Matha 函数包装成 Pass，经运行本体
+    invoke_value 回调；宿主解释器与 VM 同名协议）。逐参应用约定：柯里化链。
+    """
+    cache: dict[str, object] = {}
+
+    def _物化(name: str):
+        if not cache:
+            cache.update(_compiler_framework_module().make_runtime(runtime))
+        return cache[name]
+
+    def _优化遍_注册(name):
+        return _物化("优化遍_注册")(name)
+
+    return {"优化遍_注册": _优化遍_注册}
+
+
 def make_module_loader(runtime) -> object:
     """use 编译面加载胶水工厂（官方入口注入面）。
 
@@ -839,6 +938,7 @@ __all__ = [
     "get_resolver",
     "make_capability_runtime",
     "make_simulation_runtime",
+    "make_compiler_framework_runtime",
     "make_module_loader",
     "make_hotreload_runtime",
 ]

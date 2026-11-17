@@ -612,6 +612,14 @@ def _curry2(func):
     return with_first
 
 
+def toolchain_families() -> dict:
+    """按烧录工具归并板族（只读静态矩阵；设备管理器/硬件盘点共用）。"""
+    out: dict[str, list[str]] = {}
+    for name, spec in _BOARDS.items():
+        out.setdefault(spec["tool"], []).append(name)
+    return {tool: sorted(boards) for tool, boards in sorted(out.items())}
+
+
 def _write_entry(path, content):
     return write(path, content)
 
