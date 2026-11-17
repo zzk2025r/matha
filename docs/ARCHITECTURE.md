@@ -117,7 +117,7 @@ functools unicodedata textwrap heapq datetime importlib`。
 
 | 门禁 | 判据 |
 |---|---|
-| `tests/` | 156 个测试文件（全量见最近一次 `make check`） |
+| `tests/` | 157 个测试文件（全量见最近一次 `make check`） |
 | `kernel_purity` | 白名单 + 核心无逃逸模块 + 插件不得碰 VM 私有面 |
 | `ast_vm_gap` | 78 个 AST 节点、59 发射 / 19 有意无码 / **0 不认识**（ListComp 已由 VM 编译为下标循环 + `append` 累加，不再静默返空）、**0 阻塞缺口**；指令码 34/34/34 |
 | `golden` | 39 例 vm ↔ interp 逐字节；`--native` 追加真 exe 对拍（已知未实现项列在 `golden_tests/manifest.json` 的 `native_known_gaps`，当前为 0） |

@@ -121,7 +121,7 @@ Matha**（仅动语料内容，未改 parser/VM），文件**保留不删**（�
 |---|---|---|
 | NI-007 | `import src.kernel` 本身零成本，但 `src/matha_system.py` 等聚合入口仍会拉起大量模块 | 内核纯净性由 `test_kernel_purity.py` 限定在 `lexer/parser/ast_nodes/kernel/mbc`；聚合入口不属内核 |
 | NI-008 | 仓库根与 `scripts/` 历史遗留的一次性调试脚本 | 已集中移入 `scripts/scratch/`；不再作为现状依据 |
-| NI-010 | 架构框架模块为**框架级实现，未接入 Matha 编译/执行主线**：`src/compiler/` 的 pass 管理器与 8 个优化 pass（操作鸭子类型泛型 IR，非 MBC 字节码）、backend 管理器（Cranelift/WASM/EVM/Native 四后端为诚实 NotImplementedError stub，LLVM 面委托既有 `matha_to_llvm_ir`）、自适应优化器（ML 路径 sklearn 可选、默认规则路径）、分布式编译器（HTTP 面可选 aiohttp、依赖图纯标准库）、增量编译器；`src/hal_drivers/`（硬件驱动框架，`src/hal` 名额保留给内核态仿真旧模块供领域注册表动态加载）；`src/conflict_resolution/`（OT/CRDT，`src/collaboration` 名额保留给协同会话旧模块）；`src/security/`、`src/pkg_manager_v3.py`（零消费者）。 | 2026-11 修复盘活批次：修复 3 文件语法损坏 + 2 处包遮蔽 + 3 项重依赖惰性化（pyproject 第三方依赖保持 0），import 面经 `src/compiler/__init__.py` 直接导出（无 try/except 静默吞错）。判据：`tests/test_framework_modules.py` 锁框架级行为与登记边界；接入 MBC 主线为独立工程项，不属现状承诺 |
+| NI-010 | 架构框架模块为**框架级实现，未接入 Matha 编译/执行主线**：`src/compiler/` 的 pass 管理器（注册/依赖拓扑/启停，框架本体无具体优化 pass）、backend 管理器（Cranelift/WASM/EVM/Native 四后端为诚实 NotImplementedError stub，LLVM 面委托既有 `matha_to_llvm_ir`）、自适应优化器（ML 路径 sklearn 可选、默认规则路径；无函数程序除零崩溃已修）、分布式编译器（HTTP 面可选 aiohttp、依赖图纯标准库 `_DiGraph`）、增量编译器（哈希+mtime 变更检测，`_compile_file` 为模拟桩）。 | 2026-11 修复盘活批次：修复语法损坏 + 重依赖惰性化（pyproject 第三方依赖保持 0），import 面经 `src/compiler/__init__.py` 直接导出（无 try/except 静默吞错）。判据：`tests/test_framework_modules.py`（37 条）锁框架级行为与登记边界；接入 MBC 主线为独立工程项，不属现状承诺。勘误（2026-11 融合轮）：旧条目引用的「8 个优化 pass」与 `src/hal_drivers/`、`src/conflict_resolution/`、`src/security/`、`src/pkg_manager_v3.py` 均不在场（历史方案残留引用，两轮全仓核对零命中），按现树事实清除 |
 
 ## 六、性能声明的口径
 
