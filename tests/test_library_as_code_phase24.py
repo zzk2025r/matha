@@ -85,7 +85,7 @@ class TestResolution:
         import re
         body = text.split("资源目录", 1)[1]
         entries = re.findall(r'"([^"]+)"', body)
-        assert len(entries) == 27
+        assert len(entries) == 28
         assert sorted(e.rsplit("/", 1)[-1] for e in entries) == _library_stems()
 
     def test_missing_module_error_lists_all_three_roots(self):

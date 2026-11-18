@@ -19,14 +19,20 @@ module 语法器 {
 
   (* ===== AST 节点构造子 ===== *)
   func 做Program(decls: List) -> Dict = {"类型": "程序", "声明": decls}
-  func 做FuncDef(name: String, params: List, ret_type: String, body: Dict) -> Dict =
-    {"类型": "函数定义", "名": name, "参数": params, "返回类型": ret_type, "体": body}
+  func 做FuncDef(name: String, params: List, param_types: List, ret_type: Dict, body: Dict) -> Dict =
+    {"类型": "函数定义", "名": name, "参数": params, "参数类型": param_types,
+     "返回类型": ret_type, "体": body}
+  (* 参数类型与参数名平行（无标注位为 null）；返回类型为类型表达式节点
+     （基本类型/元组类型/集合类型，宿主 BasicType/TupleType/SetType 同构）。 *)
   func 做Binding(name: String, value: Dict) -> Dict = {"类型": "绑定", "名": name, "值": value}
   (* let 绑定表达式：let [rec] 名 = 值 [in 体]
      - 递归=真：值中的 lambda 可引用绑定名自身（经占位符+原地更新实现）
      - 有体=真：体 为绑定作用域内的续体表达式，求值结果取体 *)
-  func 做Let绑定(名: String, 值: Dict, 递归: Bool, 有体: Bool, 体: Dict) -> Dict =
-    {"类型": "let绑定", "名": 名, "值": 值, "递归": 递归, "有体": 有体, "体": 体}
+  (* 参数 字段仅函数式绑定（let f(x) -> T = 体）携带：
+     null/[] = 显式 lambda 或普通绑定（宿主 params=[]），
+     非空 = 直接表达式体（宿主 params=带类型参数元组列表）。 *)
+  func 做Let绑定(名: String, 值: Dict, 递归: Bool, 有体: Bool, 体: Dict, 参数) -> Dict =
+    {"类型": "let绑定", "名": 名, "值": 值, "递归": 递归, "有体": 有体, "体": 体, "参数": 参数}
   (* let 元组解构：let (a, b, ...) = expr [in body] —— 多变量绑定 *)
   func 做Let元组绑定(名字: List, 值: Dict, 有体: Bool, 体: Dict) -> Dict =
     {"类型": "let元组绑定", "名字": 名字, "值": 值, "有体": 有体, "体": 体}
@@ -39,8 +45,11 @@ module 语法器 {
        #N：[输出]     → 生成语句 + 输出追踪 + 输出
      输出单元在语句位置编译为 `求值; OP_OUTPUT`（不 DUP；表达式位置的
      输出(...) 才 DUP 以留值）。 *)
-  func 做机械单元(body: Dict) -> Dict = {"类型": "机械单元", "body": body}
-  func 做生成语句(content: Dict) -> Dict = {"类型": "生成语句", "content": content}
+  (* 段号 与宿主 Generate(seg_id) 对齐：null = 无段号（#：），整数 = #N： *)
+  func 做机械单元(段号, body) -> Dict =
+    {"类型": "机械单元", "段号": 段号, "body": body}
+  func 做生成语句(段号, content: Dict) -> Dict =
+    {"类型": "生成语句", "段号": 段号, "content": content}
   (* >> 链式：宿主 ast.ChainStmt（stmts），拍平为单层顺序语句序列。 *)
   func 做链式语句(语句: List) -> Dict = {"类型": "链式语句", "语句": 语句}
   func 做输出追踪(expr: Dict) -> Dict =
@@ -55,6 +64,9 @@ module 语法器 {
     {"类型": "循环分数", "当前": 当前次数, "最大": 最大次数}
   func 做段循环(段号: Int, 分数: Dict) -> Dict =
     {"类型": "段循环", "段号": 段号, "分数": 分数}
+
+  func 做全局循环(分数: Dict) -> Dict =
+    {"类型": "全局循环", "分数": 分数}
   (* []：空输出。用独立节点类型标记，使编译器可识别为「不发射任何指令」，
      避免与真实表达式节点混淆。 *)
   func 做空输出() -> Dict = {"类型": "空输出"}
@@ -95,8 +107,10 @@ module 语法器 {
     {"类型": "命令文字", "文本": 文本, "形式": 形式}
   (* @define_op : <符号> = <优先级> | <结合性> [ => <处理函数> ] —— 对应宿主
      ast.DefineOp，编译期 NOOP（_NOOP_STMTS）。绑定信息累积进解析器状态 自定义表，
-     使自定义运算符可在表达式中使用（二元节点携带「实现」函数名）。 *)
-  func 做定义运算符() -> Dict = {"类型": "定义运算符"}
+     使自定义运算符可在表达式中使用（二元节点携带「实现」函数名）。
+     节点携带 符号/优先级/结合性（宿主 DefineOp(symbol, precedence, assoc) 同构）。 *)
+  func 做定义运算符(符号: String, 优先级: Int, 结合性: String) -> Dict =
+    {"类型": "定义运算符", "符号": 符号, "优先级": 优先级, "结合性": 结合性}
   (* 通道构造 chan T → 降级为 {"缓冲": [], "容量": n, "关闭": False}
      （对应宿主 ast.ChanExpr；容量宿主固定 None → 编译为 0）。
      发送 ch <- v → ast.SendExpr。 *)
@@ -131,7 +145,11 @@ module 语法器 {
   func 做FloatLit(n: Float) -> Dict = {"类型": "浮点", "值": n}
   func 做StringLit(s: String) -> Dict = {"类型": "字符串", "值": s}
   func 做BoolLit(b: Bool) -> Dict = {"类型": "布尔", "值": b}
-  func 做Variable(name: String) -> Dict = {"类型": "变量", "名": name}
+  func 做Variable(name: String) -> Dict = {"类型": "变量", "名": name, "是占位": 假}
+
+  (* 占位变量：宿主 _parse_placeholder_var 3066-3072——`？`（或 `？名`）产
+     is_placeholder=True 的 Variable（仅作标记，求值仍按普通变量查表）。 *)
+  func 做占位Variable(name: String) -> Dict = {"类型": "变量", "名": name, "是占位": 真}
   (* @：… 设值（setUp）：对齐宿主 ast.SetUp/SetUpItem *)
   func 做设值(项列表: List, 形式: String) -> Dict =
     {"类型": "设值", "项": 项列表, "形式": 形式}
@@ -192,6 +210,23 @@ module 语法器 {
        使 `|` 作为子句分隔符而非位或（对齐宿主 _in_comp_head / _parse_bit_expr）。
        缺省 假。 *)
     在理解头: Bool
+    (* 在let值：let 绑定值 / lambda 体解析期间置真，使 `in` 作为 let 终结符
+       而非成员运算符；if 条件 / 括号内解析前重置为假（对齐宿主
+       _in_let_value 及其在 _parse_if_expr_impl/_parse_primary 括号分支的
+       重置点）。缺省 假。 *)
+    在let值: Bool
+    (* 在lambda体：函数直接体 / 显式 lambda 体解析期间置真，语句位 `名 = 值`
+       保持等于比较（BinaryOp "="）不转绑定（对齐宿主 _in_lambda_body 与
+       _parse_expr_or_binding 1424 的 lambda 体特例；var 分支同规）。
+       SCOPED_BLOCKS 默认关 → 宿主块内不复位，Matha 同构不复位。缺省 假。 *)
+    在lambda体: Bool
+
+    (* 在块体：语句列表（函数体/控制流块/机械单元代码块）内的语句解析期间置真。
+       宿主双轨分派：顶层 _parse_top_decl vs 语句位 _parse_statement——
+       `#：`/`#N：` 顶层产 机械单元、语句位产 生成语句/链式语句（无包装）；
+       【…】 顶层产 自然语言块（仅 【*/ 标注形）、语句位产 读取块。
+       缺省 假（顶层）。 *)
+    在块体: Bool
   }
 
   (* ===== 解析器辅助 ===== *)
@@ -199,17 +234,35 @@ module 语法器 {
      使解析器状态的 pos 始终指向非换行 token。 *)
   func 规范(p: 解析器) -> 解析器 = (p) =>
     (p.pos < len(p.tokens) and p.tokens[p.pos].类型 = 类型.换行) ?
-      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头 }) : p
+      规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line + 1, col: 1, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: p.在let值, 在lambda体: p.在lambda体, 在块体: p.在块体 }) : p
 
   (* 推进：消费当前 token，并规范化到下一个非换行 token *)
   func 推进(p: 解析器) -> 解析器 =
-    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头 })
+    规范({ tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: p.在let值, 在lambda体: p.在lambda体, 在块体: p.在块体 })
 
   (* 推进原样：消费当前 token 但**不**跳过换行。
      自然语言块需区分「】后紧跟换行」（正文为空）与「】后同行还有正文」，
      而 推进 会吞掉换行，故单列一个原样版本。 *)
   func 推进原样(p: 解析器) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头 }
+    { tokens: p.tokens, pos: p.pos + 1, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: p.在let值, 在lambda体: p.在lambda体, 在块体: p.在块体 }
+
+  (* 在let值 置位/复位：镜像宿主 _in_let_value 的 try/finally 保存-恢复
+     （宿主在 lambda 体/let 值位 置真、if 条件/括号位 置假，均 finally 恢复外层） *)
+  func 置let值(p: 解析器, v: Bool) -> 解析器 =
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: v, 在lambda体: p.在lambda体, 在块体: p.在块体 }
+
+  (* 在lambda体 置位/复位：镜像宿主 _in_lambda_body 的保存-恢复（函数直接体
+     4160/4255、显式 lambda 体 4205/4295、lambda 表达式 2604/2641、let rec 体
+     3356）；复位沿用调用方原值，防止经返回值泄漏到后续语句。 *)
+  func 置lambda体(p: 解析器, v: Bool) -> 解析器 =
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: p.在let值, 在lambda体: v, 在块体: p.在块体 }
+
+  (* 在块体 置位：进入函数体/控制流块/机械单元代码块等语句列表时置真。
+     宿主无此状态（其用方法分派 _parse_top_decl vs _parse_statement），Matha
+     共享 解析声明 故需显式旗标区分双轨。语句列表内不再复位（嵌套块同为块体，
+     与宿主语句位解析全程一致）。 *)
+  func 置块体(p: 解析器, v: Bool) -> 解析器 =
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: p.在let值, 在lambda体: p.在lambda体, 在块体: v }
 
   func 当前(p: 解析器) -> Token = (p) =>
     (p.pos < len(p.tokens)) ? p.tokens[p.pos] : 做Token(类型.结束, "", p.line, p.col)
@@ -424,7 +477,15 @@ module 语法器 {
 
   func 解析比较_续(left: Dict, p: 解析器) -> (Dict, 解析器) =
     let (op_tok, p3) = 解析比较_op(p) in
-    if op_tok = "" then (left, p)
+    if op_tok = "" then
+      (* 宿主 _parse_rel_expr 尾分支：KW_IN 成员判断。仅当无比较运算符命中且
+         非 let 值位（let x = a in b 的 in 是终结符）且前瞻通过时成运算符；
+         右操作数层 = 解析集合（对齐宿主 _parse_set_expr）。 *)
+      if 匹配关键字文本(p, "in") and (not p.在let值) and (not 是in边界后继(推进(p))) then
+        let p4 = 推进(p) in
+        let (right, p5) = 解析集合(p4) in
+        (做BinaryOp("in", left, right), p5)
+      else (left, p)
     else
       let (right, p4) = 解析集合(p3) in
       if 是关系运算符(op_tok) then
@@ -449,13 +510,29 @@ module 语法器 {
       (chain = null ? first : 做BinaryOp("and", first, chain), p)
 
   func 解析比较_op(p: 解析器) -> (String, 解析器) =
-    if 匹配(p, 类型.等于) then ("=", 推进(p))
+    (* 等于：双符 == 产 "=="、单符 = 产 "="（宿主 interp 两形态同义，
+       token 文本经 词法器 检测多符 已区分） *)
+    if 匹配(p, 类型.等于) then (当前(p).文本 = "==" ? "==" : "=", 推进(p))
     else if 匹配(p, 类型.不等于) then ("!=", 推进(p))
     else if 匹配(p, 类型.大于等于) then (">=", 推进(p))
     else if 匹配(p, 类型.小于等于) then ("<=", 推进(p))
     else if 匹配(p, 类型.大于) then (">", 推进(p))
     else if 匹配(p, 类型.小于) then ("<", 推进(p))
     else ("", p)
+
+  (* in 运算符边界前瞻（宿主 _parse_rel_expr KW_IN 分支 1832-1846）：推进越过 in
+     后若为语句开头关键字 / let·rec / 结束 / 闭括号，则 in 是 let 终结符而非运算符。
+     Matha 推进经 规范 跳过换行，宿主 NEWLINE/DEDENT/EOF 行尾判定收敛为 结束 判定；
+     break/continue 在 Matha 词法是标识符（无关键字条目），按文本补齐。 *)
+  func 是in边界后继(p: 解析器) -> Bool =
+    let tok = 当前(p) in
+    tok.类型 = 类型.结束 or
+    tok.类型 = 类型.右括号 or tok.类型 = 类型.右括号方 or tok.类型 = 类型.右括号花 or
+    (tok.类型 = 类型.关键字 and (tok.文本 = "func" or tok.文本 = "if" or tok.文本 = "while" or
+      tok.文本 = "for" or tok.文本 = "match" or tok.文本 = "switch" or tok.文本 = "try" or
+      tok.文本 = "catch" or tok.文本 = "return")) or
+    (tok.类型 = 类型.标识符 and (tok.文本 = "let" or tok.文本 = "rec" or
+      tok.文本 = "break" or tok.文本 = "continue"))
 
   (* 集合表达式：∪ ∩ ⊖ × ⊆ 与补 ～/〜/¬（左结合）。层级在比较之下、加减之上，
      对齐宿主 src/parser.py：rel → set → add（_parse_set_expr 夹在 _parse_rel_expr
@@ -593,7 +670,7 @@ module 语法器 {
     if 匹配(p2, 类型.次方) then
       let p3 = 推进(p2) in
       let (exp, p4) = 解析幂(p3) in  (* 右结合：递归解析幂 *)
-      (做BinaryOp("^", base, exp), p4)
+      (做BinaryOp("**", base, exp), p4)
     else (base, p2)
 
   (* 一元：-x, ^x *)
@@ -725,7 +802,10 @@ module 语法器 {
     解析应用链(base, p2)
 
   func 解析应用链(expr: Dict, p: 解析器) -> (Dict, 解析器) =
-    if 匹配(p, 类型.左括号) then
+    (* 应用链续接须同 行：宿主 _parse_postfix 的 _check 不跳换行（2178），
+       换行后 ( 即语句边界而非调用续接（否则 fib(...)(n <= 1) 跨行误链，
+       advanced_math 斐波那契优化 实证）。镜像 门：前行首禁续接。 *)
+    if 匹配(p, 类型.左括号) and not 是行首关键字(p) then
       let p2 = 推进(p) in
       let (args, p3) = 解析实参列表(p2) in
       let p4 = 期望(p3, 类型.右括号) in
@@ -1161,8 +1241,14 @@ module 语法器 {
       let tok = 当前(p) in
       (做BoolLit(tok.文本 = "真" or tok.文本 = "true"), 推进(p))
     else if 匹配(p, 类型.占位符) then
+      (* ？/？名 → 占位变量（宿主 _parse_placeholder_var：？ 后紧跟标识符时
+         合成以该名为名的占位变量）。前瞻用原样推进——宿主看原始下一 token，
+         不跳换行，？ 行尾后换行随标识符不得合并。 *)
       let tok = 当前(p) in
-      (做Variable(tok.文本), 推进(p))
+      let nxt = 当前(推进原样(p)) in
+      nxt.类型 = 类型.标识符 ?
+        (做占位Variable(nxt.文本), 推进(推进原样(p))) :
+        (做占位Variable(tok.文本), 推进(p))
       else if 匹配(p, 类型.尖括号) then
         (* 角度包装 ⟨expr⟩：消费 ⟨，解析内层，期望 ⟩ *)
         let p2 = 推进(p) in
@@ -1180,7 +1266,11 @@ module 语法器 {
         (做通道(通道元素类型), p2)
     else if 匹配(p, 类型.标识符) then
       let tok = 当前(p) in
-      (做Variable(tok.文本), 推进(p))
+      (* null/none/undefined 字面量：宿主 _parse_primary 对 KW_NULL/KW_NONE/
+         KW_UNDEFINED 统一产 UnaryOp(op="null", operand=None)（三词同形）。
+         自举词法器未把三词归关键字，故在标识符原子位按文本判定（等价分派）。 *)
+      (tok.文本 = "null" or tok.文本 = "none" or tok.文本 = "undefined" ?
+        做UnaryOp("null", null) : 做Variable(tok.文本), 推进(p))
     else if 匹配(p, 类型.符号) then
       let tok = 当前(p) in
       (* ∅：空集字面量（对齐宿主 parser 把 SYMBOL "∅" 解析为空列表）；
@@ -1228,20 +1318,85 @@ module 语法器 {
     else
       (错误("期望表达式，实际 " + 类型名(当前(p).类型)), p)
 
-  (* if 表达式：if cond then e1 else e2（纯表达式形态，无大括号）*)
+  (* if 表达式（纯表达式形态，无大括号）——对齐宿主 _parse_if_expr_impl 四形态：
+     ① then 形式 if c then a [elif d [then|:] b]* [else e]
+     ② 冒号形式 if c: a [elif d: b]* [else e]
+     ③ elif 形式 if c elif d: b [else e]（宿主 quirk：elif 条件弃置，elif_then 成外层 then）
+     ④ 无 then 形式 if c else [:] e（真分支=null）
+     then/冒号形式 elif 链右嵌套累积 假分支=If(elif_cond, elif_then, prev)；
+     else 存在时覆盖整条 elif 链（宿主 quirk 3715/3748）。
+     elif 在宿主词法是标识符（非关键字），Matha 同构 → 文本判定而非关键字判定。 *)
   func 解析if表达式(p: 解析器) -> (Dict, 解析器) =
     let p2 = 推进(p) in  (* 消费 if *)
-    let (cond, p3) = 解析表达式(p2) in
-    let p4 = if 匹配(p3, 类型.关键字) and 当前(p3).文本 = "then" then 推进(p3)
-             else 错误("期望 then") in
-    let (then_e, p5) = 解析表达式(p4) in
-    let p6 = if 匹配(p5, 类型.关键字) and 当前(p5).文本 = "else" then 推进(p5)
-             else p5 in
-    if 匹配(p5, 类型.关键字) and 当前(p5).文本 = "else" then
-      let (else_e, p7) = 解析表达式(p6) in
-      (做If(cond, then_e, else_e), p7)
+    (* 条件位清 let 值旗（宿主 3672-3678 finally 恢复）：`name in 表` 在 if
+       条件中成成员运算符；分支体恢复外层旗值解析 *)
+    let (cond, p3raw) = 解析表达式(置let值(p2, 假)) in
+    let p3 = 置let值(p3raw, p2.在let值) in
+    if 匹配关键字文本(p3, "then") then
+      let p4 = 推进(p3) in
+      let (then_e, p5) = 解析表达式(p4) in
+      解析if尾链(p5, cond, then_e)
+    else if 匹配(p3, 类型.冒号) then
+      let p4 = 推进(p3) in
+      let (then_e, p5) = 解析表达式(p4) in
+      解析if尾链(p5, cond, then_e)
+    else if 是elif文本(p3) then
+      let p4 = 推进(p3) in
+      let (_, p5) = 解析表达式(p4) in
+      let p6 = if 匹配(p5, 类型.冒号) then 推进(p5) else p5 in
+      let (then_e, p7) = 解析表达式(p6) in
+      解析if尾(p7, cond, then_e, 真)
+    else if 匹配关键字文本(p3, "else") then
+      解析if无then尾(p3, cond)
     else
-      (做If(cond, then_e, null), p6)
+      错误("期望 then/:/elif/else，实际 " + 类型名(当前(p3).类型))
+
+  func 是elif文本(p: 解析器) -> Bool =
+    当前(p).类型 = 类型.标识符 and 当前(p).文本 = "elif"
+
+  (* then/冒号形式的 elif 链累积：假分支 = If(elif_cond, elif_then, prev)；
+     elif 后 then/冒号任一作分隔（宿主 3697） *)
+  func 解析elif链(p: 解析器, acc: Any) -> (Any, 解析器) =
+    if 是elif文本(p) then
+      let p1 = 推进(p) in
+      let (elif_cond, p2) = 解析表达式(p1) in
+      let p3 = if (匹配(p2, 类型.冒号) or 匹配关键字文本(p2, "then")) then 推进(p2) else p2 in
+      let (elif_then, p4) = 解析表达式(p3) in
+      解析elif链(p4, 做If(elif_cond, elif_then, acc))
+    else (acc, p)
+
+  (* then/冒号形式尾部：else 不消费冒号（宿主 3708/3742）；else 覆盖 elif 链 *)
+  func 解析if尾链(p: 解析器, cond: Dict, then_e: Any) -> (Dict, 解析器) =
+    let (链, p1) = 解析elif链(p, null) in
+    if 匹配关键字文本(p1, "else") then
+      let p2 = 推进(p1) in
+      let (else_e, p3) = 解析表达式(p2) in
+      (做If(cond, then_e, else_e), p3)
+    else
+      (做If(cond, then_e, 链), p1)
+
+  (* elif 形式尾部：else 允许 else: 分隔（宿主 3767） *)
+  func 解析if尾(p: 解析器, cond: Dict, then_e: Any, 吃冒号: Bool) -> (Dict, 解析器) =
+    if 匹配关键字文本(p, "else") then
+      let p1 = 推进(p) in
+      let p2 = if 吃冒号 and 匹配(p1, 类型.冒号) then 推进(p1) else p1 in
+      let (else_e, p3) = 解析表达式(p2) in
+      (做If(cond, then_e, else_e), p3)
+    else
+      (做If(cond, then_e, null), p)
+
+  (* 无 then 形式尾部：if cond else [:] expr（宿主 3779-3827）。
+     else 后再接 elif 的续链面（宿主 3802-3818）语料零使用，不移植。 *)
+  func 解析if无then尾(p: 解析器, cond: Dict) -> (Dict, 解析器) =
+    let p1 = 推进(p) in
+    let p2 = if 匹配(p1, 类型.冒号) then 推进(p1) else p1 in
+    let (else_e, p3) = 解析表达式(p2) in
+    (做If(cond, null, else_e), p3)
+
+  (* 跳过类型标注至右括号：消费到匹配 ) 之后（形参类型可含 (T1, T2) 元组） *)
+  func 跳过类型至右括号(p: 解析器) -> 解析器 =
+    if 匹配(p, 类型.右括号) then 推进(p)
+    else 跳过类型至右括号(推进(p))
 
   (* 括号内消解：统一解析 lambda、元组 (a, b) 或普通分组 (expr)
      先解析内容为表达式列表（逗号分隔），消费 )，再根据 => 判断 lambda *)
@@ -1260,16 +1415,19 @@ module 语法器 {
       let p2 = 推进(p) in
       if 匹配(p2, 类型.胖箭头) then
         let p3 = 推进(p2) in
-        let (body, p4) = 解析表达式(p3) in
+        let (body, p4raw) = 解析表达式(置lambda体(置let值(p3, 真), 真)) in
+        let p4 = 置lambda体(置let值(p4raw, p3.在let值), p3.在lambda体) in
         (做Lambda([], body), p4)
       else (做IntLit(0), p2)
     else
-      (* 解析第一个表达式 *)
-      let (first, p2) = 解析表达式(p) in
+      (* 解析第一个表达式（组位清 let 值旗：宿主括号探位 2691/2738 同规） *)
+      let (first, p2raw) = 解析表达式(置let值(p, 假)) in
+      let p2 = 置let值(p2raw, p.在let值) in
       if 是带类型lambda(p2) then
         (* 带类型标注的形参：(x: Int) => body *)
         let pa = 跳过类型至右括号(推进(p2)) in
-        let (body, pb) = 解析表达式(推进(pa)) in
+        let (body, pbraw) = 解析表达式(置lambda体(置let值(推进(pa), 真), 真)) in
+        let pb = 置lambda体(置let值(pbraw, (推进(pa)).在let值), (推进(pa)).在lambda体) in
         (做Lambda([first], body), pb)
       else
       (* 逗号 → 多元素（元组或 lambda 多参）；否则单元素 *)
@@ -1282,7 +1440,8 @@ module 语法器 {
       (* => → lambda；否则单元素=分组，多元素=元组 *)
       if 匹配(p4, 类型.胖箭头) then
         let p5 = 推进(p4) in
-        let (body, p6) = 解析表达式(p5) in
+        let (body, p6raw) = 解析表达式(置lambda体(置let值(p5, 真), 真)) in
+        let p6 = 置lambda体(置let值(p6raw, p5.在let值), p5.在lambda体) in
         (做Lambda(elems, body), p6)
       else
         len(elems) = 1 ? (elems[0], p4) : (做元组(elems), p4)
@@ -1434,8 +1593,8 @@ module 语法器 {
     let p9 = 有处理 ? 推进(推进(p8)) : p8 in
     let 信息 = {"符号": 符号, "优先级": 优先级, "结合性": 结合性, "处理函数": 处理函数} in
     let p10 = { tokens: p9.tokens, pos: p9.pos, line: p9.line, col: p9.col,
-                禁止并列: p9.禁止并列, 自定义: p9.自定义 + [信息], 在理解头: p9.在理解头 } in
-    (做定义运算符(), p10)
+                禁止并列: p9.禁止并列, 自定义: p9.自定义 + [信息], 在理解头: p9.在理解头, 在let值: p9.在let值, 在lambda体: p9.在lambda体, 在块体: p9.在块体 } in
+    (做定义运算符(符号, 优先级, 结合性), p10)
 
   (* ===== 全局代码编号（宿主 _parse_global_id_stmt）=====
      ？#：{ / N#：{ / 纯数字行：仅消费编号本身，随后的 #：{…} 仍按机械单元解析。
@@ -1475,7 +1634,7 @@ module 语法器 {
       let p3 = 推进原样(p2) in
       let (文本, p4) = 收集命令文本(p3, "") in
       let p5 = 匹配(p4, 类型.读取闭) ? 推进(p4) : p4 in
-      let 占位项 = 做设值项(做Variable("？"), null, 做StringLit(文本)) in
+      let 占位项 = 做设值项(做占位Variable("？"), null, 做StringLit(文本)) in
       let (项列表, p6) = 解析设值余项(p5, [占位项]) in
       (做设值(项列表, "cmd"), 规范(p6))
     else
@@ -1490,7 +1649,7 @@ module 语法器 {
         let p2 = 推进原样(p1) in
         let (文本, p3) = 收集命令文本(p2, "") in
         let p4 = 匹配(p3, 类型.读取闭) ? 推进(p3) : p3 in
-        解析设值余项(p4, acc + [做设值项(做Variable("？"), null, 做StringLit(文本))])
+        解析设值余项(p4, acc + [做设值项(做占位Variable("？"), null, 做StringLit(文本))])
       else
         let (项, p2) = 解析设值项(p1) in
         解析设值余项(p2, acc + [项])
@@ -1503,7 +1662,14 @@ module 语法器 {
 
   func 解析设值目标(p: 解析器) -> (Dict, 解析器) =
     let tok = 当前(p) in
-    (做Variable(tok.文本), 推进(p))
+    tok.类型 = 类型.占位符 ?
+      (* ？/？名 目标（宿主 _parse_variable → _parse_placeholder_var）；
+         原样前瞻，不跳换行 *)
+      (let nxt = 当前(推进原样(p)) in
+       nxt.类型 = 类型.标识符 ?
+         (做占位Variable(nxt.文本), 推进(推进原样(p))) :
+         (做占位Variable(tok.文本), 推进(p))) :
+      (做Variable(tok.文本), 推进(p))
 
   func 是设值值起点(p: 解析器) -> Bool =
     let t = 当前(p).类型 in
@@ -1519,7 +1685,9 @@ module 语法器 {
       (匹配(p2, 类型.逗号) or 匹配(p2, 类型.中文逗号) or 匹配(p2, 类型.换行) or
         匹配(p2, 类型.结束) or 匹配(p2, 类型.右括号方) or
         当前(p2).行 > 当前(p).行) ?
-        (v["类型"] = "变量" ? 做StringLit(v["名"]) : v, p2) :
+        (* 裸标识符值 → 配置字符串（宿主 423）；占位变量 ？ 保持 Variable *)
+        (v["类型"] = "变量" ?
+          (v["是占位"] ? v : 做StringLit(v["名"])) : v, p2) :
         回退设值文本(p)
     else
       回退设值文本(p)
@@ -1554,6 +1722,21 @@ module 语法器 {
       (做自然语言块(标注, ""), 规范(p3)) :
       let (正文, p4) = 收集到行尾(p3, "") in
       (做自然语言块(标注, 正文), 规范(p4))
+
+  (* 做读取块：宿主 ast.ReadBlock（_parse_read_or_command 1000）。 *)
+  func 做读取块(内容: String) -> Dict = {"类型": "读取块", "内容": 内容}
+
+  (* 块体轨道 【…】：宿主 _parse_statement 797 → _parse_read_or_command——
+     《…》→ 命令字面量；【…】→ 读取块（原始内文含 */…/* 标记，无标注/正文二分）。
+     顶层轨道走 解析自然语言块（宿主 _parse_top_decl 275 仅 */ 标注形）。 *)
+  func 解析读取或命令(p: 解析器) -> (Dict, 解析器) =
+    if 匹配(p, 类型.命令开) then
+      解析命令文字(p)
+    else
+      let p1 = 推进原样(p) in                      (* 消费 【 *)
+      let (内容, p2) = 收集命令文本(p1, "") in
+      let p3 = 匹配(p2, 类型.读取闭) ? 推进原样(p2) : p2 in
+      (做读取块(内容), 规范(p3))
 
   (* ===== 命令字面量（【文字】/《文字》）=====
      对齐宿主 parser._parse_command_literal + _parse_command_text：
@@ -1601,11 +1784,17 @@ module 语法器 {
   (* 链项：对齐宿主 _parse_mech_stmt 的收窄子集（命令/读取、【…】、#N：、[输出]、
      表达式）。@设值 暂无链用例，暂不纳入。 *)
   func 解析链项(p: 解析器) -> (Dict, 解析器) =
-    if 匹配(p, 类型.命令开) or 匹配(p, 类型.读取开) then
+    if 匹配(p, 类型.命令开) then
       let (cmd, p2) = 解析命令文字(p) in
       (cmd, p2)
+    else if 匹配(p, 类型.读取开) then
+      (* 宿主 _parse_mech_stmt 797 → _parse_read_or_command：链内 【…】 恒为
+         读取块（仅链首项经 _parse_mech_unit 才是命令字面量）。 *)
+      解析读取或命令(p)
     else if 匹配(p, 类型.段号) then
-      解析机械单元(p)
+      (* 裸 #N（无段号冒号，如运行链 `>> #1 >> #2 …`）：宿主 _parse_mech_stmt
+         is_gen 前瞻失败 → 整行外来声明；带冒号才是机械单元。 *)
+      是生成头(p) ? 解析机械单元(p) : 解析裸井号行(p)
     else if 匹配(p, 类型.左括号方) then
       解析输出语句(p)
     else
@@ -1646,7 +1835,10 @@ module 语法器 {
       (做段循环(null, 分数), p2)
 
   func 解析全局循环后缀(p: 解析器) -> (Dict, 解析器) =
-    解析循环分数(期望(p, 类型.双省略号))
+    (* 宿主 _parse_global_loop_suffix 返回 GlobalLoopSuffix(fraction=…)
+       包装节点（507-509）；分数 dict 直接存会与宿主形态分歧。 *)
+    let (分数, p1) = 解析循环分数(期望(p, 类型.双省略号)) in
+    (做全局循环(分数), p1)
 
   func 解析文件列表(p: 解析器, acc: List, cur: String) -> (List, 解析器) =
     if 匹配(p, 类型.读取闭) or 匹配(p, 类型.读取闭2) then (acc + [cur], 推进(p))
@@ -1673,6 +1865,8 @@ module 语法器 {
       let (文件, p2) = 读开匹配(p1) ? 解析文件引用(p1) : (null, p1) in
       (做输出追踪环(输出, null, null, null, 全局循环, 文件), p2)
     else
+      (* 语句/#N 位置的 [输出]：宿主 _parse_output_trail 无后缀也包 OutputTrail
+         （529 行 trail = OutputTrail(output=output) 无条件包裹） *)
       (做输出追踪(输出), p)
 
   func 解析输出后缀_全局(p: 解析器, 输出: Dict, 段循环: Dict, 子文件: List,
@@ -1685,38 +1879,75 @@ module 语法器 {
       (做输出追踪环(输出, 段循环, 子文件, 编号, null, null), p)
 
   (* ===== 机械单元（#N：…）=====
-     与宿主 parser._parse_mech_unit 对齐：先消费 # 与可选全角冒号，
-     再按首个 token 判定内容形态。 *)
+     与宿主 parser._parse_mech_unit 对齐：先消费 # 与可选段号 N、全角冒号，
+     再按首个 token 判定内容形态。段号入 机械单元.段号/生成语句.段号
+     （宿主 Generate(seg_id) 同构）。命令/表达式内容后紧跟 { 时合并为
+     [生成语句, 块] 列表体（宿主 623-628 同构，仅当体为单条生成语句时）。 *)
   func 解析机械单元(p: 解析器) -> (Dict, 解析器) =
     let p1 = 推进(p) in                            (* 消费 段号 *)
-    let p1b = 匹配(p1, 类型.整数) ? 推进(p1) : p1 in   (* 可选段号 #N：中的 N *)
+    let (段号, p1b) = 匹配(p1, 类型.整数) ?
+      (整数值(当前(p1).文本), 推进(p1)) : (null, p1) in
     let p2 = 匹配(p1b, 类型.全角冒号) ? 推进(p1b) : p1b in
     if 匹配(p2, 类型.左括号花) then
       (* #：{ … } 代码块／自测块：块内绑定沿用外层作用域（顶层即全局） *)
       let (block, p3) = 解析语句列表(推进(p2)) in
       let p4 = 匹配(p3, 类型.右括号花) ? 推进(p3) : p3 in
-      (做机械单元(block), p4)
+      (做机械单元(段号, block), p4)
     else if 匹配(p2, 类型.读取开) or 匹配(p2, 类型.命令开) then
       (* #N：【命令】/《命令》→ 生成语句 + 命令字面量（可接 >> 链） *)
       let (cmd, p3) = 解析命令文字(p2) in
-      let (body, p4) = 收尾链(p3, 做生成语句(cmd)) in
-      (做机械单元(body), p4)
+      let (body, p4) = 收尾链(p3, 做生成语句(段号, cmd)) in
+      合并块体(段号, body, p4)
     else if 匹配(p2, 类型.左括号方) then
       (* #N：[输出] → 生成语句 + 输出追踪；可带 …（x/y）【文件】循环后缀 *)
       let (expr, p3) = 解析括号内输出(推进(p2)) in
       let p4 = 匹配(p3, 类型.右括号方) ? 推进(p3) : p3 in
       let (tr, p5) = 解析输出后缀(p4, expr) in
-      let (body, p6) = 收尾链(p5, 做生成语句(tr)) in
-      (做机械单元(body), p6)
+      let (body, p6) = 收尾链(p5, 做生成语句(段号, tr)) in
+      合并块体(段号, body, p6)
     else if 匹配(p2, 类型.占位符) then
       (* #N：？expr → 生成语句 + 表达式 *)
       let (expr, p3) = 解析表达式(推进(p2)) in
-      let (body, p4) = 收尾链(p3, 做生成语句(expr)) in
-      (做机械单元(body), p4)
+      let (body, p4) = 收尾链(p3, 做生成语句(段号, expr)) in
+      合并块体(段号, body, p4)
     else
       let (expr, p3) = 解析表达式(p2) in
-      let (body, p4) = 收尾链(p3, 做生成语句(expr)) in
-      (做机械单元(body), p4)
+      let (body, p4) = 收尾链(p3, 做生成语句(段号, expr)) in
+      合并块体(段号, body, p4)
+
+  (* 宿主 _parse_mech_unit 623-628：生成语句后紧跟代码块 → 体 = [生成语句, 块]。
+     仅当体为单条生成语句（无 >> 链）时合并；链式体不合并。 *)
+  func 合并块体(段号, body: Dict, p: 解析器) -> (Dict, 解析器) =
+    if body["类型"] = "生成语句" and 匹配(规范(p), 类型.左括号花) then
+      let p1 = 规范(p) in
+      let (block, p2) = 解析语句列表(推进(p1)) in
+      let p3 = 匹配(p2, 类型.右括号花) ? 推进(p2) : p2 in
+      (做机械单元(段号, [body, block]), p3)
+    else
+      (做机械单元(段号, body), p)
+
+  (* 块体轨道生成语句：宿主 _parse_statement 760-777 → _parse_gen_or_file_marker
+     ——GenStmt 直接返回，**不**包 机械单元、**不**做 { 合并（宿主合并仅在
+     _parse_mech_unit 顶层 623-628）。内容分支与 解析机械单元 同构。 *)
+  func 解析生成语句轨道(p: 解析器) -> (Dict, 解析器) =
+    let p1 = 推进(p) in                            (* 消费 段号 *)
+    let (段号, p1b) = 匹配(p1, 类型.整数) ?
+      (整数值(当前(p1).文本), 推进(p1)) : (null, p1) in
+    let p2 = 匹配(p1b, 类型.全角冒号) ? 推进(p1b) : p1b in
+    if 匹配(p2, 类型.读取开) or 匹配(p2, 类型.命令开) then
+      let (cmd, p3) = 解析命令文字(p2) in
+      收尾链(p3, 做生成语句(段号, cmd))
+    else if 匹配(p2, 类型.左括号方) then
+      let (expr, p3) = 解析括号内输出(推进(p2)) in
+      let p4 = 匹配(p3, 类型.右括号方) ? 推进(p3) : p3 in
+      let (tr, p5) = 解析输出后缀(p4, expr) in
+      收尾链(p5, 做生成语句(段号, tr))
+    else if 匹配(p2, 类型.占位符) then
+      let (expr, p3) = 解析表达式(推进(p2)) in
+      收尾链(p3, 做生成语句(段号, expr))
+    else
+      let (expr, p3) = 解析表达式(p2) in
+      收尾链(p3, 做生成语句(段号, expr))
 
   (* ===== 后缀续接的换行敏感判定 =====
      解析器状态 pos 始终指向非换行 token（规范() 会跳过换行），故需回看
@@ -1735,8 +1966,8 @@ module 语法器 {
 
   func 值结尾token(t: Token) -> Bool = (t) =>
     (t.类型 = 类型.标识符) or (t.类型 = 类型.整数) or (t.类型 = 类型.浮点) or
-    (t.类型 = 类型.字符串) or (t.类型 = 类型.右括号) or
-    (t.类型 = 类型.右括号方) or (t.类型 = 类型.右括号花)
+    (t.类型 = 类型.字符串) or (t.类型 = 类型.布尔) or (t.类型 = 类型.占位符) or
+    (t.类型 = 类型.右括号) or (t.类型 = 类型.右括号方) or (t.类型 = 类型.右括号花)
 
   (* ===== 输出单元（语句位置的 [）=====
      <output> = "[" , [ <expr> ] , "]"
@@ -1747,7 +1978,8 @@ module 语法器 {
     let p1 = 推进(p) in                                  (* 消费 [ *)
     let (expr, p2) = 解析括号内输出(p1) in
     let p3 = 匹配(p2, 类型.右括号方) ? 推进(p2) : p2 in
-    (做Output(expr), p3)
+    (* 语句位恒包 OutputTrail（宿主 _parse_statement 789 行 _parse_output_trail） *)
+    (做输出追踪(expr), p3)
 
   (* [ … ] 内部解析，三种形态（对应宿主 _parse_output）：
        []        → 空输出（宿主 Output(expr=None)）
@@ -1786,17 +2018,17 @@ module 语法器 {
 
   (* 禁并列：构造禁用并列应用的解析器副本（供输出括号内解析使用）。 *)
   func 禁并列(p: 解析器) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: 真, 自定义: p.自定义, 在理解头: p.在理解头 }
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: 真, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: p.在let值, 在lambda体: p.在lambda体, 在块体: p.在块体 }
 
   (* 置禁并列：构造指定禁并列标志的解析器副本。子解析（如输出括号内）结束
      后须把标志恢复为调用方原值，否则 禁止并列=真 会经返回值泄漏到后续所有
      解析，导致首次 #：[…] 之后的并列应用全部失效。 *)
   func 置禁并列(p: 解析器, v: Bool) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: v, 自定义: p.自定义, 在理解头: p.在理解头 }
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: v, 自定义: p.自定义, 在理解头: p.在理解头, 在let值: p.在let值, 在lambda体: p.在lambda体, 在块体: p.在块体 }
 
   (* 置在理解头：构造（不）处于集合理解头部的解析器副本，控制 `|` 是否作位或。 *)
   func 置在理解头(p: 解析器, v: Bool) -> 解析器 =
-    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: v }
+    { tokens: p.tokens, pos: p.pos, line: p.line, col: p.col, 禁止并列: p.禁止并列, 自定义: p.自定义, 在理解头: v, 在let值: p.在let值 }
 
   (* 文本回退：拼接当前至 ] 之间的原始记号文本（含换行 "\n"，不跳过换行），
      与宿主回退的 _advance().value 逐 token 拼接一致。
@@ -1917,7 +2149,7 @@ module 语法器 {
     let p2 = 推进(p1) in
     (* use Name { a | b } 形式 vs use Name（无大括号，全模块导入）*)
     if 匹配(p2, 类型.左括号花) then
-      let (名字, p4) = 解析导入名列表(规范(p2), []) in
+      let (名字, p4) = 解析导入名列表(推进(p2), []) in
       let p5 = 期望(p4, 类型.右括号花) in
       (做导入(模块名, 名字), 规范(p5))
     else
@@ -1932,7 +2164,7 @@ module 语法器 {
       解析导入名列表(推进(p), acc + [名])
 
   func 解析程序(tokens: List) -> Dict =
-    let p = 规范({ tokens: tokens, pos: 0, line: 1, col: 1, 自定义: [], 在理解头: 假 }) in
+    let p = 规范({ tokens: tokens, pos: 0, line: 1, col: 1, 自定义: [], 在理解头: 假, 在let值: 假, 在lambda体: 假, 在块体: 假 }) in
     解析声明列表(p, [])
 
   func 解析声明列表(p: 解析器, acc: List) -> Dict =
@@ -1953,13 +2185,17 @@ module 语法器 {
 
   func 解析声明(p: 解析器) -> (Dict, 解析器) =
     if 匹配(p, 类型.段号) and 是生成头(p) then
-      解析机械单元(p)
+      p.在块体 ? 解析生成语句轨道(p) : 解析机械单元(p)
     else if 匹配(p, 类型.段号) then
-      (* 裸 # 行（如 # 注释）：宿主按外来声明整行吞掉。 *)
-      解析裸井号行(p)
+      (* 裸 # 行（如 # 注释）：宿主按外来声明整行吞掉。
+         顶层经 _parse_mech_unit 包裹（Generate(None)+ForeignDecl 体）；
+         块体轨道 _parse_statement 775 直接返回 ForeignDecl。 *)
+      let (fd, p2) = 解析裸井号行(p) in
+      p.在块体 ? (fd, p2) : (做机械单元(null, fd), p2)
     else if 匹配(p, 类型.读取开) then
-      (* 自然语言标注块（宿主 _parse_statement 的 MATHA_READ_OPEN 分支）*)
-      解析自然语言块(p)
+      (* 【…】：顶层（宿主 _parse_top_decl 275）→ 自然语言块；
+         块体轨道（宿主 _parse_statement 797）→ 读取块/命令字面量。 *)
+      p.在块体 ? 解析读取或命令(p) : 解析自然语言块(p)
     else if 匹配(p, 类型.设置符) then
       (* @define_op : … 自定义运算符声明（编译期 NOOP）；
          否则 @：… 设值（setUp）。对齐宿主 _parse_mech_stmt 的 MATHA_AT 分派。*)
@@ -1987,6 +2223,7 @@ module 语法器 {
       else if tok.文本 = "try" then 解析try语句(p)
       else if tok.文本 = "module" then 解析模块声明(p)
       else if tok.文本 = "use" then 解析导入声明(p)
+      else if tok.文本 = "return" then 解析返回语句(p)
       else 解析表达式(p)
     else if 匹配(p, 类型.左括号方) then
       (* 语句位置的 [ 恒为输出单元（宿主 _parse_output 同构）*)
@@ -1995,27 +2232,79 @@ module 语法器 {
       let tok = 当前(p) in
       let nxt = 当前(推进(p)) in
       if tok.文本 = "func" then 解析函数定义(推进(p))
-      else if nxt.类型 = 类型.等于 then
-        (* 顶层绑定 name = expr（绑定语义，与宿主 parser 一致；`==` 比较不在此列） *)
+      else if tok.文本 = "var" and nxt.类型 = 类型.标识符 and not p.在lambda体 then
+        (* var x = expr：可变变量声明（宿主 _parse_decl 4067 / _parse_statement
+           3214 消费 var 后走绑定）。跳过 var、名，停在 "=" 消费后解析右端。 *)
+        let p_eq = 推进(推进(推进(p))) in
+        let (val, p2) = 解析表达式(p_eq) in
+        (做Binding(nxt.文本, val), p2)
+      else if tok.文本 = "var" and nxt.类型 = 类型.标识符 and p.在lambda体 then
+        (* var x = expr 于 lambda 体内：宿主 _parse_statement 3214 消费 var 后
+           走 _parse_expr_or_binding，_in_lambda_body 特例使 = 保持比较——
+           镜像产出 BinaryOp("=", 名, 值)（var 关键字仍消费）。 *)
+        let p_eq = 推进(推进(推进(p))) in
+        let (val, p2) = 解析表达式(p_eq) in
+        (做BinaryOp("=", 做Variable(nxt.文本), val), p2)
+      else if nxt.类型 = 类型.等于 and nxt.文本 = "=" and not p.在lambda体 then
+        (* 顶层绑定 name = expr（绑定语义，与宿主 parser 一致；
+           `==` 比较的 token 文本为 "==" 不在此列；lambda 体内 = 保持
+           等于比较，落到 解析表达式 产 BinaryOp（宿主 1424 同规）） *)
         let p1 = 推进(推进(p)) in
         let (val, p2) = 解析表达式(p1) in
         (做Binding(tok.文本, val), p2)
-      else 解析表达式(p)
-    else 解析表达式(p)
+      else
+        let (e, p2) = 解析表达式(p) in
+        (语句位绑定消解(e, p), p2)
+    else
+      let (e, p2) = 解析表达式(p) in
+      (语句位绑定消解(e, p), p2)
 
-  (* 跳过返回类型：单 token（Int/Bool/...）或元组 (T1, T2) *)
-  func 跳过返回类型(p: 解析器) -> (String, 解析器) =
+  (* 语句位绑定消解：镜像宿主 _parse_expr_or_binding 语句层转换（1420-1440）。
+     lambda 体内（在lambda体）= 保持等于比较不转（1424 特例）；
+     二元 "=" 左侧为全变量元组 → 元组解构绑定（1437 _tuple_pattern_names，
+     含通配 _）；左侧为变量 → 绑定（普通 name = expr 已被 解析声明
+     标识符分支先行拦截，此处兜底括号形 (x) = v）。 *)
+  func 语句位绑定消解(e: Dict, p: 解析器) -> Dict =
+    if e.类型 = "二元运算" and e.运算符 = "=" and not p.在lambda体 then
+      e.左.类型 = "元组" and 全变量元组(e.左.元素) ?
+        做Let元组绑定(元组变量名(e.左.元素), e.右, 假, 做IntLit(0)) :
+      e.左.类型 = "变量" ? 做Binding(e.左.名, e.右) : e
+    else e
+
+  func 全变量元组(元素: List) -> Bool =
+    if 元素 = [] then 真
+    else 元素[0].类型 = "变量" and 全变量元组(元素[1:])
+
+  func 元组变量名(元素: List) -> List =
+    if 元素 = [] then []
+    else [元素[0].名] + 元组变量名(元素[1:])
+
+  (* ===== 类型表达式（宿主 _parse_type_expr 同构）=====
+     Matha 形态与宿主一一对应：
+       基本类型 {"类型","名"}     ↔ BasicType(name)
+       元组类型 {"类型","types"}  ↔ TupleType(types)
+       集合类型 {"类型","元素"}   ↔ SetType(elem_type)
+     单元素括号退化为内层类型（宿主 len==1 同规）。 *)
+  func 解析类型表达式(p: 解析器) -> (Dict, 解析器) =
     if 匹配(p, 类型.左括号) then
-      let p2 = 推进(p) in
-      let p3 = 跳过类型至右括号(p2) in
-      ("元组", p3)
+      let (首, p1) = 解析类型表达式(推进(p)) in
+      解析类型表达式_元组续(p1, [首])
     else
       let tok = 当前(p) in
-      (tok.文本, 推进(p))
+      let p1 = 推进(p) in
+      if 匹配(p1, 类型.左括号方) then
+        let (elem, p2) = 解析类型表达式(推进(p1)) in
+        let p3 = 期望(p2, 类型.右括号方) in
+        ({"类型": "集合类型", "元素": elem}, p3)
+      else ({"类型": "基本类型", "名": tok.文本}, p1)
 
-  func 跳过类型至右括号(p: 解析器) -> 解析器 =
-    if 匹配(p, 类型.右括号) then 推进(p)
-    else 跳过类型至右括号(推进(p))
+  func 解析类型表达式_元组续(p: 解析器, acc: List) -> (Dict, 解析器) =
+    if 匹配(p, 类型.逗号) then
+      let (next, p2) = 解析类型表达式(推进(p)) in
+      解析类型表达式_元组续(p2, acc + [next])
+    else
+      let p2 = 期望(p, 类型.右括号) in
+      (len(acc) = 1 ? acc[0] : {"类型": "元组类型", "types": acc}, p2)
 
   (* 类型名（可带 [] 泛型实参），返回源码文本。对齐宿主 _parse_type_name：
      标识符（?占位符）后跟任意层 [...]。用于 chan T 的元素类型；该文本仅
@@ -2051,11 +2340,10 @@ module 语法器 {
     let p3 = 推进(p2) in
     let name = name_tok.文本 in
     let p4 = 期望(p3, 类型.左括号) in
-    let (params, p5) = 解析参数列表(p4) in
+    let (params, param_types, p5) = 解析参数列表(p4) in
     let p6 = 期望(p5, 类型.右括号) in
     let p7 = 期望(p6, 类型.箭头) in  (* -> *)
-    (* 返回类型：单 token（如 Int）或元组 (T1, T2) ——跳过括号内容 *)
-    let (ret_type, p8) = 跳过返回类型(p7) in
+    let (ret_type, p8) = 解析类型表达式(p7) in
     let p9 = 期望(p8, 类型.等于) in  (* = *)
     if 匹配(p9, 类型.左括号) then
       (* 显式 lambda：(params) => body *)
@@ -2066,42 +2354,49 @@ module 语法器 {
           解析_lambda_params_rest([], lparam, p10b) in
       let p12 = 期望(p11, 类型.右括号) in
       let p13 = 期望(p12, 类型.胖箭头) in  (* => *)
-      let (body, p14) = 解析表达式(p13) in
-      (做FuncDef(name, lam_params, ret_type, body), p14)
+      let (body, p14raw) = 解析表达式(置lambda体(置let值(p13, 真), 真)) in
+      let p14 = 置lambda体(置let值(p14raw, p13.在let值), p13.在lambda体) in
+      (* 参数类型仍取声明位标注（宿主 func_type 合成用声明类型），参数取 lambda 位 *)
+      (做FuncDef(name, lam_params, param_types, ret_type, body), p14)
     else
       (* 直接体：未写 `(params) =>`，参数直接入 FuncDef.参数，体为裸表达式。
          与显式路径（parser 消费掉外层 lambda 语法）及宿主行为一致。 *)
-      let (body, p14) = 解析表达式(p9) in
-      (做FuncDef(name, params, ret_type, body), p14)
+      let (body, p14raw) = 解析表达式(置lambda体(置let值(p9, 真), 真)) in
+      let p14 = 置lambda体(置let值(p14raw, p9.在let值), p9.在lambda体) in
+      (做FuncDef(name, params, param_types, ret_type, body), p14)
 
-  func 解析参数列表(p: 解析器) -> (List, 解析器) =
-    if 匹配(p, 类型.右括号) then ([], p)
+  (* 参数列表：返回 (参数名字列表, 参数类型列表, 状态)。
+     类型平行于名字（宿主 _parse_typed_param 的 (name, type|None) 元组同构，
+     无标注位为 null）。名字列表供 Lambda 包装，类型列表入 FuncDef.参数类型。 *)
+  func 解析参数列表(p: 解析器) -> (List, List, 解析器) =
+    if 匹配(p, 类型.右括号) then ([], [], p)
     else
-      let (param, p2) = 解析参数(p) in
-      let (rest, p3) = 解析参数列表_rest(p2) in
-      ([param] + rest, p3)
+      let (名, ty, p2) = 解析参数(p) in
+      let (名rest, 类rest, p3) = 解析参数列表_rest(p2) in
+      ([名] + 名rest, [ty] + 类rest, p3)
 
-  func 解析参数列表_rest(p: 解析器) -> (List, 解析器) =
+  func 解析参数列表_rest(p: 解析器) -> (List, List, 解析器) =
     if 匹配(p, 类型.逗号) then
       let p2 = 推进(p) in
-      let (param, p3) = 解析参数(p2) in
-      let (rest, p4) = 解析参数列表_rest(p3) in
-      ([param] + rest, p4)
-    else ([], p)
+      let (名, ty, p3) = 解析参数(p2) in
+      let (名rest, 类rest, p4) = 解析参数列表_rest(p3) in
+      ([名] + 名rest, [ty] + 类rest, p4)
+    else ([], [], p)
 
   (* 解析函数定义中的参数：name（必选）后跟「: 类型」标注（可选）。
-     消费参数名，若存在冒号则额外跳过类型 token，返回 (参数名, 新状态)。 *)
-  func 解析参数(p: 解析器) -> (String, 解析器) =
+     类型标注经 解析类型表达式 结构化捕获（宿主 _parse_typed_param 同构）。 *)
+  func 解析参数(p: 解析器) -> (String, Dict, 解析器) =
     let tok = 当前(p) in
     let p2 = 推进(p) in
-    let p3 = if 匹配(p2, 类型.冒号) then 推进(推进(p2)) else p2 in
-    (tok.文本, p3)
+    let (ty, p3) = 匹配(p2, 类型.冒号) ? 解析类型表达式(推进(p2)) : (null, p2) in
+    (tok.文本, ty, p3)
 
   (* let 表达式：let [rec] 名 [: 类型] = 值 [in 体]
      - rec：递归绑定（值中的 lambda 可引用绑定名自身）
      - in 体：绑定作用域内的续体；无 in 时求值结果为绑定值本身
-     与宿主 parser 的 LetBinding 语义对齐（自举层无 in 二元运算歧义，
-     无需 _in_let_value 状态线程）。 *)
+     与宿主 parser 的 LetBinding 语义对齐：绑定值/lambda 体位置 在let值=真
+     （宿主 _in_let_value 3474/3358 同规）——值内 `in` 是终结符不构成成员
+     运算符；值解析毕先恢复外层旗值再判 in（宿主 3481 同规）。 *)
   (* 元组参数列表：(a, b, c) → [a, b, c]（仅标识符，逗号分隔）*)
   func 解析元组参数列表(p: 解析器) -> (List, 解析器) =
     if 匹配(p, 类型.右括号) then ([], p)
@@ -2128,7 +2423,8 @@ module 语法器 {
       let (名字, p4) = 解析元组参数列表(p3) in
       let p5 = 期望(p4, 类型.右括号) in
       let p6 = 期望(p5, 类型.等于) in
-      let (值expr, p7) = 解析表达式(p6) in
+      let (值expr, p7raw) = 解析表达式(置let值(p6, 真)) in
+      let p7 = 置let值(p7raw, p6.在let值) in
       if 匹配关键字文本(p7, "in") then
         let p8 = 推进(p7) in
         let (体expr, p9) = 解析表达式(p8) in
@@ -2142,15 +2438,15 @@ module 语法器 {
          转换为 let name = (params) => body *)
       if 匹配(p3, 类型.左括号) then
         let p4 = 推进(p3) in
-        let (params, p5) = 解析参数列表(p4) in
+        let (params, param_types, p5) = 解析参数列表(p4) in
         let p6 = 期望(p5, 类型.右括号) in
         let p7 = 期望(p6, 类型.箭头) in
-        let (忽略, p8) = 跳过返回类型(p7) in
+        let (忽略, p8) = 解析类型表达式(p7) in
         let p9 = 期望(p8, 类型.等于) in
         (* 与 解析函数定义 一致：若 `=` 后为显式 lambda `(params) => body`，
            则直接采用该 lambda（其参数即函数参数），不再用签名参数包一层，
            否则会形成双层 lambda（值变成返回函数的函数）。 *)
-        let (lam, p10) = if 匹配(p9, 类型.左括号) then
+        let (lam, p10, 参数f) = if 匹配(p9, 类型.左括号) then
           let q1 = 推进(p9) in
           let (lam_params, q2) = if 匹配(q1, 类型.右括号) then ([], q1)
             else
@@ -2158,34 +2454,47 @@ module 语法器 {
               解析_lambda_params_rest([], lparam, q1b) in
           let q3 = 期望(q2, 类型.右括号) in
           let q4 = 期望(q3, 类型.胖箭头) in
-          let (lbody, q5) = 解析表达式(q4) in
-          (做Lambda(lam_params, lbody), q5)
+          let (lbody, q5raw) = 解析表达式(置lambda体(置let值(q4, 真), 真)) in
+          let q5 = 置lambda体(置let值(q5raw, q4.在let值), q4.在lambda体) in
+          (做Lambda(lam_params, lbody), q5, [])
         else
-          let (dbody, q5) = 解析表达式(p9) in
-          (做Lambda(params, dbody), q5) in
+          let (dbody, q5raw) = 解析表达式(置lambda体(置let值(p9, 真), 真)) in
+          let q5 = 置lambda体(置let值(q5raw, p9.在let值), p9.在lambda体) in
+          (* 直接体：宿主 LetBinding 值=裸体、params=带类型参数（3439/3441）；
+             Matha 值仍为包装 lambda（interp 兼容），参数 对携带 (名,类型) 供
+             对拍重建（转换器取 值.体 还原裸体）。 *)
+          (做Lambda(params, dbody), q5, 做参数对(params, param_types)) in
         if 匹配关键字文本(p10, "in") then
           let p11 = 推进(p10) in
           let (体expr, p12) = 解析表达式(p11) in
-          (做Let绑定(name_tok.文本, lam, 是递归, 真, 体expr), p12)
+          (做Let绑定(name_tok.文本, lam, 是递归, 真, 体expr, 参数f), p12)
         else
-          (做Let绑定(name_tok.文本, lam, 是递归, 假, 做IntLit(0)), p10)
+          (做Let绑定(name_tok.文本, lam, 是递归, 假, 做IntLit(0), 参数f), p10)
       else
         (* 简单绑定：let name [: Type] = expr [in body] *)
         let p3b = 匹配(p3, 类型.冒号) ? 推进(推进(p3)) : p3 in
         let p4 = 期望(p3b, 类型.等于) in
-        let (值expr, p5) = 解析表达式(p4) in
+        let (值expr, p5raw) = 解析表达式(置let值(p4, 真)) in
+        let p5 = 置let值(p5raw, p4.在let值) in
         if 匹配关键字文本(p5, "in") then
           let p6 = 推进(p5) in
           let (体expr, p7) = 解析表达式(p6) in
-          (做Let绑定(name_tok.文本, 值expr, 是递归, 真, 体expr), p7)
+          (做Let绑定(name_tok.文本, 值expr, 是递归, 真, 体expr, null), p7)
         else
-          (做Let绑定(name_tok.文本, 值expr, 是递归, 假, 做IntLit(0)), p5)
+          (做Let绑定(name_tok.文本, 值expr, 是递归, 假, 做IntLit(0), null), p5)
+
+  (* 平行列表 → [{名,类型}] 参数对（宿主 params=[(name, type|None)] 同构） *)
+  func 做参数对(名s: List, 类s: List) -> List =
+    名s = [] ? [] :
+      [{"名": 名s[0], "类型": 类s[0]}] + 做参数对(名s[1:], 类s[1:])
 
   (* if 语句：if cond then expr else expr（表达式形式）
      或 if cond { 块 } [else { 块 }]（语句形式，else/否则 均可）*)
   func 解析if_stmt(p: 解析器) -> (Dict, 解析器) =
     let p2 = 期望(p, 类型.关键字) in
-    let (cond, p3) = 解析表达式(p2) in
+    (* 条件位清 let 值旗（宿主 if 语句条件 3577 同规），解析后恢复外层旗值 *)
+    let (cond, p3raw) = 解析表达式(置let值(p2, 假)) in
+    let p3 = 置let值(p3raw, p2.在let值) in
     if 匹配关键字文本(p3, "then") then
       let p4 = 推进(p3) in
       let (then_e, p5) = 解析表达式(p4) in
@@ -2199,7 +2508,10 @@ module 语法器 {
       let p4 = 期望(p3, 类型.左括号花) in
       let (then_body, p5) = 解析语句列表(p4) in
       let p6 = 期望(p5, 类型.右括号花) in
-      if 匹配关键字文本(p6, "else") or 匹配关键字文本(p6, "否则") then
+      (* else 附着须同 行：宿主 _parse_if 语句形式 else 检查不跳换行（3600/3605），
+         下 行 else 不附着（宿主产出 Variable("else") + 块语句的裸语句；
+         Matha 解析主要 关键字兜底 同产 Variable("else")）。 *)
+      if not 是行首关键字(p6) and (匹配关键字文本(p6, "else") or 匹配关键字文本(p6, "否则")) then
         let p7 = 推进(p6) in
         let p8 = 期望(p7, 类型.左括号花) in
         let (else_body, p9) = 解析语句列表(p8) in
@@ -2363,9 +2675,30 @@ module 语法器 {
     let (expr, p3) = 解析表达式(p2) in
     (做Go(expr), p3)
 
+  (* return <expr> — 从函数/块返回（值可省略 → null）。
+     对齐宿主 KW_RETURN 语句分支（src/parser.py:3249）：return 后紧跟语句
+     分隔符（换行/分号/闭花括号/结束）→ 无值返回。值位 [x] / [a, b] / [] 为
+     列表字面量而非输出命令（宿主 _in_return_value 同口径——表达式位解析）。 *)
+  func 做返回语句(值: Any) -> Dict = {"类型": "返回语句", "值": 值}
+
+  func 是返回分隔(p: 解析器) -> Bool =
+    let t = 当前(p).类型 in
+    (t = 类型.换行) or (t = 类型.右括号花) or (t = 类型.结束) or
+    (t = 类型.符号 and 当前(p).文本 = ";")
+
+  func 解析返回语句(p: 解析器) -> (Dict, 解析器) =
+    let p1 = 期望(p, 类型.关键字) in  (* return *)
+    if 是返回分隔(p1) then (做返回语句(null), p1)
+    else
+      let (值, p2) = 解析表达式(p1) in
+      (做返回语句(值), p2)
+
   (* 语句列表 *)
   func 解析语句列表(p: 解析器) -> (Dict, 解析器) =
-    解析语句列表_rest(p, [])
+    (* 块体旗标：语句列表内全部语句走块体轨道（宿主 _parse_statement）；
+       结束后恢复调用方原值，防止泄漏到顶层后续声明。 *)
+    let (prog, p2) = 解析语句列表_rest(置块体(p, 真), []) in
+    (prog, 置块体(p2, p.在块体))
 
   func 解析语句列表_rest(p: 解析器, acc: List) -> (Dict, 解析器) =
     let p0 = 跳过分号(p) in
@@ -2392,12 +2725,12 @@ module 语法器 {
       let name_tok = 当前(p) in
       let p2 = 推进(p) in
       let p3 = 期望(p2, 类型.冒号) in
-      let type_tok = 当前(p3) in
-      let p4 = 推进(p3) in
+      (* 字段类型走解析类型表达式（基本/元组/集合，对齐宿主 _parse_type_expr） *)
+      let (ty, p4) = 解析类型表达式(p3) in
       (* 字段间逗号分隔（可选尾逗号）：x: Int, y: Int [,] *)
       let p4b = 匹配(p4, 类型.逗号) ? 推进(p4) : p4 in
       let (rest, p5) = 解析结构体字段列表(p4b) in
-      ([{"名": name_tok.文本, "类型": type_tok.文本}] + rest, p5)
+      ([{"名": name_tok.文本, "类型": ty}] + rest, p5)
 
   (* 枚举定义：enum Name { Ctor1 | Ctor2 | Ctor3 }
      构造子分隔：| 或空格/换行均可（与宿主 parser 一致） *)

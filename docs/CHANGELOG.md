@@ -350,6 +350,38 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   值位旗标：`{"k": [x]}` 值位 `[x]` 为列表字面量而非输出命令；boot 链六
   文件 AST 逐字节探针零扰动，唯一差异面 `matha/vm/matha_vm.matha:66` 帧栈
   构造修正为真列表），18 锁。
+- 阶段 28 全工具链自举重建 + 统一扩展插口（三项拍板全走推荐项：①全语料
+  三重公式判据 ②统一五动作端口协议 ③全链贯穿）：
+  **28b parser/lexer 语法完备性 + AST 全语料对拍**——自举解析器
+  （lexer.matha/stdlib.matha/parser.matha 编译为字节码跑在 VM）与宿主解析器
+  对同一源码产出逐字段一致的 AST；自举侧补齐块体/顶层双轨分派、占位符、
+  typeof、值结尾 token 集等分支镜像，`test_parser_parity_phase28` 22 项
+  （13 固定 + 9 语料参数化）。
+  **28c 编译完备性 + 字节码全语料对拍**——自举编译器（compiler_matha.matha
+  编译入 host MBC 跑在 host VM，stage3）对全部 `matha/**/*.matha` 语料的
+  编译产物与宿主编译器 stage2 `_canon` 逐位一致；五类根因最小源回归锁
+  （R1 module X{func X} 同名冲突不发射命名空间绑定 / R2 函数体内 let rec
+  盒协议 / R3 return 语句 / R4 `#N：`合并体裸 list / R5 lambda 体内 if-else
+  挂链）；自定义算子消费 + 0x62 公式码（FORMULA_SCHEMA host-only 登记）；
+  `test_compiler_parity_phase28` 188 项（5 固定 + 183 全语料参数化，随语料
+  增减自适配）。VM 执行面维持阶段 27 stage-4 闭环锁（VM² ~10.5 min/文件
+  不扩面）。
+  **28d 自举层开放插口**——`matha/interp.matha` 解释器插口注册表（注册/
+  注销/名表三动作，保留名诚实拒绝，注册即并入 `注册内建(空环境())`）+
+  `src/mbc/vm.py` register_builtin/unregister_builtin（保留名/模块函数/
+  非可调用诚实拒绝）；`test_open_ports_phase28` 26 项（双面对拍 + 解释器
+  自举面经 24d 共享全局嵌套 VM 注入 lambda）。
+  **28e 统一五动作端口协议**——注册/启停/升级/回滚/依赖协商覆盖六层
+  （词法语法/解释器宿主/解释器自举/编译器/虚拟机/内核特性）：纯 Matha
+  协议模块 `matha/library/os/端口协议.matha`（资源索引 27→28 条）与宿主
+  适配层 `src/extension_port.py` 状态形状（{"层","条目","审计"} 六槽条目）/
+  审计行同构，诚实拒绝时状态原样不动；配套注销面 src/custom_ops.py
+  unregister + src/compiler/pass_manager.py unregister_pass；
+  `test_port_protocol_phase28` 17 项（三面对拍 + 六后端效应 + 诚实拒绝
+  矩阵 + os_runtime 工具链单元）；`os_runtime.register_toolchain_units()`
+  把六层装载为内核服务单元（`工具链-<层名>`，装载=注册、启动/停止=启停、
+  主步=只读健康探针）。跨 VM 调用他模块函数须按 24d 钉池纪律
+  （fn.consts/fn.functions）——MBC `_invoke` 常量池回退逐 VM（已登记）。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

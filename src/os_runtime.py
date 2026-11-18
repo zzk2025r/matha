@@ -43,6 +43,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _KERNEL_FILES = ["matha/stdlib.matha", "matha/os/kernel.matha"]
 
+_BOOT_CHAIN_FILES = ["matha/lexer.matha", "matha/stdlib.matha",
+                     "matha/parser.matha", "matha/interp.matha",
+                     "matha/compiler_matha.matha", "matha/vm.matha"]
+
 _FORMS = ("app", "包", "域插件", "终端命令", "服务", "外部")
 
 
@@ -92,6 +96,9 @@ class OsRuntime:
         self._k = self._call("内核_新")
         self._external: dict[str, list] = {}
         self._handles: dict[str, dict] = {}
+        self._ports: dict = {}
+        self._toolchain: dict = {}
+        self._boot_vm: VM | None = None
 
     # ---- 内核调用 ----
     def _call(self, name: str, *args):
@@ -249,6 +256,107 @@ class OsRuntime:
         self._call("装载", self._k, desc)
         return desc
 
+    # ============================================================
+    # 工具链单元（28e：六层五动作端口 × 内核服务单元）
+    # ============================================================
+
+    def register_toolchain_units(self) -> list[str]:
+        """六工具链层注册为内核服务单元（单元名 工具链-<层名>）。
+
+        每层一个五动作端口（src/extension_port.py）；装载 = 端口注册代表
+        条目（内核层代表条目 = SCOPED_BLOCKS，其余层 = 单元名）+ 内核装载
+        描述符。注册即启用（协议语义）——parser 注册表出现单元算子、宿主
+        VM/interp 出现单元内建、boot 插口落名、编译器 pass 入表（该层既有
+        语义：注册后默认未启用）、内核特性条目记当前实况。单元启动/停止经
+        start/stop 派发端口启停（真实层效果），主步 = 端口健康探针（只读
+        心跳）；单元升级/回滚走内核描述符版本史（27d）。
+        注意：单元停止 = 端口注销/停用；内核层停止 = set_feature(假)
+        （进程内覆盖面，clear_feature 可还原环境/默认态）。
+        """
+        from src.extension_port import LAYER_NAMES, make_port
+
+        self._ports: dict = {}
+        self._toolchain: dict = {}
+        names = []
+        for kind, 层名 in LAYER_NAMES.items():
+            unit = f"工具链-{层名}"
+            entry = "SCOPED_BLOCKS" if kind == "kernel" else unit
+            port = make_port(kind, self._toolchain_target(kind))
+            r = port.register(entry, 1, self._toolchain_impl(kind, entry))
+            if not r[0]:
+                raise RuntimeError(f"工具链端口注册失败 {unit}: {r[2]}")
+            self._ports[kind] = port
+            self._toolchain[unit] = (kind, entry)
+            desc = {"名": unit, "形态": "服务", "版本": 1, "requires": [],
+                    "入口": [["主", self._make_toolchain_step(kind)]],
+                    "服务": [f"端口-{层名}"]}
+            self._call("装载", self._k, desc)
+            names.append(unit)
+        return names
+
+    def toolchain_port(self, kind):
+        """按层取五动作端口（register_toolchain_units 之后可用）。"""
+        return self._ports.get(kind)
+
+    def _toolchain_target(self, kind):
+        if kind == "interp_host":
+            from src.interp import Interpreter
+            return Interpreter(debug=False)
+        if kind == "compiler":
+            from src.compiler.pass_manager import PassManager
+            return PassManager()
+        if kind == "vm":
+            return VM(Compiler().compile_program(ast.Program(decls=[])))
+        if kind == "interp_boot":
+            return self._get_boot_vm()
+        return None  # parser / kernel 无运行时目标
+
+    def _get_boot_vm(self) -> VM:
+        if self._boot_vm is None:
+            comp = Compiler()
+            decls: list = []
+            for rel in _BOOT_CHAIN_FILES:
+                decls.extend(py_parse(_read_repo(rel)).decls)
+            vm = VM(comp.compile_program(ast.Program(decls=decls)))
+            with contextlib.redirect_stdout(io.StringIO()):
+                vm.run()
+            self._boot_vm = vm
+        return self._boot_vm
+
+    def _toolchain_impl(self, kind, entry):
+        if kind == "parser":
+            return (6, "left", None)
+        if kind in ("interp_host", "vm"):
+            return lambda x: x
+        if kind == "interp_boot":
+            return "(ps) => ps[0]"
+        if kind == "compiler":
+            from src.compiler.pass_manager import Pass
+
+            class _PortPass(Pass):
+                def run(self, program):
+                    return program
+
+            return _PortPass(entry)
+        return None  # kernel
+
+    def _make_toolchain_step(self, kind):
+        port = self._ports[kind]
+
+        def 步(状态):
+            if 状态 is not None:
+                return {"状态": 状态, "继续": False, "产出": []}
+            st = port.state()
+            return {"状态": "运行中", "继续": True,
+                    "产出": [f"{st['层']} 条目{len(st['条目'])} 审计{len(st['审计'])}"]}
+        步.__name__ = f"toolchain_step:{kind}"
+        return 步
+
+    def _toolchain_toggle(self, unit: str, on: bool) -> None:
+        hit = self._toolchain.get(unit)
+        if hit is not None:
+            self._ports[hit[0]].toggle(hit[1], on)
+
     def _find_descriptor(self, name: str) -> dict | None:
         for d in self.descriptors():
             if d["名"] == name:
@@ -333,7 +441,10 @@ class OsRuntime:
         return self._call("装载", self._k, desc)
 
     def start(self, name: str) -> dict:
-        return self._call("启动", self._k, name)
+        result = self._call("启动", self._k, name)
+        if result.get("结果") == "运行中":
+            self._toolchain_toggle(name, True)
+        return result
 
     def start_process(self, name: str, 入口: str = "主") -> dict:
         return self._call("启动进程", self._k, name, 入口)
@@ -353,6 +464,7 @@ class OsRuntime:
             d = self._find_descriptor(name)
             if d is not None and d["形态"] == "域插件":
                 resolver.unregister(name)
+            self._toolchain_toggle(name, False)
         return result
 
     def unload(self, name: str, 强制: bool = False) -> dict:

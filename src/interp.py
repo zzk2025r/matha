@@ -1247,6 +1247,8 @@ class Interpreter:
         # ？公式模式库：#：？公式 登记模式，具体公式与之合一（公式模式库）
         self.formulas = _fs.FormulaLibrary()
         self.builtins: dict[str, object] = _new_builtin_table()
+        # 28d 开放插口：注册名 → 注册前内建表值（还原面）；见 register_builtin
+        self._port_prev: dict[str, object] = {}
         # 模块系统：module_name → {name → bound_value}
         self.modules: dict[str, dict] = {}
         self._matha_loaded: bool = False
@@ -1431,6 +1433,43 @@ class Interpreter:
                 if Interpreter._lambda_body_contains(s, func_name):
                     return True
         return False
+
+    # 28d 开放插口保留名（与 VM.register_builtin 同口径）：输出/错误类专用
+    # 内建直写解释器输出/异常面，注册处理器不可覆盖。
+    _RESERVED_BUILTINS = frozenset(
+        {"输出", "print", "打印文本", "调用捕获", "错误", "MathaIOError"})
+    _PORT_ABSENT = object()
+
+    def register_builtin(self, name: str, fn) -> bool:
+        """28d 开放插口：注册内建（重注册同名 = 覆盖，升级语义）。
+
+        覆盖层语义与 VM.register_builtin/vm.matha 内建插口同口径：首次注册
+        记住原内建表值，注销时精确还原。同名用户函数在 call() 中优先于内建
+        （funcs-first 既有语义）——注册不拒同名函数，函数胜出即升级语义。
+        保留名诚实拒绝，非可调用值诚实拒绝。"""
+        if not callable(fn):
+            raise TypeError(f"注册内建 '{name}' 需可调用值，得到 {type(fn).__name__}")
+        if name in self._RESERVED_BUILTINS:
+            raise ValueError(f"保留内建 '{name}' 不可覆盖")
+        if name not in self._port_prev:
+            self._port_prev[name] = (self.builtins[name] if name in self.builtins
+                                     else self._PORT_ABSENT)
+        self.builtins[name] = fn
+        return True
+
+    def unregister_builtin(self, name: str) -> bool:
+        """注销插口内建：仅还原经 register_builtin 注册的名字（无注册记录
+        返回 False）；还原到注册前内建表值，保留内建诚实拒绝。"""
+        if name in self._RESERVED_BUILTINS:
+            raise ValueError(f"保留内建 '{name}' 不可注销")
+        if name not in self._port_prev:
+            return False
+        prev = self._port_prev.pop(name)
+        if prev is self._PORT_ABSENT:
+            self.builtins.pop(name, None)
+        else:
+            self.builtins[name] = prev
+        return True
 
     def call(self, name: str, *args) -> object:
         # funcs 优先于 builtins：用户定义函数可覆写同名内建

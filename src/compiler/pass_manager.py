@@ -113,6 +113,19 @@ class PassManager:
             raise ValueError(f"Pass {name} 未注册")
         self._enabled_passes.add(name)
 
+    def unregister_pass(self, name: str) -> bool:
+        """注销一个 Pass（阶段 28e 统一端口协议的注销动作面）。
+
+        仅移除已注册的 Pass（未知名返回 False）；启用态同步摘除。
+        """
+        if name not in self._passes:
+            return False
+        del self._passes[name]
+        self._enabled_passes.discard(name)
+        if name in self._pass_order:
+            self._pass_order.remove(name)
+        return True
+
     def disable_pass(self, name: str) -> None:
         """禁用一个 Pass"""
         if name in self._enabled_passes:

@@ -894,6 +894,12 @@ class _GlobalScope(dict):
 
 
 class VM:
+    # 28d 开放插口保留名（与 vm.matha 内建特殊独占集同口径）：处理器是
+    # 宿主侧纯值函数，不触 VM 输出指针/帧栈，不可覆盖输出类专用内建。
+    _RESERVED_BUILTINS = frozenset(
+        {"输出", "print", "打印文本", "调用捕获", "错误", "MathaIOError"})
+    _PORT_ABSENT = object()
+
     def __init__(self, mod: MModule, builtins: dict | None = None, verbose: bool = False):
         self.mod = mod
         self.globals: _GlobalScope = _GlobalScope(
@@ -930,6 +936,8 @@ class VM:
         for name, fn in mod.functions.items():
             self.globals[name] = Closure(fn, self.main_frame)
         self.frames: list[Frame] = [self.main_frame]
+        # 28d 开放插口：注册名 → 注册前全局值（还原面）；见 register_builtin
+        self._port_prev: dict = {}
 
     # ---------- 运行 ----------
 
@@ -969,6 +977,38 @@ class VM:
             dispatch(ins[0], ins, f, frames)
         # 返回值在调用帧（base-1，通常是主帧）栈顶
         return frames[base - 1].stack.pop()
+
+    def register_builtin(self, name: str, fn) -> bool:
+        """28d 开放插口：向运行中 VM 注册内建（重注册同名 = 覆盖，升级语义）。
+
+        覆盖面与 vm.matha 内建插口同口径：插口注册表是覆盖层——首次注册
+        记住原全局值，注销时精确还原（默认内建/模块函数不受损）。保留名
+        与模块函数不可注册覆盖，非可调用值诚实拒绝。"""
+        if not callable(fn):
+            raise TypeError(f"注册内建 '{name}' 需可调用值，得到 {type(fn).__name__}")
+        if name in self._RESERVED_BUILTINS:
+            raise ValueError(f"保留内建 '{name}' 不可覆盖")
+        if name in self.mod.functions:
+            raise ValueError(f"'{name}' 是模块函数，插口不可覆盖")
+        if name not in self._port_prev:
+            self._port_prev[name] = (self.globals[name] if name in self.globals
+                                     else self._PORT_ABSENT)
+        self.globals[name] = fn
+        return True
+
+    def unregister_builtin(self, name: str) -> bool:
+        """注销插口内建：仅还原经 register_builtin 注册的名字（无注册记录
+        返回 False）；还原到注册前全局值，保留内建诚实拒绝。"""
+        if name in self._RESERVED_BUILTINS:
+            raise ValueError(f"保留内建 '{name}' 不可注销")
+        if name not in self._port_prev:
+            return False
+        prev = self._port_prev.pop(name)
+        if prev is self._PORT_ABSENT:
+            self.globals.pop(name, None)
+        else:
+            self.globals[name] = prev
+        return True
 
     def invoke_value(self, fn, args: list | None = None):
         """调用任意 VM 可调用值（Closure/Partial/内建），返回结果。

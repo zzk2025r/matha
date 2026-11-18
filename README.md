@@ -11,8 +11,8 @@
 - **领域插件：** 88（`src/domains/` 共 90 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
-- **`.matha` 语料：** 182（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 166（`tests/`）
+- **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
+- **测试文件：** 170（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -154,7 +154,8 @@ python -m src.matha_term -c "桌面"       # 单命令形态（同一入口）
 （`matha/os/kernel.matha`，单元生命周期/进程表/服务注册表 + 兼容协商）协商面，
 拒绝如实回传消息行。终端命令为一次性确定性脚本；配套 `src/os_runtime.py`
 单元管理器桥（app/包/域插件/终端命令/服务五形态统一 + 外部单元）与
-`matha/library/{os,desktop,compat}` 资源库三分支（资源索引 21→27 条）。
+`matha/library/{os,desktop,compat}` 资源库三分支（资源索引 21→28 条，
+阶段 28 新增 `os/端口协议`）。
 
 ### matha ext（统一扩展管理，阶段 23）
 ```bash
@@ -219,6 +220,30 @@ matha sys all                     # 五节一次盘点
 则 `sys plugins` 的 `依赖缺失` 如实报告，不自动注销；多属主符号在 `冲突`
 节如实列出（取值语义维持清单最后声明者覆盖）。
 
+### 自定义扩展插口（五动作端口协议，阶段 28）
+
+工具链六层（词法语法 / 解释器宿主 / 解释器自举 / 编译器 / 虚拟机 /
+内核特性）开放同一套五动作插口：注册 / 启停 / 升级 / 回滚 / 依赖协商。
+宿主适配层 `src/extension_port.py`（`make_port(层名, 运行时对象)`），
+纯 Matha 协议模块 `matha/library/os/端口协议.matha`（`use os/端口协议`）
+定义同一状态形状（`{"层", "条目", "审计"}`，条目六槽
+`[名, 版本, 启用, 实现, 历史, 依赖名们]`）与同文案审计行；五动作返回
+`(结果, 端口, 原因)`，诚实拒绝时状态原样不动。`os_runtime` 把六层装载为
+内核服务单元（`工具链-<层名>`，装载=注册、启动/停止=启停）。
+
+```python
+from src.extension_port import make_port
+port = make_port("parser")          # 词法语法层：自定义运算符注册表
+port.register("⊗", 1, (6, "left", "双加"))
+port.upgrade("⊗", 2, (7, "right", "双加"))   # 升级（旧版压栈）
+port.rollback("⊗")                            # 回滚到上一版
+```
+
+自举重建判据（阶段 28 拍板①）：Matha 自举解析器（lexer/stdlib/parser.matha
+编译跑在 VM）与宿主解析器全语料 AST 逐字段一致（`test_parser_parity_phase28`
+）；自举编译器与宿主编译器全语料 `_canon` 字节码逐位一致
+（`test_compiler_parity_phase28`）；VM 执行面维持阶段 27 stage-4 闭环锁。
+
 ---
 
 ## 项目结构
@@ -233,7 +258,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（166 个文件）
+├── tests/                  # 测试套件（170 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

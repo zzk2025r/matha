@@ -8,32 +8,35 @@ module 离散进阶 {
   func DFS深度(邻接表: List, 起点: Int, visited: List) -> List =
     (邻接表, 起点, visited) => {
     let rec visit(node: Int, result: List) -> List =
-      (node, result) =>
+      (node, result) => {
         if 节点已访问(node, visited) { result } else {
           let new_result = result + [node]
           let new_visited = visited + [node]
           let rec visit_neighbors(i: Int, acc: List) -> List =
-            (i, acc) =>
-              if i >= len(邻接表[node]) { acc } else { visit(邻接表[node][i], acc) }
+            (i, acc) => {
+              if i >= len(邻接表[node]) { acc } else { visit_neighbors(i + 1, visit(邻接表[node][i], acc)) }
+            }
           visit_neighbors(0, new_result)
         }
+      }
     visit(起点, [])
     }
 
   func 节点已访问(node: Int, visited: List) -> Bool =
     (node, visited) => {
     let rec check(i: Int) -> Bool =
-      (i) =>
+      (i) => {
         if i >= len(visited) { false } else {
           if visited[i] == node { true } else { check(i + 1) }
         }
+      }
     check(0)
     }
 
   func BFS宽度(邻接表: List, 起点: Int) -> List =
     (邻接表, 起点) => {
     let rec explore(queue: List, visited: List, result: List) -> List =
-      (queue, visited, result) =>
+      (queue, visited, result) => {
         if len(queue) == 0 { result } else {
           let node = queue[0]
           let rest = queue[1:]
@@ -46,17 +49,18 @@ module 离散进阶 {
             explore(new_queue, new_visited, new_result)
           }
         }
+      }
     explore([起点], [], [])
     }
 
   func 未访问邻居(node: Int, 邻接表: List, visited: List) -> List =
     (node, 邻接表, visited) => {
     let rec filter(i: Int, result: List) -> List =
-      (i, result) =>
+      (i, result) => {
         if i >= len(邻接表[node]) { result } else {
-          if 节点已访问(邻接表[node][i], visited) { result }
-          else { filter(i + 1, result + [邻接表[node][i]]) }
+          if 节点已访问(邻接表[node][i], visited) { filter(i + 1, result) } else { filter(i + 1, result + [邻接表[node][i]]) }
         }
+      }
     filter(0, [])
     }
 
@@ -73,12 +77,13 @@ module 离散进阶 {
     (物品重量, 物品价值, 背包容量) => {
       let n = len(物品重量)
       let rec knapsack(i: Int, remaining: Int) -> Int =
-        (i, remaining) =>
+        (i, remaining) => {
           if i >= n or remaining <= 0 { 0 } else {
             let 不选 = knapsack(i + 1, remaining)
             let 选 = (物品重量[i] <= remaining) ? (物品价值[i] + knapsack(i + 1, remaining - 物品重量[i])) : 0
-            max(不选, 选)
+            max([不选, 选])
           }
+        }
       knapsack(0, 背包容量)
     }
 
@@ -95,33 +100,29 @@ module 离散进阶 {
     (硬币面额, 目标金额) => {
       let sorted = 排序降序(硬币面额)
       let rec count(金额: Int, i: Int, 硬币数: Int) -> Int =
-        (金额, i, 硬币数) =>
+        (金额, i, 硬币数) => {
           if 金额 == 0 { 硬币数 } else {
             if i >= len(sorted) or 金额 < 0 { -1 } else {
-              let 可取 = 金额 / sorted[i]
+              let 可取 = floor(金额 / sorted[i])
               count(金额 - 可取 * sorted[i], i + 1, 硬币数 + 可取)
             }
           }
+        }
       count(目标金额, 0, 0)
     }
 
   func 排序降序(lst: List) -> List =
     (lst) => {
-      let n = len(lst)
-      let arr = lst
-      let i = 0
-      while i < n - 1 {
-        let j = 0
-        while j < n - i - 1 {
-          if arr[j] < arr[j + 1] {
-            let tmp = arr[j]
-            arr[j] = arr[j + 1]
-            arr[j + 1] = tmp
-          }
-          j = j + 1
-        }
-        i = i + 1
-      }
-      arr
+    (* 不可变插入排序：语句位以 [ 开头的字面量会被双面解析器按输出语句
+       ([...] output trail) 消解，故 if 块体内不能写 `[x] + 已排` 形态
+       （B5 佐证：块体内 [列表]+运算 解析为输出语句+残余 → ParseError）。
+       旧冒泡实现的 index 赋值 arr[j] = v 是语句位裸赋值形态，无绑定语义，
+       静默不排。改为纯表达式位（三元式）递归重构列表，避开两个坑。 *)
+    let rec 插入(x: Int, 已排: List) -> List =
+      (x, 已排) => len(已排) == 0 ? [x] + 已排 :
+        ((已排[0] >= x) ? [已排[0]] + 插入(x, 已排[1:]) : [x] + 已排)
+    let rec 排序(剩余: List, 已排: List) -> List =
+      (剩余, 已排) => len(剩余) == 0 ? 已排 : 排序(剩余[1:], 插入(剩余[0], 已排))
+    排序(lst, [])
     }
 }

@@ -57,6 +57,20 @@ def get(symbol: str) -> CustomOp | None:
     return REGISTRY.get(symbol)
 
 
+def unregister(symbol: str) -> bool:
+    """注销一个自定义运算符（阶段 28e 统一端口协议的注销动作面）。
+
+    仅移除经 register 注册的符号（未知符号返回 False）；版本号自增使
+    解析缓存按既有双输入面失效机制感知注册面收缩。
+    """
+    global _version
+    if symbol not in REGISTRY:
+        return False
+    del REGISTRY[symbol]
+    _version += 1
+    return True
+
+
 def is_custom_op(symbol: str) -> bool:
     return symbol in REGISTRY
 

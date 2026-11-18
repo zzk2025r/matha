@@ -163,6 +163,8 @@ module 解释器 {
 
   (* 一元运算求值 ===== *)
   func 求值一元(op: String, operand: Dict, env: List) -> Value =
+    (* null 字面量（parser 产 UnaryOp("null", null)）：不取操作数直接得 null *)
+    op = "null" ? null :
     let v = 求值(operand, env) in
     op = "-" ? -v :
     op = "^" ? v ** 0.5 :
@@ -203,6 +205,7 @@ module 解释器 {
     op = "-" ? l - r :
     op = "*" ? l * r :
     op = "/" ? l / r :
+    op = "**" ? l ** r :
     op = "^" ? l ** r :
     op = "%" ? l % r :
     op = "<" ? l < r :
@@ -210,6 +213,7 @@ module 解释器 {
     op = "<=" ? l <= r :
     op = ">=" ? l >= r :
     op = "=" ? l = r :
+    op = "==" ? l = r :
     op = "!=" ? l != r :
     错误("未知运算符: " + op)
 
@@ -281,6 +285,10 @@ module 解释器 {
     stmt.类型 = "定义运算符" ?
       (* 自定义运算符声明：解析期已登记，运行期无副作用（对齐宿主 NOOP） *)
       (None, env) :
+    stmt.类型 = "输出追踪" ?
+      (* 语句位 [输出]（宿主 _parse_output_trail 包裹面）：解包执行内层输出；
+         空输出（expr=null）不发射（对齐宿主 Output(expr=None)） *)
+      (stmt.输出.expr != null ? 求值(stmt.输出.expr, env) : null, env) :
     stmt.类型 = "二元运算" ?
       语句位赋值或表达式(stmt, env) :
     (* 其余节点视为表达式语句（顶层裸表达式，如 是偶数(10)） *)
@@ -481,6 +489,53 @@ module 解释器 {
     let (ok, env2) = 匹配模式(fields[0], values[0], env) in
     ok ? 匹配字段列表(fields[1:], values[1:], env2) : (假, env)
 
+  (* ===== 解释器插口（28d）=====
+     模块级持久注册表（单槽容器 + 原地设置改内容，跨调用可见）：
+     解释器插口[0] = [名, 值] 对列表。值通常为 lambda (ps) => ...
+     （收完整参数表 List）。注册表在 注册内建 尾部经 并插口 并入环境：
+     绑定环境 前插序使注册项先于静态内建被查到——重注册同名 = 覆盖
+     （升级语义）；注销后回落静态内建，「未定义变量」诚实报错不变。
+     帮助函数命名带 解释器 前缀，避免与 vm.matha 的 查插口 平面撞名。 *)
+  解释器插口 = [[]]
+
+  func 解释器查插口(表: List, 名: String) -> Int =
+    表 = [] ? -1 : (表[0][0] = 名 ? 0 : 解释器查插口(表[1:], 名))
+
+  func 是解释器保留名(名: String) -> Bool =
+    名 = "输出" or 名 = "print" or 名 = "打印文本" or 名 = "调用捕获" or 名 = "错误" or 名 = "MathaIOError"
+
+  func 注册解释器插口(名: String, 值) -> Bool =
+    是解释器保留名(名) ? 错误("保留内建 '" + 名 + "' 不可注册插口") : 注册解释器插口基(名, 值)
+
+  func 注册解释器插口基(名: String, 值) -> Bool =
+    let 表 = 解释器插口[0] in
+    let hit = 解释器查插口(表, 名) in
+    let 新表 = hit >= 0 ? 原地设置(表, hit, [名, 值]) : 表 + [[名, 值]] in
+    let 忽略 = 原地设置(解释器插口, 0, 新表) in
+    真
+
+  func 注销解释器插口(名: String) -> Bool =
+    是解释器保留名(名) ? 错误("保留内建 '" + 名 + "' 不可注销") : 注销解释器插口基(名)
+
+  func 注销解释器插口基(名: String) -> Bool =
+    let 表 = 解释器插口[0] in
+    let hit = 解释器查插口(表, 名) in
+    hit >= 0 ?
+      (let 忽略 = 原地设置(解释器插口, 0,
+         list_slice(表, 0, hit) + list_slice(表, hit + 1, len(表))) in
+       真) :
+      假
+
+  func 收解释器插口名(表: List, acc: List) -> List =
+    表 = [] ? acc : 收解释器插口名(表[1:], acc + [表[0][0]])
+
+  func 解释器插口名表() -> List = 收解释器插口名(解释器插口[0], [])
+
+  func 并插口基(表: List, i: Int, env: List) -> List =
+    i >= len(表) ? env : 并插口基(表, i + 1, 绑定环境(env, 表[i][0], 表[i][1]))
+
+  func 并插口(env: List, 表: List) -> List = 并插口基(表, 0, env)
+
   (* ===== 标准库内建 ===== *)
   func 注册内建(env: List) -> List =
     (* 空值常量：宿主 parser 把 null 作关键字字面量，自举 parser 解析为变量，
@@ -509,7 +564,7 @@ module 解释器 {
     let env20 = 绑定环境(env19, "min", ["builtin", func_min]) in
     let env21 = 绑定环境(env20, "sum", ["builtin", func_sum]) in
     let env22 = 绑定环境(env21, "原地设置", ["builtin", func_原地设置]) in
-    env22
+    并插口(env22, 解释器插口[0])
 
   (* 内建函数实现 ===== *)
   func func_ord(c) -> Int = ord_matha(c)

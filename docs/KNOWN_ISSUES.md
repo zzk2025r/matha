@@ -2005,6 +2005,84 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   登记待统一）；③str() 数字专用（非数字入参诚实拒绝）；④semver 0.x 预发布包升级面
   诚实拒绝；⑤桌面为一次性确定性脚本形态（真交互逐键会话超出本阶段范围）；⑥VM²
   重档门禁预算与观测口径（见复盘段——非产品缺陷，操作经验）。
+- **2026-11 阶段 28 收官（全工具链自举重建 + 统一五动作端口协议——全语料三重公式判据
+  全落）**：用户拍板三项（均选推荐）：①全语料三重公式判据——AST 对拍（28b）+ 字节码
+  _canon 对拍（28c）收口，VM 执行面维持阶段 27 stage-4 闭环锁；②统一五动作端口协议
+  （注册/启停/升级/回滚/依赖协商）工具链六层贯穿（28e）；③全链贯穿。
+  **28b parser/lexer 语法完备性 + AST 全语料对拍**：tests/test_parser_parity_
+  phase28.py 22 项（13 固定 + 9 语料参数化）——自举解析器（lexer/stdlib/parser.matha
+  编译入 host MBC 跑 VM）与宿主 src/parser.py 对同一源码 AST 逐节点一致：块体/顶层
+  双轨分派（`#：`/`#N：`/【…】链内读取块恒等）、占位符 ？/？名 → is_placeholder
+  Variable、typeof 关键字、值结尾 token 集；全语料 Matha dict-AST → 宿主 dataclass
+  AST 逐字段相等（先前分歧回归文件 + 自举链自文件）。
+  **28c 编译完备性 + 字节码全语料对拍**：tests/test_compiler_parity_phase28.py
+  188 项（5 固定 + matha/**/*.matha 全语料动态参数化）——自举编译器（compiler_matha
+  .matha，stage3）编译产物与宿主编译器 stage2 _canon 逐位一致。修复五类根因（每类
+  最小源回归锁，语料面参数化全覆盖）：R1 module X { func X } 同名冲突不发射命名空间
+  绑定；R2 函数体内语句位 let rec 盒协议（MAKE_BOX→值→STORE_BOX，lambda 自引用
+  LOAD_OUTER_BOX 沿父链解析）；R3 return 语句（有值求值+RET / 无值 PUSH_NULL+RET）；
+  R4 `#N：…` 合并 { } body 裸 list 逐条编译；R5 lambda 体内 if 下一行 else 不挂链
+  ——三承接位对齐宿主。0x62 FORMULA_SCHEMA 登记宿主编译器专有（全语料经宿主 parser
+  扫描 0 个 GenStmt 含槽，2026-11-18 实测；语料出现该形态前不阻塞三重判据）。
+  **28d 四运行时开放插口**：vm.matha 内建插口 / 宿主 VM（src/mbc/vm.py
+  register_builtin/unregister_builtin，保留名/模块函数/非可调用诚实拒绝）/ interp
+  .matha 解释器插口（注册内建 尾部 经 并插口 并入环境——绑定环境前插序使注册项先于
+  静态内建，重注册同名=覆盖升级，注销回落静态内建诚实未定义）/ 宿主 interp（src/
+  interp.py 注册注销面）四面同构协议——注册/注销（仅还原经注册名）/回落（诚实未定义
+  变量）/优先级（模块函数·用户函数胜过注册内建）/还原面；tests/test_open_ports_
+  phase28.py 26 项双面对拍。
+  **28e 统一五动作端口协议**：宿主适配层 src/extension_port.py make_port(层名, 运行
+  时对象) + 纯 Matha 协议 matha/library/os/端口协议.matha（use os/端口协议）同一状态
+  形状 {"层","条目","审计"}（条目六槽 [名,版本,启用,实现,历史,依赖名们]）同文案审计
+  行；五动作返回 (结果,端口,原因)，诚实拒绝状态原样不动；六层后端实效 parser（自定义
+  算子被源码真消费）/interp_host/vm/compiler（PassManager 启停实况）/kernel（features
+  真翻转）/interp_boot（自举解释器插口 63→84→63 升级回滚回环）+ 诚实拒绝矩阵（保留
+  名/非可调用/模块函数冲突/未知内核特性/非法结合性/未知层——全部 (假,状态原样,原因)）；
+  src/custom_ops.py + src/compiler/pass_manager.py unregister 注销面；src/os_runtime
+  .py register_toolchain_units 六层装载为内核服务单元 工具链-<层名>（装载=注册、
+  启停=启停）+ 跨 VM 24d 钉池纪律（fn.consts/functions 钉池跨 VM 共享）登记；
+  tests/test_port_protocol_phase28.py 17 项三面同判（A 协议双面对拍逐值一致 / B 六层
+  后端实效 / C 诚实拒绝矩阵）。
+  **门禁三跑**：run1（check.py）tests 项 3600s 上限击穿 TimeoutExpired——非死循环：
+  Windows 击杀子进程不收孙进程、孙进程握住 stdout 管道致 communicate() 阻塞（item
+  .seconds 13841.4s 伪影），其余 5 项绿 103/104 通过率 99.04%，进程清单干净无残留；
+  run2（直接 pytest -v 全量，3064.26s）7413 过 / 6 败 / 1 skip——6 红全部单档复现
+  （非套件序污染）且全为 28 真回归/锁漂移，三处修复：①matha/interp_matha.matha
+  执行声明 分发表补 输出追踪 路由（28b 语句位裸列表发射 输出追踪 与自举解释器声明
+  分发表错位——落裸表达式兜底走 求值 报「未知表达式类型」；镜像 interp.matha 全量
+  委托 执行语句 的参照语义，test_bootstrap_gapfix_phase8pre test_literals_mb 3 红）；
+  ②src/domains/capability.py _merge_module_source 补 ast.Binding 物化（28d interp
+  .matha 首个模块级裸赋值 解释器插口 = [[]] 被 use 合并面静默丢弃——只合并 函数/
+  枚举/LetBinding——VM 面 LOAD_GLOBAL 未定义名，test_use_compile_phase21 boundary
+  2 红；修复后两把 boundary 锁精确回到阶段 27 形状 ok / KeyError: 0）；③test_library
+  _as_code_phase24 资源目录计数锁 27→28（28e os/端口协议 条目同源）。修复面复跑
+  103+111 全绿；run3 干净 **7522/7522 通过率 100%**（tests 7419 过 3026.3s +
+  kernel_purity 14 + ast_vm_gap 11 + golden 39 + dep_audit 1 + native_parity 38，
+  native 1 例已知未实现与 socket 1 例平台 skip 不计入分母）。
+  算术闭合：7268（27 收官）+ 254（四新档 22+188+26+17 = 253 + test_library_as_code
+  _phase24 _library_stems() 资源索引动态参数化随 27→28 面 +1）= 7522 通过 + 1 平台
+  skip = 7523 条件。
+  doc 同步：README `.matha` 语料 182→183（os/端口协议）+ 测试文件 166→170 + 树 170 +
+  资源索引 21→28 注记 + 新增「自定义扩展插口（五动作端口协议）」用法节 + 自举重建
+  判据段；ARCHITECTURE 本体量 32,578→32,618（+40 = 28d src/mbc/vm.py 注册注销面；
+  28 其余宿主面 extension_port/custom_ops/pass_manager/interp/os_runtime 均不在
+  core_py_lines 口径——src/ 五件之外）+ 新增「全工具链自举重建 + 五动作端口协议」节
+  + 测试文件 170；CHANGELOG 阶段 28 条目；ast_vm_gap 快照重生成（scripts/ast_vm_matrix
+  .py --write：corpus_files 229→230 对应 +1 新语料，解析失败 0，78 节点/59 发射/
+  19 无码/指令码 34 不变，门禁 --check 绿）。
+  登记不修九条（2026-11-18 探针逐项实测，双端形态注明）：①语句位下标赋值 a[i]=v
+  静默 no-op（函数体位+顶层位双端同源；顶层位宿主打印比较归一 False、VM 静默——
+  双端分歧形态）；②lambda 字面量立即调用 ((a)=>a*2)(21) 不应用 → '<function>'
+  （双端同源），链式 ((a,b)=>a+b)(1)(2) → 不可调用的值： 1（双端同源）；对照：
+  具名部分应用 f(1)(2)→3 与下标调用 表[0](21)→42 真可用（已验证语言形态）；③自举
+  func 定义必须 ->（parser.matha 期望 箭头）——语言形态；④0x62 FORMULA_SCHEMA
+  宿主编译器专有（见 28c 登记证据）；⑤自举 VM 错误文案分歧 vm.matha「变量未被
+  定义： 」vs src/mbc/vm.py「未定义变量 '...'」；⑥lambda 体内 let rec 解析失败
+  （期望 参数名 got PUNCT_LPAREN）；对照：func 体直接表达式位与块位 let rec 双端
+  真可用（120 值对拍一致）；⑦语句位 `[` 路由输出追踪双端一致（27f 字典值窄化为
+  唯一例外）——已验证语言形态非缺陷；⑧Dijkstra距离 = 桩（resource/logic/advanced
+  _math.matha:68 简化注释，返回初始化距离表）；⑨stdlib str(n) 数字专用（stdlib
+  .matha:416；str_safe:456 兜底）。
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

@@ -93,13 +93,12 @@ module 内存管理 {
     let n = len(页面序列) in
     let rec count(i: Int, 帧列表: List, 缺页数: Int) -> Int =
     (i, 帧列表, 缺页数) =>
-        if if i >= n then 缺页数 else None
-        elif 帧列表包含(页面序列[i]):
-          count(i + 1, 帧列表, 缺页数)
-        elif len(帧列表) < 帧数:
-          count(i + 1, 帧列表 + [页面序列[i]], 缺页数 + 1)
-        else:
-          count(i + 1, 帧列表[1:] + [页面序列[i]], 缺页数 + 1)
+        if i >= n: 缺页数
+        else
+        if 帧列表包含(页面序列[i]): count(i + 1, 帧列表, 缺页数)
+        else
+        if len(帧列表) < 帧数: count(i + 1, 帧列表 + [页面序列[i]], 缺页数 + 1)
+        else count(i + 1, 帧列表[1:] + [页面序列[i]], 缺页数 + 1)
     count(0, [], 0)
     }
 

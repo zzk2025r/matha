@@ -7,7 +7,7 @@
   compat   包适配器（25c/25d 商店清单 → 内核描述符）+ 命令适配器（12e 终端注册命令 → 内核单元）
 
 本文件锁（host = Interpreter，vm = exec_api.run_checked 双面对拍）：
-  A. 模块形态/use 诚实 + index.matha 注册面（27 条目、六路径落盘可达）；
+  A. 模块形态/use 诚实 + index.matha 注册面（27 条目 + 28e 端口协议 1 条 = 28、六路径落盘可达）；
   B. 解析器收口锁：dict 值位单元素 [x] 双面列表语义（27f 产品缺陷真修——
      src/parser.py 值位冒号加入右值上下文清单，host 与自举镜像一致）；
   C. 工厂+清单+进程管理 21 输出逐位（装载×5 + 带依赖/带服务幂等 + 清单行/
@@ -99,7 +99,7 @@ class TestModuleShape:
         src = _read_source("matha/library/index.matha")
         entries = [ln.strip().strip('",') for ln in src.splitlines()
                    if ln.strip().startswith('"')]
-        assert len(entries) == 27
+        assert len(entries) == 28
         for rel in _MODS.values():
             assert rel[len("matha/library/"):-len(".matha")] in entries, rel
 

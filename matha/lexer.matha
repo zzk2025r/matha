@@ -38,7 +38,7 @@ module 词法器 {
     (c >= 48 and c <= 57) ? 真 : 假
 
   func 是字母码(c: Int) -> Bool = (c) =>
-    ((c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95 or (c >= 19968 and c <= 40869)) ? 真 : 假
+    ((c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95 or (c >= 880 and c <= 1023) or (c >= 19968 and c <= 40869)) ? 真 : 假
 
   func 是换行码(c: Int) -> Bool = (c) => (c = 10) ? 真 : 假
 
@@ -148,6 +148,12 @@ module 词法器 {
     (* 角度括号 ⟨ … ⟩：AngleExpr 单值包装（宿主 lexer 已映射 OP_ANGLE）*)
     c = "⟨" ? 尖括号 :
     c = "⟩" ? 尖括号 :
+    (* ≠ ≤ ≥：宿主 lexer 映射 OP_NEQ/OP_LE/OP_GE（value 保留原字符），
+       解析层 _CMP_ALIASES 归一化为 !=/<=/>=。此前缺此三条 → 降级 符号 token，
+       比较链在 ≠ 处中断（base ≠ 1 守卫「期望 ）」）。 *)
+    c = "≠" ? 不等于 :
+    c = "≤" ? 小于等于 :
+    c = "≥" ? 大于等于 :
     符号
 
   (* ===== 关键字表 ===== *)
@@ -161,6 +167,14 @@ module 词法器 {
        此前缺此条 → throw 被当标识符 → FuncApp(Variable "throw", 1)，
        常量池注入 'throw' 字符串，与宿主产物不一致。 *)
     (tok = "throw") or
+    (* typeof 类型检测前缀（宿主 KW_TYPEOF，parser 解析一元有对应分支）。
+       此前缺此条 → 被当标识符走并列应用 → FuncApp(Variable "typeof", x)，
+       与宿主 TypeOfExpr 分歧。 *)
+    (tok = "typeof") or
+    (* return：宿主 KEYWORDS KW_RETURN（宿主 parser.py:3249 语句级分支）。
+       此前缺此条 → return 被当标识符走并列应用路径，
+       return [] / return [a, b] 解析失败且 AST 形态错误。 *)
+    (tok = "return") or
     (* chan 通道类型构造（宿主 KEYWORDS 含 chan，parser 有 KW_CHAN 分支）*)
     (tok = "chan") or
     (tok = "type") or (tok = "import") or (tok = "use") or (tok = "as") or
@@ -338,6 +352,22 @@ module 词法器 {
         扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
         扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(字符串, 缓存, line, 起列)))
 
+  (* 单引号字符串：与 扫描字符串续 同构，终止符为 '（宿主 lexer.py:544 ' 定界，
+     196-197 转义表 \' 同源——解转义 已含 ' 条目）。此前缺此分支 → 单引号串
+     被拆成符号/标识符流（bootstrap_test.matha G5 面）。 *)
+  func 扫描单引号续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
+    (src, pos, line, col, toks, 起列, 缓存) =>
+      (pos >= len(src)) ?
+        append(toks)(做Token(字符串, 缓存, line, 起列)) :
+      (get(src)(pos) = "\\") ?
+        (pos + 1 < len(src) ?
+          (let (文本, 新pos) = 解转义(src)(pos + 1) in
+            扫描单引号续(src)(新pos)(line)(col + 新pos - pos)(toks)(起列)(缓存 + 文本)) :
+          扫描单引号续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos))) :
+      (get(src)(pos) != "'") ?
+        扫描单引号续(src)(pos + 1)(line)(col + 1)(toks)(起列)(缓存 + get(src)(pos)) :
+        扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(字符串, 缓存, line, 起列)))
+
   (* ===== 块注释跳过（(* ... *)，支持嵌套，与宿主 lexer 语义一致）===== *)
   func 扫描注释(src: String, pos: Int, line: Int, col: Int, depth: Int, toks: List) -> List =
     (src, pos, line, col, depth, toks) =>
@@ -375,6 +405,9 @@ module 词法器 {
       (* 字符串 *)
       (get(src)(pos) = "\"") ?
         扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(col)("") :
+      (* 单引号字符串（宿主 ' 同为字符串定界符） *)
+      (get(src)(pos) = "'") ?
+        扫描单引号续(src)(pos + 1)(line)(col + 1)(toks)(col)("") :
       (* 数字：先判进制前缀 0b/0t/0x，再走十进制/小数扫描 *)
       (是数字码(ord(get(src)(pos))) ?
         (get(src)(pos) = "0" and pos + 1 < len(src) and 是进制前缀码(ord(get(src)(pos + 1)))) ?

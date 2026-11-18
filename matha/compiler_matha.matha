@@ -246,12 +246,18 @@ module 编译器 {
     let (c2, sc2, bc3) = _编译非函数列表(inner, code, sc, bc2) in
     (* 模块命名空间绑定（宿主 env[decl.name] = module_ns 同构，支持
        模块.函数 点号调用）：成员 = 函数 / 模块级 let / 枚举名
-       （struct 工厂 VM 面无码，不收） *)
+       （struct 工厂 VM 面无码，不收）。
+       同名冲突（module X { func X }，资源库 资源_成长 形态）不发射——
+       STORE_GLOBAL 会遮蔽同名函数全局；宿主 _compile_top_decl
+       `decl.name not in member_names` 门同规则（阶段 24a）。 *)
     let names = _模块成员名(inner, []) in
-    names = [] ? (c2, sc2, bc3) :
+    (names = [] or _名在表(decl["名"], names)) ? (c2, sc2, bc3) :
     let (c3, sc3, bc4) = _发加载全局们(names, c2, sc2, bc3) in
     let (gidx, bc5) = _加常量名(bc4, decl["名"]) in
     (_发(_发(c3, [OP_BUILD_DICT, len(names)]), [OP_STORE_GLOBAL, gidx]), sc3, bc5)
+
+  func _名在表(name: String, names: List) -> Bool =
+    names = [] ? 假 : names[0] = name ? 真 : _名在表(name, names[1:])
 
   func _模块成员名(decls: List, acc: List) -> List =
     decls = [] ? acc :
@@ -342,12 +348,31 @@ module 编译器 {
     decl["类型"] = "导入" ? _编译导入(decl, code, sc, bc) :
     (* 以下各分支宿主均以「全新 main 作用域」编译：临时槽计数从 0 起算 *)
     decl["类型"] = "机械单元" ? _编译机械单元(decl, code, _重置主作用域计数(sc), bc) :
+    (* 语句位裸 生成语句（28b 块体轨道：块内 `#：…` 宿主产出 GenStmt 直接
+       不包 机械单元）。宿主 _compile_stmt GenStmt 分支透传 content →
+       OutputTrail → Output → OP_OUTPUT；自举侧同构走 生成语句链。
+       `#：？公式` 槽位形态宿主另有 FORMULA_SCHEMA 发射（28c 接入）。
+       块末留值经 _编译声明是语句 → 本分支，输出后补 PUSH_NULL，与
+       旧实现（机械单元包装）字节码一致。 *)
+    decl["类型"] = "生成语句" ? _编译生成语句链(decl, code, _重置主作用域计数(sc), bc) :
+    (* 读取块 【…】：宿主 _emit_read_block——字符串/文档类内容编译期无操作；
+       自举 parser 只产字符串内容，恒为 noop。 *)
+    decl["类型"] = "读取块" ? (code, sc, bc) :
+    (* 语句位裸代码块：宿主 _compile_stmt CodeBlock → _emit_block(leave_last=假)
+       （CodeBlock 在 _STMT_NODES 不在 _VALUE_STMTS——内层块尾语句值块内弹掉，
+       块后栈平衡）。28b 后 if 的下一行 else 不挂链时双端解析器一致产出
+       [if, 裸 变量"else", 裸 程序] 兄弟（advanced_math 形态），程序 由本分支承接；
+       块尾留值位经 _是语句类型("程序") → 本分支 + PUSH_NULL，同宿主 leave_last 尾巴。 *)
+    decl["类型"] = "程序" ? _发射块(decl["声明"], code, _重置主作用域计数(sc), bc, 假) :
     (* >> 链式语句：逐条编译（同一作用域，宿主 _compile_stmt ChainStmt 同构） *)
     decl["类型"] = "链式语句" ? _编译链式(decl["语句"], code, sc, bc) :
     (* @：… 设值（setUp）：宿主 _compile_stmt SetUp 分支（全新 main 作用域） *)
     decl["类型"] = "设值" ? _发射设值(decl, code, _重置主作用域计数(sc), bc) :
     (* 语句位置的输出单元：求值后 OP_OUTPUT，不 DUP、不 POP *)
     decl["类型"] = "输出" ? _编译生成语句链(decl, code, _重置主作用域计数(sc), bc) :
+    (* 语句位 `[…]` 恒包 输出追踪（宿主 _parse_statement 789 → _parse_output_trail）：
+       宿主 _compile_top_decl/_compile_stmt 的 OutputTrail 分支透传内层 输出。 *)
+    decl["类型"] = "输出追踪" ? _编译生成语句链(decl, code, _重置主作用域计数(sc), bc) :
     decl["类型"] = "结构体" ? (code, sc, bc) :
     (* 自然语言块：宿主 ast.NLBlock 属 _NOOP_STMTS，编译期不产任何字节码 *)
     decl["类型"] = "自然语言块" ? (code, sc, bc) :
@@ -378,6 +403,28 @@ module 编译器 {
        的 RaiseExpr 分支（求值 + RAISE），**不补 POP**——RAISE 不返回，栈上
        也不会残留值。裸表达式兜底会多发一条 POP，与宿主产物不一致。 *)
     decl["类型"] = "抛出" ? _发射表达式(decl, code, _重置主作用域计数(sc), bc) :
+    (* return：宿主 _compile_stmt ReturnStmt——有值求值 + RET；无值
+       PUSH_NULL + RET。RET 不返回故栈不残留，不补 POP。28b 词法器补
+       return 关键字后 parser 产出 返回语句 节点（此前误为标识符应用
+       FuncApp(Variable "return", x)，结构编译但语义错）。 *)
+    decl["类型"] = "返回语句" ?
+      decl["值"] = null ?
+        (_发(_发(code, [OP_PUSH_NULL]), [OP_RET]), sc, bc) :
+        let (cr, scr, bcr) = _发射表达式(decl["值"], code, _重置主作用域计数(sc), bc) in
+        (_发(cr, [OP_RET]), scr, bcr) :
+    (* 语句位 `名 = 值`（parser 在 lambda/函数体内产 BinaryOp("=") 比较——
+       宿主 _in_lambda_body 特例）：宿主 _emit_block 宽容消解按槽位赋值
+       编译（首次出现即声明局部槽；main 作用域写全局）。表达式内部的 =
+       （三元条件等）仍是相等比较——本分支仅在语句位命中，且块尾留值位
+       （_发射块末条 留值）经 _编译声明是语句 直达 _发射表达式，不受影响。 *)
+    (decl["类型"] = "二元运算" and decl["运算符"] = "=" and
+     decl["左"]["类型"] = "变量") ?
+      let (c2, sc2, bc2) = _发射表达式(decl["右"], code, _重置主作用域计数(sc), bc) in
+      _绑定落全局(sc2) ?
+        let (idx, bc3) = _加常量名(bc2, decl["左"]["名"]) in
+        (_发(c2, [OP_STORE_GLOBAL, idx]), sc2, bc3) :
+        let (sc3, slot) = _绑定槽(sc2, decl["左"]["名"]) in
+        (_发(c2, [OP_STORE_LOCAL, slot]), sc3, bc2) :
     (* 其余视为裸表达式语句：求值后丢弃。顶层裸二元/一元运算的发射
        （阶段 15a）在 _编译顶层声明 包装层做——本兜底同时被块尾
        （_发射块末条）/生成语句链复用，那些语句位宿主仍 POP。 *)
@@ -406,10 +453,23 @@ module 编译器 {
   func _编译机械单元(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     let b = decl["body"] in
+    (* `#N：…` 后跟 { } 代码块的合并形态：body 为裸 list [生成语句, 程序]——
+       逐条编译（宿主 _compile_stmt isinstance(node, list) 同构，阶段 19b）。
+       此前 b["类型"] 对 list 直接索引崩溃。 *)
+    typeof(b) = "列表" ? _编译单元列表(b, code, sc, bc) :
     b["类型"] = "程序" ?
       let (c2, sc2, bc2) = _发射块(b["声明"], code, sc, bc, 假) in
       (c2, sc2, bc2) :
       _编译生成语句链(b, code, sc, bc)
+
+  func _编译单元列表(items: List, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    items = [] ? (code, sc, bc) :
+    let (c2, sc2, bc2) =
+      items[0]["类型"] = "程序" ?
+        _发射块(items[0]["声明"], code, sc, bc, 假) :
+        _编译生成语句链(items[0], code, sc, bc) in
+    _编译单元列表(items[1:], c2, sc2, bc2)
 
   func _编译生成语句链(n: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
@@ -501,6 +561,24 @@ module 编译器 {
      旧实现一律 STORE_GLOBAL + _加常量，块内裸 let 会把局部名泄漏进常量池。 *)
   func _编译顶层let(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
+    (* 语句位 let rec（局部帧）：盒协议——先声明盒槽并 MAKE_BOX，再编译值
+       （lambda 体内自引用沿父链 LOAD_OUTER_BOX 解析），STORE_BOX 收尾；
+       main/泄漏作用域退化同名全局（走下方常规分支）。
+       宿主 _emit_let boxed 分支同构。此前值先编译、名后声明，函数体内
+       `let rec f(i) = …(i) => …f(i+1)…` 的自引用解析不到局部名 →
+       LOAD_GLOBAL + 名泄漏常量池（knowledge/cs/algorithms 线性搜索等面）。 *)
+    (* 体不得以 `(` 开头（func-def 贪婪参数表陷阱，见 _编译顶层声明 注）：
+       条件先 let 绑定再取用。 *)
+    let rec局部 = decl["递归"] = 真 and _绑定落全局(sc) = 假 in
+    rec局部 ?
+      let (sc1, slot) = _声明(sc, decl["名"], 真) in
+      let c1 = _发(code, [OP_MAKE_BOX, slot]) in
+      let (c2, sc2, bc2) = _发射表达式(decl["值"], c1, sc1, bc) in
+      let c3 = _发(c2, [OP_STORE_BOX, slot]) in
+      decl["有体"] ?
+        let (c4, sc4, bc4) = _发射表达式(decl["体"], c3, sc2, bc2) in
+        (_发(c4, [OP_POP]), sc4, bc4) :
+        (_发(_发(c3, [OP_PUSH_NULL]), [OP_POP]), sc2, bc2) :
     let (c2, sc2, bc2) = _发射表达式(decl["值"], code, sc, bc) in
     _绑定落全局(sc2) ?
       let (idx, bc3) = _加常量(bc2, decl["名"]) in
@@ -813,12 +891,22 @@ module 编译器 {
     (* 宿主 _STMT_NODES 含 NLBlock（经 _NOOP_STMTS 引入）：块末留值时走
        _compile_stmt 空操作，再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。 *)
     (t = "自然语言块") or
+    (* 读取块 【…】：宿主 _STMT_NODES 含 ReadBlock（_emit_read_block 字符串内容 noop）：
+       块末留值同上补 PUSH_NULL（28b 块体轨道新形态）。 *)
+    (t = "读取块") or
+    (* 语句位裸代码块：宿主 _STMT_NODES 含 CodeBlock（不在 _VALUE_STMTS）——
+       块末留值时走语句路径（leave_last=假，值不外泄）再补 PUSH_NULL。
+       下一行 else 不挂链的解析产物（advanced_math 形态）块尾即 程序。 *)
+    (t = "程序") or
     (* 宿主 _STMT_NODES 含 CommandLiteral（经 _NOOP_STMTS 引入），同上。 *)
     (t = "命令文字") or
     (* 宿主 _STMT_NODES 含 RaiseExpr：块末留值时走 _compile_stmt 收尾路径，
        再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL。缺此项则 try 体
        （末句 throw/raise）少发 PUSH_NULL，__lam_1 字节码与宿主不一致。 *)
     (t = "抛出") or
+    (* 宿主 _STMT_NODES 含 ReturnStmt：块末留值时走语句路径（值 + RET），
+       再补 PUSH_NULL（return 后代码不可达，形态对齐即可）。 *)
+    (t = "返回语句") or
     (* 宿主 _STMT_NODES 含 GoStmt：块末留值时走语句路径（expr+POP），
        再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL（与 go 尾句一致）。 *)
     (t = "go") or
@@ -860,6 +948,12 @@ module 编译器 {
 
   func _发射表达式(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
+    (* 表达式位代码块：宿主 _emit_expr 首分支 isinstance(CodeBlock) →
+       _emit_block(leave_last=真)（语句序列，值为尾表达式）。
+       28b 后 if 的 else 不挂链时（下一行 else），双端解析器一致产出
+       裸 变量"else" 语句 + 裸 程序 语句（advanced_math 形态），
+       块尾/表达式位的 程序 由此分支承接。 *)
+    e["类型"] = "程序" ? _发射块(e["声明"], code, sc, bc, 真) :
     e["类型"] = "整数" ? _发射常量(code, sc, bc, e["值"]) :
     e["类型"] = "浮点" ? _发射常量(code, sc, bc, e["值"]) :
     e["类型"] = "字符串" ? _发射常量(code, sc, bc, e["值"]) :
@@ -882,6 +976,14 @@ module 编译器 {
       let (c1, sc1, bc1) = _发射表达式(e["expr"], code, sc, bc) in
       let c2 = _发(c1, [OP_DUP]) in
       (_发(c2, [OP_OUTPUT]), sc1, bc1) :
+    (* 表达式位 `[…]` 恒包 输出追踪：宿主 _emit_expr OutputTrail 分支
+       （compiler.py 1849）透传内层 输出；[] 空输出（宿主 expr=None）→ PUSH_NULL。 *)
+    e["类型"] = "输出追踪" ?
+      (e["输出"]["expr"]["类型"] = "空输出" ?
+        (_发(code, [OP_PUSH_NULL]), sc, bc) :
+        let (c1, sc1, bc1) = _发射表达式(e["输出"]["expr"], code, sc, bc) in
+        let c2 = _发(c1, [OP_DUP]) in
+        (_发(c2, [OP_OUTPUT]), sc1, bc1)) :
     e["类型"] = "属性" ?
       let (c1, sc1, bc1) = _发射表达式(e["对象"], code, sc, bc) in
       let (idx, bc2) = _加常量(bc1, e["名"]) in
@@ -1087,6 +1189,9 @@ module 编译器 {
 
   func _发射一元(e: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
+    (* null 字面量（parser 产 UnaryOp("null", null)）：不查表直接 PUSH_NULL，
+       与宿主 _emit_expr UnaryOp node.op == "null" 特例（compiler.py 1656）同构。 *)
+    e["运算符"] = "null" ? (_发(code, [OP_PUSH_NULL]), sc, bc) :
     let op = 一元运算表[e["运算符"]] in
     let folded = _折叠一元(op, e["操作数"]) in
     if folded != 不折叠 then

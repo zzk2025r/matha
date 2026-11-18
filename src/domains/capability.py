@@ -188,7 +188,7 @@ def _module_import_names(prog) -> list[str]:
 
 def _merge_module_source(runtime, source: str, *, _加载依赖=None,
                          _已载=None) -> tuple[str | None, list[str]]:
-    """use 编译面：模块级合并——函数/枚举/模块级 let 落 globals + 命名空间绑定。
+    """use 编译面：模块级合并——函数/枚举/模块级 let·赋值 落 globals + 命名空间绑定。
 
     与宿主 ModuleDecl 注册同构（self.modules[name] = module_ns 且
     env[name] = module_ns）：合并全部函数；枚举成员物化为字符串全局
@@ -240,6 +240,14 @@ def _merge_module_source(runtime, source: str, *, _加载依赖=None,
                 v = _eval_module_let(inner.value, runtime)
                 runtime.globals[inner.name] = v
                 ns[inner.name] = v
+            elif isinstance(inner, ast.Binding):
+                # 模块级裸赋值（28d 插口注册表 解释器插口 = [[]] 形态）：与
+                # let 同物化面——此前静默丢弃，use 合并后 LOAD_GLOBAL 未定义名。
+                name = (inner.target.name
+                        if isinstance(inner.target, ast.Variable) else str(inner.target))
+                v = _eval_module_let(inner.value, runtime)
+                runtime.globals[name] = v
+                ns[name] = v
     if actual_name is not None:
         runtime.globals[actual_name] = ns
     return actual_name, list(mod.functions)
@@ -318,7 +326,7 @@ def make_hotreload_runtime(runtime):
     直接覆盖，与 use 合并同机制）+ 更新快照。消息常量与宿主面同源
     （src.interp 惰性导入），双面逐字一致；声明数同口径（parse 顶层
     声明数）。被载模块自测块不执行（_merge_module_source 只合并
-    函数/枚举/let，与宿主 _loading_module 跳过同构）。
+    函数/枚举/let/模块级赋值，与宿主 _loading_module 跳过同构）。
     """
     from src.interp import hot_reload_pair
     from src.parser import parse
