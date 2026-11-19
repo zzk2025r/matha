@@ -1,0 +1,1416 @@
+{
+ "version": 1,
+ "corpus_dirs": [
+  "matha",
+  "examples",
+  "golden_tests",
+  "tests",
+  "stdlib"
+ ],
+ "boot_files": [
+  "matha/lexer.matha",
+  "matha/stdlib.matha",
+  "matha/parser.matha",
+  "matha/runtime/matha_runtime.matha",
+  "matha/interp_matha.matha"
+ ],
+ "summary": {
+  "files": 225,
+  "both_ok_equal": 147,
+  "both_ok_differ": 0,
+  "boot_err_host_ok": 61,
+  "boot_ok_host_err": 0,
+  "both_err": 17,
+  "timeout": 0
+ },
+ "files": [
+  {
+   "path": "matha/bootstrap_full_test.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未找到模块 '编译器'",
+   "host_err": "MathaUndefinedNameError: 未定义变量 '不折叠'"
+  },
+  {
+   "path": "matha/bootstrap_matha.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 属性",
+   "host_err": "MathaRuntimeError: 属性访问失败: str.类型"
+  },
+  {
+   "path": "matha/bootstrap_test.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 模块 '词法器' 中未找到 'Token'",
+   "host_err": "MathaRuntimeError: 不可调用的值: <?>?"
+  },
+  {
+   "path": "matha/bootstrap_test_v2.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 索引操作不支持: list[类型]"
+  },
+  {
+   "path": "matha/compiler_matha.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/examples/01_arithmetic.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/02_functions.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/03_set_iter.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/04_pipeline.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/05_sensor_read.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/06_main.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/06_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/07_auto_debug.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/07_debug_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/08_auto_optimize.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/08_optimize_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/09_grow_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/09_self_grow.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/10_library_read.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/10_library_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/10_web_app.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未定义变量 '软件_构建'"
+  },
+  {
+   "path": "matha/examples/11_desktop.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/11_grow_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/11_library_grow.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/12_backend.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未定义变量 '软件_构建'"
+  },
+  {
+   "path": "matha/examples/12_library_discipline.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/12_mech_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/examples/99_multiParam_boundary.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/firewall_rules.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+  },
+  {
+   "path": "matha/frontends/codegen.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/frontends/hybrid.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/frontends/matha/frontend.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/frontends/multi_lang.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/frontends/verifier.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/generated/beam_lib.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/generated/js_lib.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/generated/rust_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/generated/代数库.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/generated/算术库.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/generated/语义分析.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/interp.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 模块 '词法器' 中未找到 'Token'"
+  },
+  {
+   "path": "matha/knowledge/biology/cell.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/biology/ecology_human.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/biology/genetics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/chemistry/elements.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/chemistry/organic.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/chemistry/stoichiometry.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/cs/algorithms.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/cs/complexity.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/cs/data_structures.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 结构体"
+  },
+  {
+   "path": "matha/knowledge/cs/discrete_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/engineering/civil.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/engineering/electrical.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/engineering/mechanical.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/history/chronology.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/index.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/linguistics/grammar.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/algebra.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/arithmetic.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/calculus.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/geometry.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/logic.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/number_theory.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/statistics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/math/trigonometry.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/physics/celestial.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/physics/electromagnetism.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/physics/mechanics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/physics/optics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/physics/quantum.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/knowledge/physics/thermodynamics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/algebra_simplify.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/calculus_diff.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/calculus_limit.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/calculus_series.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/collections_core.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/compat/包适配器.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+  },
+  {
+   "path": "matha/library/compat/命令适配器.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+  },
+  {
+   "path": "matha/library/core/arithmetic.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/core/geometry.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/core/trigonometry.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/core/圆柱体积.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/core/球体积.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/core/计算动能.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/core/计算球体积.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/desktop/桌面组件.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/graphics/绘画辅助.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/index.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/mcu/单片机.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/mechanics/bearing.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/mechanics/shaft.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/mechanics/stress.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/os/单元工厂.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/os/单元清单.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+  },
+  {
+   "path": "matha/library/os/端口协议.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/os/进程管理.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+  },
+  {
+   "path": "matha/library/physics/mechanics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/simulation/建模仿真.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/structural/beam.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/library/structural/column.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/nl_dict.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/nl_engine.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言句法器'"
+  },
+  {
+   "path": "matha/nl_engine_en.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言英语句法器'"
+  },
+  {
+   "path": "matha/nl_lexer.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 模块 '词法器' 中未找到 'Token'"
+  },
+  {
+   "path": "matha/nl_lexer_en.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言词法器'"
+  },
+  {
+   "path": "matha/nl_parser.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言词法器'"
+  },
+  {
+   "path": "matha/nl_parser_en.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言英语词法器'"
+  },
+  {
+   "path": "matha/os/desktop.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+  },
+  {
+   "path": "matha/os/kernel.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/apps/education_news.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/apps/lifestyle_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/apps/media_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/apps/social_ecommerce.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/biology/genetics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/biology/molecular.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/chemistry/stoichiometry.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/cs/algorithms.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/cs/data_structures.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/cs/game_algorithms.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/cs/game_apps_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/cs/os_concepts.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/embedded/industrial_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/engineering/civil.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/engineering/mechanical.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/extended/modeling_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/finance/advanced.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/finance/math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/geography/info.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/hardware/embedded_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/hardware/system_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/index.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/linguistics/basics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/logic/advanced_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/logic/discrete_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/math/3d_transform.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/math/algebra_advanced.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/math/conic_sections.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/math/exponent_logarithm.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/math/trigonometry_advanced.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/boot_sector.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/deadlock_sync_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/filesystem_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/kernel_memory.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/kernel_process.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/kernel_syscall.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/memory_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/os_concepts_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/os/process_math.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 枚举"
+  },
+  {
+   "path": "matha/resource/os/scheduling_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/physics/electromagnetism.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/physics/optics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/physics/quantum.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/physics/thermodynamics.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/platforms/emerging_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/security/crypto_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/statistics/analysis.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/statistics/probability.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/tools/utility_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/web/network_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/web/web_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/resource/航空航天/orbital_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/runtime/simple_test.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/runtime/test2.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/runtime/test_compile.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 3
+  },
+  {
+   "path": "matha/runtime/test_dbg.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/runtime/test_dbg2.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/runtime/test_math.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 8
+  },
+  {
+   "path": "matha/runtime/test_orig.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/shaft_sub.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/stdlib_symbols.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "IndexError: list index out of range"
+  },
+  {
+   "path": "matha/store_engine.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未定义变量 '_解析行进'"
+  },
+  {
+   "path": "matha/template_new.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+  },
+  {
+   "path": "matha/template_old.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 3
+  },
+  {
+   "path": "matha/term_engine.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '终端句法器'"
+  },
+  {
+   "path": "matha/term_lexer.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/term_parser.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未找到模块 '终端词法器'"
+  },
+  {
+   "path": "matha/vm/matha_vm.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/vm.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "examples/ai/ai_framework.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+  },
+  {
+   "path": "examples/ai/data_pipeline.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+  },
+  {
+   "path": "examples/ai/genetic_algo.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+  },
+  {
+   "path": "examples/ai/neural_network.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+  },
+  {
+   "path": "examples/basic_examples.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知一元运算符: sqrt"
+  },
+  {
+   "path": "golden_tests/cases/01_arithmetic_and_relations.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 3
+  },
+  {
+   "path": "golden_tests/cases/02_function_definition.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 2
+  },
+  {
+   "path": "golden_tests/cases/03_curried_closure.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 2
+  },
+  {
+   "path": "golden_tests/cases/04_block_tail_value.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 1
+  },
+  {
+   "path": "golden_tests/cases/05_block_tail_if.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 2
+  },
+  {
+   "path": "golden_tests/cases/06_block_multi_statement.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 1
+  },
+  {
+   "path": "golden_tests/cases/07_loops.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 2
+  },
+  {
+   "path": "golden_tests/cases/08_loops_break_continue.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 跳出语句"
+  },
+  {
+   "path": "golden_tests/cases/09_try_catch_raise.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+  },
+  {
+   "path": "golden_tests/cases/10_try_catch_runtime_error.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+  },
+  {
+   "path": "golden_tests/cases/11_try_throw.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+  },
+  {
+   "path": "golden_tests/cases/12_error_div_zero.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 除零错误",
+   "host_err": "MathaRuntimeError: 除零错误: 1 / 0"
+  },
+  {
+   "path": "golden_tests/cases/13_error_undefined.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未定义变量 '缺失变量'",
+   "host_err": "MathaUndefinedNameError: 未定义变量 '缺失变量'"
+  },
+  {
+   "path": "golden_tests/cases/14_error_type.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: - 不适用于字符串/列表",
+   "host_err": "MathaRuntimeError: - 不适用于字符串/列表"
+  },
+  {
+   "path": "golden_tests/cases/15_type_annotations_typeof.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 6
+  },
+  {
+   "path": "golden_tests/cases/16_recursion.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 1
+  },
+  {
+   "path": "golden_tests/cases/17_try_block_binding.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+  },
+  {
+   "path": "golden_tests/cases/18_domain_lazy_load.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+  },
+  {
+   "path": "golden_tests/cases/19_corpus_recursion.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 3
+  },
+  {
+   "path": "golden_tests/cases/20_corpus_sum.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 3
+  },
+  {
+   "path": "golden_tests/cases/21_corpus_dot.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 2
+  },
+  {
+   "path": "golden_tests/cases/22_corpus_cond_chain.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 4
+  },
+  {
+   "path": "golden_tests/cases/23_corpus_tuple_index.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 2
+  },
+  {
+   "path": "golden_tests/cases/24_error_index_oob.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "IndexError: list index out of range",
+   "host_err": "IndexError: list index out of range"
+  },
+  {
+   "path": "golden_tests/cases/25_error_mod_zero.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 除零错误: 5 / 0",
+   "host_err": "MathaRuntimeError: 取模除零错误: 5 % 0"
+  },
+  {
+   "path": "golden_tests/cases/26_error_floordiv_zero.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未知运算符: //",
+   "host_err": "MathaRuntimeError: 整除除零错误: 5 // 0"
+  },
+  {
+   "path": "golden_tests/cases/27_error_str_index_oob.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "IndexError: string index out of range",
+   "host_err": "IndexError: string index out of range"
+  },
+  {
+   "path": "golden_tests/cases/28_error_call_noncallable.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 索引操作不支持: int[0]",
+   "host_err": "MathaRuntimeError: 不可调用的值: 5"
+  },
+  {
+   "path": "golden_tests/cases/29_error_index_on_int.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 索引操作不支持: Int[0]",
+   "host_err": "MathaRuntimeError: 索引操作不支持: int[0]"
+  },
+  {
+   "path": "golden_tests/cases/30_corpus_nested_rec_nocap.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 2
+  },
+  {
+   "path": "golden_tests/cases/31_error_undef_func.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未定义变量 '未知函数'",
+   "host_err": "MathaUndefinedNameError: 未定义变量 '未知函数'"
+  },
+  {
+   "path": "golden_tests/cases/32_ternary_eq_precedence.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 8
+  },
+  {
+   "path": "golden_tests/cases/33_sci_notation.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 6
+  },
+  {
+   "path": "golden_tests/cases/34_return_list_literal.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 返回语句"
+  },
+  {
+   "path": "golden_tests/cases/35_list_comp.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 期望表达式，实际 ]"
+  },
+  {
+   "path": "golden_tests/cases/36_basics_map_filter_reduce.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未定义变量 'map'",
+   "host_err": "MathaUndefinedNameError: 未定义变量 'map'"
+  },
+  {
+   "path": "golden_tests/cases/37_basics_sorted.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未定义变量 'sorted'",
+   "host_err": "MathaUndefinedNameError: 未定义变量 'sorted'"
+  },
+  {
+   "path": "golden_tests/cases/38_basics_join_split.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未定义变量 'join'",
+   "host_err": "MathaUndefinedNameError: 未定义变量 'join'"
+  },
+  {
+   "path": "golden_tests/cases/39_basics_gcd.matha",
+   "boot": "err",
+   "host": "err",
+   "boot_err": "MathaRuntimeError: 未定义变量 'gcd'",
+   "host_err": "MathaUndefinedNameError: 未定义变量 'gcd'"
+  },
+  {
+   "path": "tests/test_plugin_load.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未定义变量 '符号原子'"
+  },
+  {
+   "path": "tests/test_plugin_ode.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未定义变量 '解微分方程'"
+  },
+  {
+   "path": "tests/test_plugin_series.matha",
+   "boot": "err",
+   "host": "ok",
+   "boot_err": "MathaRuntimeError: 未定义变量 '级数求和'"
+  }
+ ],
+ "enumerated": 225
+}

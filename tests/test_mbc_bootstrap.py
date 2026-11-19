@@ -380,14 +380,15 @@ def test_set_expr_elements(compiler_boot_vm):
 
 
 def test_set_index_and_mutate(compiler_boot_vm):
-    """集合构造结果可下标；下标赋值行为与宿主逐字节一致。
+    """集合构造结果可下标；下标赋值两侧一致且真变异。
 
-    注：`s[0] = 9` 在宿主与自举层当前都不改变已绑定值（两侧同为 no-op），
-    此处锁定的是「两侧一致」这一契约，而非赋值语义本身。
+    29b-① 后 `s[0] = 9` 在宿主与自举层均为真赋值（语句位下标写入，
+    原位变异），故锁定值同步更新为 [[9, 4], 9]；此前的「两侧同为
+    no-op」契约随赋值真化退役。
     """
     src = "s = {3, 4}\ns[0] = 9\n#1：[[s, s[0]]]"
     assert _set_case(compiler_boot_vm, src)
-    assert _set_outputs(compiler_boot_vm, src) == [[[3, 4], 3]]
+    assert _set_outputs(compiler_boot_vm, src) == [[[9, 4], 9]]
 
 
 def test_brace_still_dispatches_code_block_and_dict(compiler_boot_vm):

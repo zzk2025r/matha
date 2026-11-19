@@ -85,7 +85,8 @@ def _get_interp(debug: bool | None = None):
 _USE_BOOTSTRAP = os.environ.get("MATHA_USE_BOOTSTRAP", "1") == "1"
 
 
-def interpret(source: str, debug: bool | None = None) -> tuple[list, list[str]]:
+def interpret(source: str, debug: bool | None = None,
+              strict: bool = False) -> tuple[list, list[str]]:
     """Matha 源码解释入口（Matha 自举优先，Python 降级）。
 
     流程：
@@ -93,6 +94,12 @@ def interpret(source: str, debug: bool | None = None) -> tuple[list, list[str]]:
       2. 使用 Matha 词法器扫描源码
       3. 使用 Matha 语法器解析 AST
       4. 使用 Matha 自举解释器执行
+
+    strict=True 时执行面异常如实上抛，不静默降级 Python 解释器。
+    29d：静默降级是假成功通道——boot 面缺陷被宿主面成功掩盖
+    （test_29b01 下标赋值曾因此假绿）；测试/对拍入口须 strict。
+    输出面 输出清空→输出快照（此前仅返回末语句值——多输出程序截断，
+    且输出槽跨调用累积混入前次输出）。
     """
     if not _USE_BOOTSTRAP:
         from src.interp import interpret as _python_interpret
@@ -121,9 +128,12 @@ def interpret(source: str, debug: bool | None = None) -> tuple[list, list[str]]:
             raise RuntimeError("自举加载器.run_ast 未找到，请重新加载核心模块")
         # run_ast 是 Matha 闭包元组（("__closure__", params, body, captured)），
         # 宿主须经 _call_func_or_closure 应用，不能直接调用（tuple 不可调用）。
+        interp.call("输出清空")
         result, _ = interp._call_func_or_closure(run_ast, [ast])
-        return ([result], [])
-    except Exception:
+        return (list(interp.call("输出快照")), [])
+    except Exception as e:
+        if strict:
+            raise
         # 降级到 Python 解释器
         from src.interp import interpret as _python_interpret
         return _python_interpret(source, debug)

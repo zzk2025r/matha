@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 170（`tests/`）
+- **测试文件：** 175（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -170,7 +170,8 @@ matha ext upgrade  包名                     # 升级一个扩展包（本地�
 
 四面同一协议（版本/启停/来源）：领域插件启停走 `PluginResolver`（停用 =
 `unregister`，符号真实不可用；启用 = 清单 `reload` 回位）；特性开关即
-`matha features` 四开关；扩展包启停写在包自己的 `manifest.json "enabled"`
+`matha features` 五开关（`MBC_PASSES` 为编译器框架字节码遍 opt-in，
+默认关，见下）；扩展包启停写在包自己的 `manifest.json "enabled"`
 （`use 包名` 内核回退面如实尊重）；终端扩展条目持久化在
 `.matha/extensions.json`。安装的用户扩展包直接 `use 包名` 加载。
 
@@ -244,6 +245,17 @@ port.rollback("⊗")                            # 回滚到上一版
 ）；自举编译器与宿主编译器全语料 `_canon` 字节码逐位一致
 （`test_compiler_parity_phase28`）；VM 执行面维持阶段 27 stage-4 闭环锁。
 
+执行面双轨判据（阶段 29）：A 轨 pytest 轻中档锁（自举语言/执行/矩阵/公式
+四档入常规门禁）；B 轨 `scripts/selfhost_matrix.py` 全语料 sweep（多进程
++ boot 复用）+ 快照 `docs/selfhost_matrix.json` `--check` 重档通道。
+
+编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
+mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
+求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
+`exec_api` 不 import 框架（依赖棘轮），只暴露编译后钩子槽
+`set_compile_hook`——适配器被显式 import 即反向注册，再叠
+`features MBC_PASSES` 开关（默认关）双保险；不 import 即完全无钩子。
+
 ---
 
 ## 项目结构
@@ -258,7 +270,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（170 个文件）
+├── tests/                  # 测试套件（175 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

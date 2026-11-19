@@ -1819,8 +1819,19 @@ class Parser:
             #   会把三元贪心吞进右操作数，令 3 == 3 ? 100 : 200 误析为 3 == (3 ? ...)。
             if is_assign:
                 right = self._parse_expr()
-            else:
-                right = self._parse_set_expr()
+                return ast.BinaryOp(op=op, left=left, right=right)
+            saved_eq = self.pos
+            right = self._parse_set_expr()
+            # 29b-⑥：lambda 体内单 `=` 右值后紧跟关系运算符（> < >= <=）——
+            # 比较路径在右值处截断留下悬空运算符，`r = 1 > 0 ? 10 : 20` 报
+            # 「期望表达式 (got OP_GT)」。回退改按赋值解析（右值 _parse_expr
+            # 整体纳入三元，与语句位裸赋值 22c 同规）；右值后为 `?` 的语料
+            # 惯用式（desktop.matha `动 = "启动" ? … : …`）保持比较语义不变
+            # （自举 解析比较_续 同规回退）。
+            if op == "=" and self._check(TokenType.OP_LT, TokenType.OP_GT,
+                                         TokenType.OP_LE, TokenType.OP_GE):
+                self.pos = saved_eq
+                right = self._parse_expr()
             return ast.BinaryOp(op=op, left=left, right=right)
         # → 右箭头：等价于 -> 但作为比较运算符（a → b）
         if self._check(TokenType.OP_ARROW_FW):
@@ -2761,6 +2772,33 @@ class Parser:
             self._expect(TokenType.PUNCT_RPAREN, ")")
             return ast.TupleExpr(elements=elements)
         self._expect(TokenType.PUNCT_RPAREN, ")")
+        # 29b-② lambda 立即调用：分组 lambda 后紧跟 ( → 应用（((x) => x*2)(21)）。
+        # 直接形式 (params) => body(args) 已由上方 lambda 分支内联处理（2648）；
+        # 此处补「外层再包一组括号」形态。链式 ((x)=>f)(1)(2) 首次应用后返回
+        # FuncApp（非 Lambda），余下 (2) 由外层 _parse_postfix 继续消费——
+        # 而 f((x) => x+1)(xs) 无外层分组，仍走 curried 实参表路径，语义不变。
+        if isinstance(expr, ast.Lambda) and self._check(TokenType.PUNCT_LPAREN):
+            self._advance()
+            self._skip_newlines()
+            if self._check(TokenType.PUNCT_RPAREN):
+                self._advance()
+                app = ast.FuncApp(func=expr, arg=ast.IntegerLit(value=0))
+            else:
+                self._in_func_app = True
+                try:
+                    args = [self._parse_expr()]
+                    while self._check(TokenType.PUNCT_COMMA):
+                        self._advance()
+                        self._skip_newlines()
+                        args.append(self._parse_expr())
+                    self._skip_newlines()
+                    self._expect(TokenType.PUNCT_RPAREN, ")")
+                finally:
+                    self._in_func_app = False
+                app = expr
+                for a in args:
+                    app = ast.FuncApp(func=app, arg=a)
+            return app
         return expr
 
     def _lparen_starts_call_args(self) -> bool:
@@ -3321,29 +3359,18 @@ class Parser:
                     self._skip_newlines()
                     if self._check(TokenType.PUNCT_LPAREN):
                         # 显式 lambda: = (params) => body
+                        # 29b-③：参数走通用 _parse_lambda_param（name 或
+                        # name: Type 类型标注可选），与 lambda 表达式位同规——
+                        # 此前 ad-hoc 循环不吃 `: Type`，`= (y: Int) => …` 假拒。
                         lam_params: list[Any] = []
                         self._advance()  # consume (
                         self._skip_newlines()
                         if not self._check(TokenType.PUNCT_RPAREN):
-                            tok = self._current()
-                            if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
-                                            TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
-                                            TokenType.KW_IN, TokenType.KW_WHILE):
-                                self._advance()
-                                lam_params.append(ast.Variable(name=tok.value))
-                            else:
-                                lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+                            lam_params.append(self._parse_lambda_param())
                             while self._is_comma():
                                 self._advance()
                                 self._skip_newlines()
-                                tok = self._current()
-                                if tok.type in (TokenType.IDENTIFIER, TokenType.SYMBOL, TokenType.KW_FUNC, TokenType.KW_AND,
-                                                TokenType.KW_OR, TokenType.KW_IF, TokenType.KW_FOR,
-                                                TokenType.KW_IN, TokenType.KW_WHILE):
-                                    self._advance()
-                                    lam_params.append(ast.Variable(name=tok.value))
-                                else:
-                                    lam_params.append(ast.Variable(name=self._expect(TokenType.IDENTIFIER, "参数名").value))
+                                lam_params.append(self._parse_lambda_param())
                         self._skip_newlines()
                         self._expect(TokenType.PUNCT_RPAREN, ")")
                         self._expect(TokenType.OP_FATARROW, "=>")

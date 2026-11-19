@@ -382,6 +382,39 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   把六层装载为内核服务单元（`工具链-<层名>`，装载=注册、启动/停止=启停、
   主步=只读健康探针）。跨 VM 调用他模块函数须按 24d 钉池纪律
   （fn.consts/fn.functions）——MBC `_invoke` 常量池回退逐 VM（已登记）。
+- 阶段 29 执行面双轨判据 + 自举链缺陷真化 + 编译器框架接入 MBC 主线
+  （四项拍板全走推荐项：①自举执行面全语料判据 ②自举链语言级缺陷真化
+  ③0x62 公式模式自举贯穿 ④编译器框架接入 MBC 主线）：
+  **29b 自举链语言级缺陷真化**——语句位下标赋值 `a[i]=v` STORE_SUBSCRIPT
+  0x64 双面真化（VM 处理器列表原位写/越界透传/字典缺键新建/不可哈希键
+  领域文案，编译器顶层+块位发射，native setitem_rt 五路错误）；lambda
+  立即调用 `((x)=>x*2)(21)` 与链式；参数类型标注 `(y: Int) => …`；单 `=`
+  右值悬空关系运算符回退；零参闭包 `f()` 自举面 IndexError 真修（解析器
+  IntLit(0) 占位 arg，宿主/VM 忽略占位，自举 应用函数 补空参守卫）；
+  缺失字典键双端对齐 vm→host（缺键返 null）；错误文案归一（变量未被定义
+  ↔ 未定义变量）。
+  **29c 0x62 公式模式自举贯穿**——FORMULA_SCHEMA 从宿主编译器专有贯穿
+  自举链 parser→interp→compiler→vm.matha 四面（`test_selfhost_formula_
+  phase29` 17 项）。
+  **29d 执行面双轨判据**——A 轨 pytest 轻中档锁（自举语言 14 / 执行 31 /
+  矩阵 3 / 公式 17 项入常规门禁）；B 轨 `scripts/selfhost_matrix.py`
+  全语料 sweep（多进程 + boot 复用）+ 快照 `docs/selfhost_matrix.json`
+  `--check` 重档通道（225 语料：双面一致 147 / 宿主独过 61 / 双败 17 /
+  超时 0 / 双面分歧 0）；登记不修清单见 KNOWN_ISSUES 阶段 29 收官条目。
+  **29e 编译器框架接入 MBC 主线**——`src/compiler/mbc_adapter.py` 两条
+  MBC 字节码遍（常量折叠：调用 VM 同一 `_BINOPS/_UNARYOPS` 求值故结果
+  与运行期逐位一致，除零/sqrt(-1) 等报错诚实保留运行期路径，仅折叠
+  不可变结果，跳入模式中段保守跳过，折叠到定点 + 池类型严格去重；死代码
+  消除：按 JMP/JZ/JNZ/RET/RAISE/RAISE_MATCH/HALT 语义可达性 BFS，删除
+  不可达指令并重映射跳转目标）经专用 PassManager 调度（不与框架泛 IR 遍
+  混跑同一 program）；接入方向反转——内核 `exec_api` 不 import
+  src.compiler（dep_audit 棘轮遗留面），暴露纯编译后钩子槽
+  set_compile_hook/get_compile_hook，适配器 import 即反向注册；双保险
+  opt-in 默认关（未 import = 无钩子；import 而开关 features `MBC_PASSES`
+  关 = 钩子自查原样返回），`compile_module`/`run_checked`/`build_exe`
+  全编译管线同一钩子面；`test_mbc_passes_phase29` 30 项（接入面锁 /
+  遍实效锁 / 开关 on-off 双态对拍 15 语料）+ features 五开关入册
+  （`test_extension_system_phase23` known_states 4→5 键）。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

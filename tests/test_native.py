@@ -549,6 +549,82 @@ def test_list_index_oob_raises_catchable():
         assert _run(src) == (0, "越界\n后"), expr
 
 
+# ---------- 语句位下标赋值 STORE_SUBSCRIPT（29b-①）----------
+
+_SET_INDEX_CASES = [
+    ("正下标写入", "xs = [1, 2, 3]\nxs[0] = 9\n#1：[xs]\n", "[9, 2, 3]"),
+    ("正下标末项写入", "xs = [1, 2, 3]\nxs[2] = 7\n#1：[xs]\n", "[1, 2, 7]"),
+    ("负下标回绕写入", "xs = [1, 2, 3]\nxs[-1] = 7\n#1：[xs]\n", "[1, 2, 7]"),
+    ("负下标 -n 端点", "xs = [1, 2, 3]\nxs[-3] = 5\n#1：[xs]\n", "[5, 2, 3]"),
+    ("写入表达式右值", "xs = [1, 2, 3]\nxs[1] = 10 + 20\n#1：[xs]\n", "[1, 30, 3]"),
+    ("别名可见（原位变异）", "xs = [1, 2]\nys = xs\nys[0] = 9\n#1：[xs, ys]\n",
+     "[[9, 2], [9, 2]]"),
+    ("嵌套容器写入", "m = [[1, 2], [3, 4]]\nm[1][0] = 30\n#1：[m]\n",
+     "[[1, 2], [30, 4]]"),
+    ("写入后读回", "xs = [1, 2, 3]\nxs[1] = 42\n#1：[xs[1]]\n", "42"),
+]
+
+
+@pytest.mark.parametrize("name,src,expected", _SET_INDEX_CASES,
+                         ids=[c[0] for c in _SET_INDEX_CASES])
+def test_set_index(name, src, expected):
+    assert _run(src) == (0, expected)
+
+
+@pytest.mark.parametrize("name,src,expected", _SET_INDEX_CASES,
+                         ids=[c[0] for c in _SET_INDEX_CASES])
+def test_set_index_matches_vm(name, src, expected):
+    """语句位下标赋值与 VM 逐案对齐（同一原位变异语义）。"""
+    assert _vm(src) == expected.split("\n") or _vm(src) == [expected]
+
+
+def test_set_index_oob_raises_catchable():
+    """下标赋值越界抛可捕获异常（对齐 Python IndexError 透传面）。"""
+    for expr in ("xs[9] = 1", "xs[-9] = 1"):
+        src = ('xs = [1, 2, 3]\ntry {\n  %s\n  输出("写入")\n} catch (e) {\n'
+               '  输出("越界")\n}\n' % expr)
+        assert _run(src) == (0, "越界"), expr
+
+
+def test_set_index_unsupported_type_message():
+    """不可下标容器的赋值错误文案与 VM 一致（索引操作不支持: {type}[{idx}]）。
+
+    注：赋值语句不得位于 try 块尾——块尾留值位 `x[0] = 1` 保持比较语义
+    （宿主/VM 既有边界），须尾随语句才发射 STORE_SUBSCRIPT。
+    """
+    for container, tag in (('"abc"', "str"), ("None", "NoneType")):
+        src = ('x = %s\ntry {\n  x[0] = 1\n  输出("写入")\n} catch (e) {\n'
+               '  输出(e)\n}\n' % container)
+        vm_out = _vm(src)
+        rc, out = _run(src)
+        assert rc == 0 and out in vm_out, (tag, out, vm_out)
+
+
+def test_set_dict_existing_key_in_place():
+    """字典命中键原位更新（缺键新增为登记分歧：原生 dict_put 函数式不可扩容）。"""
+    src = 'd = {"a": 1, "b": 2}\nd["a"] = 5\n#1：[d["a"], d["b"]]\n'
+    assert _run(src) == (0, "[5, 2]")
+    assert _vm(src) == ["[5, 2]"]
+
+
+def test_set_dict_new_key_honest_error():
+    """字典缺键写入原生端诚实报错（不静默假成功）。"""
+    src = ('d = {"a": 1}\ntry {\n  d["z"] = 9\n  输出("写入")\n} catch (e) {\n'
+           '  输出("拒绝")\n}\n')
+    assert _run(src) == (0, "拒绝")
+
+
+def test_set_index_in_place_sort_matches_vm():
+    """语料形态：原位交换（冒泡排序内核）与 VM 逐行一致。"""
+    src = ("xs = [3, 1, 2]\n"
+           "tmp = xs[0]\n"
+           "xs[0] = xs[1]\n"
+           "xs[1] = tmp\n"
+           "#1：[xs]\n")
+    assert _run(src) == (0, "[1, 3, 2]")
+    assert _vm(src) == ["[1, 3, 2]"]
+
+
 def test_string_index_oob_raises_catchable():
     """字符串索引越界抛可捕获异常（对齐 VM）。"""
     src = 'try {\n  #1：["abc"[9]]\n} catch (e) {\n  输出("越界")\n}\n输出("后")\n'

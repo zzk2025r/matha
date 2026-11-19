@@ -354,6 +354,12 @@ def conv(n):
     if t == "返回语句":
         return ast.ReturnStmt(value=conv(n["值"]))
 
+    if t == "跳出语句":
+        return ast.BreakStmt()
+
+    if t == "继续语句":
+        return ast.ContinueStmt()
+
     raise ValueError(f"未支持的 Matha 节点类型 {t!r}")
 
 

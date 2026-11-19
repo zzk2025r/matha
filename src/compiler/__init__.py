@@ -3,7 +3,9 @@ Matha 编译器框架 - 统一导出所有编译器组件
 
 这个包提供了：
 1. LLVM 后端 - LLVM IR 生成和 JIT 编译
-2. Pass 管理器 - 管理和执行优化遍（框架级，未接入 MBC 主线，见 KNOWN_ISSUES）
+2. Pass 管理器 - 管理和执行优化遍（MBC 字节码遍经 src/compiler/mbc_adapter.py
+   反向注册内核 exec_api 编译后钩子接入主线——opt-in 默认关：需显式 import
+   mbc_adapter 且 features MBC_PASSES 开；框架泛 IR 遍维持不碰 MBC 主线）
 3. 后端管理器 - 管理和执行多后端代码生成（Cranelift/WASM/EVM/Native 为诚实 stub）
 4. 自适应优化器 - 根据程序特征动态选择优化策略（ML 路径 sklearn 可选，默认规则路径）
 5. 分布式编译器 - 支持多节点协同编译（HTTP 面可选 aiohttp，本地面纯标准库）

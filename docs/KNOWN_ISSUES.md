@@ -2083,6 +2083,110 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   唯一例外）——已验证语言形态非缺陷；⑧Dijkstra距离 = 桩（resource/logic/advanced
   _math.matha:68 简化注释，返回初始化距离表）；⑨stdlib str(n) 数字专用（stdlib
   .matha:416；str_safe:456 兜底）。
+- **2026-11 阶段 29 收官（执行面双轨判据 + 自举链语言级缺陷真化 + 0x62 公式模式自举
+  贯穿 + 编译器框架接入 MBC 主线）**：四项拍板全走推荐项（①自举执行面全语料判据
+  ②自举链语言级缺陷真化 ③0x62 自举贯穿 ④框架接入 MBC 主线），缺失字典键语义
+  另拍板 vm→host 对齐（缺键返 null）。
+  **29b 自举链语言级缺陷真化（自举链三镜像双端对齐）**：①语句位下标赋值
+  `xs[i] = v` 真化——新指令码 0x64 STORE_SUBSCRIPT（指令码 34→35），宿主链
+  parser→mbc compiler→VM（原位变异/越界透传 IndexError/字典命中键原位更新）→
+  native（setitem_rt 五路错误）四执行体 + 自举链三镜像（parser.matha 解析 /
+  compiler_matha.matha 发射 / interp_matha.matha 执行语句设值 + stdlib.matha
+  原地设值 helper 族）；负下标回绕/嵌套容器/别名原位可见双面一致；28-①「语句位
+  下标赋值静默 no-op + 顶层位宿主比较归一 vs VM 静默分歧」整体退役
+  （test_mbc_bootstrap set_index_and_mutate 锁值 no-op→真变异 [[9,4],9]）。
+  ②lambda 字面量立即调用/链式 `((x)=>x*2)(21)`/`((a,b)=>a+b)(1)(2)` 自举面真
+  应用，分组非 lambda `(1+2)(3)` 双面诚实报错（28-② 退役；具名部分应用 f(1)(2)
+  与下标调用 表[0](21) 真可用形态维持对照锁）。③let 函数简写 `->` 可选（rec
+  简写/带类型简写/显式 lambda 体三支，宿主 3471 简写分支镜像入自举 parser）+
+  参数类型标注 `(y: Int) => …` 自举面 + 单 `=` 右值悬空关系运算符回退；带箭头
+  显式 lambda 体特例双端一致报未定义变量 'x'（值侧 lambda 只有自己的参数——
+  语言形态对照锁）。④零参闭包 `f()` 自举面 IndexError 真修（解析器 IntLit(0)
+  占位 arg，宿主/VM 忽略占位，自举 应用函数 补空参守卫）。⑤缺失字典键索引
+  vm→host 对齐（用户拍板）：`d["缺键"]` 返 null，VM KeyError 显式偏差解除，
+  host/VM/native 三执行体同语义（test_native_heap 注记勘误 +
+  test_os_kernel_phase27 头注 C 组缺失字典键分歧条目勘误 +
+  test_use_compile_phase21 boundary 锁双面文案逐字一致）。⑥错误文案归一：
+  MathaUndefinedNameError「未定义变量 'x'」vm.matha 与宿主一致（28-⑤ 退役）。
+  附带：lambda 体内单函数 let rec 双端真化（宿主+boot 120 值对拍，语句位 `[ ]`
+  输出追踪双记录语义正确——28-⑥ 单函数面退役；互相递归前向引用仍登记见下②）
+  + boot parser AST 对拍转换面补 跳出语句/继续语句 节点（test_parser_parity_
+  phase28 conv 面）。
+  **29c 0x62 公式模式自举贯穿**：宿主 ？占位符公式语法（`#1：？单价 * ？数量 =
+  ？总价` GenStmt + src/formula_schema 形状/渲染/槽位收集）贯穿自举四面——
+  parser.matha 占位符解析 → interp_matha.matha 生成语句支（env `__公式库__`
+  登记、命中不求值、异形诚实错）→ compiler_matha.matha 0x62 发射 → vm.matha
+  公式库槽（形状即身份归并、运行M3V 入口清零跨运行不污染、宿主 VM 每实例新库
+  同构）；test_selfhost_formula_phase29 17 项（L1 双面 helper 对拍/L2
+  stage2↔stage3 字节码对拍〔同形命中零码〕/L3 vm.matha 库面/L4 interp 面/L5
+  跨运行时公式库对拍——28-④「0x62 宿主编译器专有」退役）。
+  **29d 执行面双轨判据（拍板双轨制）**：A 轨 pytest 轻中档锁——test_selfhost_
+  exec_phase29 31 项（主码 P1-P13 boot↔host 逐值对拍：多输出/内建链式/空输出/
+  裸 Trail/for/while/函数值归一/嵌套内建）+ test_selfhost_language_phase29 14 项
+  （29b 六缺陷组 boot↔host↔VM² 三面同判）+ test_selfhost_matrix_phase29 3 项
+  （快照锁）+ 29c 17 项入常规门禁；B 轨重档 sweep——scripts/selfhost_matrix.py
+  225 语料 × 双运行时（boot 复用单解释器 + 宿主）多进程 workers=4 timeout=120
+  拒绝 --filter/--limit（可复现性），快照 docs/selfhost_matrix.json --check
+  门禁化。快照 225：双面一致 147 / boot_err_host_ok 61 / both_err 17 / timeout 0 /
+  双面 differ 0。61 分类：读取块 23 + 未找到模块 13 + 未定义变量 12 + 设值 6 +
+  try 4 + IndexError 3；both_err 17 = 错误测试语料双端如实报错 + boot 未支持
+  节点（结构体/枚举/属性/跳出/返回语句）+ Token 跨模块未找到 3 + parser 缺口 1；
+  matha/generated 六文件全 ok（登记不修见下⑤）。
+  **29e 编译器框架接入 MBC 主线（opt-in 默认关）**：方向反转——框架泛 IR 遍维持
+  不碰 MBC 主线，MBC 字节码遍经 src/compiler/mbc_adapter.py 反向注册内核 exec_api
+  编译后钩子接入主线：exec_api 纯钩子槽 set_compile_hook/get_compile_hook/
+  _apply_compile_hook（本体量 +32 行唯一增量），compile_module 为单一接线点
+  （run_checked/_run_mbc 经 compile_module 不重复施加；build_exe = compile_module
+  (source) + emit_exe(mod)，native.py 零改动）；双 Pass——字节码常量折叠
+  （PUSH_CONST+PUSH_CONST+BINOP 模式、跳转目标排除、池索引守卫、类型严格、定点
+  迭代；调用 VM 同一 _BINOPS/_UNARYOPS 求值故与运行期逐位一致，报错诚实保留
+  运行期路径）+ 字节码死代码消除（JMP/JZ/JNZ/RET/RAISE/RAISE_MATCH/HALT 可达性
+  BFS + 跳转重映射）；opt-in 默认关双保险（不 import mbc_adapter = 无钩子；
+  features MBC_PASSES 默认 False = 钩子自查直通）；五开关入册
+  （test_extension_system_phase23 known_states 4→5 键）；test_mbc_passes_phase29
+  30 项（A 组 subprocess 无钩子取证/B 组单遍单元/C 组 15 参数化 on/off 等价 +
+  全输出稳定）。
+  **29f 收官锁面**：四项旧锁诚实更新（零 src 改动）——test_bootstrap_host 三项
+  （29d 输出列表语义统一后 mb.interpret 返回 输出 语句行与宿主/VM 面同口径，
+  顶层裸表达式不再回显；算术/自定义算子经 输出() 通道 + strict=True 断言，空输入
+  诚实 []；旧「自举面无法执行用户函数/静默回退产生 [6]」注记为过时措辞勘误——
+  boot 面用户函数与 @define_op 求值早已落地）+ test_phase17_sweep 语句位下标读
+  边界锁随 29b 真化退役（boot 面不再抛「下标」错，与宿主表达式语句求值丢弃同形
+  ——双面静默一致新锁）。
+  **门禁**：run1 tests lane 4 红/7531 过 3428.76s——4 红全为锁漂移非产品缺陷（三
+  bootstrap_host 旧契约锁 + phase17 边界锁），锁面修复后两档复跑 65/65 + 9/9 绿；
+  quick lanes：kernel_purity 14 绿 + ast_vm_gap 11 绿（快照重生成：语料 230 不变、
+  78 节点/59 发射/19 无码/不认识 0/阻塞缺口 0/指令码 34→35 对应 0x64、解析失败
+  0）+ golden 39/39 + dep_audit 39 内核文件 189 import 边 0 违规；run2 全量 tests
+  lane **7535 过 + 1 skip 3398.32s** + native_parity 38/39（0 失败，native 已知
+  未实现 1 例不计分母）+ Track B selfhost_matrix --check 一致——全绿收官。
+  算术闭合：7638 过 = 7522（28 收官）+ 95（五新档 exec 31 + language 14 + formula
+  17 + mbc_passes 30 + matrix 3）+ 21（test_native 29b-① STORE_SUBSCRIPT 双面
+  2×8 参数化 + 5 固定）；7639 条件 = 7638 过 + 1 skip（平台 skip 承继）。
+  doc 同步：README（五开关 MBC_PASSES 注记 + 执行面双轨判据段 + 编译器框架接入段
+  + 测试文件 175）；ARCHITECTURE 本体量 32,827→32,859（+32 = 29e exec_api 钩子
+  槽；29b/29c 的 src/parser、src/interp、src/mbc/*、matha/*.matha 镜像与 scripts/
+  selfhost_matrix.py 不在 core_py_lines 口径的 src/ 五件之外——src/ 改动行均在
+  口径内见 numstat）+ 阶段 29 节 + 测试文件 175；CHANGELOG 阶段 29 条目；
+  ast_vm_gap 快照重生成（scripts/ast_vm_matrix.py --write 实跑）；
+  selfhost_matrix 快照生成 + --check 绿（scripts/selfhost_matrix.py --write）。
+  登记不修八条（2026-11-19 实测）：①原生端字典缺键写入诚实报错（dict_put 函数式
+  不可扩容；命中键原位更新可用——test_native docstring 登记）；②boot 面互相递归
+  let rec 前向引用（偶调奇）报未定义变量 '奇'——单函数 let rec 已真化（120 值
+  对拍），互相递归待函级提升；③boot 面跨文件 use 边界：模块 '词法器' 中未找到
+  'Token'（bootstrap_test/interp/nl_lexer 三语料）——boot 装载单模块不入跨模块
+  符号合并；④boot 面未支持节点：结构体/枚举/属性/跳出语句/返回语句（未知表达式
+  类型形态——data_structures/process_math/bootstrap_matha 等）；⑤B 轨登记不扩面：
+  读取块 23/未找到模块 13/设值 6/try 4/IndexError 3（明细见 docs/selfhost_matrix
+  .json——A 轨锁内窄化修复逐阶段推进，B 轨只锁快照一致）；⑥29e opt-in 边界：
+  MBC_PASSES 开启时跳入 BINOP 模式中段的跳转诚实跳过不折叠（保守正确优先）；
+  mbc_adapter 未 import 时零钩子零扰动（subprocess 取证锁）；⑦mb.interpret 输出
+  列表语义统一为 breaking 变更注记（旧「返回末语句值」契约退役；matha_engine
+  回退面随新口径，matha_main 主线早在 26a 前已改走 exec_api 不受影响）；⑧自举
+  func 定义仍必须 `->`（parser.matha 期望箭头——语言形态，与 28-③ 同源未变）；
+  28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
+  登记不修。
+
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

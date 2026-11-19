@@ -29,6 +29,7 @@ __all__ = [
     "run_file_checked", "run_expr_checked",
     "make_vm", "register_backend", "unregister_backend", "set_backend_enabled",
     "backend_info", "available_modes", "runnable_modes",
+    "set_compile_hook", "get_compile_hook",
     "list_domains", "domain_symbol_index",
 ]
 
@@ -44,6 +45,35 @@ _BACKENDS: dict[str, _BackendEntry] = {}
 
 _MODE_MBC = "vm"      # 唯一主线：mbc 字节码 VM
 _MODE_NATIVE = "native"
+
+# ============================================================
+# 编译后钩子槽（29e：编译器框架字节码遍的接入点）
+# ============================================================
+
+#: (MBC 模块) -> MBC 模块。内核不 import 任何编译器框架（src.compiler 属
+#: dep_audit 棘轮遗留面，内核引用即棘轮新增违规）——接入方向反转：适配器
+#: src/compiler/mbc_adapter.py 被显式 import 时经 set_compile_hook 反向注册。
+#: 缺省 None = 不挂钩，编译产物原样交 VM（默认关）。开关面见 features
+#: MBC_PASSES（第二道保险：钩子内部自查，import 而开关关 = 关）。
+_compile_hook: Callable | None = None
+
+
+def set_compile_hook(fn: Callable | None) -> None:
+    """注册/清除编译后钩子（fn=None 清除）。重复注册以最后一次为准。"""
+    global _compile_hook
+    _compile_hook = fn
+
+
+def get_compile_hook() -> Callable | None:
+    """当前编译后钩子（诊断面）。"""
+    return _compile_hook
+
+
+def _apply_compile_hook(module):
+    """钩子非空则过钩子，否则原样返回。钩子异常如实上抛（不吞）。"""
+    if _compile_hook is None:
+        return module
+    return _compile_hook(module)
 
 
 # ============================================================
@@ -199,16 +229,18 @@ def compile_module(source: str, *, plugins: str = "auto"):
         index, aliases = plugin_wiring()
     elif plugins not in ("auto", "off"):
         raise ValueError(f"未知 plugins 模式 {plugins!r}（auto | strict | off）")
-    return compile_source(source, plugin_index=index, domain_aliases=aliases)
+    return _apply_compile_hook(compile_source(source, plugin_index=index, domain_aliases=aliases))
 
 
 def build_exe(source: str, out_path: str | Path) -> Path:
     """走 `mbc.native` 发射机器码并写入可执行文件（唯一真实的机器码路径）。
 
     没有实现“模拟成功”：发射失败时直接抛出，不伪装成已编译。
+    经 compile_module 编译（含编译后钩子，与执行面同一管线），发射面只吃模块。
     """
-    from src.mbc.native import compile_to_exe
-    exe = compile_to_exe(source)
+    from src.mbc.native import emit_exe
+    mod = compile_module(source)
+    exe = emit_exe(mod)
     out = Path(out_path)
     out.write_bytes(exe)
     return out

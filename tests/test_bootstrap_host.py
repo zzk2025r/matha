@@ -46,35 +46,43 @@ def test_bootstrap_run_ast_is_callable_closure(boot):
 
 
 def test_bootstrap_interpret_arithmetic(boot):
-    """自举解释器执行算术表达式。"""
-    out, _ = mb.interpret("3 + 5")
+    """自举解释器执行算术表达式（29d 输出列表语义统一）。
+
+    mb.interpret 返回 输出 语句行（与宿主/VM 面同口径）——顶层裸表达式
+    不再回显；算术能力经 输出() 通道断言，strict=True 关闭静默回退，
+    证明由自举解释器真实执行。
+    """
+    out, _ = mb.interpret("输出(3 + 5)", strict=True)
     assert out == [8], out
-    out, _ = mb.interpret("2 * (3 + 4)")
+    out, _ = mb.interpret("输出(2 * (3 + 4))", strict=True)
     assert out == [14], out
-    print("  ✓ 自举解释 3+5→8 / 2*(3+4)→14")
+    print("  ✓ 自举解释 输出(3+5)→[8] / 输出(2*(3+4))→[14]")
 
 
 def test_bootstrap_interpret_custom_op(boot):
     """自举解释器执行自定义运算符（@define_op 绑定具名函数，f(l)(r) 两参调用）。
 
-    实测：自举解释器路径当前无法执行用户函数（`func 孪加(...)` → 未定义变量
-    'a'；自举 parser 对 `f = (a) => a + 1` 甚至死循环），故 mb.interpret 实际
-    **静默回退**到 Python 解释器；此处的 [6] 由回退路径产生（Python 解释器会
-    回显顶层裸二元表达式的值，与 MBC/VM 不同——详见 tests/test_new_features.py:82）。
+    自举面可执行用户函数与自定义算子（@define_op 求值分支早已落地，见
+    CHANGELOG「用户自定义运算符：原生端 + 自托管端可用」节）；旧 docstring
+    「无法执行用户函数 / 静默回退产生 [6]」为过时措辞，本轮勘误。29d 输出
+    列表语义统一——经 输出() 通道断言取值，strict=True 不静默回退。
     """
     out, _ = mb.interpret(
         "func 孪加(a: Int, b: Int) -> Int = (a, b) => a + b + 1\n"
         "@define_op: ∝ = 5 | left => 孪加\n"
-        "2 ∝ 3\n")
+        "输出(2 ∝ 3)\n", strict=True)
     assert out == [6], out
-    print("  ✓ 自举解释自定义运算符 2 ∝ 3 → 6")
+    print("  ✓ 自举解释自定义运算符 输出(2 ∝ 3) → [6]")
 
 
 def test_bootstrap_interpret_empty(boot):
-    """空输入：自举路径返回 [None]（区别于 Python 路径的 []）。"""
-    out, _ = mb.interpret("")
-    assert out == [None], out
-    print("  ✓ 空输入 → [None]")
+    """空输入：无 输出 语句 → 诚实空列表（29d 输出列表语义统一）。
+
+    旧 [None] 末语句值回显随输出列表口径退役（宿主/VM/自举三面同形）。
+    """
+    out, _ = mb.interpret("", strict=True)
+    assert out == [], out
+    print("  ✓ 空输入 → 诚实 []")
 
 
 def test_bootstrap_syntax_error_is_reported(boot):

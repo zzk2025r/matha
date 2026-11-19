@@ -443,8 +443,9 @@ class Compiler:
                 isinstance(decl, ast.BinaryOp) and decl.op != "="):
             # 顶层裸算术/一元表达式（如 1 + 2、-3、~5）：与解释器一致发射其值。
             # 此前走兜底「求值后 POP 丢弃」，matha run 文件面静默吞输出（阶段 15a）。
-            # `=` 赋值形态（顶层下标赋值 s[0] = 9 解析为 BinaryOp("=")，现为
-            # 双端 no-op 契约）不发射，仍走兜底 POP；自举编译器镜像同构。
+            # `=` 赋值形态由 else 兜底 _compile_stmt 的语句位赋值分支发射
+            # （29b-① 真化：顶层 `甲[0] = 9` 原位写入不产输出；自举编译器
+            # 镜像同构）。
             self._emit_expr(decl, _Scope(None, is_main=True), code)
             code.append((OP.OUTPUT,))
         elif isinstance(decl, (ast.IfStmt, ast.IfElseStmt, ast.WhileStmt, ast.ForStmt,
@@ -583,6 +584,25 @@ class Compiler:
             if _ext_rule is not None:
                 _ext_rule(self, node, scope, code)
                 return
+            if isinstance(node, ast.BinaryOp) and node.op == "=" and \
+                    isinstance(node.left, (ast.Variable, ast.IndexExpr)):
+                # 语句位裸赋值（宽容消解语句语境，29b-① 下标形态真化）：
+                # 顶层/未知语境的 `xs[i] = v` / `名 = v` 按赋值发射，不再
+                # 落兜底「求值后 POP」静默丢弃。变量形态顶层极少出现
+                # （parser 顶层产 Binding），此处对齐宿主 _exec_stmt 语义。
+                if isinstance(node.left, ast.IndexExpr):
+                    self._emit_expr(node.left.container, scope, code)
+                    self._emit_expr(node.left.index, scope, code)
+                    self._emit_expr(node.right, scope, code)
+                    code.append((OP.STORE_SUBSCRIPT,))
+                else:
+                    self._emit_expr(node.right, scope, code)
+                    if scope.binds_global:
+                        code.append((OP.STORE_GLOBAL, self.sconst(node.left.name)))
+                    else:
+                        slot = self._declare_slot(scope, node.left.name)
+                        code.append((OP.STORE_LOCAL, slot))
+                return
             # 裸表达式语句：求值后丢弃
             self._emit_expr(node, scope, code)
             code.append((OP.POP,))
@@ -624,15 +644,19 @@ class Compiler:
         （函数体/tail 表达式语义）；否则块编译后栈平衡。
 
         宽容消解：语句位置的 `var = expr`（parser 在 lambda 体内产出
-        BinaryOp("=") 比较）按槽位赋值编译（首次出现即声明局部槽）。
-        表达式内部的 =（如三元条件）仍是相等比较。"""
+        BinaryOp("=") 比较）按槽位赋值编译（首次出现即声明局部槽）；
+        `xs[i] = expr`（29b-①）按下标赋值编译（容器/下标/右值入栈后
+        STORE_SUBSCRIPT 原位写入）。表达式内部的 =（如三元条件）仍是
+        相等比较；块尾留值位两形态均保持比较语义（同宿主边界）。"""
         stmts = block.stmts
         n = len(stmts)
         for i, s in enumerate(stmts):
             last = (i == n - 1)
             is_stmt = isinstance(s, self._STMT_NODES)
-            is_assign = (not is_stmt and isinstance(s, ast.BinaryOp)
-                         and s.op == "=" and isinstance(s.left, ast.Variable))
+            is_bare_assign = (not is_stmt and isinstance(s, ast.BinaryOp)
+                              and s.op == "=")
+            is_assign = (is_bare_assign and isinstance(s.left, ast.Variable))
+            is_sub_assign = (is_bare_assign and isinstance(s.left, ast.IndexExpr))
             if is_assign and not (last and leave_last):
                 self._emit_expr(s.right, scope, code)
                 if scope.binds_global:
@@ -640,6 +664,12 @@ class Compiler:
                 else:
                     slot = self._declare_slot(scope, s.left.name)
                     code.append((OP.STORE_LOCAL, slot))
+            elif is_sub_assign and not (last and leave_last):
+                # 29b-①：语句位下标赋值（栈序：容器、下标、右值）。
+                self._emit_expr(s.left.container, scope, code)
+                self._emit_expr(s.left.index, scope, code)
+                self._emit_expr(s.right, scope, code)
+                code.append((OP.STORE_SUBSCRIPT,))
             elif last and leave_last and isinstance(s, self._VALUE_STMTS):
                 # try / if / match / switch / 输出 作为块尾表达式：
                 # 分支值或输出值即块值（见 _emit_if_try_value）

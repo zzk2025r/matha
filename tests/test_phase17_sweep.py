@@ -265,8 +265,13 @@ class TestDeadArtifactsPurged:
 class TestRegisteredBoundariesMaintained:
     """维持登记的良性边界（现状锁，防漂移）。"""
 
-    def test_bootstrap_subscript_boundary_unchanged(self):
-        """自举链用户源码下标求值维持登记边界（8a 登记，主解析器 only 口径）。"""
+    def test_bootstrap_subscript_statement_read_dual_face(self):
+        """语句位下标读 `xs[0]` = 表达式语句求值丢弃——自举/宿主双面静默一致。
+
+        8a 旧登记「自举链语句位下标求值报错（主解析器 only 口径）」随 29b
+        语句位下标面真化退役：boot 面不再抛错，与宿主面（run_checked 静默
+        无错）同形；下标赋值 a[i]=v 由 29b STORE_SUBSCRIPT 真化（见 29b 锁）。
+        """
         try:
             import src.matha_bootstrap as mb
             interp = mb._get_interp()
@@ -278,6 +283,8 @@ class TestRegisteredBoundariesMaintained:
         ast_d = interp.call("parse", toks)
         mod = interp.modules["解释器"]
         env = interp._call_func_or_closure(mod["注册内建"], [[]])
-        with pytest.raises(Exception) as exc:
-            interp._call_func_or_closure(mod["执行语句"], [ast_d, env])
-        assert "下标" in str(exc.value)
+        r_env = interp._call_func_or_closure(mod["执行语句"], [ast_d, env])
+        assert isinstance(r_env, tuple) and len(r_env) == 2  # 静默求值丢弃，不抛错
+        from src.kernel import exec_api
+        outs, err = exec_api.run_checked("let xs = [1, 2]\nxs[0]")
+        assert err is None and outs == [], (outs, err)

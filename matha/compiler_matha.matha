@@ -18,7 +18,7 @@ module 编译器 {
 
   use 词法器 { tokenize }
   use 语法器 { parse }
-  use 标准库 { list_set_at | matha_type_of }
+  use 标准库 { list_set_at | matha_type_of | 公式_含槽 | 公式_形状 | 公式_渲染 | 公式_收集槽位 | 公式_登记 | 公式_匹配 }
 
   (* ===== M3V 操作码（与 src/mbc/opcodes.py 一致）===== *)
   let OP_PUSH_CONST = 0x01
@@ -52,9 +52,15 @@ module 编译器 {
   let OP_POP = 0x59
   let OP_OUTPUT = 0x60
   let OP_RAISE  = 0x61
+  (* 公式模式静态元数据（29c，vm.FORMULA_SCHEMA 0x62）：[段号, 文本, 形状, 槽位表]
+     整条常量化一次登记；宿主 _emit_formula_schema 同构 *)
+  let OP_FORMULA_SCHEMA = 0x62
   (* 弹出被匹配值 → 抛出「match 无匹配分支: <渲染值>」（vm.RAISE_MATCH 0x63，
      消息渲染由 VM 端 _fmt_match_value 完成，镜像只发射操作码） *)
   let OP_RAISE_MATCH = 0x63
+  (* 语句位下标赋值（29b-①，vm.STORE_SUBSCRIPT 0x64）：容器、索引、右值
+     依次入栈后原位写入；块尾留值位仍走比较半面（宿主同边界） *)
+  let OP_STORE_SUBSCRIPT = 0x64
   let OP_HALT   = 0xFF
 
   let 二元运算表 = {
@@ -78,16 +84,28 @@ module 编译器 {
   (* "元数表" 用 dict_from_pairs([]) 而非字面 {}：宿主 parser 把 {} 解析为
      SetConstruct("enumeration")（空集合），而非空字典；字面 {} 会让元数表在
      运行时变成列表，并使自举产物比宿主多/少常量。 *)
-  func _新bc() -> Dict = {"常量": [], "函数": [], "计数": 0, "元数表": dict_from_pairs([])}
+  func _新bc() -> Dict = {"常量": [], "函数": [], "计数": 0, "元数表": dict_from_pairs([]), "循环栈": [], "公式库": []}
 
+  (* 循环栈（29b-⑦ break/continue）：帧形态 [跳出位列表, 继续位列表]，
+     镜像宿主 self._loops 栈 [{"brk": [], "cont": []}]。while/for 体发射前
+     _推循环帧，break/continue 记入栈顶帧（bc 不可变故按值重建），收尾
+     _补丁列表跳转 后 _弹循环帧。bc 的六个重建函数必须携带此键。
+     公式库（29c）：编译期 ？ 模式库（宿主 self.formulas 同构），含槽
+     生成语句登记进 bc["公式库"]，后续具体公式按其判定命中（零字节码）。 *)
   func _bc常量(bc: Dict, 常量: List) -> Dict =
-    {"常量": 常量, "函数": bc["函数"], "计数": bc["计数"], "元数表": bc["元数表"]}
+    {"常量": 常量, "函数": bc["函数"], "计数": bc["计数"], "元数表": bc["元数表"], "循环栈": bc["循环栈"], "公式库": bc["公式库"]}
   func _bc函数(bc: Dict, 函数: List) -> Dict =
-    {"常量": bc["常量"], "函数": 函数, "计数": bc["计数"], "元数表": bc["元数表"]}
+    {"常量": bc["常量"], "函数": 函数, "计数": bc["计数"], "元数表": bc["元数表"], "循环栈": bc["循环栈"], "公式库": bc["公式库"]}
   func _bc计数(bc: Dict, n: Int) -> Dict =
-    {"常量": bc["常量"], "函数": bc["函数"], "计数": n, "元数表": bc["元数表"]}
+    {"常量": bc["常量"], "函数": bc["函数"], "计数": n, "元数表": bc["元数表"], "循环栈": bc["循环栈"], "公式库": bc["公式库"]}
   func _bc元数表(bc: Dict, 表: Dict) -> Dict =
-    {"常量": bc["常量"], "函数": bc["函数"], "计数": bc["计数"], "元数表": 表}
+    {"常量": bc["常量"], "函数": bc["函数"], "计数": bc["计数"], "元数表": 表, "循环栈": bc["循环栈"], "公式库": bc["公式库"]}
+  func _bc循环栈(bc: Dict, 栈: List) -> Dict =
+    {"常量": bc["常量"], "函数": bc["函数"], "计数": bc["计数"], "元数表": bc["元数表"], "循环栈": 栈, "公式库": bc["公式库"]}
+  func _bc公式库(bc: Dict, 库: List) -> Dict =
+    {"常量": bc["常量"], "函数": bc["函数"], "计数": bc["计数"], "元数表": bc["元数表"], "循环栈": bc["循环栈"], "公式库": 库}
+  func _推循环帧(bc: Dict) -> Dict = _bc循环栈(bc, [[[], []]] + bc["循环栈"])
+  func _弹循环帧(bc: Dict) -> Dict = _bc循环栈(bc, bc["循环栈"][1:])
 
   (* 预扫描顶层函数元数：仅 顶层函数定义 入表（模块内嵌的也算），
      lambda 不在表内，故无需再按 __lam_ 前缀排除。
@@ -319,7 +337,8 @@ module 编译器 {
      与宿主 _compile_top_decl 显式分支同构：matha run 文件面发射 1 + 2、-3、~5
      的值。仅顶层 decl 位（程序主码 / 模块内非函数声明）走本包装；块尾
      （_发射块末条）/生成语句链/let-body 等语句位宿主仍 POP，故 _编译声明
-     兜底不动；`s[0] = 9` 等 "=" 形态保持双端 no-op 契约。 *)
+     兜底不动；`=` 形态经 _编译声明 语句位赋值分支发射（29b-① 下标赋值
+     真化，原双端 no-op 契约解除）。 *)
   func _编译顶层声明(decl: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
     (* 体不得以 `(` 开头：func-def 解析器把 `= (a, b) =>` 贪婪当 lambda
@@ -412,6 +431,21 @@ module 编译器 {
         (_发(_发(code, [OP_PUSH_NULL]), [OP_RET]), sc, bc) :
         let (cr, scr, bcr) = _发射表达式(decl["值"], code, _重置主作用域计数(sc), bc) in
         (_发(cr, [OP_RET]), scr, bcr) :
+    (* break/continue（29b-⑦）：宿主 _compile_stmt BreakStmt/ContinueStmt——
+       JMP 0 占位记入循环帧栈顶，while/for 收尾补跳；循环外宿主抛
+       RuntimeError，自举侧诚实报错。 *)
+    decl["类型"] = "跳出语句" ?
+      bc["循环栈"] = [] ?
+        错误("自举编译器：break 出现在循环之外") :
+        let 帧 = bc["循环栈"][0] in
+        let bc2 = _bc循环栈(bc, [[帧[0] + [len(code)], 帧[1]]] + bc["循环栈"][1:]) in
+        (_发(code, [OP_JMP, 0]), sc, bc2) :
+    decl["类型"] = "继续语句" ?
+      bc["循环栈"] = [] ?
+        错误("自举编译器：continue 出现在循环之外") :
+        let 帧 = bc["循环栈"][0] in
+        let bc2 = _bc循环栈(bc, [[帧[0], 帧[1] + [len(code)]]] + bc["循环栈"][1:]) in
+        (_发(code, [OP_JMP, 0]), sc, bc2) :
     (* 语句位 `名 = 值`（parser 在 lambda/函数体内产 BinaryOp("=") 比较——
        宿主 _in_lambda_body 特例）：宿主 _emit_block 宽容消解按槽位赋值
        编译（首次出现即声明局部槽；main 作用域写全局）。表达式内部的 =
@@ -425,6 +459,15 @@ module 编译器 {
         (_发(c2, [OP_STORE_GLOBAL, idx]), sc2, bc3) :
         let (sc3, slot) = _绑定槽(sc2, decl["左"]["名"]) in
         (_发(c2, [OP_STORE_LOCAL, slot]), sc3, bc2) :
+    (* 语句位 `xs[i] = 值`（29b-①：parser 产 BinaryOp("=") 下标形态）：容器/
+       索引/右值依次入栈后 STORE_SUBSCRIPT 原位写入，不产输出。块尾留值位
+       经 _编译声明是语句 直达 _发射表达式，仍为相等比较（宿主同边界）。 *)
+    (decl["类型"] = "二元运算" and decl["运算符"] = "=" and
+     decl["左"]["类型"] = "下标") ?
+      let (c1, sc1, bc1) = _发射表达式(decl["左"]["容器"], code, _重置主作用域计数(sc), bc) in
+      let (c2, sc2, bc2) = _发射表达式(decl["左"]["索引"], c1, sc1, bc1) in
+      let (c3, sc3, bc3) = _发射表达式(decl["右"], c2, sc2, bc2) in
+      (_发(c3, [OP_STORE_SUBSCRIPT]), sc3, bc3) :
     (* 其余视为裸表达式语句：求值后丢弃。顶层裸二元/一元运算的发射
        （阶段 15a）在 _编译顶层声明 包装层做——本兜底同时被块尾
        （_发射块末条）/生成语句链复用，那些语句位宿主仍 POP。 *)
@@ -473,7 +516,22 @@ module 编译器 {
 
   func _编译生成语句链(n: Dict, code: List, sc: List, bc: Dict)
       -> (List, List, Dict) =
-    n["类型"] = "生成语句" ? _编译生成语句链(n["content"], code, sc, bc) :
+    n["类型"] = "生成语句" ?
+      公式_含槽(n["content"]) ?
+        (* 29c：#N：？公式 → 登记 + 0x62 静态元数据（宿主 _emit_formula_schema）。
+           槽不可求值不能走 _发射表达式（运行期查变量表 KeyError）；元数据整条
+           常量化后 VM register_meta 登记，三端行为一致。meta 槽位三元组
+           [序, 名, 显] 与宿主 (ordinal, name, display) 同构。 *)
+        let 登记态 = 公式_登记(bc["公式库"], n["content"], n["段号"]) in
+        let meta = [n["段号"], 公式_渲染(n["content"]), 公式_形状(n["content"]),
+                    公式_收集槽位(n["content"])] in
+        let (cidx, bc1) = _加常量(bc, meta) in
+        (_发(code, [OP_FORMULA_SCHEMA, cidx]), sc, _bc公式库(bc1, 登记态[0])) :
+      公式_匹配(bc["公式库"], n["content"]) != [] ?
+        (* 具体公式命中已登记模式：按格式统一，不求值不发射（宿主
+           _log_formula_match 零字节码；诊断面 bootstrap 无报告物，登记不修） *)
+        (code, sc, bc) :
+      _编译生成语句链(n["content"], code, sc, bc) :
     n["类型"] = "输出追踪" ? _编译生成语句链(n["输出"], code, sc, bc) :
     (* >> 链式：宿主 _compile_stmt ChainStmt 分支——逐条编译（同一作用域，不重置） *)
     n["类型"] = "链式语句" ? _编译链式(n["语句"], code, sc, bc) :
@@ -867,8 +925,25 @@ module 编译器 {
        decl["类型"] = "try" ? _发射try(decl, code, sc, bc) :
        decl["类型"] = "match" ? _发射match(decl, code, sc, bc, 真) :
        decl["类型"] = "switch" ? _发射switch(decl, code, sc, bc, 真) :
+       (* 29b-⑥：块尾 输出/输出追踪 是宿主 _VALUE_STMTS 成员（_emit_if_try_value
+          Output 分支）——执行输出并把被输出的值留在栈上作块值（DUP 保底，
+          不补 PUSH_NULL）；生成语句/机械单元 不在其列，仍语句+PUSH_NULL。 *)
+       ((decl["类型"] = "输出") or (decl["类型"] = "输出追踪")) ?
+         _发射块末输出(decl, code, sc, bc) :
        _编译声明是语句(decl, code, sc, bc)) :
       _编译声明(decl, code, sc, bc)
+
+  (* 块尾输出值语句：宿主 _emit_if_try_value Output/OutputTrail 分支同构。
+     输出追踪取内层 输出；expr 非 空输出 → 表达式 + DUP + OUTPUT（块值 =
+     被输出的值）；空输出 → 语句编译（noop）+ PUSH_NULL（宿主 else 支）。 *)
+  func _发射块末输出(n: Dict, code: List, sc: List, bc: Dict)
+      -> (List, List, Dict) =
+    let inner = n["类型"] = "输出追踪" ? n["输出"] : n in
+    inner["expr"]["类型"] = "空输出" ?
+      let (c2, sc2, bc2) = _编译声明(n, code, sc, bc) in
+      (_发(c2, [OP_PUSH_NULL]), sc2, bc2) :
+      let (c2, sc2, bc2) = _发射表达式(inner["expr"], code, sc, bc) in
+      (_发(_发(c2, [OP_DUP]), [OP_OUTPUT]), sc2, bc2)
 
   (* 末条为语句但块需留值 → 编译语句后补 NULL *)
   func _编译声明是语句(decl, code, sc, bc) -> (List, List, Dict) =
@@ -907,6 +982,9 @@ module 编译器 {
     (* 宿主 _STMT_NODES 含 ReturnStmt：块末留值时走语句路径（值 + RET），
        再补 PUSH_NULL（return 后代码不可达，形态对齐即可）。 *)
     (t = "返回语句") or
+    (* 宿主 _STMT_NODES 含 BreakStmt/ContinueStmt（29b-⑦）：块末留值时走
+       语句路径（JMP 占位记帧），再补 PUSH_NULL；循环外由 _编译声明 报错。 *)
+    (t = "跳出语句") or (t = "继续语句") or
     (* 宿主 _STMT_NODES 含 GoStmt：块末留值时走语句路径（expr+POP），
        再由 _emit_block 的 leave_last 尾巴补 PUSH_NULL（与 go 尾句一致）。 *)
     (t = "go") or
@@ -1444,16 +1522,21 @@ module 编译器 {
     (_发(c2, [OP_STORE_LOCAL, slots[0]]), rest)
 
   (* ===== while ===== *)
+  (* break/continue（29b-⑦）：体发射前推循环帧，收尾补跳——宿主 _emit_while_stmt
+     同序：JMP top → 补 JZ 出口 → 跳出位补 JMP len(出口后) → 继续位补 JMP top。 *)
   func _编译while(e: Dict, code: List, sc: List, bc: Dict, 留值: Bool)
       -> (List, List, Dict) =
     let top = len(code) in
     let (c1, sc1, bc1) = _发射表达式(e["条件"], code, sc, bc) in
     let jz = len(c1) in
     let c2 = _发(c1, [OP_JZ, 0]) in
-    let (c3, sc2, bc2) = _发射体(e["体"], c2, sc1, bc1, 假) in
+    let (c3, sc2, bc3) = _发射体(e["体"], c2, sc1, _推循环帧(bc1), 假) in
     let c4 = _发(c3, [OP_JMP, top]) in
     let c5 = _补丁(c4, jz, [OP_JZ, len(c4)]) in
-    (留值 ? _发(c5, [OP_PUSH_NULL]) : c5, sc2, bc2)
+    let 帧 = bc3["循环栈"][0] in
+    let c6 = _补丁列表跳转(c5, 帧[0], len(c4)) in
+    let c7 = _补丁列表跳转(c6, 帧[1], top) in
+    (留值 ? _发(c7, [OP_PUSH_NULL]) : c7, sc2, _弹循环帧(bc3))
 
   (* ===== for：迭代槽 + 索引槽（main 作用域用全局临时名）=====
      位置描述 ["l", 槽位] 或 ["g", 常量索引]（全局名已入常量池） *)
@@ -1546,9 +1629,10 @@ module 编译器 {
       _查元数(bcd["元数表"], "get") = 2 ? _get齐参(c7, i位置, bcf) : _get逐步(c7, i位置, bcf)
     in
     let (cb, bch) = _存临时(v位置, ca, bcg) in
-    (* 循环体（栈平衡）*)
-    let (cc, sc2, bci) = _发射体(e["体"], cb, sc, bch, 假) in
+    (* 循环体（栈平衡）；break/continue（29b-⑦）经 _推循环帧 记入本循环帧 *)
+    let (cc, sc2, bci) = _发射体(e["体"], cb, sc, _推循环帧(bch), 假) in
     (* i += 1 *)
+    let inc位置 = len(cc) in
     let (cd, bcj) = _压临时(cc, i位置, bci) in
     let (oneidx, bck) = _加常量(bcj, 1) in
     let ce = _发(cd, [OP_PUSH_CONST, oneidx]) in
@@ -1556,7 +1640,13 @@ module 编译器 {
     let cf = _发(ce, [OP_BINOP, plusidx]) in
     let (cg, bcm) = _存临时(i位置, cf, bcl) in
     let ch = _发(cg, [OP_JMP, top]) in
-    (_补丁(ch, jz, [OP_JZ, len(ch)]), bcm)
+    let ch2 = _补丁(ch, jz, [OP_JZ, len(ch)]) in
+    (* 宿主 _emit_for_stmt 收尾序：跳出位 → 出口，继续位 → inc位置
+       （跳回 top 会死循环——增量被跳过） *)
+    let 帧 = bci["循环栈"][0] in
+    let ch3 = _补丁列表跳转(ch2, 帧[0], len(ch2)) in
+    let ch4 = _补丁列表跳转(ch3, 帧[1], inc位置) in
+    (ch4, _弹循环帧(bcm))
 
   (* 临时位置访问：全局形态每次访问都重新入池（与宿主 _load_temp/_store_temp
      逐次 sconst 同构），故需回传新 bc。 *)

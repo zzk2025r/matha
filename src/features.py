@@ -15,6 +15,10 @@
     且块（作为 lambda 体时）拥有独立子作用域，从而原生支持多语句函数体与循环。
   - ``PARSE_CACHE``：进程内解析缓存（按「源码 + 开关状态 + 自定义运算符版本」
     命中 LRU，上限 32 条），默认关闭。
+  - ``MBC_PASSES``：编译器框架字节码遍接入 MBC 主线（29e）——显式 import
+    ``src.compiler.mbc_adapter``（注册编译后钩子）且本开关开启时，编译产物
+    过字节码常量折叠/死代码消除遍再交 VM。双保险 opt-in：未 import = 关；
+    import 而开关关 = 关。默认关闭。
 """
 from __future__ import annotations
 
@@ -29,7 +33,7 @@ _overrides: dict[str, bool] = {}
 #: 全部已知开关 → 默认值（单源；matha features 查询面与此对齐——旧形态只列
 #: SCOPED_BLOCKS，STACK_ENGINE/INLINE_CACHE 存在却不出现在查询面，属诚实化缺口）
 DEFAULTS = {"SCOPED_BLOCKS": False, "STACK_ENGINE": False, "INLINE_CACHE": True,
-            "PARSE_CACHE": False}
+            "PARSE_CACHE": False, "MBC_PASSES": False}
 KNOWN_FEATURES = tuple(DEFAULTS)
 
 
@@ -125,5 +129,11 @@ def parse_cache() -> bool:
     return is_enabled("PARSE_CACHE", default=False)
 
 
+def mbc_passes() -> bool:
+    """MBC_PASSES：编译器框架字节码遍接入 MBC 主线（默认关闭，需 import mbc_adapter）。"""
+    return is_enabled("MBC_PASSES", default=False)
+
+
 __all__ = ["KNOWN_FEATURES", "known_states", "state_tuple", "is_enabled", "set_feature",
-           "clear_feature", "scoped_blocks", "stack_engine", "inline_cache", "parse_cache"]
+           "clear_feature", "scoped_blocks", "stack_engine", "inline_cache", "parse_cache",
+           "mbc_passes"]

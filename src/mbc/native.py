@@ -149,7 +149,8 @@
     （消息同 VM：list/string index out of range / 属性访问失败）。
 
 已知与 VM 的显式语义偏差（tests/test_native_heap.py 中登记）：
-  缺失字典键索引 → 原生返回 None（VM 抛 KeyError）。
+  缺失字典键索引 → 原生返回 None——29b-④ 起 VM 字典缺键亦返 null（host
+    dict.get / native dict_get / vm INDEX_GET 三执行体同语义），偏差解除。
 闭包运行模型：
   - 环境寄存器 R13 承载「当前调用环境记录」；每个函数序言把它存入
     [rbp - 8*(nlocals+1)]（env 槽），MAKE_CLOSURE/LOAD_OUTER 均从该槽复载。
@@ -3225,6 +3226,120 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.label_here("ld_ret")
     em.emit(b"\x41\x5F\x41\x5E\x41\x5D\x41\x5C\x5B")  # pop r15;r14;r13;r12;rbx
     em.emit(b"\xC3")                                  # ret
+
+    # ---- setitem_rt(rax=容器, rcx=下标, rdx=右值) → 原位写入（29b-①）----
+    # 对齐 vm.py STORE_SUBSCRIPT `c[idx] = val`（宿主 _assign_subscript 同语义）：
+    # 列表原位写（负下标回绕，越界 IndexError 透传，消息同 Python 赋值面）；
+    # 字典命中键原位更新；其余容器（str/int/None/闭包等）→ 领域错误，文案
+    # 对齐 VM TypeError→MathaRuntimeError 面「索引操作不支持: {type}[{idx}]」。
+    # 字典缺键诚实报错：原生端 dict_put 为函数式（返回新字典），调用点的旧
+    # 引用无法换绑，不能像 VM 那样原位扩容（登记分歧，语料未用）。
+    em.label_here("setitem_rt")
+    em.emit(b"\x41\x55\x41\x56\x41\x57\x53")        # push r13;r14;r15;rbx
+    em.mov_rr(13, 0)                                # r13=容器
+    em.mov_rr(14, 1)                                # r14=下标
+    em.mov_rr(15, 2)                                # r15=右值
+    em.mov_rr(1, 13)
+    em.lea_rip(2, "heap_base")
+    em.sub_rr(1, 2)
+    em.cmp_heap_used(1)
+    em.jcc_rel32(0x83, "si_scalar")                 # jae 非堆（裸整数容器）→ 领域错误
+    em.mov_rd_mem(1, 13, 0)                         # rcx=[容器] 类型
+    em.cmp_ri(1, TYPE_LIST)
+    em.jcc_rel32(0x84, "si_list")
+    em.cmp_ri(1, TYPE_DICT)
+    em.jcc_rel32(0x84, "si_dict")
+    em.jcc_rel32(None, "si_usup")                   # 其余堆对象 → 按类型名领域错误
+    em.label_here("si_list")
+    em.mov_rd_mem(8, 13, 8)                         # r8=n
+    em.test_rr(14, 14)                              # test 下标,下标
+    em.jcc_rel32(0x88, "si_neg")                    # js → 负下标
+    em.cmp_rr(14, 8)                                # cmp 下标,n
+    em.jcc_rel32(0x83, "si_oob")                    # jae ≥n → 越界
+    em.mov_mem_r_idx(13, 15, 16, 14, 8)             # [容器+下标*8+16]=右值
+    em.jcc_rel32(None, "si_ret")
+    em.label_here("si_neg")
+    em.mov_rr(1, 14)
+    em.emit(b"\x48\xF7\xD9")                        # neg rcx → k=|下标|
+    em.cmp_rr(1, 8)                                 # cmp k,n
+    em.jcc_rel32(0x86, "si_negok")                  # jbe k≤n 合法（含 -n→首项）
+    em.jcc_rel32(None, "si_oob")                    # k>n → 越界
+    em.label_here("si_negok")
+    em.mov_rr(9, 13)                                # r9=基址
+    em.mov_rr(0, 8)                                 # rax=n
+    em.sub_rr(0, 1)                                 # n-k
+    em.shl_ri(0, 3)
+    em.add_rr(0, 9)                                 # rax=基址+(n-k)*8
+    em.mov_mem_r(0, 16, 15)                         # [rax+16]=右值
+    em.jcc_rel32(None, "si_ret")
+    em.label_here("si_oob")
+    em.lea_rip(0, "err_list_assign")                # "list assignment index out of range"
+    em.call_rel32("raise_rt")
+    em.emit(b"\x0F\x0B")                            # ud2
+    em.label_here("si_dict")
+    em.mov_rr(0, 13)
+    em.mov_rr(1, 14)
+    em.call_rel32("dict_find")                      # rax=pair/0
+    em.test_rr(0, 0)
+    em.jcc_rel32(0x84, "si_dmiss")                  # jz 缺键
+    em.mov_mem_r(0, 8, 15)                          # [pair+8]=右值（原位更新）
+    em.jcc_rel32(None, "si_ret")
+    em.label_here("si_dmiss")
+    em.lea_rip(0, "err_dict_newkey")                # 缺键诚实报错（登记分歧）
+    em.call_rel32("raise_rt")
+    em.emit(b"\x0F\x0B")                            # ud2
+    em.label_here("si_scalar")                      # 非堆容器 → 裸整数 "int"
+    em.jcc_rel32(None, "si_tname_int")
+    em.label_here("si_usup")                        # 堆对象但不可下标写 → 按类型名
+    em.mov_rd_mem(1, 13, 0)
+    em.cmp_ri(1, TYPE_BIGINT)
+    em.jcc_rel32(0x84, "si_tname_int")
+    em.cmp_ri(1, TYPE_STR)
+    em.jcc_rel32(0x84, "si_tname_str")
+    em.cmp_ri(1, TYPE_FLOAT)
+    em.jcc_rel32(0x84, "si_tname_float")
+    em.cmp_ri(1, TYPE_BOOL)
+    em.jcc_rel32(0x84, "si_tname_bool")
+    em.cmp_ri(1, TYPE_NULL)
+    em.jcc_rel32(0x84, "si_tname_null")
+    em.jcc_rel32(None, "si_tname_func")             # closure/partial/未知 → "function"
+    em.label_here("si_tname_int")
+    em.lea_rip(0, "si_n_int")
+    em.jcc_rel32(None, "si_msg")
+    em.label_here("si_tname_str")
+    em.lea_rip(0, "si_n_str")
+    em.jcc_rel32(None, "si_msg")
+    em.label_here("si_tname_float")
+    em.lea_rip(0, "si_n_float")
+    em.jcc_rel32(None, "si_msg")
+    em.label_here("si_tname_bool")
+    em.lea_rip(0, "si_n_bool")
+    em.jcc_rel32(None, "si_msg")
+    em.label_here("si_tname_null")
+    em.lea_rip(0, "si_n_null")
+    em.jcc_rel32(None, "si_msg")
+    em.label_here("si_tname_func")
+    em.lea_rip(0, "si_n_func")
+    em.label_here("si_msg")                         # rax=类型名 → 拼「索引操作不支持: T[I]」
+    em.mov_rr(3, 0)                                 # rbx=类型名（跨 match_render/str_concat）
+    em.mov_rr(0, 14)
+    em.call_rel32("match_render")                   # rax=repr(下标)
+    em.lea_rip(1, "rb_rb")                          # rcx="]"
+    em.call_rel32("str_concat")                     # rax=repr+"]"
+    em.mov_rr(1, 0)                                 # rcx=repr+"]"
+    em.lea_rip(0, "rb_lb")                          # rax="["
+    em.call_rel32("str_concat")                     # rax="["+repr+"]"
+    em.mov_rr(1, 0)                                 # rcx="["+repr+"]"
+    em.mov_rr(0, 3)                                 # rax=类型名
+    em.call_rel32("str_concat")                     # rax=T+"["+repr+"]"
+    em.mov_rr(1, 0)                                 # rcx=T+"["+repr+"]"
+    em.lea_rip(0, "err_idx_usup")                   # rax="索引操作不支持: "
+    em.call_rel32("str_concat")                     # rax=完整消息
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
+    em.label_here("si_ret")
+    em.emit(b"\x5B\x41\x5F\x41\x5E\x41\x5D")        # pop rbx;r15;r14;r13
+    em.emit(b"\xC3")                                # ret
 
 
 # ---- 砖块 16 阶段三：文件 I/O 运行时 ----
@@ -8446,6 +8561,14 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.pop_to(0)                                # rax = 容器
         _emit_getitem(em, f"ix_{tag}_{idx}")
         em.push_rax()
+    elif op == OP.STORE_SUBSCRIPT:
+        # 29b-① 语句位下标赋值（栈序 容器、下标、右值）→ setitem_rt：
+        # 列表原位写（负下标回绕、越界抛可捕获异常）、字典命中键原位更新、
+        # 其余类型领域错误（语义对齐 vm.py STORE_SUBSCRIPT）。
+        em.pop_to(2)                                # rdx = 右值
+        em.pop_to(1)                                # rcx = 下标
+        em.pop_to(0)                                # rax = 容器
+        em.call_rel32("setitem_rt")
     elif op == OP.RAISE:
         em.pop_to(0)                                # rax = 抛出值
         em.call_rel32("raise_rt")                   # 不返回（展开或终止）
@@ -10452,6 +10575,14 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_angle", "<< 仅适用于整数或浮点数"),
                      ("err_index_list", "list index out of range"),
                      ("err_index_str", "string index out of range"),
+                     ("err_list_assign", "list assignment index out of range"),
+                     ("err_idx_usup", "索引操作不支持: "),
+                     ("err_dict_newkey",
+                      "原生后端暂不支持字典下标新增键写入（原生 dict_put 为函数式，"
+                      "无法原位扩容）"),
+                     ("si_n_int", "int"), ("si_n_str", "str"),
+                     ("si_n_float", "float"), ("si_n_bool", "bool"),
+                     ("si_n_null", "NoneType"), ("si_n_func", "function"),
                      ("err_dedup", "去重() 需要列表"),
                      ("err_sum", "求和() 需要列表"),
                      ("err_prod", "求积() 需要列表"),

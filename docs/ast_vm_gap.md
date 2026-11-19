@@ -25,7 +25,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | VM 有意无码 | 19 |
 | VM 不认识 | 0 |
 | **阻塞缺口（不认识 ∧ 语料用到）** | **0** |
-| 指令码总数 / VM 已分派 / native 已发射 | 34 / 34 / 34 |
+| 指令码总数 / VM 已分派 / native 已发射 | 35 / 35 / 35 |
 | **native 对拍风隙（VM 有、native 无）** | **0** |
 | 语料文件（解析成功） | 230 |
 | 无法解析的语料文件 | 0 |
@@ -54,7 +54,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `BreakStmt` | emits | yes | 1 |
 | `ChainStmt` | emits | yes | 16 |
 | `ChanExpr` | emits | yes | 0 |
-| `CodeBlock` | emits | yes | 103 |
+| `CodeBlock` | emits | yes | 104 |
 | `CommandLiteral` | noop | yes | 28 |
 | `ConstructorPat` | emits | yes | 0 |
 | `ContinueStmt` | emits | yes | 1 |
@@ -108,7 +108,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `SetType` | noop | no | 0 |
 | `SetUp` | emits | yes | 29 |
 | `SetUpItem` | noop | no | 29 |
-| `SliceExpr` | emits | yes | 24 |
+| `SliceExpr` | emits | yes | 25 |
 | `StringLit` | emits | yes | 128 |
 | `StructDef` | emits | yes | 3 |
 | `SwitchStmt` | emits | yes | 0 |
@@ -123,7 +123,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 
 ## 六、指令码 × VM / native
 
-指令码共 34 条：VM 已分派 34，native 已发射 34，**VM 有而 native 无 = 0 条**（对拍风隙）。
+指令码共 35 条：VM 已分派 35，native 已发射 35，**VM 有而 native 无 = 0 条**（对拍风隙）。
 
 无：两端指令码表面一致。
 
@@ -163,6 +163,7 @@ VM↔native 的平价面不是 AST 而是**指令码**：`native.py` 从已编�
 | `STORE_BOX` | yes | yes |
 | `STORE_GLOBAL` | yes | yes |
 | `STORE_LOCAL` | yes | yes |
+| `STORE_SUBSCRIPT` | yes | yes |
 | `UNARYOP` | yes | yes |
 | `UNPACK_SEQ` | yes | yes |
 

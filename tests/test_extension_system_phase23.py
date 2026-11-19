@@ -55,10 +55,13 @@ def ext_root(tmp_path, monkeypatch):
 # ============================================================
 
 def test_features_known_states_per_flag_defaults():
-    """known_states 用各开关自己的默认值（INLINE_CACHE 默认 on 如实显示）。"""
+    """known_states 用各开关自己的默认值（INLINE_CACHE 默认 on 如实显示）。
+
+    29e：MBC_PASSES 入册（编译器框架接入 MBC 主线的 opt-in 开关，默认关）。"""
     states = features.known_states()
     assert states == {"SCOPED_BLOCKS": False, "STACK_ENGINE": False,
-                      "INLINE_CACHE": True, "PARSE_CACHE": False}
+                      "INLINE_CACHE": True, "PARSE_CACHE": False,
+                      "MBC_PASSES": False}
     assert features.KNOWN_FEATURES == tuple(features.DEFAULTS)
     assert features.state_tuple() == tuple(sorted(states.items()))
 

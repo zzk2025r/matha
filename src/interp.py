@@ -1728,10 +1728,17 @@ class Interpreter:
             # 顶层文件尾标记 `#：【文件】`：结构性标记 → 空操作。
             self._log(logging.DEBUG, "exec top-level FileMarker (忽略)")
         elif isinstance(decl, ast.BinaryOp):
-            # 顶层裸表达式（如 1 === 1）：计算并输出
-            self._log(logging.INFO, "exec top-level BinaryOp")
-            val = self._eval(decl)
-            self.outputs.append(_norm_output(val))
+            if decl.op == "=" and isinstance(decl.left, (ast.Variable, ast.IndexExpr)):
+                # 顶层语句位赋值（29b-①：`甲[0] = 9` 解析为 BinaryOp("=")
+                # 下标形态，此前按相等比较求值并误输出 False）。语句位语义
+                # 同 _exec_stmt（变量绑定/下标原位写入），不产输出。
+                self._log(logging.INFO, "exec top-level BinaryOp (赋值形态)")
+                self._exec_stmt(decl)
+            else:
+                # 顶层裸表达式（如 1 === 1）：计算并输出
+                self._log(logging.INFO, "exec top-level BinaryOp")
+                val = self._eval(decl)
+                self.outputs.append(_norm_output(val))
         elif isinstance(decl, ast.UnaryOp):
             # 顶层裸一元表达式（如 ~5、-3、null）
             self._log(logging.INFO, f"exec top-level UnaryOp '{decl.op}'")
@@ -2468,6 +2475,14 @@ class Interpreter:
             val = self._eval(stmt.right)
             self.env[stmt.left.name] = val
             self._sync_matha_env(stmt.left.name, val)
+        elif isinstance(stmt, ast.BinaryOp) and stmt.op == "=" and isinstance(stmt.left, ast.IndexExpr):
+            # 语句位下标赋值（29b-①，对齐 VM STORE_SUBSCRIPT 面）：容器/
+            # 下标/右值求值后原位写入，不产绑定。块尾留值位与表达式位
+            # （三元条件等）仍为相等比较——边界同 Variable 分支。
+            container = self._eval(stmt.left.container)
+            index = self._eval(stmt.left.index)
+            val = self._eval(stmt.right)
+            self._assign_subscript(container, index, val)
         elif isinstance(stmt, dict):
             self._exec_dict_stmt(stmt)
         else:
@@ -2479,6 +2494,26 @@ class Interpreter:
             if self.debug:
                 self._log(logging.DEBUG, f"expr-stmt fallback eval {kind}")
             self._eval(stmt)
+
+    def _assign_subscript(self, container, index, val) -> None:
+        """下标写入原语（29b-①）。字典按键写入（缺键新建）；列表原位写
+        （越界 IndexError 透传，与读面「两端均透传 IndexError」同口径）；
+        不可变容器（tuple/str）与其他类型报领域错误，文案同读面。"""
+        if isinstance(container, dict):
+            try:
+                container[index] = val
+            except TypeError:
+                raise MathaRuntimeError(
+                    f"索引操作不支持: dict[{index}]（不可哈希的键）") from None
+        elif isinstance(container, (list, tuple, str)):
+            try:
+                container[index] = val
+            except TypeError:
+                raise MathaRuntimeError(
+                    f"索引操作不支持: {type(container).__name__}[{index}]") from None
+        else:
+            raise MathaRuntimeError(
+                f"索引操作不支持: {type(container).__name__}[{index}]")
 
     def _exec_foreign(self, decl) -> None:
         """#：全能前缀 — 执行外来语言代码（通用语言的运行时路由）。

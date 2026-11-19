@@ -38,7 +38,8 @@ C 自举产物独立运行（tier A：Matha 编译产物 dict_to_module 实例�
   包裹亦不可救：条件变 found = (xs[i]=target)）；内核全程递归式规避。
 · 缺失字典键索引双面分歧：host 取值 null 宽容、vm 面 KeyError 抛错
   （探针取证：装载成功后 ["原因"] host=None / vm=KeyError）；内核驱动
-  只索引存在键规避。
+  只索引存在键规避。——29b-④ 起已解除：vm 面 INDEX_GET 缺键返 null
+  （vm→host 对齐，用户拍板），三执行体同语义。
 
 边界：内核为框架级单元管理核心（进程表/协作调度/服务注册/生命周期/版本史），
 步函数由描述符入口表携带（24e 回调绑定同构）；外部单元 subprocess 胶水、

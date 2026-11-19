@@ -1099,13 +1099,33 @@ class VM:
             f.pc = ins[1]
         elif op == OP.INDEX_GET:
             idx = st.pop(); c = st.pop()
+            if isinstance(c, dict):
+                # 29b-④ 对齐：字典缺失键 → null（host dict.get / native dict_get
+                # 同语义；VM 此前 KeyError 是唯一分歧面，29b 真化解除）。
+                # 不可哈希键与 host 同文案。
+                try:
+                    st.append(c.get(idx))
+                except TypeError:
+                    raise MathaRuntimeError(
+                        f"索引操作不支持: dict[{idx}]（不可哈希的键）") from None
+            else:
+                try:
+                    st.append(c[idx])
+                except TypeError:
+                    # 不可下标对象（如 `5[0]`）：VM 历史上直接漏出 Python
+                    # `TypeError: 'int' object is not subscriptable`，而解释器给
+                    # 领域消息。归一到与 src/interp.py 逐字一致的文本（越界 IndexError
+                    # 不在此列：两端均透传 Python IndexError，已一致）。
+                    raise MathaRuntimeError(
+                        f"索引操作不支持: {type(c).__name__}[{idx}]") from None
+        elif op == OP.STORE_SUBSCRIPT:
+            # 29b-① 语句位下标赋值：栈序 容器、下标、右值 → 原位写入。
+            # 字典缺键新建（host 同）；列表越界 IndexError 透传（读面同
+            # 口径）；不可下标对象归一到领域文案。
+            val = st.pop(); idx = st.pop(); c = st.pop()
             try:
-                st.append(c[idx])
+                c[idx] = val
             except TypeError:
-                # 不可下标对象（如 `5[0]`）：VM 历史上直接漏出 Python
-                # `TypeError: 'int' object is not subscriptable`，而解释器给
-                # 领域消息。归一到与 src/interp.py 逐字一致的文本（越界 IndexError
-                # 不在此列：两端均透传 Python IndexError，已一致）。
                 raise MathaRuntimeError(
                     f"索引操作不支持: {type(c).__name__}[{idx}]") from None
         elif op == OP.PUSH_TRUE:

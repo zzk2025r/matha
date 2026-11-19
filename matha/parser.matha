@@ -490,6 +490,19 @@ module 语法器 {
       let (right, p4) = 解析集合(p3) in
       if 是关系运算符(op_tok) then
         解析关系链_续(做BinaryOp(op_tok, left, right), null, right, p4)
+      else if op_tok = "=" then
+        (* 29b-⑥ 回退式歧义消解（宿主 _parse_rel_expr 单 `=` 分支同规）：
+           单 `=` 右值（解析集合层）后紧跟关系运算符（> < >= <=）时，比较
+           路径在右值处截断留下悬空运算符，`r = 1 > 0 ? 10 : 20` 报
+           「期望表达式 (got OP_GT)」。回退改按赋值解析（右值 解析表达式
+           整体纳入三元）；右值后为 `?` 的语料惯用式（desktop.matha
+           `动 = "启动" ? … : …`）保持比较语义不变。 *)
+        let (nxt_op, _) = 解析比较_op(p4) in
+        if 是关系运算符(nxt_op) then
+          let (val, p5) = 解析表达式(p3) in
+          (做BinaryOp("=", left, val), p5)
+        else
+          解析比较_续(做BinaryOp(op_tok, left, right), p4)
       else
         解析比较_续(做BinaryOp(op_tok, left, right), p4)
 
@@ -1906,8 +1919,10 @@ module 语法器 {
       let (body, p6) = 收尾链(p5, 做生成语句(段号, tr)) in
       合并块体(段号, body, p6)
     else if 匹配(p2, 类型.占位符) then
-      (* #N：？expr → 生成语句 + 表达式 *)
-      let (expr, p3) = 解析表达式(推进(p2)) in
+      (* #N：？公式 → 生成语句 + 表达式。首个 ？ 留在表达式内（宿主
+         _parse_mech_unit 同构：？单价 是具名槽占位变量，吞掉即丢首槽）。
+         29c 真化：此前 推进(p2) 跳过首个 ？，首具名槽折损为普通变量。 *)
+      let (expr, p3) = 解析表达式(p2) in
       let (body, p4) = 收尾链(p3, 做生成语句(段号, expr)) in
       合并块体(段号, body, p4)
     else
@@ -1943,7 +1958,8 @@ module 语法器 {
       let (tr, p5) = 解析输出后缀(p4, expr) in
       收尾链(p5, 做生成语句(段号, tr))
     else if 匹配(p2, 类型.占位符) then
-      let (expr, p3) = 解析表达式(推进(p2)) in
+      (* 29c 真化：首个 ？ 留在表达式内（同 解析机械单元 占位符支） *)
+      let (expr, p3) = 解析表达式(p2) in
       收尾链(p3, 做生成语句(段号, expr))
     else
       let (expr, p3) = 解析表达式(p2) in
@@ -2245,6 +2261,13 @@ module 语法器 {
         let p_eq = 推进(推进(推进(p))) in
         let (val, p2) = 解析表达式(p_eq) in
         (做BinaryOp("=", 做Variable(nxt.文本), val), p2)
+      else if tok.文本 = "break" then
+        (* break/continue（29b-⑦）：Matha 词法是标识符（无关键字条目），语句位
+           按文本补齐（宿主 KW_BREAK/KW_CONTINUE → BreakStmt/ContinueStmt）。
+           表达式位不受影响（宿主表达式位 KW_BREAK 报错，语料无此形态）。 *)
+        ({"类型": "跳出语句"}, 推进(p))
+      else if tok.文本 = "continue" then
+        ({"类型": "继续语句"}, 推进(p))
       else if nxt.类型 = 类型.等于 and nxt.文本 = "=" and not p.在lambda体 then
         (* 顶层绑定 name = expr（绑定语义，与宿主 parser 一致；
            `==` 比较的 token 文本为 "==" 不在此列；lambda 体内 = 保持
@@ -2440,13 +2463,22 @@ module 语法器 {
         let p4 = 推进(p3) in
         let (params, param_types, p5) = 解析参数列表(p4) in
         let p6 = 期望(p5, 类型.右括号) in
-        let p7 = 期望(p6, 类型.箭头) in
-        let (忽略, p8) = 解析类型表达式(p7) in
-        let p9 = 期望(p8, 类型.等于) in
+        (* 29b-③：-> 返回类型标注可选——宿主简写分支（parser.py 3472
+           「let [rec] f(params) = body 无返回类型标注」）双端同源；
+           有箭头时照旧消费类型表达式 *)
+        let (p7, 有箭头) = if 匹配(p6, 类型.箭头) then
+          let p6a = 推进(p6) in
+          let (忽略, p6b) = 解析类型表达式(p6a) in
+          (p6b, 真)
+        else (p6, 假) in
+        let p9 = 期望(p7, 类型.等于) in
         (* 与 解析函数定义 一致：若 `=` 后为显式 lambda `(params) => body`，
            则直接采用该 lambda（其参数即函数参数），不再用签名参数包一层，
-           否则会形成双层 lambda（值变成返回函数的函数）。 *)
-        let (lam, p10, 参数f) = if 匹配(p9, 类型.左括号) then
+           否则会形成双层 lambda（值变成返回函数的函数）。
+           29b-③：该特例仅限带 -> 形态（宿主 3349 位于 OP_ARROW 分支内）；
+           无箭头简写一律走直接体（宿主 3476 直接 _parse_expr、params 保留，
+           interp/compiler 统一包装 Lambda——柯里化语义同规） *)
+        let (lam, p10, 参数f) = if 有箭头 and 匹配(p9, 类型.左括号) then
           let q1 = 推进(p9) in
           let (lam_params, q2) = if 匹配(q1, 类型.右括号) then ([], q1)
             else

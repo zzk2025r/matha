@@ -44,7 +44,55 @@ module 解释器 {
   func 错误(msg: String) -> Value = (msg) =>
     raise MathaRuntimeError(msg)
 
+  (* ===== 输出面（29d）=====
+     模块级单槽容器 输出槽[0] = 输出值列表（宿主 Interpreter.outputs / VM
+     vm.outputs 同构，28d/29c 单槽容器先例）。执行语句/执行生成语句的
+     输出/输出追踪/match 支与 应用内建 输出/print 分支经 输出记录 归一登记
+     （可调用值记 "<function>"，对齐宿主 _norm_output / VM _norm_output）；
+     输出快照/输出清空 供 sweep 驱动每文件复位。求值 "输出"（[] 括号形，
+     列表字面量遗留语义）不在记录面。 *)
+  输出槽 = [[]]
+
+  (* 可调用三形态：闭包列表 ["__closure__",...] / 内建元组 ("__builtin__",名) /
+     内建字典 {"类型":"__builtin__"}。链式索引不可靠（and/or 急切求值），
+     嵌套三元 + 安全索引（缺键 null）保证守卫安全。 *)
+  func 输出规范化(v) -> Value = (v) =>
+    type_of(v) = "List" ?
+      (标准库.len(v) = 0 ? v : (v[0] = "__closure__" ? "<function>" : v)) :
+    type_of(v) = "Tuple" ?
+      (标准库.len(v) = 0 ? v :
+        (v[0] = "__builtin__" ? "<function>" :
+          (v[0] = "__closure__" ? "<function>" : v))) :
+    type_of(v) = "Dict" ?
+      (安全索引(v, "类型") = "__builtin__" ? "<function>" : v) :
+    v
+
+  func 输出记录(v) -> Value = (v) =>
+    let 忽略 = 标准库.原地设置(输出槽, 0, 输出槽[0] + [输出规范化(v)]) in null
+
+  func 输出快照() -> List = 输出槽[0]
+
+  func 输出清空() -> Value = 标准库.原地设置(输出槽, 0, [])
+
+  (* 输出节点载荷取值：null（宿主 Output.expr=None 同构）与 空输出节点 →
+     null，其余求值。独立成函数：let-in 体贪婪吞并外层三元链承接位，
+     内联即挂链错位（29c 先例）。 *)
+  func 输出取值(node: Dict, env: List) -> Value = (node, env) =>
+    node = null ? null :
+    node["类型"] = "空输出" ? null : 求值(node, env)
+
   (* ===== 表达式求值 ===== *)
+
+  (* 下标求值（29d 真化：求值 此前无 下标 分支——自举执行面任何含 a[i]/d["k"]
+     语料诚实报错 未知表达式类型；宿主 IndexExpr 镜像：列表/元组/字符串按
+     VM 下标原语，字典缺键 null（29b-④ 对齐面），其余形态诚实报错） *)
+  func 求值下标(容器e: Dict, 索引e: Dict, env: List) -> Value = (容器e, 索引e, env) =>
+    let c = 求值(容器e, env) in
+    let i = 求值(索引e, env) in
+    let ct = type_of(c) in
+    ct = "Dict" ? c[i] :
+    ct = "List" or ct = "Tuple" or ct = "String" ? c[i] :
+    错误("索引操作不支持: " + ct + "[" + 标准库.str(i) + "]")
 
   func 求值(expr: Dict, env: List) -> Value = (expr, env) =>
     expr["类型"] = "整数" ? expr["值"] :
@@ -65,7 +113,18 @@ module 解释器 {
     expr["类型"] = "绑定" ? 求值绑定(expr, env) :
     expr["类型"] = "let绑定" ? 求值let绑定(expr, env) :
     expr["类型"] = "match" ? 求值match(expr, env) :
+    expr["类型"] = "下标" ? 求值下标(expr["容器"], expr["索引"], env) :
+    expr["类型"] = "程序" ? 求值程序(expr, env) :
+    expr["类型"] = "typeof" ? typeof归一(求值(expr["操作数"], env)) :
     错误("未知表达式类型: " + expr["类型"])
+
+  (* 29d：程序（块体）表达式位（宿主块体函数体同位）——顺序执行声明取末
+     值，空体 null；绑定仅在块内存活（返回值面，环境丢弃）。宿主块体
+     lambda 体 _eval 逐语句同构。29b06 块体用例此前 boot 面落入未知
+     表达式类型兜底报错（被 interpret 静默回退 Python 面掩盖）。 *)
+  func 求值程序(prog: Dict, env: List) -> Value = (prog, env) =>
+    let (v, 忽略) = 执行语句列表(prog, env) in
+    v
 
   (* 绑定表达式：let x = expr in body *)
   func 求值绑定(binding: Dict, env: List) -> (Value, List) = (binding, env) =>
@@ -81,6 +140,12 @@ module 解释器 {
     else
       let 忽略 = 更新绑定值(env[1:], name, value) in
       env
+
+  (* env 中是否已含名为 name 的绑定（29d 自包含：此前经宿主面/合并链
+     隐式可得，29d 链无 interp.matha 时 LOAD_GLOBAL 未定义潜伏崩溃） *)
+  func 环境包含(env: List, name: String) -> Bool =
+    env = [] ? 假 :
+    env[0][0] = name ? 真 : 环境包含(env[1:], name)
 
   func 求值let绑定(expr: Dict, env: List) -> Value = (expr, env) =>
     expr["递归"] ? 求值递归let(expr, env) : 求值非递归let(expr, env)
@@ -111,11 +176,41 @@ module 解释器 {
       if expr["有体"] then (求值(expr["体"], env1), env1) else (v, env1)
 
   (* 二元运算求值 ===== *)
+  (* 29d：and/or 短路值语义（宿主 _eval_binary &&/||/and/or 同构）——左
+     真值取左、否则求右取右；此前双操作数先求值且结果强转 1.0/0.0——
+     短路求值序与值面双偏差（golden 32 `0 or (2==2 ? 5 : 6)` 实证）。
+     真值面复用 真值（match 守卫同辅助）。独立成函数：let-in 体贪婪
+     吞并外层三元链承接位。 *)
+  func 求值且(left: Dict, right: Dict, env: List) -> Value =
+    (left, right, env) =>
+    let l = 求值(left, env) in
+    真值(l) ? 求值(right, env) : l
+
+  func 求值或(left: Dict, right: Dict, env: List) -> Value =
+    (left, right, env) =>
+    let l = 求值(left, env) in
+    真值(l) ? l : 求值(right, env)
+
   func 求值二元(op: String, left: Dict, right: Dict, env: List) -> Value =
     (op, left, right, env) =>
+    op = "and" or op = "&&" ? 求值且(left, right, env) :
+    op = "or" or op = "||" ? 求值或(left, right, env) :
     let l = 求值(left, env) in
     let r = 求值(right, env) in
     应用运算(op, l, r)
+
+  (* 29d：typeof 类型名归一（宿主 builtin_typeof 同表）——boot type_of
+     VM 内部名映射宿主中文类型名（golden 15 实证 Int→整数 等）；元组
+     宿主无对应支（非 list/str/dict）同落 函数。 *)
+  func typeof归一(v: Value) -> String = (v) =>
+    type_of(v) = "Bool" ? "布尔" :
+    type_of(v) = "Int" ? "整数" :
+    type_of(v) = "Float" ? "浮点" :
+    type_of(v) = "String" ? "文本" :
+    type_of(v) = "List" ? "列表" :
+    type_of(v) = "Dict" ? "字典" :
+    type_of(v) = "Null" ? "空" :
+    "函数"
 
   (* 自定义运算符求值：查环境得到具名实现函数，以 [l, r] 两参调用
      （对齐宿主 _eval_custom_op：处理器绑定在节点上，无需注册表）。 *)
@@ -184,24 +279,32 @@ module 解释器 {
     op = "=" ? (if l = r then 1.0 else 0.0) :
     op = "==" ? (if l = r then 1.0 else 0.0) :
     op = "!=" ? (if l != r then 1.0 else 0.0) :
-    op = "and" ? (if l != 0.0 and l != 假 and r != 0.0 and r != 假 then 1.0 else 0.0) :
-    op = "or"  ? (if l != 0.0 and l != 假 or r != 0.0 and r != 假 then 1.0 else 0.0) :
+    (* 29d：and/or 已上移 求值二元 短路面（值语义），非短路强转分支删除 *)
     错误("未知运算符: " + op)
 
   (* 将数值转换为字符串（用于内建函数参数转换）===== *)
   func num_to_str(v) -> String = (v) =>
     type_of(v) = "Int" or type_of(v) = "Float" ? 标准库.str(v) : v
 
+  (* 29d：VM 闭包单参调用（use 导入面）——type_of "Function" 值（VM
+     MAKE_CLOSURE 产物 / Partial 偏应用记录）经语言级动态调用；未满元数
+     由 VM 记 Partial，多参走嵌套应用逐参累积（与宿主柯里化同语义） *)
+  func 调VM单参(f: Value, a: Value) -> Value = (f, a) => f(a)
+
   (* 函数应用分发 ===== *)
   func 应用函数(f: Value, arg: Value, call_env: List) -> Value =
     (f, arg, call_env) =>
-    if f[0] = "__closure__" then
+    if type_of(f) = "Function" then 调VM单参(f, arg)
+    else if f[0] = "__closure__" then
       let params = f[1] in
       let body = f[2] in
       let captured = f[3] in
       (* 参数名：支持字符串或 Variable AST（{"类型":"变量","名":...}）两种形态 *)
-      let 参数名 = if type_of(params[0]) = "Dict" then (if params[0]["类型"] = "变量" then params[0]["名"] else params[0]) else params[0] in
-      let new_env = 绑定环境(captured, 参数名, arg) in
+      (* 29d：零参闭包（f() 经解析器以 IntLit(0) 占位 arg）——空参数表忽略
+         占位直接求值体；此前 params[0] 无守卫 IndexError（golden 零参 func
+         块体全族实证，宿主/VM 双面均忽略占位故仅 boot 面崩）。 *)
+      let 参数名 = if 标准库.len(params) = 0 then "" else (if type_of(params[0]) = "Dict" then (if params[0]["类型"] = "变量" then params[0]["名"] else params[0]) else params[0]) in
+      let new_env = 标准库.len(params) = 0 ? captured : 绑定环境(captured, 参数名, arg) in
       if 标准库.len(params) > 1 then
         ["__closure__", params[1:], body, new_env]
       else
@@ -214,10 +317,16 @@ module 解释器 {
     else
       错误("不可调用的值: " + 标准库.str(f))
 
+  func 调VM多参(f: Value, args: List) -> Value = (f, args) =>
+    let rec _go(i: Int, acc: Value) -> Value =
+      i >= 标准库.len(args) ? acc : _go(i + 1, 调VM单参(acc, args[i]))
+    in _go(0, f)
+
   (* 多参数函数应用 ===== *)
   func 应用多参数函数(f: Value, args: List, call_env: List) -> Value =
     (f, args, call_env) =>
-    if f[0] = "__closure__" then
+    if type_of(f) = "Function" then 调VM多参(f, args)
+    else if f[0] = "__closure__" then
       let params = f[1] in
       let body = f[2] in
       let captured = f[3] in
@@ -262,7 +371,7 @@ module 解释器 {
     name = "replace" ? 标准库.replace(num_to_str(args[0]), num_to_str(args[1]), num_to_str(args[2])) :
     name = "split" ? 标准库.split(num_to_str(args[0]), num_to_str(args[1])) :
     name = "repeat" ? 标准库.repeat(num_to_str(args[0]), 标准库.int(num_to_str(args[1]))) :
-    name = "print" ? (标准库.print(args[0]), 空()) :
+    name = "输出" or name = "print" ? (let 忽略 = 输出记录(args[0]) in args[0]) :
     name = "assert" ? (标准库.assert(args[0] != 0.0 and args[0] != 假 and args[0] != "0" and args[0] != "", num_to_str(args[1])), 空()) :
     name = "parse_JSON" ? 标准库.parse_JSON(num_to_str(args[0])) :
     name = "sin" ? 运行时引擎.sin(标准库.float(num_to_str(args[0]))) :
@@ -306,21 +415,62 @@ module 解释器 {
     stmt["类型"] = "while" ?
       执行while循环(stmt["条件"], stmt["体"], env) :
     stmt["类型"] = "for" ?
-      执行for循环(stmt["变量"], stmt["迭代"], stmt["体"], env) :
+      执行for循环(stmt["变量"], 求值(stmt["迭代"], env), stmt["体"], env) :
     stmt["类型"] = "输出" ?
-      (求值(stmt["expr"], env), env) :
+      (let v = 输出取值(stmt["expr"], env) in
+       let 忽略 = 输出记录(v) in
+       (v, env)) :
     stmt["类型"] = "输出追踪" ?
-      (* 语句位 [输出]（宿主 _parse_output_trail 包裹面）：解包执行内层输出 *)
-      (stmt["输出"]["expr"] != null ? 求值(stmt["输出"]["expr"], env) : null, env) :
+      (* 语句位 [输出]（宿主 _parse_output_trail 包裹面）：解包执行内层输出；
+         29d：登记输出流（宿主 OutputTrail 透传 _exec_stmt(Output) 同构） *)
+      (let v = 输出取值(stmt["输出"]["expr"], env) in
+       let 忽略 = 输出记录(v) in
+       (v, env)) :
     stmt["类型"] = "程序" ?
       执行语句列表(stmt, env) :
     stmt["类型"] = "let绑定" ?
       绑定求值let(stmt, env) :
     stmt["类型"] = "match" ?
-      (求值match(stmt, env), env) :
+      (let v = 求值match(stmt, env) in
+       let 忽略 = 输出记录(v) in
+       (v, env)) :
+    stmt["类型"] = "生成语句" ? 执行生成语句(stmt, env) :
+    stmt["类型"] = "机械单元" ? 执行机械单元(stmt, env) :
+    (* 29d：编译期 NOOP 语句（宿主 GlobalIdStmt/ForeignDecl 同构——编号/外来
+       文本仅解析期收集，执行面无副作用，不进入求值兜底报错） *)
+    stmt["类型"] = "全局标识" ? (null, env) :
+    stmt["类型"] = "外来声明" ? (null, env) :
     stmt["类型"] = "二元运算" ?
       语句位赋值或表达式(stmt, env) :
     (错误("未知语句类型: " + stmt["类型"]), env)
+
+  (* 29c：生成语句执行（宿主 _exec_gen_stmt 同构）——命令文字/空输出/输出追踪/
+     输出/go/函数定义 逐支复用既有执行面；含槽 → env "__公式库__" 登记
+     （注册内建 预绑定空库，同形归并）；命中模式不求值；其余 求值。
+     轨迹面 bootstrap 无载体（登记不修）。
+     独立成函数：let-in 体贪婪吞并外层三元链承接位，内联即挂链错位。 *)
+  func 执行生成语句(stmt: Dict, env: List) -> (Value, List) = (stmt, env) =>
+    let c = stmt["content"] in
+    c["类型"] = "命令文字" or c["类型"] = "空输出" ? (null, env) :
+    c["类型"] = "输出追踪" or c["类型"] = "函数定义" ? 执行语句(c, env) :
+    c["类型"] = "输出" ?
+      (let v = 输出取值(c["expr"], env) in
+       let 忽略 = 输出记录(v) in
+       (v, env)) :
+    c["类型"] = "go" ? (求值(c["expr"], env), env) :
+    标准库.公式_含槽(c) ?
+      let 库 = 查找环境(env, "__公式库__") in
+      let 登记态 = 标准库.公式_登记(库, c, stmt["段号"]) in
+      (null, 更新绑定值(env, "__公式库__", 登记态[0])) :
+    标准库.公式_匹配(查找环境(env, "__公式库__"), c) != [] ? (null, env) :
+    (求值(c, env), env)
+
+  (* 29c：机械单元执行——#：{ … } 顶层自测块此前落入 未知语句类型。
+     body 三形态：列表 [生成语句, 块]（宿主合并体）／程序 dict／生成语句 dict *)
+  func 执行机械单元(stmt: Dict, env: List) -> (Value, List) = (stmt, env) =>
+    type_of(stmt["body"]) = "列表" ?
+      _执行单元列表(stmt["body"], env) :
+      执行语句列表(stmt["body"], env)
 
   (* 语句位裸赋值（宽容消解，对齐宿主 interp.py _exec_stmt 与 VM _emit_block
      is_assign 面）：`名 = 表达式` 在语句位求值右侧并绑定（已有名更新、
@@ -332,13 +482,69 @@ module 解释器 {
         (v, 更新绑定值(env, stmt["左"]["名"], v))
       else
         (v, 绑定环境(env, stmt["左"]["名"], v)) :
-      (求值(stmt, env), env)
+    (stmt["运算符"] = "=" and stmt["左"]["类型"] = "下标") ?
+      下标赋值(stmt["左"], stmt["右"], env) :
+    (求值(stmt, env), env)
+
+  (* 下标赋值（29d 真化，宿主 _exec_stmt IndexExpr 分支 + _assign_subscript
+     镜像）：容器/索引/右值求值后写入。列表原位写入（嵌套容器经 求值 取到
+     共享内层引用，宿主同语义）；字典 Matha 值不可变——经 dict_put 产新
+     字典后回写容器槽（变量容器写回绑定槽、嵌套容器递归回写父槽，同 24d
+     「_dict_put 产新 dict + 写回具名变量」口径；别名引用可见性差异登记
+     不修）；其余容器形态诚实报错，文案同读面（宿主 Python 类型名 vs
+     VM 类型名分歧已登记）。逐支独立成函数：let-in 体贪婪吞并外层三元
+     链承接位，内联即挂链错位（29c 先例）。 *)
+  func 下标赋值(lhs: Dict, rhs: Dict, env: List) -> (Value, List) = (lhs, rhs, env) =>
+    let c = 求值(lhs["容器"], env) in
+    let i = 求值(lhs["索引"], env) in
+    let v = 求值(rhs, env) in
+    _下标写入(lhs["容器"], c, i, v, env)
+
+  func _下标写入(容器e: Dict, c: Value, i: Value, v: Value, env: List) -> (Value, List) =
+    (容器e, c, i, v, env) =>
+    type_of(c) = "List" ?
+      (v, _原地设列表(c, i, v, env)) :
+    type_of(c) = "Dict" ?
+      _字典槽写回(容器e, 标准库.dict_put(c, i, v), v, env) :
+    错误("索引操作不支持: " + type_of(c) + "[" + 标准库.str(i) + "]")
+
+  func _原地设列表(c: List, i: Int, v: Value, env: List) -> List = (c, i, v, env) =>
+    let 忽略 = 标准库.原地设置(c, i, v) in env
+
+  func _字典槽写回(容器e: Dict, nd: Dict, v: Value, env: List) -> (Value, List) =
+    (容器e, nd, v, env) =>
+    let wr = _槽写回(容器e, nd, env) in
+    (v, wr[1])
+
+  func _槽写回(容器e: Dict, nd: Value, env: List) -> (Value, List) = (容器e, nd, env) =>
+    容器e["类型"] = "变量" ? (nd, 更新绑定值(env, 容器e["名"], nd)) :
+    容器e["类型"] = "下标" ? _父槽写回(容器e, nd, env) :
+    错误("索引操作不支持: 字典写回容器形态: " + 容器e["类型"])
+
+  func _父槽写回(容器e: Dict, nd: Value, env: List) -> (Value, List) = (容器e, nd, env) =>
+    let pc = 求值(容器e["容器"], env) in
+    let pi = 求值(容器e["索引"], env) in
+    _父槽写入(容器e["容器"], pc, pi, nd, env)
+
+  func _父槽写入(容器ee: Dict, pc: Value, pi: Value, nd: Value, env: List) -> (Value, List) =
+    (容器ee, pc, pi, nd, env) =>
+    type_of(pc) = "List" ?
+      (nd, _原地设列表(pc, pi, nd, env)) :
+    type_of(pc) = "Dict" ?
+      _槽写回(容器ee, 标准库.dict_put(pc, pi, nd), env) :
+    错误("索引操作不支持: " + type_of(pc) + "[" + 标准库.str(pi) + "]")
 
   func 执行语句列表(stmts: Dict, env: List) -> (Value, List) = (stmts, env) =>
     if stmts["类型"] = "程序" then
       执行声明列表(stmts["声明"], env)
     else
       执行语句(stmts, env)
+
+  (* 机械单元列表体 [生成语句, 块]（宿主合并体，29c）：逐条执行 *)
+  func _执行单元列表(items: List, env: List) -> (Value, List) = (items, env) =>
+    items = [] ? (null, env) :
+    let (v, env2) = 执行语句(items[0], env) in
+    items[1:] = [] ? (v, env2) : _执行单元列表(items[1:], env2)
 
   func 执行声明列表(decls: List, env: List) -> (Value, List) = (decls, env) =>
     if decls = [] then
@@ -363,13 +569,99 @@ module 解释器 {
     else if decl["类型"] = "定义运算符" then
       (* 自定义运算符声明：编译期 / 解析期已登记，运行期无副作用（对齐宿主 NOOP） *)
       (None, env)
+    else if decl["类型"] = "机械单元" or decl["类型"] = "生成语句" then
+      (* 29c：顶层位机械单元/生成语句 → 委托 执行语句 分支（登记/命中/求值） *)
+      执行语句(decl, env)
     else if decl["类型"] = "输出" or decl["类型"] = "输出追踪" or decl["类型"] = "while" or decl["类型"] = "for" then
       执行语句(decl, env)
     else if decl["类型"] = "if" then
       if decl["真分支"]["类型"] = "程序" then 执行语句(decl, env) else (求值(decl, env), env)
+    else if decl["类型"] = "模块" then
+      执行模块体(decl, env)
+    else if decl["类型"] = "导入" then
+      导入绑定(decl, env)
+    else if decl["类型"] = "二元运算" then
+      (* 29d：顶层位二元语句委托 执行语句（宿主 _exec_decl 兜底 _exec_stmt
+         同构——变量/下标赋值真化 + 裸表达式求值；顶层裸 `名 = 值` 经解析器
+         产 绑定 节点不经此支）。 *)
+      执行语句(decl, env)
+    else if decl["类型"] = "全局标识" or decl["类型"] = "外来声明" then
+      (* 29d：编译期 NOOP 声明（宿主 GlobalIdStmt/ForeignDecl 同构）——
+         编号/外来文本仅解析期收集，执行面无副作用；顶层位此前落入裸
+         表达式兜底报 未知表达式类型（sweep 06_main 16+10 文件根因）。 *)
+      (null, env)
     else
       (* 裸表达式：直接求值并返回结果 *)
       (求值(decl, env), env)
+
+  (* ===== 模块 / use 导入执行（29d，宿主 ModuleDecl/_exec_use 镜像）===== *)
+
+  func _名单含(names: List, nm: String) -> Bool = (names, nm) =>
+    names = [] ? 假 :
+    names[0] = nm ? 真 : _名单含(names[1:], nm)
+
+  (* 本地命名收集（宿主严格隔离镜像）：只收本模块自定义名（函数定义/绑定/
+     let绑定），去重保序；导入名不入本地表。 *)
+  func _模块本地名(decls: List, acc: List) -> List = (decls, acc) =>
+    decls = [] ? acc :
+    let d = decls[0] in
+    let 命中 = d["类型"] = "函数定义" or d["类型"] = "绑定" or d["类型"] = "let绑定" in
+    let acc2 = 命中 and not _名单含(acc, d["名"]) ? acc + [d["名"]] : acc in
+    _模块本地名(decls[1:], acc2)
+
+  func _模块名值对(names: List, env: List) -> List = (names, env) =>
+    names = [] ? [] :
+    环境包含(env, names[0]) ?
+      [[names[0], 查找环境(env, names[0])]] + _模块名值对(names[1:], env) :
+      _模块名值对(names[1:], env)
+
+  (* 模块执行：内声明顺序执行（导入绑定/函数闭包入 env），module ns = {名: env[名]}
+     仅收本地名（严格隔离，不扫全局）；模块名不在本地名表时绑定 env（R1 同名
+     冲突规则——平面函数可调用面优先，24a）。 *)
+  func 执行模块体(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
+    let 本地名 = _模块本地名(decl["声明"], []) in
+    let (忽略1, env2) = 执行声明列表(decl["声明"], env) in
+    let 命名空间 = 标准库.dict_from_pairs(_模块名值对(本地名, env2)) in
+    _名单含(本地名, decl["名"]) ?
+      (null, env2) :
+      (null, 绑定环境(env2, decl["名"], 命名空间))
+
+  (* use 导入执行：模块命名空间经 注册内建 预绑定（VM globals 装载面），逐名
+     绑定 env；缺模块/缺名诚实报错（宿主 _exec_use 同文案）；空导入表 no-op。 *)
+  func 导入绑定(decl: Dict, env: List) -> (Value, List) = (decl, env) =>
+    环境包含(env, decl["模块名"]) ?
+      _导入名列表(decl["名字"], decl["模块名"], 查找环境(env, decl["模块名"]), env) :
+      错误("未找到模块 '" + decl["模块名"] + "'")
+
+  func _导入名列表(names: List, 模块名: String, ns: Dict, env: List) -> (Value, List) =
+    (names, 模块名, ns, env) =>
+    if names = [] then (null, env)
+    else
+      let nm = names[0] in
+      if 标准库.dict_has(ns, nm) then
+        _导入名列表(names[1:], 模块名, ns, 绑定环境(env, nm, ns[nm]))
+      else
+        let 回退 = _内建回退(env, nm) in
+        if 回退 = null then
+          错误("模块 '" + 模块名 + "' 中未找到 '" + nm + "'")
+        else
+          _导入名列表(names[1:], 模块名, ns, 绑定环境(env, nm, 回退))
+
+  (* use 导入内建回退（宿主 _exec_use 第三回退镜像）：ns 缺名时仅当 env 中
+     同名为内建形态（注册内建物化为 ["__builtin__",名] 列表 / __builtin__
+     字典，与 应用函数 分派形状一致）才回退绑定；用户全局/本地绑定不回退。 *)
+  func _内建回退(env: List, nm: String) -> Value = (env, nm) =>
+    if env = [] then null
+    else if env[0][0] = nm then
+      let v = env[0][1] in
+      let vt = type_of(v) in
+      if vt = "Dict" then
+        v["类型"] = "__builtin__" ? v : null
+      else if vt = "List" or vt = "Tuple" then
+        标准库.len(v) > 0 and v[0] = "__builtin__" ? v : null
+      else
+        null
+    else _内建回退(env[1:], nm)
 
   (* while 循环 ===== *)
   func 执行while循环(cond: Dict, body: Dict, env: List) -> (Value, List) =
@@ -379,10 +671,12 @@ module 解释器 {
       let (result2, env2) = 执行语句(body, env) in
       执行while循环(cond, body, env2)
 
-  (* for 循环 ===== *)
-  func 执行for循环(var_name: String, iterable: Dict, body: Dict, env: List) -> (Value, List) =
-    (var_name, iterable, body, env) =>
-    let items = 求值(iterable, env) in
+  (* for 循环 =====
+     入参 items 为已求值列表（执行语句 for 支先行 求值(stmt["迭代"])）：
+     递归传值切片而非 AST 节点——旧形 iterable: Dict 在递归位对
+     list_slice 产物再走 求值 → list["类型"] 崩溃（29d 真化）。 *)
+  func 执行for循环(var_name: String, items: List, body: Dict, env: List) -> (Value, List) =
+    (var_name, items, body, env) =>
     if type_of(items) != "List" or list_len(items) = 0 then (None, env)
     else
       let (result3, env2) = 执行语句(body, 绑定环境(env, var_name, items[0])) in
@@ -498,7 +792,12 @@ module 解释器 {
     let env34 = 绑定环境(env33, "to_upper", ("__builtin__", "to_upper")) in
     let env35 = 绑定环境(env34, "replace", ("__builtin__", "replace")) in
     let env36 = 绑定环境(env35, "split", ("__builtin__", "split")) in
-    env36
+    let env36b = 绑定环境(env36, "输出", ("__builtin__", "输出")) in
+    (* 29d：链模块命名空间预绑定（宿主 ModuleDecl R1 env 绑定镜像）——
+       自举链五模块 ns dict 在 VM globals（bootvm 装载时登记），绑入 env
+       供 use 导入查表（宿主面 env 同形状）。 *)
+    let env37 = 绑定环境(env36b, "__公式库__", []) in
+    env37
 
   (* ===== 顶层入口 ===== *)
 

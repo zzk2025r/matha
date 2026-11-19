@@ -160,7 +160,8 @@ def test_dict_nested():
 
 
 def test_dict_missing_index_returns_none():
-    """缺失键索引：原生防御性返回 None（VM 抛 KeyError——显式偏差）。"""
+    """缺失键索引 → None：29b-④ 起 VM/host/native 三执行体同语义（原 VM
+    KeyError 显式偏差已解除）。"""
     assert _aot('d = {"a": 1}\n#1：[d["zz"]]') == ["None"]
 
 

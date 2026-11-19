@@ -246,7 +246,10 @@ def test_boundary_bootstrap_matha():
 
 def test_boundary_bootstrap_test():
     """host 面 不可调用的值（HEAD 同形不变）；
-    VM 面 HEAD err 未定义变量 '词法器' → 真化后 KeyError: 0。"""
+    VM 面 HEAD err 未定义变量 '词法器' → 21b 后 KeyError: 0 → 29b-④ 缺键返
+    null（vm→host 对齐，应用函数 f[0] 探测字典键落到 错误 分支）后与 host
+    同文案，双端消息逐字一致。"""
     h, v = _faces(ROOT / "matha/bootstrap_test.matha")
     assert h[0] == "err" and "不可调用的值" in h[1]
-    assert v[0] == "err" and "KeyError: 0" in v[1]
+    assert v[0] == "err" and "不可调用的值" in v[1]
+    assert h[1] == v[1]
