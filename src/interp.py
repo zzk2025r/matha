@@ -1995,50 +1995,56 @@ class Interpreter:
                     raise MathaRuntimeError(
                         "列表推导生成子句需迭代列表/元组/字符串/字典/集合，"
                         f"实际 {type(it).__name__}")
-                gen_specs.append((name, list(it)))
+                gen_specs.append((name, list(it), None))
+            conditions = getattr(expr, 'conditions', None) or []
         else:
-            # ListComp 风格：单个生成子句
-            target = getattr(expr, 'target', None)
-            iter_expr = getattr(expr, 'iter', None)
-            it = self._eval(iter_expr)
-            if isinstance(it, dict):
-                it = list(it.items())
-            elif isinstance(it, set):
-                it = list(it)
-            if not isinstance(it, (list, tuple, str)):
-                raise MathaRuntimeError(
-                    "列表推导需迭代列表/元组/字符串/字典/集合，"
-                    f"实际 {type(it).__name__}")
-            # target 可能是 Variable 或其他表达式
-            if isinstance(target, ast.Variable):
-                name = target.name
-                gen_specs.append((name, list(it)))
-            else:
-                # 简单处理：尝试获取 name
-                name = getattr(target, 'name', None)
-                if name is None and isinstance(target, dict):
-                    name = target.get('名')
-                if name is None:
-                    raise MathaRuntimeError(f"列表推导目标不支持: {type(target).__name__}")
-                gen_specs.append((name, list(it)))
-
-        conditions = getattr(expr, 'conditions', None) or getattr(expr, 'ifs', None) or []
+            # ListComp 风格：31b 支持多生成子句（gens=[(target, iter, ifs), ...]；
+            # None 为单生成子句 target/iter/ifs）。每层条件在绑定该层变量后求值
+            # （Python 语义），无扁平 conditions。
+            gens = getattr(expr, 'gens', None)
+            if gens is None:
+                gens = [(getattr(expr, 'target', None), getattr(expr, 'iter', None),
+                         getattr(expr, 'ifs', None) or [])]
+            for target, iter_expr, lvl_ifs in gens:
+                it = self._eval(iter_expr)
+                if isinstance(it, dict):
+                    it = list(it.items())
+                elif isinstance(it, set):
+                    it = list(it)
+                if not isinstance(it, (list, tuple, str)):
+                    raise MathaRuntimeError(
+                        "列表推导需迭代列表/元组/字符串/字典/集合，"
+                        f"实际 {type(it).__name__}")
+                # target 可能是 Variable 或其他表达式
+                if isinstance(target, ast.Variable):
+                    name = target.name
+                else:
+                    # 简单处理：尝试获取 name
+                    name = getattr(target, 'name', None)
+                    if name is None and isinstance(target, dict):
+                        name = target.get('名')
+                    if name is None:
+                        raise MathaRuntimeError(f"列表推导目标不支持: {type(target).__name__}")
+                gen_specs.append((name, list(it), lvl_ifs))
+            conditions = None
         results: list = []
 
         def recurse(i: int) -> None:
             if i == len(gen_specs):
-                for c in conditions:
-                    if not self._eval(c):
-                        return
+                if conditions is not None:
+                    for c in conditions:
+                        if not self._eval(c):
+                            return
                 results.append(self._eval(output_expr))
                 return
-            name, values = gen_specs[i]
+            name, values, lvl_ifs = gen_specs[i]
             had = name in self.env
             saved = self.env.get(name)
             try:
                 for v in values:
                     self.env[name] = v
-                    recurse(i + 1)
+                    if lvl_ifs is None or all(self._eval(c) for c in lvl_ifs):
+                        recurse(i + 1)
             finally:
                 if had:
                     self.env[name] = saved

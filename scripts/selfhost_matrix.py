@@ -21,6 +21,10 @@
 快照 docs/selfhost_matrix.json：summary 计数闭合 + files 按路径排序；
 不含时间戳（确定性）。known 双面一致遗留语义（输出追踪双记/空输出记 0）
 不改判据——equal 只问 boot 与宿主是否一致，不问语义"应该"是什么。
+
+31e：manifest preload 装配镜像（golden_tests/run_golden_tests.py:378 同构）——
+golden_tests/cases/<stem>.matha 按 manifest `cases.<stem>.preload` 前置拼接
+库源码后双轨跑同一文本（golden 36-39 即此形态，裸读双轨 both_err）。
 """
 import argparse
 import json
@@ -38,6 +42,31 @@ BOOT_FILES: tuple[str, ...] = ("matha/lexer.matha", "matha/stdlib.matha",
                                "matha/runtime/matha_runtime.matha",
                                "matha/interp_matha.matha")
 _ERR_TRUNC = 240
+
+# 31e：golden manifest preload 装配（镜像 run_golden_tests.py:378 前置拼接）。
+_manifest_cases: dict | None = None
+
+
+def _manifest_preloads(rel: str) -> list[str]:
+    """golden_tests/cases/<stem>.matha 的 manifest preload 路径表；其余语料 []。"""
+    global _manifest_cases
+    if _manifest_cases is None:
+        _manifest_cases = json.loads(
+            (ROOT / "golden_tests" / "manifest.json")
+            .read_text(encoding="utf-8")).get("cases", {})
+    parts = Path(rel).parts
+    if len(parts) < 3 or parts[0] != "golden_tests" or parts[1] != "cases":
+        return []
+    return _manifest_cases.get(Path(rel).stem, {}).get("preload", [])
+
+
+def _assemble_source(rel: str) -> str:
+    """语料源装配：BOM 剥离 + manifest preload 前置拼接（双轨同源）。"""
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    src = src.lstrip("\ufeff") if src and src[0] == "\ufeff" else src
+    for pre in _manifest_preloads(rel):
+        src = (ROOT / pre).read_text(encoding="utf-8") + "\n" + src
+    return src
 
 
 # ---------------- 30e：boot 面域插件符号注入（拍板①驱动器级） ----------------
@@ -375,6 +404,12 @@ def _first_div(a, b):
 
 _worker_vm = None
 
+_WARMUP_TIMEOUT = 1800.0
+
+
+def _warm(_i):
+    return None
+
 
 def _worker_init():
     global _worker_vm
@@ -558,8 +593,7 @@ def _ensure_module(name: str, in_flight: frozenset):
 
 
 def _run_one(rel: str) -> dict:
-    src = (ROOT / rel).read_text(encoding="utf-8")
-    src = src.lstrip("\ufeff") if src and src[0] == "\ufeff" else src
+    src = _assemble_source(rel)
     entry = {"path": rel}
     b_outs = b_err = None
     try:
@@ -629,6 +663,16 @@ def run_sweep(files: list[str], workers: int, timeout: float) -> list[dict]:
         ctx = mp.get_context("spawn")
         pool = ctx.Pool(processes=workers, initializer=_worker_init)
         try:
+            # 31g：warmup barrier——worker init（boot 链编译）移出单文件 get
+            # 预算：首批 apply_async 的 get(timeout) 会在 init 期间到期而把
+            # 文件误记 timeout（30f 快照 timeout 2 即此竞态伪影——
+            # matha/interp.matha 自测块仅数语句，真重档只有 stdlib_symbols
+            # 数据初始化面）。warmup 超时 = 池初始化失败，如实整轮 timeout。
+            try:
+                pool.map_async(_warm, range(workers * 2)).get(
+                    timeout=_WARMUP_TIMEOUT)
+            except mp.TimeoutError:
+                break
             asyncs = [(rel, pool.apply_async(_run_one, (rel,))) for rel in pending]
             uncollected = []
             for rel, a in asyncs:
@@ -756,7 +800,10 @@ def main(argv=None) -> int:
     g.add_argument("--check", action="store_true")
     g.add_argument("--structure", action="store_true")
     ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--timeout", type=float, default=120.0)
+    ap.add_argument("--timeout", type=float, default=600.0,
+                    help="单文件双轨预算（31g 治理：120→600——boot 面柯里化递归"
+                         "真慢档 golden 37/38 实测 ~65-300s 量级，120s 误记 timeout；"
+                         "warmup 已把 worker init 移出预算）")
     ap.add_argument("--filter", type=str, default=None)
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args(argv)

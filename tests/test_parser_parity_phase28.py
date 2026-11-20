@@ -98,9 +98,11 @@ def conv(n):
         return ast.CodeBlock(stmts=[conv(x) for x in n["声明"]])
 
     if t == "函数定义":
+        # 31a：无箭头简写（返回类型 null）→ 宿主 func_type=None（29-⑧ 真化）
+        ft = None if n["返回类型"] is None else func_type_of(n["参数类型"], n["返回类型"])
         return ast.FuncDef(
             name=n["名"], annotation=None,
-            func_type=func_type_of(n["参数类型"], n["返回类型"]),
+            func_type=ft,
             body=ast.Lambda(params=[conv_lambda_param(p) for p in n["参数"]],
                             body=conv(n["体"])))
 
@@ -317,10 +319,17 @@ def conv(n):
 
     # 30d：列表推导 [e for t in it if c...]（宿主 ListComp 镜像，
     # src/ast_nodes.py ListComp expr/target/iter/ifs 四字段）
+    # 31b：多生成子句 生成子句们=[{目标,迭代,条件}...]（全部层含首层，
+    # 与宿主 ListComp.gens 同构；缺键=单子句 gens=None）
     if t == "列表推导":
+        gens = None
+        if n.get("生成子句们") is not None:
+            gens = [(conv(c["目标"]), conv(c["迭代"]), [conv(x) for x in c["条件"]])
+                    for c in n["生成子句们"]]
         return ast.ListComp(expr=conv(n["表达式"]), target=conv(n["目标"]),
                             iter=conv(n["迭代"]),
-                            ifs=[conv(x) for x in n["条件"]])
+                            ifs=[conv(x) for x in n["条件"]],
+                            gens=gens)
 
     if t == "元组":
         return ast.TupleExpr(elements=[conv(x) for x in n["元素"]])

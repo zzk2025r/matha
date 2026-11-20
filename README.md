@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 178（`tests/`）
+- **测试文件：** 179（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -259,6 +259,18 @@ port.rollback("⊗")                            # 回滚到上一版
 0（29d 61→清零）/ both_err 17（错误语料双端如实报错）/ timeout 2（interp/
 stdlib_symbols 重档自检 >120s 双面未完成）。
 
+语言完备与判定面收敛（阶段 31）：func 定义 `->` 返回类型可选（29-⑧ 退役）；
+双 for 推导 `[e for a in xs for b in ys if c...]` 双端三面（宿主
+`ListComp.gens` + MBC 嵌套循环发射零新 opcode；boot 编译器推导发射诚实
+未支持登记）；语句位括号链块体位收集（顶层双面诚实拒绝维持）；f[0]
+不可调用守卫三面同文案 + 字典迭代元组对齐（boot 面此前静默空跑假成功
+清除）；boot 切片表达式求值真化（30 登记④退役，12 形态三面同判）；
+sweep 装配镜像（golden manifest preload 双轨同源——golden 36/39
+both_err→equal）+ warmup barrier + 单文件预算 120→600s。快照 225：
+双面一致 206 / 诚实 differ 3 / boot_err 0 / both_err 13 / timeout 3
+（37/38/interp.matha 双面真跑 >600s 同判；interp.matha host 面单跑
+1.2s，共享预算 boot 先耗尽——如实归因见 KNOWN_ISSUES 31）。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -280,7 +292,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（178 个文件）
+├── tests/                  # 测试套件（179 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

@@ -434,6 +434,27 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   分支对齐 VM 面（src/interp.py）。A 轨新档：test_selfhost_errmsg_
   phase30 + test_selfhost_syntax_phase30 + test_selfhost_domain_phase30
   （29 项）；登记不修清单见 KNOWN_ISSUES 阶段 30 收官条目。
+- 阶段 31 语言完备与判定面收敛（六片全落，30e 域注入后判定面收口）：
+  **31a func 定义 `->` 可选**——宿主/自举 parser `func 名(参) = 体` 无返回
+  类型标注简写（带 `->` 形态不变），29-⑧「func 必须写 `->`」退役，三面
+  （vm/hi/mb）+ 双编译器字节码对拍；**31b 双 for 推导**——`[e for a in …
+  for b in …]` 与尾缀 `if` 组合 boot 解析/求值面真化 + 字典源迭代产出
+  ('k',v) 对（vm 面字典源 KeyError(0) 登记）；**31c 块体链管道**——块体内
+  `A >> B` 链求值真化（vm/mb 面；顶层链仍语法拒绝，宿主解释器面 ChainStmt
+  暂不支持求值维持登记）；**31d 调用守卫 + 字典/字符串 for**——不可调用值
+  （5/[]）双面诚实报错文案对齐 + 字典对产出（('k',v)）+ 字符串逐字符迭代；
+  **31f 切片求值对齐**——列表/字符串/元组切片六形态 boot 解析/求值/编译
+  三面（元组切片 vm 面返列表、hi/mb 保元组登记；非容器切片 vm TypeError /
+  hi·mb MathaRuntimeError 原生形态）；**31e preload 装配 + 31g 判定面**——
+  sweep `_manifest_preloads`/`_assemble_source`（BOM 剥离 + 预装载 prepend）
+  真跑资源装载，warmup barrier `map_async(_warm, workers*2)` 预热 +
+  `--timeout` 默认 600s；快照 225：双面一致 206 / 诚实 differ 3 /
+  boot_err 0 / both_err 13 / timeout 3（golden 36-39 both_err 清零：36/39
+  →equal、37/38 装载真跑 >600s 双面同判 timeout；interp.matha boot 面重档
+  >600s、host 面单跑 1.2s——共享预算 boot 先耗尽 host 未及跑，如实归因见
+  KNOWN_ISSUES 31；stdlib_symbols 600s 预算内 ok）。A 轨新档
+  test_selfhost_language_phase31（19 项三面+字节码对拍）；登记不修清单见
+  KNOWN_ISSUES 阶段 31 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

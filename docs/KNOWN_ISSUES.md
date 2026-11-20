@@ -2187,6 +2187,76 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 31 收官（语言完备与判定面收敛：func-> 简写 + 双 for 推导 +
+  切片/守卫/字典迭代 + sweep 预装载装配）**：六片全落；31g 拍板维持 sweep
+  单预算 600s 驱动器（不拆双面预算——快照类形不翻动，timeout 如实分类）。
+  **31a func 定义 `->` 可选**：宿主/自举 parser `func 名(参) = 体` 无返回
+  类型标注简写（带 `->` 形态不变，func_type=None 纯元数据），29-⑧「func
+  必须写 `->`」退役；三面（vm/hi/mb）+ 双编译器字节码对拍。
+  **31b 双 for 推导**：`[e for a in xs for b in ys if c...]` 宿主
+  ListComp.gens + _parse_comp_tail 统一收口 + MBC 嵌套循环发射（零新
+  opcode）+ boot 解析/求值面真化——30d 双 for 诚实报错分歧条退役（phase-30
+  锁 test_double_for_boot_honest_error → test_double_for_boot_truthified
+  真化退役，双面 [[11,12]] 同值；VM 面由 phase-31 锁）。
+  **31c 语句位括号链**：块体位 `[x] >> [y]` 链收集 vm/mb 面真化（boot
+  解析输出语句镜像宿主 _parse_mech_stmt）；顶层双面语法拒绝维持。
+  **31d 调用守卫 + 字典/字符串 for**：不可调用值（5/[]）三面诚实报错文案
+  对齐「不可调用的值： N」；字典源迭代产出 ('k',v) 元组对（boot 面此前
+  静默空跑假成功清除）+ 字符串逐字符迭代三面。
+  **31f 切片求值真化**：列表/字符串/元组切片 12 形态三面同判——30-④
+  「boot 切片表达式求值未支持」退役。
+  **31e sweep 预装载装配 + 31g 判定面**：scripts/selfhost_matrix.py
+  `_manifest_preloads`/`_assemble_source`（BOM 剥离 + 预装载 prepend）——
+  golden manifest 双轨同源真跑资源装载 + warmup barrier
+  `map_async(_warm, workers*2)` 预热 + 单文件预算 120→600s。
+  **门禁**：tests lane 7612 过 + 1 skip 6895.89s（首跑 7 红：6 native 面
+  PermissionError/OSError 22 = 与 native_parity 车道并行编译 exe 的争用
+  伪影，隔离复跑 4 文件 909/909 绿；1 真锁漂移 = phase-30 双 for 诚实报错
+  锁随 31b 真化退役更新，复跑 17/17 绿——非产品缺陷）；quick lanes：
+  kernel_purity 14 绿 + ast_vm_gap 11 绿（快照重生成——唯一行变化
+  DictLiteral used_in 21→22，totals 与 30 逐项一致：78 节点/59 发射/19
+  无码/0 不认识/0 阻塞缺口/指令码 35/语料 230/解析失败 0）+ golden 39/39 +
+  dep_audit 39 内核文件 189 import 边 0 违规 + native_parity 38/39（0
+  失败，native 已知未实现 1 例不计分母）+ Track B selfhost_matrix --check
+  一致（快照 206/3/0/0/13/3）。
+  算术闭合：7716 条件 = 7715 过（tests 7612 + purity 14 + ast_vm_gap 11 +
+  golden 39 + native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 7697
+  （30 条件）+ 19（test_selfhost_language_phase31）。doc 同步：README
+  （阶段 31 段 + 测试文件 179 ×2）；ARCHITECTURE（本体量 32,951 = 32,859 +
+  92：31a-31f 宿主 parser/ast_nodes/mbc compiler/interp 四文件净增 interp
+  计外；阶段 31 节 + 测试文件 179）；CHANGELOG 阶段 31 条目；ast_vm_gap +
+  selfhost_matrix 快照重生成。
+  登记不修十条（2026-11-20 收官快照实测）：①VM 面字典源迭代 KeyError(0)
+  （for 语句 + 推导式同源；interp 双面产出 ('k',v) 元组对）——
+  test_31b_comp_dict_pairs_interp_faces / test_31d_for_dict_pairs_interp_
+  faces 锁形；②VM 面元组切片返 List（BUILD_LIST 发射；hi/mb 保 Tuple）——
+  test_31f_slice_tuple_pairs_interp_faces；③VM 面非容器切片原生 TypeError
+  （hi/mb MathaRuntimeError 切片操作不支持： int[1:2]）——
+  test_31f_slice_noncontainer_honest 双面诚实形态锁；④mb 面 str([]) 渲染
+  <?>?（28-⑨ stdlib str 数字专用同源）——test_31d_uncallable_empty_list_
+  honest mb 面文案存在性锁；⑤宿主解释器面 ChainStmt 暂不支持求值（块值
+  模型分歧；vm/mb 面块体位链真化对照，顶层双面语法拒绝维持）；⑥boot 编译器
+  推导发射未支持（诚实报错「未支持的表达式类型 列表推导」——VM 面推导经
+  宿主编译器发射、boot 面推导求值经 interp_matha）——
+  test_31b_boot_compiler_honest_reject 锁；⑦timeout 3 归因（拍板维持单
+  预算 600s）：matha/interp.matha boot 面真重档——探针不设预算 >3.1h CPU
+  仍未完成（实测 CPU 11395s 仍在算），host 面单跑 1.2s，共享预算 boot 先
+  耗尽 host 未及跑 → timeout/timeout 如实分类；golden 37/38 装载真跑后
+  双面真算 >600s 同判（30 时 both_err「未定义变量」→ 31e 装配后真跑转
+  timeout，诚实分类非退步）；stdlib_symbols 120→600s 预算内 ok（30-②
+  退役）；⑧both_err 13 构成：错误语料 10（golden 12/13/14/24/25/26/27/
+  28/29/31 双端如实报错）+ bootstrap_full_test（boot 未定义变量
+  'dict_from_pairs' vs host 未定义变量 '不折叠'）+ bootstrap_matha（boot
+  Partial len TypeError vs host 属性访问失败 str.类型）+ bootstrap_test
+  （双端同文案 不可调用的值： <?>?）——bootstrap 三档维持 30 形态；
+  ⑨differ 3 维持（08_auto_optimize/data_pipeline/neural_network——对象
+  身份/未定种子如实分歧）；⑩承继：29-①②⑥⑦ + 28-⑦⑧⑨ + 29e opt-in
+  中段跳过维持原登记。
+  退役五条：29-⑧（func-> 简写）、30d 双 for 诚实报错分歧条、30-④（boot
+  切片未支持）、30-② timeout 2 之 stdlib_symbols（37/38 由 both_err 转
+  timeout 如实重分类）、both_err golden 36-39（31e 预装载装配——36/39
+  →equal、37/38 →timeout 真跑）。
+
 - **2026-11 阶段 30 收官（自举执行面收口：Track B boot_err_host_ok 61 → 清零
   + 驱动器级域符号注入）**：五片全落，30e 拍板①驱动器级注入（宿主真实现经
   28d register_builtin 端口，非桩件；判定语义 = 同一内建面下 boot 解释器 ≡

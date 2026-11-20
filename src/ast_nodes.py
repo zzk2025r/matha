@@ -557,11 +557,16 @@ class RaiseExpr:
 
 @dataclass
 class ListComp:
-    """列表推导式 [expr for target in iterable if cond ...]"""
+    """列表推导式 [expr for target in iterable if cond ...]
+
+    31b 多生成子句：[e for a in xs for b in ys if c] → gens=[(a,xs,[]),(b,ys,[c])]
+    （Python 语义：第 k 层条件在绑定第 k 层变量后求值）。gens=None 为单生成
+    子句（target/iter/ifs 生效）；多子句时 target/iter/ifs 仍填首层。"""
     expr: Any
     target: Any
     iter: Any
     ifs: list = field(default_factory=list)
+    gens: list | None = None
 
 
 @dataclass

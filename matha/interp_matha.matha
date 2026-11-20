@@ -94,6 +94,44 @@ module 解释器 {
     ct = "List" or ct = "Tuple" or ct = "String" ? c[i] :
     错误("索引操作不支持: " + _类型名(c) + "[" + 标准库.str(i) + "]")
 
+  (* 切片求值（31f 真化：求值 此前无 切片 分支——自举执行面任何含 a[s:e] 语料
+     诚实报错 未知表达式类型；30 收官登记④。宿主 SliceExpr 镜像
+     （src/interp.py 切片支）：列表/元组/字符串 Python 切片语义——缺端 null→
+     None、负下标回绕、越界钳制、起点超长→空；其余形态诚实报错同文案） *)
+  func 求值切片(容器e: Dict, 开始e: Dict, 结束e: Dict, env: List) -> Value =
+    let c = 求值(容器e, env) in
+    let s0 = 开始e = null ? null : 求值(开始e, env) in
+    let e0 = 结束e = null ? null : 求值(结束e, env) in
+    let ct = type_of(c) in
+    ct = "List" or ct = "Tuple" or ct = "String" ?
+      _切片值(c, s0, e0, ct) :
+      错误("切片操作不支持: " + _类型名(c) + "[" + 标准库.str(s0) + ":" + 标准库.str(e0) + "]")
+
+  (* Python 切片下标归一：null→缺省（起点 0 / 终点 n）、负值回绕后钳 [0, n] *)
+  func _切片起(i, n: Int) -> Int =
+    i = null ? 0 :
+    i < 0 ? ((i + n) < 0 ? 0 : i + n) :
+    i > n ? n : i
+
+  func _切片端(i, n: Int) -> Int =
+    i = null ? n :
+    i < 0 ? ((i + n) < 0 ? 0 : i + n) :
+    i > n ? n : i
+
+  func _切片值(c, s0, e0, ct: String) -> Value =
+    let 元素们 = ct = "List" ? c : ct = "Tuple" ? _元组元素(c) : 字符串拆字符(c) in
+    let n = 标准库.len(元素们) in
+    let s = _切片起(s0, n) in
+    let e = _切片端(e0, n) in
+    let 们 = _切片收(元素们, s, e, []) in
+    ct = "String" ? _切片串(们, "") : ct = "Tuple" ? _to_tuple(们) : 们
+
+  func _切片收(元素们: List, s: Int, e: Int, acc: List) -> List = (元素们, s, e, acc) =>
+    s >= e ? acc : _切片收(元素们, s + 1, e, acc + [元素们[s]])
+
+  func _切片串(们: List, acc: String) -> String = (们, acc) =>
+    们 = [] ? acc : _切片串(们[1:], acc + 们[0])
+
   func 求值(expr: Dict, env: List) -> Value = (expr, env) =>
     expr["类型"] = "整数" ? expr["值"] :
     expr["类型"] = "浮点" ? expr["值"] :
@@ -115,6 +153,7 @@ module 解释器 {
     expr["类型"] = "let绑定" ? 求值let绑定(expr, env) :
     expr["类型"] = "match" ? 求值match(expr, env) :
     expr["类型"] = "下标" ? 求值下标(expr["容器"], expr["索引"], env) :
+    expr["类型"] = "切片" ? 求值切片(expr["容器"], expr["开始"], expr["结束"], env) :
     (* 30a：属性访问 a.b（宿主 Attribute 镜像）——变量已绑定 → struct 实例/
        enum 命名空间/字典字段；未绑定 → 模块平铺回退（链模块内建已平铺）；
        其余对象表达式先求值再取字段。 *)
@@ -268,16 +307,81 @@ module 解释器 {
      （字典按 (k, v) 对）；目标名绑定进推导环境（绑定环境 前插派生，
      迭代间不渗漏、外层绑定不受污染），条件全真才收集输出表达式。 *)
   func 求值列表推导(expr: Dict, env: List) -> List = (expr, env) =>
-    let src0 = 求值(expr["迭代"], env) in
-    if expr["目标"]["类型"] = "变量" then
-      求值推导收集(expr["表达式"], expr["目标"]["名"], _迭代源(src0), expr["条件"], env)
-    else 错误("列表推导目标不支持: " + expr["目标"]["类型"])
+    (* 31b：多生成子句 生成子句们=[{目标,迭代,条件}...]（宿主 gens 分支镜像，
+       Python 语义第 k 层条件在绑定第 k 层变量后求值；缺键=null 走单子句） *)
+    if expr["生成子句们"] = null then
+      let src0 = 求值(expr["迭代"], env) in
+      if expr["目标"]["类型"] = "变量" then
+        求值推导收集(expr["表达式"], expr["目标"]["名"], _迭代源(src0), expr["条件"], env)
+      else 错误("列表推导目标不支持: " + expr["目标"]["类型"])
+    else
+      _推导多子句(expr, _推导规格们(expr["生成子句们"], env), env)
+
+  func _推导规格们(子句们: List, env: List) -> List =
+    let rec _go(i: Int, acc: List) -> List =
+      if i >= 标准库.len(子句们) then acc
+      else
+        let 子句 = 子句们[i] in
+        if 子句["目标"]["类型"] = "变量" then
+          _go(i + 1, acc + [{"名": 子句["目标"]["名"],
+                             "源": _迭代源(求值(子句["迭代"], env)),
+                             "条件": 子句["条件"]}])
+        else 错误("列表推导目标不支持: " + 子句["目标"]["类型"])
+    in _go(0, [])
+
+  func _推导多子句(expr: Dict, specs: List, env: List) -> List =
+    _推导层(expr, specs, 0, env, [])
+
+  func _推导层(expr: Dict, specs: List, si: Int, env: List, acc: List) -> List =
+    if si >= 标准库.len(specs) then acc + [求值(expr["表达式"], env)]
+    else
+      let spec = specs[si] in
+      let 名 = spec["名"] in
+      let 源 = spec["源"] in
+      let 条件 = spec["条件"] in
+      _推导绑定(expr, specs, si, 名, 源, 条件, env, acc, 0)
+
+  func _推导绑定(expr: Dict, specs: List, si: Int, 名: String, 源: List,
+                 条件: List, env: List, acc: List, i: Int) -> List =
+    if i >= 标准库.len(源) then acc
+    else
+      let 新环境 = 绑定环境(env, 名, 源[i]) in
+      if _条件全真(条件, 新环境) then
+        _推导绑定(expr, specs, si, 名, 源, 条件, env,
+                  _推导层(expr, specs, si + 1, 新环境, acc), i + 1)
+      else _推导绑定(expr, specs, si, 名, 源, 条件, env, acc, i + 1)
 
   func _迭代源(src) -> Value =
     type_of(src) = "List" or type_of(src) = "Tuple" ? src :
     type_of(src) = "String" ? 字符串拆字符(src) :
-    type_of(src) = "Dict" ? 标准库.dict_to_list(src) :
+    type_of(src) = "Dict" ? _字典元组对(src) :
     错误("列表推导需迭代列表/元组/字符串/字典/集合，实际 " + _类型名(src))
+
+  (* 31d-②：字典迭代对——host list(items()) 同形（元组对 ('k', v)）。
+     标准库.dict_to_list 特意产 [k,v] 列表（函数应用语境注释见其体），
+     推导/for 迭代语境须与宿主逐位同形（元组），故单独成对。 *)
+  func _字典元组对(src: Dict) -> List =
+    _字典元组对进(标准库.dict_to_list(src), 0, [])
+
+  func _字典元组对进(对们: List, i: Int, acc: List) -> List =
+    i >= 标准库.len(对们) ? acc :
+    _字典元组对进(对们, i + 1, acc + [(对们[i][0], 对们[i][1])])
+
+  (* 31d-②：for 迭代源——List 原样、Tuple 转列表（执行for循环 list_slice
+     通道需 List）、String 拆字符、Dict 元组对（host list(items()) 同形）；
+     其余诚实报错（宿主 for 面同文案）。此前 Dict/Int/String/Tuple 等落
+     type_of!=List 静默空跑（假成功）。 *)
+  func _for迭代源(src) -> Value =
+    type_of(src) = "List" ? src :
+    type_of(src) = "Tuple" ? _元组元素(src) :
+    type_of(src) = "String" ? 字符串拆字符(src) :
+    type_of(src) = "Dict" ? _字典元组对(src) :
+    错误("for 迭代对象需为列表/元组/字符串/字典/集合，实际 " + _类型名(src))
+
+  func _元组元素(src) -> List = _元组元素进(src, 0, [])
+
+  func _元组元素进(src, i: Int, acc: List) -> List =
+    i >= 标准库.len(src) ? acc : _元组元素进(src, i + 1, acc + [src[i]])
 
   func 字符串拆字符(s: String) -> List =
     let rec _go(i: Int, acc: List) -> List =
@@ -541,7 +645,7 @@ module 解释器 {
     stmt["类型"] = "while" ?
       执行while循环(stmt["条件"], stmt["体"], env) :
     stmt["类型"] = "for" ?
-      执行for循环(stmt["变量"], 求值(stmt["迭代"], env), stmt["体"], env) :
+      执行for循环(stmt["变量"], _for迭代源(求值(stmt["迭代"], env)), stmt["体"], env) :
     stmt["类型"] = "输出" ?
       (let v = 输出取值(stmt["expr"], env) in
        let 忽略 = 输出记录(v) in

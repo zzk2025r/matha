@@ -2908,17 +2908,9 @@ class Parser:
                         first = self._parse_expr()
                         if self._check(TokenType.KW_FOR):
                             self._advance()
-                            target = self._parse_expr()
-                            if self._check(TokenType.KW_IN):
-                                self._advance()
-                            it = self._parse_expr()
-                            ifs = []
-                            while self._check(TokenType.KW_IF):
-                                self._advance()
-                                ifs.append(self._parse_expr())
-                            self._skip_newlines()
-                            self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
-                            result: Any = ast.ListComp(expr=first, target=target, iter=it, ifs=ifs)
+                            # 31b：目标位单变量 + 多生成子句（_parse_comp_tail，
+                            # 修复旧 target=_parse_expr 吞 `x in it` 属于运算缺陷）
+                            result: Any = self._parse_comp_tail(first)
                         else:
                             self.pos = saved2e
                             elements.append(self._parse_expr())
@@ -3047,6 +3039,36 @@ class Parser:
             j += 1
         return False
 
+    def _parse_comp_tail(self, first: Any) -> ast.ListComp:
+        """31b：推导尾 `for 目标 in 迭代 [if 条件...]`，可多生成子句（双 for）。
+
+        Python 语义：第 k 层条件在绑定第 k 层变量后求值（_eval_list_comprehension
+        gens 分支 / _emit_list_comp_multi 同构）。目标位单变量——标识符/占位符/
+        符号直接成 Variable，避免 in 成员判断吞掉 `x in it`。调用点：
+        _parse_output（语句位 [ ]）与 _parse_list_literal（表达式位 [ ]）。"""
+        gens: list = []
+        while True:
+            if self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):
+                target = self._parse_variable()
+            else:
+                target = self._parse_expr()
+            if self._check(TokenType.KW_IN):
+                self._advance()
+            it = self._parse_expr()
+            ifs = []
+            while self._check(TokenType.KW_IF):
+                self._advance()
+                ifs.append(self._parse_expr())
+            gens.append((target, it, ifs))
+            self._skip_newlines()
+            if not self._check(TokenType.KW_FOR):
+                break
+            self._advance()
+        self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
+        t0, i0, f0 = gens[0]
+        return ast.ListComp(expr=first, target=t0, iter=i0, ifs=f0,
+                            gens=gens if len(gens) > 1 else None)
+
     def _parse_list_literal(self) -> Any:
         """<list_literal> = [ <expr> , { , <expr> } ] | [ <expr> for ... ]"""
         self._expect(TokenType.PUNCT_LBRACKET, "列表左括号 [")
@@ -3056,21 +3078,7 @@ class Parser:
             first = self._parse_expr()
             if self._check(TokenType.KW_FOR):
                 self._advance()
-                # target 通常是变量，避免表达式解析吃掉 'in'
-                if self._current().type in (TokenType.IDENTIFIER, TokenType.MATHA_PLACEHOLDER, TokenType.SYMBOL):
-                    target = self._parse_variable()
-                else:
-                    target = self._parse_expr()
-                if self._check(TokenType.KW_IN):
-                    self._advance()
-                it = self._parse_expr()
-                ifs = []
-                while self._check(TokenType.KW_IF):
-                    self._advance()
-                    ifs.append(self._parse_expr())
-                self._skip_newlines()
-                self._expect(TokenType.PUNCT_RBRACKET, "列表右括号 ]")
-                return ast.ListComp(expr=first, target=target, iter=it, ifs=ifs)
+                return self._parse_comp_tail(first)
             self.pos = saved
         except Exception:
             self.pos = saved
@@ -4137,10 +4145,11 @@ class Parser:
         return self._parse_expr_or_binding()
 
     def _parse_func_def(self) -> ast.FuncDef:
-        """<func_def> = func <id> [annotation] ( <params> ) -> <type> = <lambda>
+        """<func_def> = func <id> [annotation] ( <params> ) [-> <type>] = <lambda>
 
         参数列表：(name: Type, name: Type, ...)，类型标注可选。
-        lambda 体：(params) => expr
+        返回类型 -> 可选（31a，29b let 简写同规；无箭头 func_type=None）。
+        lambda 体：(params) => expr 或 expr（直接表达式，按声明参数合成 lambda）。
         """
         self._expect(TokenType.KW_FUNC, "func")
         name = self._expect(TokenType.IDENTIFIER, "函数名").value
@@ -4162,16 +4171,22 @@ class Parser:
         self._expect(TokenType.PUNCT_RPAREN, ")")
         # 返回类型（允许右括号与 -> 之间换行）
         self._skip_newlines()
-        self._expect(TokenType.OP_ARROW, "->")
-        ret_type = self._parse_type_expr()
-        # 构造函数类型
-        if len(params) == 0:
-            param_type: Any = ast.BasicType(name="Unit")
-        elif len(params) == 1:
-            param_type = params[0][1] or ast.BasicType(name="Int")
+        # 31a：-> 返回类型可选（29-⑧ 真化，29b let 简写双端同规）——
+        # 无箭头时 func_type=None（纯元数据，解释器/编译器不消费），
+        # 体语境与带箭头形态一致：直接体按声明参数合成 lambda。
+        if self._check(TokenType.OP_ARROW):
+            self._advance()
+            ret_type = self._parse_type_expr()
+            # 构造函数类型
+            if len(params) == 0:
+                param_type: Any = ast.BasicType(name="Unit")
+            elif len(params) == 1:
+                param_type = params[0][1] or ast.BasicType(name="Int")
+            else:
+                param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
+            func_type: Any = ast.FuncType(param_type=param_type, return_type=ret_type)
         else:
-            param_type = ast.TupleType(types=[p[1] or ast.BasicType(name="Int") for p in params])
-        func_type = ast.FuncType(param_type=param_type, return_type=ret_type)
+            func_type = None
         # 函数体：(params) => expr 或 expr（直接表达式）或 { } 代码块
         # 阶段 14c：允许 -> 类型与 = 之间换行（与右括号与 -> 之间的换行一致）
         self._skip_newlines()

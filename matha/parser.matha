@@ -172,6 +172,11 @@ module 语法器 {
      src/ast_nodes.py:559 四字段 expr/target/iter/ifs） *)
   func 做ListComp(表达式: Dict, 目标: Dict, 迭代: Dict, 条件: List) -> Dict =
     {"类型": "列表推导", "表达式": 表达式, "目标": 目标, "迭代": 迭代, "条件": 条件}
+  (* 31b：多生成子句列表推导 [e for a in xs for b in ys if c]（宿主
+     ListComp.gens 镜像，Python 语义每层条件在绑定该层变量后求值） *)
+  func 做ListComp多(表达式: Dict, 目标: Dict, 迭代: Dict, 条件: List, 生成子句们: List) -> Dict =
+    {"类型": "列表推导", "表达式": 表达式, "目标": 目标, "迭代": 迭代, "条件": 条件,
+     "生成子句们": 生成子句们}
   (* 元组字面量 (a, b, c) —— 与宿主 TupleExpr 一致，编译为 BUILD_LIST *)
   func 做元组(元素: List) -> Dict = {"类型": "元组", "元素": 元素}
   (* 下标访问 a[i] —— 容器为表达式节点，索引为表达式节点 *)
@@ -920,10 +925,31 @@ module 语法器 {
       let p3 = 推进(p2) in
       let (迭代, p4) = 解析表达式(p3) in
       let (条件, p5) = 解析推导条件(p4) in
-      if 匹配(p5, 类型.右括号方) then
-        (做ListComp(首, 目标, 迭代, 条件), 推进(p5))
-      else 错误("推导式期望列表右括号 ]")
+      (* 31b：多生成子句 for t2 in it2 if... （宿主 _parse_comp_tail 镜像；
+         生成子句们 携带全部层（含首层，与宿主 ListComp.gens 同构），
+         单子句维持原节点形状不带键） *)
+      if 匹配(p5, 类型.关键字) and 当前(p5).文本 = "for" then
+        let (其余, p6) = 解析推导其余(p5, [{"目标": 目标, "迭代": 迭代, "条件": 条件}]) in
+        if 匹配(p6, 类型.右括号方) then
+          (做ListComp多(首, 目标, 迭代, 条件, 其余), 推进(p6))
+        else 错误("推导式期望列表右括号 ]")
+      else
+        if 匹配(p5, 类型.右括号方) then
+          (做ListComp(首, 目标, 迭代, 条件), 推进(p5))
+        else 错误("推导式期望列表右括号 ]")
     else 错误("推导式期望 in")
+
+  func 解析推导其余(p: 解析器, acc: List) -> (List, 解析器) =
+    if 匹配(p, 类型.关键字) and 当前(p).文本 = "for" then
+      let p1 = 推进(p) in
+      let (目标, p2) = 解析推导目标(p1) in
+      if 匹配(p2, 类型.关键字) and 当前(p2).文本 = "in" then
+        let p3 = 推进(p2) in
+        let (迭代, p4) = 解析表达式(p3) in
+        let (条件, p5) = 解析推导条件(p4) in
+        解析推导其余(p5, acc + [{"目标": 目标, "迭代": 迭代, "条件": 条件}])
+      else 错误("推导式期望 in")
+    else (acc, p)
 
   func 解析推导目标(p: 解析器) -> (Dict, 解析器) =
     let tok = 当前(p) in
@@ -2046,7 +2072,13 @@ module 语法器 {
      Output ≠ OutputTrail 六处分歧根因。 *)
   func 解析输出语句(p: 解析器) -> (Dict, 解析器) =
     let (expr, p3) = 解析输出单元(p) in
-    p.在块体 ? (做输出追踪(expr), p3) : (做Output(expr), p3)
+    if p.在块体 then
+      (* 块体位链收集（31c）：宿主 _parse_mech_stmt 789-794 在 OutputTrail 后
+         遇 >> 且链语境 → _parse_chain。顶层不收集（宿主 _bracket_followed_by_infix
+         不含 >>，顶层 [1] >> [2] 双面均悬空报错）。 *)
+      if 是链续接(p3) then 收尾链(p3, 做输出追踪(expr))
+      else (做输出追踪(expr), p3)
+    else (做Output(expr), p3)
 
   (* 链项位 [输出]：宿主 _parse_mech_stmt(789) 链语境恒 _parse_output_trail
      （OutputTrail），不随语境分派。 *)
@@ -2430,7 +2462,7 @@ module 语法器 {
     let d3 = t.类型 = 类型.右括号方 ? d2 - 1 : d2 in
     d3 <= 0 ? (acc2, p2) : 收集方括号(p2, acc2, d3)
 
-  (* 函数定义：func name(params) -> RetType = (params) => body *)
+  (* 函数定义：func name(params) [-> RetType] = (params) => body *)
   func 解析函数定义(p: 解析器) -> (Dict, 解析器) =
     let p2 = 期望(p, 类型.关键字) in  (* func *)
     let name_tok = 当前(p2) in
@@ -2439,9 +2471,15 @@ module 语法器 {
     let p4 = 期望(p3, 类型.左括号) in
     let (params, param_types, p5) = 解析参数列表(p4) in
     let p6 = 期望(p5, 类型.右括号) in
-    let p7 = 期望(p6, 类型.箭头) in  (* -> *)
-    let (ret_type, p8) = 解析类型表达式(p7) in
-    let p9 = 期望(p8, 类型.等于) in  (* = *)
+    (* 31a：-> 返回类型可选（29-⑧ 真化，29b let 简写同规）——
+       无箭头时 返回类型=null（宿主 func_type=None 同构），
+       体语境与带箭头形态一致（直接体按声明参数入 FuncDef.参数） *)
+    let (p7, ret_type) = if 匹配(p6, 类型.箭头) then
+      let p6a = 推进(p6) in
+      let (rt, p6b) = 解析类型表达式(p6a) in
+      (p6b, rt)
+    else (p6, null) in
+    let p9 = 期望(p7, 类型.等于) in  (* = *)
     if 匹配(p9, 类型.左括号) then
       (* 显式 lambda：(params) => body *)
       let p10 = 推进(p9) in

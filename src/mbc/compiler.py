@@ -964,7 +964,11 @@ class Compiler:
         单生成子句（parser 语法即 `[expr for tgt in iter {if cond}...]`）；多 if 取 AND：
         任一条件为假即跳过本次 append（JZ→inc）。语义对齐 `src/interp.py` 的
         `_eval_list_comprehension`，由黄金用例 `35_list_comp` 与 tests/test_listcomp_vm.py 锁定。
+        31b 多生成子句（node.gens）走 `_emit_list_comp_multi` 嵌套循环发射。
         """
+        if getattr(node, "gens", None):
+            self._emit_list_comp_multi(node, scope, code, node.gens)
+            return
         tgt = node.target
         name = tgt.name if isinstance(tgt, ast.Variable) else getattr(tgt, "name", None)
         if not name:
@@ -1017,6 +1021,74 @@ class Compiler:
         code.append((OP.JMP, top))
         # 循环尾：回填条件假出口，结果列表留栈
         code[jz_end] = (OP.JZ, len(code))
+        self._load_temp(code, res_t)
+
+    def _emit_list_comp_multi(self, node, scope: _Scope, code: list,
+                              gens: list) -> None:
+        """31b 多生成子句 [e for a in xs for b in ys if c]：嵌套下标循环发射。
+
+        每层与 `_emit_list_comp` 同构（len/get 驱动 + append 累加器），第 k 层
+        迭代源在进入第 k 层时求值（外层每轮重新求值内层迭代源，Python 语义）；
+        第 k 层条件在绑定第 k 层变量后求值（JZ→本层 inc）。内层耗尽出口 JZ 指向
+        外层 inc（推进外层），最外层耗尽指向总出口。不引入新 opcode。"""
+        res_t = self._alloc_temp(scope, "lc_res")
+        code.append((OP.BUILD_LIST, 0))
+        self._store_temp(code, res_t)
+
+        def emit_level(k: int) -> int:
+            """发射第 k 层循环，返回本层耗尽出口 JZ 的位置（供父层回填）。"""
+            target_k, iter_k, ifs_k = gens[k]
+            name = (target_k.name if isinstance(target_k, ast.Variable)
+                    else getattr(target_k, "name", None))
+            if not name:
+                raise RuntimeError("字节码编译：列表推导目标必须是单个变量")
+            self._emit_expr(iter_k, scope, code)
+            xs_t = self._alloc_temp(scope, f"lc_xs{k}")
+            i_t = self._alloc_temp(scope, f"lc_i{k}")
+            self._store_temp(code, xs_t)
+            code.append((OP.PUSH_CONST, self.const(0)))
+            self._store_temp(code, i_t)
+            if scope.binds_global:
+                var_t = ("g", name)
+            else:
+                var_t = ("l", self._declare_slot(scope, name))
+            top = len(code)
+            self._load_temp(code, i_t)
+            code.append((OP.LOAD_GLOBAL, self.sconst("len")))
+            self._load_temp(code, xs_t)
+            code.append((OP.CALL, 1))
+            code.append((OP.BINOP, self.const("<")))
+            cond_jz = len(code)
+            code.append((OP.JZ, 0))
+            self._emit_curried_builtin("get", [xs_t, i_t], code)
+            self._store_temp(code, var_t)
+            skip_patches: list[int] = []
+            for cond in (ifs_k or []):
+                self._emit_expr(cond, scope, code)
+                skip_patches.append(len(code))
+                code.append((OP.JZ, 0))
+            child_cond_jz = None
+            if k + 1 < len(gens):
+                child_cond_jz = emit_level(k + 1)
+            else:
+                self._emit_curried_builtin("append", [res_t, None], code,
+                                           last_expr=node.expr, last_expr_scope=scope)
+                self._store_temp(code, res_t)
+            inc = len(code)
+            for jp in skip_patches:
+                code[jp] = (OP.JZ, inc)
+            if child_cond_jz is not None:
+                code[child_cond_jz] = (OP.JZ, inc)
+            self._load_temp(code, i_t)
+            code.append((OP.PUSH_CONST, self.const(1)))
+            code.append((OP.BINOP, self.const("+")))
+            self._store_temp(code, i_t)
+            code.append((OP.JMP, top))
+            if k == 0:
+                code[cond_jz] = (OP.JZ, len(code))
+            return cond_jz
+
+        emit_level(0)
         self._load_temp(code, res_t)
 
     def _emit_try_stmt(self, stmt: ast.TryStmt, scope: _Scope, code: list) -> None:

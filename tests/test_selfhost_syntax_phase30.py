@@ -15,7 +15,7 @@
      （type_of 返回 "List"），列表体落入 执行语句列表(list) 报
      「索引操作不支持: list[类型]」（bootstrap_test_v2 根因）。
 判据：boot 面输出快照 == 宿主面输出 == 期望值；boot 解析节点形状锁；
-双 for 推导 boot 诚实报错锁（宿主输出位文本回退宽容面登记不修）。
+双 for 推导锁已随 31b 真化退役（原 boot 诚实报错分歧条目）。
 """
 import os
 import sys
@@ -157,12 +157,11 @@ def test_host_parse_list_comp_mirror():
     assert len(node.ifs) == 1
 
 
-def test_double_for_boot_honest_error(bootvm):
-    """双 for 推导：双面均诚实报错（分歧登记不修）——boot MathaRuntimeError
-    「推导式期望列表右括号 ]」vs 宿主 ParseError「期望 列表右括号 ]」
-    （宿主字面量列表路径 [e for …] 不支持双 for）。锁双面各自文案存在。"""
+def test_double_for_boot_truthified(bootvm):
+    """双 for 推导：双面求值一致（31b 真化退役原 30d 诚实报错分歧登记——
+    原 boot MathaRuntimeError「推导式期望列表右括号 ]」vs 宿主 ParseError
+    两形态均不复存在）。VM 面同值由 test_selfhost_language_phase31
+    test_31b_multi_comp_three_faces 锁。"""
     src = "输出([a + b for a in [1, 2] if a > 0 for b in [10]])"
-    with pytest.raises(MathaRuntimeError, match="推导式期望列表右括号"):
-        _boot_run(bootvm, src)
-    with pytest.raises(Exception):
-        _host_run(src)
+    assert _boot_run(bootvm, src) == [[11, 12]]
+    assert _host_run(src) == [[11, 12]]

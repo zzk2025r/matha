@@ -217,9 +217,14 @@ module 解释器 {
     op = "!=" ? l != r :
     错误("未知运算符: " + op)
 
-  (* 函数应用分发 ===== *)
+  (* 函数应用分发 =====
+     31d-①：类型守卫前置（30c 同款 List/Tuple 探测→不可调用）——此前 f[0]
+     直接探测对 Int/Float 落下标错误「索引操作不支持: int[0]」、空列表落
+     原生 IndexError，宿主同形报「不可调用的值: 5」（8a 双链对拍同口径）。 *)
   func 应用函数(f: Value, arg: Value, call_env: List) -> Value =
-    if f[0] = "__closure__" then
+    if matha_type_of(f) = "List" or matha_type_of(f) = "Tuple" then
+      (if len(f) = 0 then 错误("不可调用的值: " + str(f))
+       else if f[0] = "__closure__" then
       let params = f[1] in
       let body = f[2] in
       let captured = f[3] in
@@ -242,7 +247,8 @@ module 解释器 {
     else if f[0] = "__struct部分__" then
       应用结构体工厂(f[1], f[2:] + [arg])
     else
-      错误("不可调用的值: " + str(f))
+      错误("不可调用的值: " + str(f)))
+    else 错误("不可调用的值: " + str(f))
 
   (* struct 工厂应用：按字段数收集参数，齐了即构造实例（柯里化，
      对齐宿主 _struct_factory 的逐参数应用）。零字段 struct 无参即构造。 *)

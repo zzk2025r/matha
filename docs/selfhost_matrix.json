@@ -16,19 +16,19 @@
  ],
  "summary": {
   "files": 225,
-  "both_ok_equal": 203,
+  "both_ok_equal": 206,
   "both_ok_differ": 3,
   "boot_err_host_ok": 0,
   "boot_ok_host_err": 0,
-  "both_err": 17,
-  "timeout": 2
+  "both_err": 13,
+  "timeout": 3
  },
  "files": [
   {
    "path": "matha/bootstrap_full_test.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 切片",
+   "boot_err": "MathaRuntimeError: 未定义变量 'dict_from_pairs'",
    "host_err": "MathaUndefinedNameError: 未定义变量 '不折叠'"
   },
   {
@@ -1071,8 +1071,9 @@
   },
   {
    "path": "matha/stdlib_symbols.matha",
-   "boot": "timeout",
-   "host": "timeout"
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
   },
   {
    "path": "matha/store_engine.matha",
@@ -1411,31 +1412,27 @@
   },
   {
    "path": "golden_tests/cases/36_basics_map_filter_reduce.matha",
-   "boot": "err",
-   "host": "err",
-   "boot_err": "MathaRuntimeError: 未定义变量 'map'",
-   "host_err": "MathaUndefinedNameError: 未定义变量 'map'"
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 9
   },
   {
    "path": "golden_tests/cases/37_basics_sorted.matha",
-   "boot": "err",
-   "host": "err",
-   "boot_err": "MathaRuntimeError: 未定义变量 'sorted'",
-   "host_err": "MathaUndefinedNameError: 未定义变量 'sorted'"
+   "boot": "timeout",
+   "host": "timeout"
   },
   {
    "path": "golden_tests/cases/38_basics_join_split.matha",
-   "boot": "err",
-   "host": "err",
-   "boot_err": "MathaRuntimeError: 未定义变量 'join'",
-   "host_err": "MathaUndefinedNameError: 未定义变量 'join'"
+   "boot": "timeout",
+   "host": "timeout"
   },
   {
    "path": "golden_tests/cases/39_basics_gcd.matha",
-   "boot": "err",
-   "host": "err",
-   "boot_err": "MathaRuntimeError: 未定义变量 'gcd'",
-   "host_err": "MathaUndefinedNameError: 未定义变量 'gcd'"
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 8
   },
   {
    "path": "tests/test_plugin_load.matha",
