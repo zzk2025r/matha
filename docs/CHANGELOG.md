@@ -415,6 +415,25 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   全编译管线同一钩子面；`test_mbc_passes_phase29` 30 项（接入面锁 /
   遍实效锁 / 开关 on-off 双态对拍 15 语料）+ features 五开关入册
   （`test_extension_system_phase23` known_states 4→5 键）。
+- 阶段 30 自举执行面收口（五片全落，30e 拍板①驱动器级注入）：
+  **30a 执行分派收口**——interp_matha.matha 求值/执行语句分发表扩
+  （读取块/设值/跳出/继续/返回语句真化 + 结构体/枚举/属性路由 +
+  下标/切片求值支，29-④ 未支持节点组退役）；**30b use 跨模块收口**——
+  模块名表扩 + 非函数符号合并（Token 跨模块未找到 29-③ 退役）；
+  **30c 双面错误文案对齐**——除零/取模/整除/不可调用/类型名大小写 boot
+  面与宿主逐字一致；**30d 语法缺口真化**——列表推导
+  `[e for t in it if c...]` boot 解析/求值/编译三面 + 类型索引
+  `list[类型]` + sqrt 一元前缀 + stdlib_symbols 构造；**30e B 轨驱动器级
+  域符号注入（拍板①）**——宿主 Interpreter 全表面内建经 28d
+  register_builtin 端口入 boot env（可调用值柯里化适配、常量值仅绑 env、
+  链判据关键名 type_of 双面不覆盖保留 VM 面、解析失败符号诚实跳过保持
+  boot_err）+ 资源预装载（资源_加载/资源_成长）+ 跨文件 use 依赖装载。
+  快照 225：双面一致 203 / 诚实 differ 3（对象身份/未定种子输出如实分歧）
+  / boot_err_host_ok 0（29d 61→清零）/ both_err 17 / timeout 2（interp/
+  stdlib_symbols 重档自检 >120s 双面未完成）；宿主 type_of(null) 补 Null
+  分支对齐 VM 面（src/interp.py）。A 轨新档：test_selfhost_errmsg_
+  phase30 + test_selfhost_syntax_phase30 + test_selfhost_domain_phase30
+  （29 项）；登记不修清单见 KNOWN_ISSUES 阶段 30 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

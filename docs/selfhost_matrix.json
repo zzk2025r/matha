@@ -16,40 +16,41 @@
  ],
  "summary": {
   "files": 225,
-  "both_ok_equal": 147,
-  "both_ok_differ": 0,
-  "boot_err_host_ok": 61,
+  "both_ok_equal": 203,
+  "both_ok_differ": 3,
+  "boot_err_host_ok": 0,
   "boot_ok_host_err": 0,
   "both_err": 17,
-  "timeout": 0
+  "timeout": 2
  },
  "files": [
   {
    "path": "matha/bootstrap_full_test.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 未找到模块 '编译器'",
+   "boot_err": "MathaRuntimeError: 未知表达式类型: 切片",
    "host_err": "MathaUndefinedNameError: 未定义变量 '不折叠'"
   },
   {
    "path": "matha/bootstrap_matha.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 属性",
+   "boot_err": "TypeError: object of type 'Partial' has no len()",
    "host_err": "MathaRuntimeError: 属性访问失败: str.类型"
   },
   {
    "path": "matha/bootstrap_test.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 模块 '词法器' 中未找到 'Token'",
+   "boot_err": "MathaRuntimeError: 不可调用的值: <?>?",
    "host_err": "MathaRuntimeError: 不可调用的值: <?>?"
   },
   {
    "path": "matha/bootstrap_test_v2.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 索引操作不支持: list[类型]"
+   "equal": true,
+   "n_outs": 29
   },
   {
    "path": "matha/compiler_matha.matha",
@@ -59,147 +60,172 @@
   },
   {
    "path": "matha/examples/01_arithmetic.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 4
   },
   {
    "path": "matha/examples/02_functions.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "matha/examples/03_set_iter.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/04_pipeline.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/05_sensor_read.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/06_main.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "matha/examples/06_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/07_auto_debug.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/07_debug_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/08_auto_optimize.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": false,
+   "first_div": 0,
+   "n_boot_outs": 2,
+   "n_host_outs": 2
   },
   {
    "path": "matha/examples/08_optimize_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/09_grow_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/09_self_grow.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/10_library_read.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "matha/examples/10_library_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/10_web_app.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未定义变量 '软件_构建'"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/11_desktop.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/11_grow_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/11_library_grow.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/12_backend.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未定义变量 '软件_构建'"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/12_library_discipline.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "matha/examples/12_mech_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "matha/examples/99_multiParam_boundary.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 5
   },
   {
    "path": "matha/firewall_rules.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+   "equal": true
   },
   {
    "path": "matha/frontends/codegen.matha",
@@ -269,9 +295,8 @@
   },
   {
    "path": "matha/interp.matha",
-   "boot": "err",
-   "host": "ok",
-   "boot_err": "MathaRuntimeError: 模块 '词法器' 中未找到 'Token'"
+   "boot": "timeout",
+   "host": "timeout"
   },
   {
    "path": "matha/knowledge/biology/cell.matha",
@@ -323,9 +348,9 @@
   },
   {
    "path": "matha/knowledge/cs/data_structures.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 结构体"
+   "equal": true
   },
   {
    "path": "matha/knowledge/cs/discrete_math.matha",
@@ -485,15 +510,15 @@
   },
   {
    "path": "matha/library/compat/包适配器.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+   "equal": true
   },
   {
    "path": "matha/library/compat/命令适配器.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+   "equal": true
   },
   {
    "path": "matha/library/core/arithmetic.matha",
@@ -587,9 +612,9 @@
   },
   {
    "path": "matha/library/os/单元清单.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+   "equal": true
   },
   {
    "path": "matha/library/os/端口协议.matha",
@@ -599,9 +624,9 @@
   },
   {
    "path": "matha/library/os/进程管理.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+   "equal": true
   },
   {
    "path": "matha/library/physics/mechanics.matha",
@@ -635,45 +660,45 @@
   },
   {
    "path": "matha/nl_engine.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言句法器'"
+   "equal": true
   },
   {
    "path": "matha/nl_engine_en.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言英语句法器'"
+   "equal": true
   },
   {
    "path": "matha/nl_lexer.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 模块 '词法器' 中未找到 'Token'"
+   "equal": true
   },
   {
    "path": "matha/nl_lexer_en.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言词法器'"
+   "equal": true
   },
   {
    "path": "matha/nl_parser.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言词法器'"
+   "equal": true
   },
   {
    "path": "matha/nl_parser_en.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '自然语言英语词法器'"
+   "equal": true
   },
   {
    "path": "matha/os/desktop.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '内核'"
+   "equal": true
   },
   {
    "path": "matha/os/kernel.matha",
@@ -911,9 +936,9 @@
   },
   {
    "path": "matha/resource/os/process_math.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 枚举"
+   "equal": true
   },
   {
    "path": "matha/resource/os/scheduling_math.matha",
@@ -1039,27 +1064,29 @@
   },
   {
    "path": "matha/shaft_sub.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/stdlib_symbols.matha",
-   "boot": "err",
-   "host": "ok",
-   "boot_err": "IndexError: list index out of range"
+   "boot": "timeout",
+   "host": "timeout"
   },
   {
    "path": "matha/store_engine.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未定义变量 '_解析行进'"
+   "equal": true,
+   "n_outs": 5
   },
   {
    "path": "matha/template_new.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 读取块"
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "matha/template_old.matha",
@@ -1070,9 +1097,9 @@
   },
   {
    "path": "matha/term_engine.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '终端句法器'"
+   "equal": true
   },
   {
    "path": "matha/term_lexer.matha",
@@ -1082,9 +1109,9 @@
   },
   {
    "path": "matha/term_parser.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未找到模块 '终端词法器'"
+   "equal": true
   },
   {
    "path": "matha/vm/matha_vm.matha",
@@ -1100,33 +1127,42 @@
   },
   {
    "path": "examples/ai/ai_framework.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "examples/ai/data_pipeline.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+   "equal": false,
+   "first_div": 1,
+   "n_boot_outs": 2,
+   "n_host_outs": 2
   },
   {
    "path": "examples/ai/genetic_algo.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "examples/ai/neural_network.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+   "equal": false,
+   "first_div": 0,
+   "n_boot_outs": 3,
+   "n_host_outs": 3
   },
   {
    "path": "examples/basic_examples.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知一元运算符: sqrt"
+   "equal": true,
+   "n_outs": 18
   },
   {
    "path": "golden_tests/cases/01_arithmetic_and_relations.matha",
@@ -1179,33 +1215,37 @@
   },
   {
    "path": "golden_tests/cases/08_loops_break_continue.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 跳出语句"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "golden_tests/cases/09_try_catch_raise.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "golden_tests/cases/10_try_catch_runtime_error.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "golden_tests/cases/11_try_throw.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "golden_tests/cases/12_error_div_zero.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 除零错误",
+   "boot_err": "MathaRuntimeError: 除零错误: 1 / 0",
    "host_err": "MathaRuntimeError: 除零错误: 1 / 0"
   },
   {
@@ -1238,15 +1278,17 @@
   },
   {
    "path": "golden_tests/cases/17_try_block_binding.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: try"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "golden_tests/cases/18_domain_lazy_load.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 设值"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "golden_tests/cases/19_corpus_recursion.matha",
@@ -1294,14 +1336,14 @@
    "path": "golden_tests/cases/25_error_mod_zero.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 除零错误: 5 / 0",
+   "boot_err": "MathaRuntimeError: 取模除零错误: 5 % 0",
    "host_err": "MathaRuntimeError: 取模除零错误: 5 % 0"
   },
   {
    "path": "golden_tests/cases/26_error_floordiv_zero.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 未知运算符: //",
+   "boot_err": "MathaRuntimeError: 整除除零错误: 5 // 0",
    "host_err": "MathaRuntimeError: 整除除零错误: 5 // 0"
   },
   {
@@ -1315,14 +1357,14 @@
    "path": "golden_tests/cases/28_error_call_noncallable.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 索引操作不支持: int[0]",
+   "boot_err": "MathaRuntimeError: 不可调用的值: 5",
    "host_err": "MathaRuntimeError: 不可调用的值: 5"
   },
   {
    "path": "golden_tests/cases/29_error_index_on_int.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 索引操作不支持: Int[0]",
+   "boot_err": "MathaRuntimeError: 索引操作不支持: int[0]",
    "host_err": "MathaRuntimeError: 索引操作不支持: int[0]"
   },
   {
@@ -1355,15 +1397,17 @@
   },
   {
    "path": "golden_tests/cases/34_return_list_literal.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未知表达式类型: 返回语句"
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "golden_tests/cases/35_list_comp.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 期望表达式，实际 ]"
+   "equal": true,
+   "n_outs": 6
   },
   {
    "path": "golden_tests/cases/36_basics_map_filter_reduce.matha",
@@ -1395,21 +1439,24 @@
   },
   {
    "path": "tests/test_plugin_load.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未定义变量 '符号原子'"
+   "equal": true,
+   "n_outs": 1
   },
   {
    "path": "tests/test_plugin_ode.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未定义变量 '解微分方程'"
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "tests/test_plugin_series.matha",
-   "boot": "err",
+   "boot": "ok",
    "host": "ok",
-   "boot_err": "MathaRuntimeError: 未定义变量 '级数求和'"
+   "equal": true,
+   "n_outs": 2
   }
  ],
  "enumerated": 225

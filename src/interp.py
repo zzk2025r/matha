@@ -549,6 +549,8 @@ def builtin_type_of(v) -> str:
         return "Tuple"
     if _is_matha_function(v):
         return "Function"
+    if v is None:
+        return "Null"
     return "Unknown"
 
 

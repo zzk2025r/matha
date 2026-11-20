@@ -2187,6 +2187,76 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 30 收官（自举执行面收口：Track B boot_err_host_ok 61 → 清零
+  + 驱动器级域符号注入）**：五片全落，30e 拍板①驱动器级注入（宿主真实现经
+  28d register_builtin 端口，非桩件；判定语义 = 同一内建面下 boot 解释器 ≡
+  宿主解释器）。
+  **30a 执行分派收口**：interp_matha.matha 求值/执行语句分发表扩（读取块/
+  设值/跳出/继续/返回语句真化 + 结构体/枚举/属性路由 + 下标/切片求值支）——
+  29-④「boot 未支持节点组」退役。
+  **30b use 跨模块收口**：导入绑定 模块名表扩 + 非函数符号合并——29-③
+  「Token 跨模块未找到」（bootstrap_test/interp/nl_lexer 三语料）退役。
+  **30c 双面错误文案对齐**：除零/取模/整除/不可调用/类型名大小写 boot 面
+  与宿主逐字一致。
+  **30d 语法缺口真化**：列表推导 `[e for t in it if c...]` boot 解析/求值/
+  编译三面（test_parser_parity_phase28 conv 面 +1 列表推导节点 + golden 35
+  语料入对拍集；顶层裸 `[expr]` → 输出 宿主 _parse_output 镜像）+ 类型索引
+  `list[类型]` + sqrt 一元前缀 + stdlib_symbols 构造（bootstrap_test_v2
+  boot_err「索引操作不支持: list[类型]」释放）。
+  **30e B 轨驱动器级域符号注入**：scripts/selfhost_matrix.py
+  inject_domain_builtins——宿主 Interpreter().builtins 全表面 sorted 确定性
+  经 28d register_builtin 端口入 boot env（可调用值 _adapt_callable 柯里化
+  适配 n-arity、常量值仅绑 env、skip=boot 自有面名与宿主 defer_to_plugins
+  「内核同名内核胜出」同口径、清单漂移符号诚实跳过保持 boot_err）+ 资源预
+  装载（资源_加载/资源_成长 资源形态识别）+ 跨文件 use 依赖装载
+  （_ensure_module）。关键根因修复：_CHAIN_CRITICAL 保留名 `type_of` 双面
+  不覆盖——宿主同名 type_of 对 VM Closure 返 "Unknown" 会击穿链代码
+  应用函数 的 "Function" 分支、use 导入的链命名空间函数全体不可调用
+  （「不可调用的值： <?>?」，stdlib str 数字专用 28-⑨ 同源）——boot 语义
+  = VM _builtin_type_of（Closure → Function 恰是 boot 面应有分类）。结果：
+  61 boot_err_host_ok 全部释放（读取块 23/未找到模块 13/未定义变量 12/设值
+  6/try 4/IndexError 3 + 域符号族 自主_调试/自主_优化/自主_成长/资源_加载/
+  资源_成长/软件_构建）——29-⑤「B 轨登记不扩面」退役。
+  **附带产品缺陷真修**：宿主 type_of(null) 返 "Unknown" → 补 None 分支返
+  "Null"（src/interp.py builtin_type_of，对齐 VM _builtin_type_of——Track A
+  锁面实测揭出的双面分歧）。
+  **门禁**：tests lane 7593 过 + 1 skip 3696.86s 首跑零红（= 7535（29）+ 58：
+  domain 29 + syntax 17 + errmsg 11 + parser parity 列表推导语料面 +1）；quick
+  lanes：kernel_purity 14 绿 + ast_vm_gap 11 绿（快照无需重生成——30 链改无
+  节点类型/发射位变化，78 节点/59 发射/19 无码/不认识 0/阻塞缺口 0/指令码 35/
+  语料 230/解析失败 0 不变）+ golden 39/39 + dep_audit 39 内核文件 189 import
+  边 0 违规 + native_parity 38/39（0 失败，native 已知未实现 1 例不计分母）
+  + Track B selfhost_matrix --check 一致（快照按最终源 --write 重生成后复跑
+  203/3/0/17/2 两跑稳定；type_of Null 分支修复前后分类零变化）。
+  算术闭合：7697 条件 = 7696 过（tests 7593 + purity 14 + ast_vm_gap 11 +
+  golden 39 + native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 7639（29
+  条件）+ 58。doc 同步：README（测试文件 175→178 ×2 + 执行面收口段）；
+  ARCHITECTURE（本体量 32,859 不变——30 改动全在 matha/ 镜像与 scripts/
+  selfhost_matrix.py，宿主 type_of null 分支 src/interp.py +2 行不在
+  core_py_lines 口径；阶段 30 节 + 测试文件 178）；docs/CHANGELOG 阶段 30
+  条目；selfhost_matrix 快照重生成。
+  登记不修六条（2026-11-20 收官快照实测）：①3 语料 both_ok_differ 登记不扩
+  面：08_auto_optimize（_OptResult 对象身份无 __eq__）/ data_pipeline
+  （Dataset 元组身份）/ neural_network（TrainingResult 未定种子损失历史
+  非确定）——双面数值语义同、打印表示与随机历史如实分歧，A 轨
+  test_registered_differ_honest 锁形；②timeout 2：matha/interp.matha +
+  matha/stdlib_symbols.matha 重档自检语料 >120s 双面未完成——29d 时为
+  boot_err 快败，30 真化后双面真跑超预算，120s 门禁契约维持诚实分类
+  timeout（非分歧）；③both_err 17 维持：错误语料 10 双端如实报错
+  （golden 12/13/14/24/25/26/27/28/29/31）+ basics map/sorted/join_split/
+  gcd 4 需显式装载 collections_core 双端诚实未找到 + bootstrap_full_test
+  （boot 切片未知表达式类型 vs host 未定义变量 '不折叠'——双端错点不同均
+  诚实）+ bootstrap_matha（boot Partial len TypeError vs host 属性访问失败
+  str.类型）+ bootstrap_test（双端同文案 不可调用的值： <?>?——28-⑨ 同源）
+  ；④boot 面切片表达式求值未支持（未知表达式类型: 切片——新可见缺口，
+  30a 分派族边界；对应语料宿主面亦错故双端诚实）；⑤29-⑧ 承继：boot func
+  定义仍必须 `->`（parser.matha 期望箭头——语言形态）；⑥29-①②⑥⑦ 与
+  28-⑦⑧⑨ 承继（native dict_put 不可扩容/互相递归 let rec 前向引用/29e
+  opt-in 中段跳过/mb.interpret breaking 注记；语句位 `[` 路由一致性已验证
+  语言形态/Dijkstra 距离桩/stdlib str 数字专用）。附注：matha/library/core/
+  计算球体积.matha 数据修复（自主成长生成的零参闭包自由变量 r 数据缺陷 →
+  `(r) =>` 正参形态，双面球体积 ≈113.09724 A 轨锁）。
+
 - **阶段 6e 更新**：按下方判据「先入门禁」，AI 前端「输入→解析→执行→结果→感知」的**编排
   契约与诚实降级**（永不裸抛、schema 稳定、失败如实下沉）已由 `tests/test_ai_e2e_pipeline.py`
   入门禁锁定；但自然语言→代码/答案的**输出正确性仍不背书**、README 亦无 AI 助手功能主张。

@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 175（`tests/`）
+- **测试文件：** 178（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -249,6 +249,16 @@ port.rollback("⊗")                            # 回滚到上一版
 四档入常规门禁）；B 轨 `scripts/selfhost_matrix.py` 全语料 sweep（多进程
 + boot 复用）+ 快照 `docs/selfhost_matrix.json` `--check` 重档通道。
 
+执行面收口（阶段 30）：自举链执行面五片真化——执行分派路由（读取块/设值/
+跳出/继续/返回/结构体/枚举/属性）、use 跨模块装载（模块名表扩 + 非函数符号
+合并）、双面错误文案对齐（除零/取模/整除/不可调用/类型名）、语法缺口真化
+（列表推导/类型索引/sqrt 一元/stdlib_symbols）+ B 轨驱动器级域符号注入
+（宿主内建真实现经 28d register_builtin 端口入 boot 面，多参经柯里化适配；
+链判据关键名 `type_of` 保留 VM 面——宿主同名符号不覆盖链分派内建）。快照
+225：双面一致 203 / 诚实 differ 3（对象身份/未定种子输出如实分歧）/ boot_err
+0（29d 61→清零）/ both_err 17（错误语料双端如实报错）/ timeout 2（interp/
+stdlib_symbols 重档自检 >120s 双面未完成）。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -270,7 +280,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（175 个文件）
+├── tests/                  # 测试套件（178 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

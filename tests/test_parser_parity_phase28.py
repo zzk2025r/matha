@@ -315,6 +315,13 @@ def conv(n):
     if t == "列表":
         return ast.ListLiteral(elements=[conv(x) for x in n["元素"]])
 
+    # 30d：列表推导 [e for t in it if c...]（宿主 ListComp 镜像，
+    # src/ast_nodes.py ListComp expr/target/iter/ifs 四字段）
+    if t == "列表推导":
+        return ast.ListComp(expr=conv(n["表达式"]), target=conv(n["目标"]),
+                            iter=conv(n["迭代"]),
+                            ifs=[conv(x) for x in n["条件"]])
+
     if t == "元组":
         return ast.TupleExpr(elements=[conv(x) for x in n["元素"]])
 
@@ -580,12 +587,14 @@ def test_typeof_keyword(mvm):
 
 def test_newline_value_end_no_index_swallow(mvm):
     """`: 假\n[r6]` —— 布尔是值结尾 token，[ 开启新输出语句而非下标
-    （bootstrap_test_v2 测试 7 形态；宿主靠原始换行终止语句）。"""
+    （bootstrap_test_v2 测试 7 形态；宿主靠原始换行终止语句）。
+    30d：语句位语境分派后顶层裸 [expr] → 输出（宿主 _parse_top_level →
+    _parse_output = Output 镜像；块体位仍 → 输出追踪）。"""
     src = "r6 = 5 > 3 ? 真 : 假\n[r6]\nr7 = 5 < 3 ? 真 : 假\n[r7]\n"
     decls = parse_body(mvm, src)
     assert len(decls) == 4, f"应为 4 条语句（2 绑定 + 2 输出），得 {len(decls)}"
-    assert decls[1]["类型"] == "输出追踪"
-    assert decls[3]["类型"] == "输出追踪"
+    assert decls[1]["类型"] == "输出"
+    assert decls[3]["类型"] == "输出"
 
 
 # ============================================================
@@ -602,6 +611,9 @@ _PARITY_FILES = [
     "matha/vm/matha_vm.matha",
     "matha/resource/os/filesystem_math.matha",
     "matha/knowledge/physics/celestial.matha",
+    # 30d：列表推导 [e for t in it if c...]（golden 35 全形态——列表推导
+    # conv 面 + 语句位输出集合/绑定值位双语境）
+    "golden_tests/cases/35_list_comp.matha",
 ]
 
 

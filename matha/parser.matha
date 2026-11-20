@@ -168,6 +168,10 @@ module 语法器 {
     {"类型": "属性", "对象": obj, "名": name}
   (* 列表字面量 [a, b, c] —— 元素为表达式节点列表 *)
   func 做ListLit(元素: List) -> Dict = {"类型": "列表", "元素": 元素}
+  (* 30d：列表推导 [e for t in it if c...]（宿主 ListComp 镜像，
+     src/ast_nodes.py:559 四字段 expr/target/iter/ifs） *)
+  func 做ListComp(表达式: Dict, 目标: Dict, 迭代: Dict, 条件: List) -> Dict =
+    {"类型": "列表推导", "表达式": 表达式, "目标": 目标, "迭代": 迭代, "条件": 条件}
   (* 元组字面量 (a, b, c) —— 与宿主 TupleExpr 一致，编译为 BUILD_LIST *)
   func 做元组(元素: List) -> Dict = {"类型": "元组", "元素": 元素}
   (* 下标访问 a[i] —— 容器为表达式节点，索引为表达式节点 *)
@@ -893,12 +897,52 @@ module 语法器 {
       解析实参列表_rest(p3, acc + [arg])
     else (acc, p)
 
-  (* 列表元素列表：[] → 空列表；[a, b, c] → [a, b, c]（含可选尾逗号） *)
-  func 解析列表元素(p: 解析器) -> (List, 解析器) =
-    if 匹配(p, 类型.右括号方) then ([], 推进(p))
+  (* 列表体：[] 空列表；[a, b, c] 字面量；[e for t in it if c...] 推导
+     （30d 真化，宿主 _parse_list_literal KW_FOR 扫描同构）。返回 (节点, 解析器)。
+     首表达式后遇关键字 for 走推导分支，否则回退字面量 _rest。 *)
+  func 解析列表元素(p: 解析器) -> (Dict, 解析器) =
+    if 匹配(p, 类型.右括号方) then (做ListLit([]), 推进(p))
     else
-      let (elem, p2) = 解析表达式(p) in
-      解析列表元素_rest(p2, [elem])
+      let (首, p2) = 解析表达式(p) in
+      if 匹配(p2, 类型.关键字) and 当前(p2).文本 = "for" then
+        解析列表推导尾(首, 推进(p2))
+      else
+        let (元素, p3) = 解析列表元素_rest(p2, [首]) in
+        (做ListLit(元素), p3)
+
+  (* 30d：推导尾 for 目标 in 迭代 [if 条件...] → ListComp 节点；
+     目标位 单变量（宿主 _parse_variable 镜像——标识符/占位符/符号 直接成
+     Variable，避免 in 成员判断吞掉 `x in it`；其余形态回退 解析表达式）；
+     迭代位解析表达式遇 if/右括号方 关键字自然停链 *)
+  func 解析列表推导尾(首: Dict, p: 解析器) -> (Dict, 解析器) =
+    let (目标, p2) = 解析推导目标(p) in
+    if 匹配(p2, 类型.关键字) and 当前(p2).文本 = "in" then
+      let p3 = 推进(p2) in
+      let (迭代, p4) = 解析表达式(p3) in
+      let (条件, p5) = 解析推导条件(p4) in
+      if 匹配(p5, 类型.右括号方) then
+        (做ListComp(首, 目标, 迭代, 条件), 推进(p5))
+      else 错误("推导式期望列表右括号 ]")
+    else 错误("推导式期望 in")
+
+  func 解析推导目标(p: 解析器) -> (Dict, 解析器) =
+    let tok = 当前(p) in
+    let t = tok.类型 in
+    (t = 类型.标识符 or t = 类型.符号) ? (做Variable(tok.文本), 推进(p)) :
+    t = 类型.占位符 ?
+      (let nxt = 当前(推进原样(p)) in
+       nxt.类型 = 类型.标识符 ?
+         (做占位Variable(nxt.文本), 推进(推进原样(p))) :
+         (做占位Variable(tok.文本), 推进(p))) :
+    解析表达式(p)
+
+  func 解析推导条件(p: 解析器) -> (List, 解析器) =
+    if 匹配(p, 类型.关键字) and 当前(p).文本 = "if" then
+      let p1 = 推进(p) in
+      let (c, p2) = 解析表达式(p1) in
+      let (余, p3) = 解析推导条件(p2) in
+      ([c] + 余, p3)
+    else ([], p)
 
   func 解析列表元素_rest(p: 解析器, acc: List) -> (List, 解析器) =
     if 匹配(p, 类型.逗号) then
@@ -1295,10 +1339,9 @@ module 语法器 {
       (* 试探 lambda：(params) => body *)
       解析括号消解(p2)
     else if 匹配(p, 类型.左括号方) then
-      (* 列表字面量 [a, b, c]：消费 [，解析元素列表，期望 ] *)
+      (* 列表字面量/推导 [ ... ]：消费 [，二义消解见 解析列表元素（30d） *)
       let p2 = 推进(p) in
-      let (元素, p3) = 解析列表元素(p2) in
-      (做ListLit(元素), p3)
+      解析列表元素(p2)
     else if 匹配(p, 类型.左括号花) then
       (* { } 双义消解：代码块 vs 字典字面量 *)
       解析花括号消解(p)
@@ -1809,7 +1852,8 @@ module 语法器 {
          is_gen 前瞻失败 → 整行外来声明；带冒号才是机械单元。 *)
       是生成头(p) ? 解析机械单元(p) : 解析裸井号行(p)
     else if 匹配(p, 类型.左括号方) then
-      解析输出语句(p)
+      (* 链项位 [输出]：宿主链语境恒 _parse_output_trail（OutputTrail） *)
+      解析输出语句链(p)
     else
       解析表达式(p)
 
@@ -1990,11 +2034,24 @@ module 语法器 {
      与宿主 _parse_output 对齐：[] → 空输出（不发射任何指令）；
      内容形如 a, b（首个 token 之后紧跟逗号）→ 列表字面量；
      否则按表达式解析。 *)
-  func 解析输出语句(p: 解析器) -> (Dict, 解析器) =
+  func 解析输出单元(p: 解析器) -> (Dict, 解析器) =
     let p1 = 推进(p) in                                  (* 消费 [ *)
     let (expr, p2) = 解析括号内输出(p1) in
-    let p3 = 匹配(p2, 类型.右括号方) ? 推进(p2) : p2 in
-    (* 语句位恒包 OutputTrail（宿主 _parse_statement 789 行 _parse_output_trail） *)
+    (expr, 匹配(p2, 类型.右括号方) ? 推进(p2) : p2)
+
+  (* 语句位语境分派（30d）：宿主 顶层/模块体 _parse_top_level →
+     _parse_command_unit → _parse_output = Output；块体 _parse_block_body(790)
+     → _parse_output_trail = OutputTrail（if/while/单元 CodeBlock 同）。
+     boot 此前恒包 输出追踪 → golden 35 顶层 [ [comp] ] 对拍
+     Output ≠ OutputTrail 六处分歧根因。 *)
+  func 解析输出语句(p: 解析器) -> (Dict, 解析器) =
+    let (expr, p3) = 解析输出单元(p) in
+    p.在块体 ? (做输出追踪(expr), p3) : (做Output(expr), p3)
+
+  (* 链项位 [输出]：宿主 _parse_mech_stmt(789) 链语境恒 _parse_output_trail
+     （OutputTrail），不随语境分派。 *)
+  func 解析输出语句链(p: 解析器) -> (Dict, 解析器) =
+    let (expr, p3) = 解析输出单元(p) in
     (做输出追踪(expr), p3)
 
   (* [ … ] 内部解析，三种形态（对应宿主 _parse_output）：
@@ -2007,8 +2064,8 @@ module 语法器 {
   func 解析括号内输出(p: 解析器) -> (Dict, 解析器) =
     匹配(p, 类型.右括号方) ? (做空输出(), p) :
     有列表前瞻(p) ?
-      let (元素, p2) = 解析列表元素(p) in
-      解析输出集合_续(做ListLit(元素), p2) :
+      let (节点, p2) = 解析列表元素(p) in
+      解析输出集合_续(节点, p2) :
       尝试输出表达式(p)
 
   (* 尝试将 [ … ] 内容解析为恰好填满至 ] 的单个表达式。
@@ -2113,10 +2170,27 @@ module 语法器 {
     (t = 类型.结束) ? 假 :
     括号有逗号(p, i + 1, 深度)
 
-  (* 列表前瞻：表达式起始 且（紧跟逗号 或 集合运算符前瞻 或 括号内有顶层逗号）
-     ——对齐宿主 _parse_output 的 is_list_lookahead。 *)
+  (* 列表前瞻：表达式起始 且（紧跟逗号 或 集合运算符前瞻 或 括号内有顶层逗号
+     或 括号内有顶层 for..in 推导）——对齐宿主 _parse_output 的
+     is_list_lookahead；30d 补无逗号推导式 [x for x in it] 扫描。 *)
   func 有列表前瞻(p: 解析器) -> Bool =
-    是表达式起始(p) and (窥视逗号(p) or 输出集合运算符前瞻(p) or 括号有逗号(p, p.pos, 1))
+    是表达式起始(p) and (窥视逗号(p) or 输出集合运算符前瞻(p) or
+      括号有逗号(p, p.pos, 1) or 括号有推导(p, p.pos, 1, 假))
+
+  (* 括号有推导：从下标 i 起按 (),[],{} 配对扫描，深度 1 处出现 for 后接
+     in 则真（宿主 KW_FOR/KW_IN depth==1 扫描镜像；配对内嵌套推导不算）。 *)
+  func 括号有推导(p: 解析器, i: Int, 深度: Int, 见for: Bool) -> Bool =
+    i >= len(p.tokens) ? 假 :
+    let t = p.tokens[i].类型 in
+    (t = 类型.左括号 or t = 类型.左括号方 or t = 类型.左括号花) ?
+      括号有推导(p, i + 1, 深度 + 1, 见for) :
+    (t = 类型.右括号 or t = 类型.右括号方 or t = 类型.右括号花) ?
+      (深度 - 1 <= 0 ? 假 : 括号有推导(p, i + 1, 深度 - 1, 见for)) :
+    (t = 类型.结束) ? 假 :
+    (t = 类型.关键字 and p.tokens[i].文本 = "for" and 深度 = 1) ?
+      括号有推导(p, i + 1, 深度, 真) :
+    (t = 类型.关键字 and p.tokens[i].文本 = "in" and 深度 = 1 and 见for) ? 真 :
+    括号有推导(p, i + 1, 深度, 见for)
 
   (* 输出集合续接：[a, b] 后跟 ∪/∩/⊖/×/⊆ [c,…]（左结合；右操作数用 解析加减，
      避免经 解析集合 右结合——对齐宿主 _parse_output 列表分支）。 *)
