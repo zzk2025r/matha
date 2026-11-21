@@ -2187,6 +2187,90 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 34 收官（语言面继续收敛：六项登记分歧全族真化）**：两项
+  拍板全走推荐项（①34c 统一 boot 中文文案 ②34f hi→None 对齐 vm）。
+  **34a 尾逗号全族**（33-① 退役）：33a 单元素机制扩展——多元素 `(1, 2,)`
+  与调用位 `f(1, 2,)` boot 面改发宿主精确文案「期望表达式
+  (got PUNCT_RPAREN ')')」（解析括号消解 逗号分支全族守卫；boot 解析
+  错误输出行呈现不上抛）；列表尾逗号 `[1, 2,]` 三面合法不误伤。
+  **34b 语句位 if `[` 路由**（28-⑦/33-② 退役）：宿主 `_parse_if`/
+  `_parse_while` 条件位加 `_in_cond_value` 值语境旗标（27f 同款先例）——
+  `if [1] { … }` 条件析为列表字面量而非输出命令，vm 面此前漏出条件值
+  `outs=[1,'x']` vs hi/mb `['x']` 三面分歧退役；boot 面既有正确零改动。
+  **34c in 左侧四面同文案**（33-③ 退役）：字符串容器+非字符串左侧
+  统一 boot 中文文案「in 左侧需为字符串，实际 int/list/NoneType」——
+  vm `_op_in` + hi（interp.py 二元运算 in 臂）+ native（非零退出 +
+  stderr 同文案，try/catch 可捕获）+ VM² 镜像（interp.matha 补
+  `_类型名` 小写面 helper，30c 同构）。
+  **34d slice 元组 vm 收敛对齐宿主**（33-④ 退役）：vm `_builtin_slice`
+  容器守卫（仅 str/list 透传，其余「slice() 需要字符串或列表」）+
+  native `fn:slice` 容器守卫（err_slice_dom，try/catch 可捕获）；
+  str/list 透传与下标切片共用路径不受影响（元组切片返元组维持）。
+  **34e boot for (k,v) 多变量目标真化**（32-⑨ 退役）：boot parser.matha
+  解析for_stmt 括号解构目标（"变量" String=单变量 | List=名单，
+  解析for目标_rest/解析for尾 共用尾段）+ interp_matha 执行for循环
+  `_解构绑定/_解构绑定进`（宿主 `_exec_for_stmt` 镜像：Tuple/List
+  且长度匹配逐位绑定，否则「解构失败：期望 N 个元素，实际 <类型名>」）
+  + 28b parity conv 面 boot "变量" 名单归一；列表对/元组对/字典源
+  三面+VM² 同判。boot 编译器发射面（_分配循环变量）List 目标诚实拒绝
+  「boot 编译器 for 解构目标暂未支持」——UNPACK_SEQ 自举镜像未做，
+  解释器面真化、编译面显式拒绝不假编译（登记①）。
+  **34f hi 面 func 值求值真化**（32-⑪ 退役）：src/interp.py _eval 补
+  FuncDef 臂 → None（vm 面同判；mb 面表达式位 if 无 then 解析拒绝
+  维持登记②）；func 体块尾 func 定义 mb 块值 '<function>' vs vm/hi
+  None 块值模型分歧维持登记③。
+  **门禁**：tests lane 两跑——run1 7742 过/1 skip/3349.17s 2 红，全踩中
+  34d `_builtin_slice` 开放端缺界 None 误杀（下标切片 l[1:] 发射面
+  slice(c)(1)(None)：VM 面下标切片经 slice 内建而 hi 走解释器自身路径、
+  BUILD_SLICE 直路原生容忍 None——test_mbc_vm_matha parity l[1:] +
+  test_stage4b_embedded_vm_squared），修复为 None 放行按 Python 切片语义
+  （vm.py `_builtin_slice` +3；修复后四形态探针 vm/hi/mb 三面一致：
+  列表/字符串开放端、元组下标切片返元组、slice() 元组实参三面同报错），
+  定向复跑 mbc_vm_matha/stage4/phase34/curried 197/197 绿；run2 干净
+  7742 过 + 1 平台 skip 3856.83s 2 红：m5 tmpdir 伪影（write_file 父
+  目录缺失，单跑 18.34s 绿，非产品缺陷）+ doc_facts 本体量过期（切片
+  修复 vm.py +3 行，33,414→33,417 更新后 18/18 绿）；quick lanes：
+  kernel_purity + ast_vm_gap 25 绿（快照零扰动无需重生成）+ golden 39/39
+  + dep_audit 39 内核文件 189 import 边 0 违规 + native_parity 38/39
+  （0 失败，native 已知未实现 1 例不计分母）+ Track B selfhost_matrix
+  --check 一致 + doc 锁子集 434 绿。锁面漂移三处提前收口（tests lane
+  前完成）：32-⑨ 旧锁 test_32a_dict_for_kv_boot_parser_honest_reject
+  按真化退役惯例改锁 boot 面同判 'ab'；test_31g_snapshot_classes 按
+  33 收官 timeout 3→0 改锁 all-ok〔33 门禁 tests lane 先于快照重生成，
+  改锁滞后至此收口，非缺陷〕；phase33 33c/33h 登记锁改锁退役。
+  test_selfhost_language_phase34 27 项新档：
+  34a 尾逗号全族三面+列表正控 / 34b if[` 三面+VM² / 34c in 左侧
+  四面+正控 / 34d slice 四面+透传+下标正控 / 34e 五形态三面+VM²+
+  编译面诚实拒绝+vm 宽松登记锁 / 34f vm/hi None+mb 登记锁×2+
+  语句位中性回归 / 34x 裸键登记锁；test_native in 节+slices 节改锁）。
+  算术闭合：7846 条件 = 7845 过（tests 7742 + purity 14 + ast_vm_gap 11
+  + golden 39 + native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）
+  = 7819（33 条件）+ 27（test_selfhost_language_phase34）。
+  doc 同步：README（阶段 34 段 + 测试文件 184 ×2）；ARCHITECTURE
+  （本体量 33,290 → 33,417（+127 = 34b parser.py +17 / 34c vm `_op_in`
+  +4 + native in 守卫与 err 串 / 34d vm `_builtin_slice` +14−1〔含
+  开放端 None 放行 +3〕+ native fn:slice 容器守卫 + err_slice_dom；
+  34c hi 臂与 34f FuncDef 臂 src/interp.py +8 与 matha/*.matha 镜像
+  不在口径）+ 阶段 34 节 + 测试文件 184）；CHANGELOG 阶段 34 条目。
+  登记不修五条（2026-11-21 收官快照实测，均有登记锁防漂移）：①boot
+  编译器 for 解构目标暂未支持（UNPACK_SEQ 自举镜像未做——mb/VM² 解释
+  面真化、stage3 编译面显式拒绝）；②mb 面表达式位 if 无 then（`if 1
+  { … }` 花括号形态）解析拒绝「期望 then/:/elif/else，实际 {」（boot
+  解析器表达式位 if 仅 then 形态）；③func 体块尾 func 定义 mb 块值
+  '<function>' vs vm/hi None（宿主块值模型「输出入 outputs、块值
+  None」vs boot 面块值函数值——32b 同族分歧）；④vm 面编译路径
+  UNPACK_SEQ 长度不匹配宽松补 null（vm.py 31b 引入，解释面 hi/mb
+  诚实报错 解构失败——编译面 vs 解释面解构语义分歧，修复需 UNPACK_SEQ
+  长度守卫 + native unpack_rt 镜像，超出本切片）；⑤boot 字典字面量
+  裸键 `{a: 1}` 析为变量引用（未定义变量 'a'）vs hi 面字符串键
+  （34e 探针踩中附带发现；语料/文档约定引号键 `{"a": 1}` 三面一致）。
+  退役六条：33-①（多元素/调用位尾逗号 boot 通用文案）、28-⑦/33-②
+  （语句位 if `[` 条件析为输出命令）、33-③（in 左侧文案分歧）、
+  33-④（slice() 元组 vm 宽松返元组）、32-⑨（boot for 多变量目标
+  未支持）、32-⑪（hi 面 func 值 FuncDef 未实现求值）。
+  承继：33-⑤（mb 词法器递归深度上限）+ 32-②⑧⑩⑫ + 31-③⑧⑨ +
+  28-⑧（Dijkstra 距离桩）+ 29-①⑥⑦ 维持原登记不修。
+
 - **2026-11 阶段 33 收官（mb 面分歧收敛：六项 mb↔宿主语义/文案分歧三面
   （vm/hi/mb）+ VM² 收口）**：四项拍板全走推荐项（①33a boot 诚实拒绝
   对齐宿主 ②33b 全族对齐 Bool ③33c 四面同文案 ④33d 顺手真修 hi）。

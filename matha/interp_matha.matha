@@ -1203,14 +1203,33 @@ module 解释器 {
      入参 items 为已求值列表（执行语句 for 支先行 求值(stmt["迭代"])）：
      递归传值切片而非 AST 节点——旧形 iterable: Dict 在递归位对
      list_slice 产物再走 求值 → list["类型"] 崩溃（29d 真化）。 *)
-  func 执行for循环(var_name: String, items: List, body: Dict, env: List) -> (Value, List) =
+  func 执行for循环(var_name: Value, items: List, body: Dict, env: List) -> (Value, List) =
     (var_name, items, body, env) =>
     if type_of(items) != "List" or list_len(items) = 0 then (None, env)
     else
-      let (v, env2) = 执行语句(body, 绑定环境(env, var_name, items[0])) in
-      if 信号种类(v) = "跳出" then (None, env2)
-      else if 信号种类(v) = "返回" then (v, env2)
-      else 执行for循环(var_name, list_slice(items, 1, 标准库.len(items)), body, env2)
+      (* 34e：解构目标（"变量"= List）逐位绑定，单变量维持直绑 *)
+      let env2 = type_of(var_name) = "List" ?
+        _解构绑定(env, var_name, items[0]) :
+        绑定环境(env, var_name, items[0]) in
+      let (v, env3) = 执行语句(body, env2) in
+      if 信号种类(v) = "跳出" then (None, env3)
+      else if 信号种类(v) = "返回" then (v, env3)
+      else 执行for循环(var_name, list_slice(items, 1, 标准库.len(items)), body, env3)
+
+  (* 34e：for 解构目标绑定（host _exec_for_stmt 镜像）——名单 × 对象元素：
+     Tuple/List 且长度匹配逐位绑定；否则诚实报错「解构失败：期望 N 个
+     元素，实际 <类型名>」（宿主同文案，_类型名 小写面对齐 type().__name__） *)
+  func _解构绑定(env: List, 名单: List, item) -> List =
+    let 元素们 = type_of(item) = "Tuple" ? _元组元素(item) :
+      type_of(item) = "List" ? item :
+      错误("解构失败：期望 " + 标准库.str(标准库.len(名单)) + " 个元素，实际 " + _类型名(item)) in
+    标准库.len(元素们) = 标准库.len(名单) ?
+      _解构绑定进(env, 名单, 元素们, 0) :
+      错误("解构失败：期望 " + 标准库.str(标准库.len(名单)) + " 个元素，实际 " + _类型名(item))
+
+  func _解构绑定进(env: List, 名单: List, 元素们: List, i: Int) -> List =
+    i >= 标准库.len(名单) ? env :
+    _解构绑定进(绑定环境(env, 名单[i], 元素们[i]), 名单, 元素们, i + 1)
 
   (* ===== match 模式匹配 =====
      语义对齐宿主 _eval_match / _match_pattern：

@@ -235,8 +235,11 @@ def conv(n):
         return ast.WhileStmt(cond=conv(n["条件"]), block=conv(n["体"]))
 
     if t == "for":
-        return ast.ForStmt(var=n["变量"], iterable=conv(n["迭代"]),
-                           block=conv(n["体"]))
+        # 34e：boot "变量" String=单变量（历史形态）| List=解构目标——
+        # 宿主 parser 恒产名单，单变量包名单归一
+        return ast.ForStmt(
+            var=n["变量"] if isinstance(n["变量"], list) else [n["变量"]],
+            iterable=conv(n["迭代"]), block=conv(n["体"]))
 
     if t == "match":
         branches = []

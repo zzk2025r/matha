@@ -1838,8 +1838,12 @@ module 编译器 {
       let (sc2, slot) = _声明局部(sc, "__" + hint, 假) in
       (["l", slot], sc2, bc)
 
-  func _分配循环变量(sc: List, bc: Dict, name: String)
+  func _分配循环变量(sc: List, bc: Dict, name: Value)
       -> (List, List, Dict) =
+    (* 34e：解构目标（"变量"= List）boot 编译器发射面暂未支持
+       （UNPACK_SEQ 镜像未做）——诚实拒绝；boot 解释器面（mb/VM²）已支持。 *)
+    type_of(name) = "List" ?
+      错误("boot 编译器 for 解构目标暂未支持") :
     _绑定落全局(sc) ?
       (["g", name], sc, bc) :
       let (sc2, slot) = _声明(sc, name, 假) in

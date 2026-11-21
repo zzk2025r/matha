@@ -3111,6 +3111,10 @@ class Interpreter:
             for link in expr.stmts:
                 self._exec_stmt(link)
             return None
+        if isinstance(expr, ast.FuncDef):
+            # 34f：块尾 func 定义块值 → None（vm 面同判；32-⑪ 登记
+            # 「hi 面 FuncDef 节点未实现求值」退役；mb 面解析拒绝维持登记）。
+            return None
         raise MathaRuntimeError(f"暂不支持求值: {type(expr).__name__}")
 
     def _eval_try_expr(self, expr: ast.TryStmt):
@@ -3580,6 +3584,10 @@ class Interpreter:
                     raise MathaRuntimeError(f"右箭头运算符 左侧必须可调用，实际 {type(l).__name__}")
             elif op in ("in", " in "):
                 if isinstance(r, (list, tuple, str, dict, set)):
+                    # 34c：字符串容器 + 非字符串左侧诚实报错（四面同文案，
+                    # 对齐 mb _成员判断——此前 Python TypeError 文本随版本）
+                    if isinstance(r, str) and not isinstance(l, str):
+                        raise MathaRuntimeError(f"in 左侧需为字符串，实际 {type(l).__name__}")
                     result = l in r
                 elif isinstance(r, ast.SetConstruct):
                     result = l in self._eval(r)

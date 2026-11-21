@@ -11,7 +11,8 @@
      vm.matha 迭代源归一 Matha 镜像（_dict_keys/_dict_values 平行序，
      2 元素列表对）。hi/mb 面 31d 既有元组对语义不受扰动。
      登记：boot 解析器 for (k, v) in 多变量目标未支持（诚实报错
-     期望 关键字）——登记不修，②S2/后续补齐。
+     期望 关键字）——登记不修，②S2/后续补齐。（34e 真化退役：
+     boot 解析/求值面解构绑定落地，编译器发射面诚实拒绝维持登记。）
   ③ BUILD_SLICE 守卫（vm.py）：不可切片容器归一 MathaRuntimeError
      「切片操作不支持: int[0:1]」（裸值原样呈现），与宿主 interp.py /
      boot interp_matha（31f）逐字一致——VM 历史上漏出 Python TypeError。
@@ -178,21 +179,20 @@ def test_32a_dict_for_pairs_three_faces():
 def test_32a_dict_for_kv_vm_hi_faces():
     """for (k, v) in 多变量目标 UNPACK_SEQ 解构：VM/hi 面真元组。
 
-    登记：boot 解析器 for (k, v) in 多变量目标未支持（见下方诚实拒绝锁）。"""
+    32-⑨ 登记「boot 多变量目标未支持」34e 退役（boot 面同判见下方
+    真化退役锁）。"""
     outs, err = exec_api.run_checked(_DICT_FOR_KV)
     assert err is None and outs == ["ab"], (outs, err)
     hi, hi_err = _hi_interp(_DICT_FOR_KV)
     assert hi_err is None and hi == ["ab"], (hi, hi_err)
 
 
-def test_32a_dict_for_kv_boot_parser_honest_reject():
-    """boot 解析器 for (k, v) in 诚实拒绝（登记不修：期望 关键字）。
-
-    boot 面语法错误以输出行呈现（strict=True 不异常上抛），双形态同判
-    （31c 顶层链诚实拒绝锁同款）。"""
+def test_32a_dict_for_kv_boot_true():
+    """boot 面 for (k, v) 真化退役锁（34e 真化改锁——32-⑨「boot 解析器
+    多变量目标未支持」退役）：三面同判 'ab'（boot 34e 解析/求值面
+    解构绑定；boot 编译器发射面诚实拒绝维持登记，见 34）。"""
     mb, mb_err = _boot_interp(_DICT_FOR_KV)
-    assert mb_err is not None or any("语法分析错误" in str(o) for o in (mb or [])), \
-        (mb, mb_err)
+    assert mb_err is None and mb == ["ab"], (mb, mb_err)
 
 
 def test_32a_nondict_iterable_identity_vm_faces():

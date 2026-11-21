@@ -498,6 +498,34 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   +VM²+尾逗号诚实拒绝+hi 无 else+sum/type_of+slice 字符串臂/split 往返）
   + test_native.py in 节改锁+元组成员判断；登记不修清单见 KNOWN_ISSUES
   阶段 33 收官条目。
+- 阶段 34 语言面继续收敛（六项登记分歧真化收官，两项拍板全走推荐项——
+  ①34c 统一 boot 中文文案 ②34f hi→None 对齐 vm）：**34a 尾逗号全族
+  真化**——boot 解析器多元素尾逗号 `(1, 2,)`/调用位尾逗号 `f(1,)`/
+  单元素尾逗号 `(1,)` 三形态同文案诚实拒绝「期望表达式 (got
+  PUNCT_RPAREN ')')」（宿主=SPEC；列表尾逗号 `[1, 2,]` 三面合法维持
+  ——33-① 全族退役）；**34b 语句位 if `[` 路由真化**——宿主 parser
+  语句位语境分派 `_in_cond_value`（28-⑦「语句位 `[` 路由一致性」/
+  33-② 退役：三面 `输出(if 1 { 输出(x) })` → [[x]]/[[y]] 同判 +
+  while 空容器 falsy 零迭代 + VM²）；**34c `in` 左侧文案四面统一
+  boot 中文**——「in 左侧需为字符串，实际 int」（vm `_op_in` 左臂
+  守卫 + native err_in_left_prefix + hi interp.py 臂 + mb `_成员判断`
+  ——33-③ 退役，正例 `"ell" in "hello"` 三面 真 维持）；**34d slice
+  元组实参 vm 收敛对齐宿主**——`_builtin_slice` Tuple/其他诚实报错
+  「slice() 需要字符串或列表」（native `fn:slice` err_slice_dom 同判
+  ——33-④ 退役；下标 `(2, 3)[0]` 元组面维持）；**34e boot for (k,v)
+  多变量目标真化**——matha/parser.matha for 目标二义分派（名单解构）
+  + interp_matha `_解构绑定`/`_解构绑定进`（32-⑨ 退役；五形态 VM²
+  sweep + boot 编译器发射面诚实拒绝「boot 编译器 for 解构目标暂未
+  支持」维持登记）；**34f hi 面 func 值求值真化**——块尾 func 定义
+  块值 → None（interp.py FuncDef 臂，vm 同判；mb 解析拒绝维持登记
+  ——32-⑪ 退役）。A 轨新档
+  test_selfhost_language_phase34（27 项：尾逗号三面/if 路由三面+VM²/
+  in 左侧三面+VM²/slice 三面+VM²/for 解构五形态+编译器诚实拒绝/
+  func 值三面/裸键登记锁）；旧锁退役三处——test_32a_dict_for_kv_
+  boot_parser_honest_reject → test_32a_dict_for_kv_boot_true（真化
+  改锁）+ test_31g_snapshot_classes timeout→all-ok（33 收官快照重
+  生成后改锁滞后收口，非缺陷）+ phase33 33c/33h in·slice 锁随真化
+  收敛改锁；登记不修清单见 KNOWN_ISSUES 阶段 34 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

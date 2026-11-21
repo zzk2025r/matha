@@ -189,6 +189,10 @@ def _op_fdiv(a, b):
 
 def _op_in(a, b):
     if isinstance(b, (list, tuple, str, dict, set)):
+        # 34c：字符串容器 + 非字符串左侧诚实报错（四面同文案，
+        # 对齐 mb _成员判断——此前 Python TypeError 文本随版本）
+        if isinstance(b, str) and not isinstance(a, str):
+            raise MathaRuntimeError(f"in 左侧需为字符串，实际 {type(a).__name__}")
         return a in b
     raise MathaRuntimeError(f"in 右侧需为序列/集合/字典，实际 {type(b).__name__}")
 
@@ -607,7 +611,7 @@ def _default_builtins() -> dict:
     # 解析_JSON 已由上方 JSON 懒节注册（阶段 23a）
     # 柯里化的序列工具（Matha 代码以 get(xs)(i) / append(xs)(x) 形式调用）
     b.setdefault("get", _curry2(lambda c, i: c[i]))
-    b.setdefault("slice", _curry3(lambda c, s, e: c[s:e]))
+    b.setdefault("slice", _curry3(_builtin_slice))
     b.setdefault("append", _curry2(_builtin_append))
     b.setdefault("enumerate", lambda lst: [[i, v] for i, v in enumerate(lst)])
     # 原地追加（O(1) 摊还）：仅自举编译器 `_发` 等「构建器」在保证列表无别名
@@ -845,6 +849,19 @@ def _builtin_dedup(values):
 def _builtin_make_set(form, variables, elements):
     """构造集合(form, variables, elements) → list（去重、保序）。"""
     return _builtin_dedup(elements or [])
+
+
+def _builtin_slice(c, s, e):
+    """slice(c)(s)(e) → c[s:e]（34d 对齐宿主：元组/其他容器诚实报错——
+    此前 c[s:e] 对元组宽松切片返元组，hi/mb 诚实报错分歧）。开放端缺界
+    None（下标切片 l[1:] 发射面 slice(c)(1)(None)）按 Python 切片语义
+    放行——VM 面下标切片经此内建而 hi 面走解释器自身路径。"""
+    if not isinstance(c, (str, list)):
+        raise MathaRuntimeError("slice() 需要字符串或列表")
+    if not ((s is None or isinstance(s, int))
+            and (e is None or isinstance(e, int))):
+        raise MathaRuntimeError("slice() 参数需整数")
+    return c[s:e]
 
 
 def _builtin_append(xs, x):

@@ -225,15 +225,31 @@ module 解释器 {
     op = "in" ? _成员判断(l, r) :
     错误("未知运算符: " + op)
 
+  (* 34c：类型名小写面（30c _类型名 同构镜像）——错误文案宿主
+     type(v).__name__ 同形（Int→int…Null→NoneType）；此前直接用
+     matha_type_of（词首大写）致 VM² in 文案「实际 Int」vs 四面「int」） *)
+  func _类型名(v) -> String =
+    let t = matha_type_of(v) in
+    t = "Int" ? "int" :
+    t = "Float" ? "float" :
+    t = "Bool" ? "bool" :
+    t = "String" ? "str" :
+    t = "List" ? "list" :
+    t = "Tuple" ? "tuple" :
+    t = "Dict" ? "dict" :
+    t = "Function" ? "function" :
+    t = "Null" ? "NoneType" :
+    t
+
   func _成员判断(l, r) -> Value =
     matha_type_of(r) = "List" or matha_type_of(r) = "Tuple" ?
       _列表成员(l, r) :
     matha_type_of(r) = "String" ?
       (matha_type_of(l) = "String" ?
         (l = "" ? 真 : find(l, r) >= 0) :
-        错误("in 左侧需为字符串，实际 " + matha_type_of(l))) :
+        错误("in 左侧需为字符串，实际 " + _类型名(l))) :
     matha_type_of(r) = "Dict" ? dict_has(r, l) :
-    错误("in 右侧需为序列/集合/字典，实际 " + matha_type_of(r))
+    错误("in 右侧需为序列/集合/字典，实际 " + _类型名(r))
 
   func _列表成员(l, r) -> Value =
     let rec _go(i: Int) -> Value =

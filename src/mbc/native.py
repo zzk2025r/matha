@@ -5462,10 +5462,31 @@ def _emit_builtin_bin2_crt(em: _Emitter, name: str, crt: str):
 # ---- 砖块 16 阶段二：序列 / 字典原语 ----
 
 def _emit_builtin_slice(em: _Emitter):
-    """slice(container)(start)(stop) → build_slice（越界钳制）。"""
+    """slice(container)(start)(stop) → build_slice（越界钳制）。
+
+    34d：容器守卫——仅字符串/列表透传 build_slice，其余（元组/字典/标量）
+    诚实报错「slice() 需要字符串或列表」对齐宿主 builtin_slice 与 vm
+    _builtin_slice（此前 build_slice 对元组宽松切片返元组，hi/mb 报错分
+    歧）。下标切片 xs[a:b] 的 build_slice 共用路径（元组切片返元组）不受
+    影响。"""
     em.label_here("fn:slice")
     _emit_prologue(em, 3, 3)
     em.mov_rd_mem(0, 5, -24)                        # container
+    em.mov_rr(2, 0)                                 # rdx=container
+    em.lea_rip(10, "heap_base")
+    em.sub_rr(2, 10)
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x83, "slice_gd_bad")              # jae：非堆（int/bignum）→ 报错
+    em.emit(b"\x8B\x10")                            # mov edx,[rax]（容器标签）
+    em.emit(b"\x83\xFA" + bytes([TYPE_STR]))
+    em.jcc_rel32(0x84, "slice_gd_ok")               # 字符串 → 透传
+    em.emit(b"\x83\xFA" + bytes([TYPE_LIST]))
+    em.jcc_rel32(0x84, "slice_gd_ok")               # 列表 → 透传
+    em.label_here("slice_gd_bad")
+    em.lea_rip(0, "err_slice_dom")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
+    em.label_here("slice_gd_ok")
     em.mov_rd_mem(1, 5, -16)                        # start
     em.mov_rd_mem(2, 5, -8)                         # stop
     em.call_rel32("build_slice")
@@ -8383,6 +8404,75 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.call_rel32("raise_rt")                  # 不返回
             em.emit(b"\x0F\x0B")                       # ud2
             em.label_here(lin_ok)
+            # 34c：字符串容器 + 非字符串左侧 → 「in 左侧需为字符串，实际
+            # <左类型>」诚实报错（四面同文案，对齐 vm._op_in——此前
+            # seq_contains 对非字符串左静默返 0 假成功）。
+            lcont = f"in_lcont_{tag}_{idx}"
+            lint = f"in_lint_{tag}_{idx}"
+            lflt = f"in_lflt_{tag}_{idx}"
+            lbln = f"in_lbln_{tag}_{idx}"
+            lnul = f"in_lnul_{tag}_{idx}"
+            llist = f"in_llist_{tag}_{idx}"
+            ltup = f"in_ltup_{tag}_{idx}"
+            ldict = f"in_ldict_{tag}_{idx}"
+            lfnc = f"in_lfnc_{tag}_{idx}"
+            lmsg = f"in_lmsg_{tag}_{idx}"
+            em.emit(b"\x83\xFA" + bytes([TYPE_STR]))   # cmp edx,TYPE_STR
+            em.jcc_rel32(0x85, lcont)                  # jne：右非字符串 → contains
+            em.mov_rr(2, 0)                            # rdx=左
+            em.lea_rip(10, "heap_base")
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x83, lint)                   # jae：非堆 → 裸 int
+            em.emit(b"\x8B\x10")                       # mov edx,[rax]（左类型）
+            em.emit(b"\x83\xFA" + bytes([TYPE_STR]))
+            em.jcc_rel32(0x84, lcont)                  # 左亦字符串 → contains
+            em.emit(b"\x83\xFA" + bytes([TYPE_BIGINT]))
+            em.jcc_rel32(0x84, lint)
+            em.emit(b"\x83\xFA" + bytes([TYPE_FLOAT]))
+            em.jcc_rel32(0x84, lflt)
+            em.emit(b"\x83\xFA" + bytes([TYPE_BOOL]))
+            em.jcc_rel32(0x84, lbln)
+            em.emit(b"\x83\xFA" + bytes([TYPE_NULL]))
+            em.jcc_rel32(0x84, lnul)
+            em.emit(b"\x83\xFA" + bytes([TYPE_LIST]))
+            em.jcc_rel32(0x84, llist)
+            em.emit(b"\x83\xFA" + bytes([TYPE_TUPLE]))
+            em.jcc_rel32(0x84, ltup)
+            em.emit(b"\x83\xFA" + bytes([TYPE_DICT]))
+            em.jcc_rel32(0x84, ldict)
+            em.jcc_rel32(None, lfnc)                   # closure/partial/未知
+            em.label_here(lint)
+            em.lea_rip(0, "si_n_int")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(lflt)
+            em.lea_rip(0, "si_n_float")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(lbln)
+            em.lea_rip(0, "si_n_bool")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(lnul)
+            em.lea_rip(0, "si_n_null")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(llist)
+            em.lea_rip(0, "si_n_list")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(ltup)
+            em.lea_rip(0, "si_n_tuple")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(ldict)
+            em.lea_rip(0, "si_n_dict")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(lfnc)
+            em.lea_rip(0, "si_n_func")
+            em.jcc_rel32(None, lmsg)
+            em.label_here(lmsg)
+            em.mov_rr(1, 0)                            # rcx=左类型名
+            em.lea_rip(0, "err_in_left_prefix")
+            em.call_rel32("str_concat")                # rax=完整消息
+            em.call_rel32("raise_rt")                  # 不返回
+            em.emit(b"\x0F\x0B")                       # ud2
+            em.label_here(lcont)
             em.call_rel32("seq_contains")              # rax=左元素 rcx=右容器
             _emit_rax_to_bool(em, tag, f"{idx}m")
         elif sym in _SET_BINOPS:
@@ -10840,6 +10930,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_list_assign", "list assignment index out of range"),
                      ("err_idx_usup", "索引操作不支持: "),
                      ("err_in_prefix", "in 右侧需为序列/集合/字典，实际 "),
+                     ("err_in_left_prefix", "in 左侧需为字符串，实际 "),
+                     ("err_slice_dom", "slice() 需要字符串或列表"),
                      ("err_dict_newkey",
                       "原生后端暂不支持字典下标新增键写入（原生 dict_put 为函数式，"
                       "无法原位扩容）"),
@@ -10847,6 +10939,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("si_n_float", "float"), ("si_n_bool", "bool"),
                      ("si_n_null", "NoneType"), ("si_n_func", "function"),
                      ("si_n_tuple", "tuple"),
+                     ("si_n_list", "list"), ("si_n_dict", "dict"),
                      ("err_dedup", "去重() 需要列表"),
                      ("err_sum", "求和() 需要列表"),
                      ("err_prod", "求积() 需要列表"),

@@ -363,22 +363,19 @@ def test_31g_warmup_and_budget_shape():
 
 def test_31g_snapshot_classes():
     """31g 治理后快照分类（--write 实测）：36/39 both_err→ok（preload 装配
-    首次真跑）；37/38 双面真跑 >600s 同判 timeout（柯里化递归 O(n²) 慢档，
-    非分歧）；stdlib_symbols 600s 预算内 ok/ok；interp.matha 双面真跑
-    >600s 维持 timeout（30f 归因「重档自检 >120s」承继，非 worker-init
-    race——warmup 后 600s 预算下依旧双面超时，实况归因见 KNOWN_ISSUES 31）。"""
+    首次真跑）；37/38/interp.matha 33b 比较族提速后 600s 预算内真跑完成
+    （33 收官 timeout 3→0 清零，快照重生成后本锁按真化退役惯例改锁
+    all-ok——33 门禁 tests lane 先于快照重生成，改锁滞后至此收口）；
+    stdlib_symbols 600s 预算内 ok/ok。"""
     entries = sm.load_snapshot()["files"]
     by_path = {e["path"]: e for e in entries}
-    for stem in ("36_basics_map_filter_reduce", "39_basics_gcd"):
+    for stem in ("36_basics_map_filter_reduce", "37_basics_sorted",
+                 "38_basics_join_split", "39_basics_gcd"):
         e = by_path[f"golden_tests/cases/{stem}.matha"]
         assert e["boot"] == "ok" and e["host"] == "ok", (stem, e)
-    for p in ("golden_tests/cases/37_basics_sorted.matha",
-              "golden_tests/cases/38_basics_join_split.matha",
-              "matha/interp.matha"):
+    for p in ("matha/interp.matha", "matha/stdlib_symbols.matha"):
         e = by_path[p]
-        assert e["boot"] == "timeout" and e["host"] == "timeout", (p, e)
-    e = by_path["matha/stdlib_symbols.matha"]
-    assert e["boot"] == "ok" and e["host"] == "ok", e
+        assert e["boot"] == "ok" and e["host"] == "ok", (p, e)
 
 
 if __name__ == "__main__":

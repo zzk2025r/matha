@@ -5,8 +5,8 @@
   boot 解析器 解析括号消解 逗号分支补右括号守卫，(1,) 诚实拒绝
   「期望表达式 (got PUNCT_RPAREN ')')」（宿主=SPEC 不动：同文案带
   L:C 前缀，vm 面经宿主编译器同判；boot 解析错误以输出行呈现不上
-  抛——32 期同约定）。多元素尾逗号 (1, 2,) 与调用位尾逗号维持 boot
-  通用文案「期望表达式，实际 )」（登记不修，33 只收单元素吞没位）。
+  抛——32 期同约定）。多元素尾逗号 (1, 2,) 与调用位尾逗号 34 期
+  同文案真化（33-① 全族退役，锁面移至阶段 34 档）。
 
 33b（拍板「全族对齐 Bool」）：mb 比较族九臂 =/==/!=/</>/<=/>= 与 not
   返 真/假 Bool（宿主/VM 比较面 Python bool 同判；此前 mb 面 1.0/0.0
@@ -20,9 +20,8 @@
   可捕获，tests/test_native.py 锁）/ mb _成员判断（interp_matha）/
   VM² 镜像（interp.matha）：List/Tuple/Dict/Str 命中→真 未中→假；
   非容器右侧诚实报错「in 右侧需为序列/集合/字典，实际 int」四面同
-  文案。登记：字符串容器+非字符串左侧文案分歧——vm/hi Python
-  TypeError 形态 vs mb/VM²「in 左侧需为字符串」vs native 静默返
-  False（KNOWN_ISSUES 阶段 33 登记不修，本档锁现状防漂移）。
+  文案。字符串容器+非字符串左侧 34 期四面同文案真化（33-③退役，
+  锁面移至阶段 34 档）。
 
 33d（拍板「顺手真修 hi」）：hi 面 if 无 else 条件假 → null
   （src/interp.py IfExpr/IfStmt else 缺失臂补 None；此前宿主解释器
@@ -250,18 +249,17 @@ def test_33c_in_noncontainer_error_vm2(bootvm):
 
 
 def test_33c_in_string_left_registered_divergence():
-    """登记锁（不修）：字符串容器+非字符串左侧文案分歧——vm/hi Python
-    TypeError 形态 vs mb/VM²「in 左侧需为字符串」vs native 静默返 False。
-    KNOWN_ISSUES 阶段 33 登记；本锁防现状漂移。"""
-    want_hi = "requires string as left operand"
-    want_mb = "in 左侧需为字符串"
+    """登记锁退役（34c 四面同文案改锁）：字符串容器+非字符串左侧
+    vm/hi/native 同 boot 中文文案诚实报错——33-③ 退役；五面全族锁
+    移至 tests/test_selfhost_language_phase34.py 34c 档。"""
+    want = "in 左侧需为字符串，实际 int"
     src = '输出(1 in "abc")'
     outs, err = exec_api.run_checked(src)
-    assert err is not None and want_hi in str(err), ("vm", outs, err)
+    assert err is not None and want in str(err), ("vm", outs, err)
     hi, hi_err = _hi_interp(src)
-    assert hi_err is not None and want_hi in str(hi_err), ("hi", hi, hi_err)
+    assert hi_err is not None and want in str(hi_err), ("hi", hi, hi_err)
     mb, mb_err = _boot_interp(src)
-    assert mb_err is not None and want_mb in str(mb_err), ("mb", mb, mb_err)
+    assert mb_err is not None and want in str(mb_err), ("mb", mb, mb_err)
 
 
 # ============================================================
@@ -346,14 +344,15 @@ def test_33a_single_trailing_comma_honest_reject():
 
 
 def test_33a_trailing_comma_registered_boundary():
-    """登记锁（不修）：多元素尾逗号 (1, 2,) 与调用位 尾逗号——双面诚实
-    拒绝（boot 维持通用文案「期望表达式，实际 )」，阶段 33 只收单元素
-    吞没位）。"""
+    """登记锁退役（34a 真化改锁）：多元素尾逗号 (1, 2,) 与调用位尾逗号
+    双面同宿主文案诚实拒绝（33-① 全族退役）；三面全族锁移至
+    tests/test_selfhost_language_phase34.py 34a 档。"""
     for tag, src in [("trail2", "输出((1, 2,))"), ("call_trail", "输出(1,)")]:
+        want = "期望表达式 (got PUNCT_RPAREN ')')"
         outs, err = exec_api.run_checked(src)
-        assert err is not None, (tag, "vm", outs, err)
+        assert err is not None and want in str(err), (tag, "vm", outs, err)
         mb, mb_err = _boot_interp(src)
-        assert mb_err is not None or (mb and "语法分析错误" in str(mb[0])), \
+        assert mb_err is None and mb and want in str(mb[0]), \
             (tag, "mb", mb, mb_err)
 
 
@@ -410,10 +409,10 @@ def test_33h_split_join_roundtrip_vm_hi_vm2(bootvm):
 
 
 def test_33h_slice_builtin_tuple_registered_divergence():
-    """登记锁（不修）：slice() 内建元组实参——hi/mb 诚实报错
-    「slice() 需要字符串或列表」（33h 对齐宿主），vm 面维持宽松
-    c[s:e] 返元组形态（src/mbc/vm.py 内建表，native 走 build_slice
-    共用路径）。KNOWN_ISSUES 阶段 33 登记；本锁防现状漂移。"""
+    """登记锁退役（34d 真化改锁）：slice() 内建元组实参——此前 vm 宽松
+    c[s:e] 返元组 vs hi/mb 诚实报错，现三面同判「slice() 需要字符串或
+    列表」（vm _builtin_slice 容器守卫；native fn:slice 守卫另锁
+    test_native；build_slice 下标共用路径不变）。"""
     src = "输出(slice((1, 2, 3), 0, 2))"
     want = "slice() 需要字符串或列表"
     hi, hi_err = _hi_interp(src)
@@ -421,5 +420,5 @@ def test_33h_slice_builtin_tuple_registered_divergence():
     mb, mb_err = _boot_interp(src)
     assert mb_err is not None and want in str(mb_err), ("mb", mb, mb_err)
     outs, err = exec_api.run_checked(src)
-    assert err is None and outs == [(1, 2)], ("vm", outs, err)
+    assert err is not None and want in str(err), ("vm", outs, err)
 

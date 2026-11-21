@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 183（`tests/`）
+- **测试文件：** 184（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -315,6 +315,33 @@ Python 语义）、List 维持 list_slice、Tuple/其他诚实报错
 600s 预算内真跑完成；38 语料新显形 differ 为 33h slice 字符串臂根因，
 修复归等）。
 
+语言面继续收敛（阶段 34）：六项登记分歧全族真化（33-①②③④ + 28-⑦ +
+32-⑨⑪ 退役）。尾逗号全族：33a 单元素机制扩展到多元素 `(1, 2,)` 与
+调用位 `f(1, 2,)`——boot 面改发宿主精确文案「期望表达式
+(got PUNCT_RPAREN ')')」（解析括号消解逗号分支全族守卫）；列表尾逗号
+`[1, 2,]` 三面合法。语句位 if `[` 路由：宿主 `_parse_if`/`_parse_while`
+条件位加 `_in_cond_value` 值语境旗标（27f 同款先例）——`if [1] { … }`
+条件析为列表字面量而非输出命令（vm 面此前漏出条件值 `outs=[1,'x']`
+vs hi/mb `['x']` 三面分歧退役；boot 面既有正确零改动）。`in` 左侧
+四面同文案：字符串容器+非字符串左侧统一 boot 中文文案「in 左侧需为
+字符串，实际 int/list/NoneType」（vm `_op_in` + hi interp.py 二元运算
+in 臂 + native 非零退出 stderr 同文案可捕获 + VM² interp.matha 补
+`_类型名` 小写面镜像——33-③ 退役）。slice 元组 vm 收敛对齐宿主：
+vm `_builtin_slice` 容器守卫 + native `fn:slice` 容器守卫（仅
+str/list 透传，其余诚实报错「slice() 需要字符串或列表」——33-④
+退役；下标切片共用路径不受影响）。boot for `(k, v)` 多变量目标真化：
+boot parser.matha 括号解构目标（"变量" String=单变量 | List=名单）+
+interp_matha `_解构绑定`（宿主 `_exec_for_stmt` 镜像，长度不匹配
+「解构失败：期望 N 个元素，实际 <类型名>」同文案）——列表对/元组对/
+字典源三面+VM² 同判（32-⑨ 退役）；boot 编译器发射面 List 目标诚实
+拒绝「boot 编译器 for 解构目标暂未支持」（UNPACK_SEQ 自举镜像未做，
+登记）。hi 面 func 值求值真化：块尾 func 定义块值 → None（src/
+interp.py _eval 补 FuncDef 臂，vm 面同判——32-⑪ 退役；mb 面表达式位
+if 无 then 解析拒绝与 func 体块尾 mb 块值 '<function>' 维持登记）。
+附带发现登记：boot 字典字面量裸键 `{a: 1}` 析为变量引用 vs hi 面字符串
+键（引号键三面一致）；vm 面编译路径 UNPACK_SEQ 长度不匹配宽松补 null
+（解释面 hi/mb 诚实报错——编译面 vs 解释面解构语义分歧）。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -336,7 +363,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（183 个文件）
+├── tests/                  # 测试套件（184 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

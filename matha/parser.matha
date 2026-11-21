@@ -119,8 +119,9 @@ module 语法器 {
   func 做发送(通道: Dict, 值: Dict) -> Dict =
     {"类型": "发送", "通道": 通道, "值": 值}
   func 做While(cond: Dict, body: Dict) -> Dict = {"类型": "while", "条件": cond, "体": body}
-  func 做For(var_name: String, iterable: Dict, body: Dict) -> Dict =
-    {"类型": "for", "变量": var_name, "迭代": iterable, "体": body}
+  func 做For(变量名们: Value, iterable: Dict, body: Dict) -> Dict =
+    (* 34e：变量名们 String=单变量（历史形态）| List=解构目标 (a, b) *)
+    {"类型": "for", "变量": 变量名们, "迭代": iterable, "体": body}
   func 做Match(scrutinee: Dict, branches: List) -> Dict = {"类型": "match", "scrutinee": scrutinee, "分支": branches}
   (* switch 节点：与宿主 ast_nodes.SwitchStmt 对应（值 / 分支[[case_val,body]] / 默认）。
      默认分支无则传 null。 *)
@@ -898,6 +899,10 @@ module 语法器 {
   func 解析实参列表_rest(p: 解析器, acc: List) -> (List, 解析器) =
     if 匹配(p, 类型.逗号) then
       let p2 = 推进(p) in
+      (* 34a：多元素/调用位尾逗号 (1, 2,) / f(1,) 诚实拒绝对齐宿主
+         （33-① 全族退役；文案同 33a 单元素位 1520-1526） *)
+      匹配(p2, 类型.右括号) ?
+        错误("期望表达式 (got PUNCT_RPAREN ')')") :
       let (arg, p3) = 解析表达式(p2) in
       解析实参列表_rest(p3, acc + [arg])
     else (acc, p)
@@ -2713,17 +2718,45 @@ module 语法器 {
     else
       (做Try(try体, 捕获变量, 捕获体, 做Program([])), p5)
 
-  (* for 语句：for var in expr { body } *)
+  (* for 语句：for var in expr { body } / for (a, b) in expr { body }
+     34e：解构目标——左括号收 标识符/占位符 逗号名单（"变量"= List），
+     单变量维持 String 形态（消费面按形态分派）。 *)
   func 解析for_stmt(p: 解析器) -> (Dict, 解析器) =
     let p2 = 期望(p, 类型.关键字) in  (* for *)
-    let var_tok = 当前(p2) in
-    let p3 = 推进(p2) in
-    let p4 = 期望(p3, 类型.关键字) in  (* in *)
-    let (iterable, p5) = 解析表达式(p4) in
-    let p6 = 期望(p5, 类型.左括号花) in
-    let (body, p7) = 解析语句列表(p6) in
-    let p8 = 期望(p7, 类型.右括号花) in
-    (做For(var_tok.文本, iterable, body), p8)
+    if 匹配(p2, 类型.左括号) then
+      let p3 = 推进(p2) in
+      let t0 = 当前(p3) in
+      if t0.类型 = 类型.标识符 or t0.类型 = 类型.占位符 then
+        let p4 = 推进(p3) in
+        let (名单, p5) = 解析for目标_rest(p4, [t0.文本]) in
+        解析for尾(名单, p5)
+      else 错误("期望迭代变量")
+    else
+      let var_tok = 当前(p2) in
+      let p3 = 推进(p2) in
+      解析for尾(var_tok.文本, p3)
+
+  (* 34e：解构目标名单收集——ident (, ident)* ） *)
+  func 解析for目标_rest(p: 解析器, acc: List) -> (List, 解析器) =
+    if 匹配(p, 类型.逗号) then
+      let p2 = 推进(p) in
+      let t = 当前(p2) in
+      if t.类型 = 类型.标识符 or t.类型 = 类型.占位符 then
+        let p3 = 推进(p2) in
+        解析for目标_rest(p3, acc + [t.文本])
+      else 错误("期望迭代变量")
+    else
+      let p2 = 期望(p, 类型.右括号) in
+      (acc, p2)
+
+  (* for 迭代表达式 + 块体（单/解构目标共用尾段） *)
+  func 解析for尾(名单: Value, p: 解析器) -> (Dict, 解析器) =
+    let p1 = 期望(p, 类型.关键字) in  (* in *)
+    let (iterable, p2) = 解析表达式(p1) in
+    let p3 = 期望(p2, 类型.左括号花) in
+    let (body, p4) = 解析语句列表(p3) in
+    let p5 = 期望(p4, 类型.右括号花) in
+    (做For(名单, iterable, body), p5)
 
   (* match 语句：match <expr> { | <pat> [if <guard>] => <body> ... }
      与宿主 _parse_match_stmt 对齐：分支以 | 前导；支持守卫；模式支持

@@ -509,6 +509,19 @@ def test_slice_non_sequence_returns_none():
     assert _run("let z = 5 in 输出(z[1:2])\n") == (0, "None")
 
 
+def test_slice_builtin_tuple_error_matches_vm():
+    """slice() 内建元组实参诚实报错与 VM 逐字一致（34d 四面同文案锁）——
+    此前 fn:slice 直走 build_slice 对元组宽松返元组（33-④ 登记，34d 真化
+    退役）；str/list 透传形态不变，下标切片 xs[a:b] 共用路径不受守卫影响。"""
+    wrapped = ('try {\n  输出(slice((1, 2, 3), 0, 2))\n'
+               '} catch (e) {\n  输出(e)\n}\n')
+    assert _run(wrapped) == (0, "slice() 需要字符串或列表")
+    assert _vm(wrapped) == ["slice() 需要字符串或列表"]
+    assert _run('输出(slice("abcdef", 1, 3))\n') == (0, "bc")
+    assert _run('输出(slice([1, 2, 3, 4], 1, 3))\n') == (0, "[2, 3]")
+    assert _run("输出((1, 2, 3)[1:3])\n") == (0, "(2, 3)")
+
+
 # ---------- 列表下标：负下标 + 越界不得读到相邻堆字节 ----------
 
 _LIST_INDEX_CASES = [
@@ -1138,6 +1151,17 @@ def test_in_non_container_error_text_matches_vm():
     assert _vm(src) == ["in 右侧需为序列/集合/字典，实际 int"]
 
 
+def test_in_string_left_error_text_matches_vm():
+    """字符串容器+非字符串左侧错误文案与 VM 逐字一致（34c 四面同文案锁）——
+    此前 seq_contains 对非字符串左静默返 0 假成功（33 登记，34c 真化退役）。"""
+    for left, want in [("1", "in 左侧需为字符串，实际 int"),
+                       ("[1]", "in 左侧需为字符串，实际 list"),
+                       ("null", "in 左侧需为字符串，实际 NoneType")]:
+        src = ('try {\n  输出(%s in "abc")\n} catch (e) {\n  输出(e)\n}\n' % left)
+        assert _run(src) == (0, want), (left, "native", src)
+        assert _vm(src) == [want], (left, "vm", src)
+
+
 @pytest.mark.parametrize("src,expected", [
     ("输出(1 in (1, 2))\n", "True"),
     ("输出(3 in (1, 2))\n", "False"),
@@ -1148,10 +1172,16 @@ def test_in_tuple_membership(src, expected):
 
 
 def test_in_str_left_nonstr_registered_divergence():
-    """登记锁（不修）：字符串容器+非字符串左侧——vm/hi/mb 诚实报错
-    （33c _成员判断/Python TypeError），原生静默返 False（KNOWN_ISSUES
-    阶段 33 登记）。锁现状防漂移（不崩溃优先）。"""
-    assert _run('输出(1 in "abc")\n') == (0, "False")
+    """登记锁退役（34c 四面同文案真化改锁）：字符串容器+非字符串左侧——
+    原生面此前静默返 False 假成功（seq_contains），现诚实报错非零退出；
+    try/catch 可捕获形态文案与 VM 逐字一致另锁
+    （test_in_string_left_error_text_matches_vm）。"""
+    exe = os.path.join(tempfile.gettempdir(), "test_native.exe")
+    Path(exe).write_bytes(compile_to_exe('输出(1 in "abc")\n'))
+    r = subprocess.run([exe], capture_output=True, timeout=30)
+    assert (r.returncode & 0xFFFFFFFF) != 0
+    assert r.stdout.decode("utf-8", "replace").strip() == ""
+    assert r.stderr.decode("utf-8", "replace").strip() == "in 左侧需为字符串，实际 int"
 
 
 # 原生整数是 int64，VM 是任意精度 Python int；左移溢出宽度属已知固有偏差。

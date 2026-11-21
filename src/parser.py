@@ -130,6 +130,11 @@ class Parser:
         self._in_return_value = False
         # 正在解析字典字面量的值位：{"k": [x]} 的 [x] 是列表字面量而非输出命令。
         self._in_dict_value = False
+        # 正在解析 if/while 条件位（34b）：`if [1] { … }` 的 [1] 是列表字面量
+        # 条件而非输出命令——对齐 boot 解析器（boot 面已按列表处理），
+        # 此前 host 面条件位 [ 落输出命令，vm 漏出条件值（outs [1,'x']）
+        # vs hi/mb ['x'] 三面分歧。
+        self._in_cond_value = False
         self._if_depth: int = 0        # 当前 if 表达式嵌套深度
         # 正在解析 @(a|b|c) 括号式设定：此语境 `|` 是**项分隔符**而非位或
         self._in_setup_paren = False
@@ -2477,6 +2482,10 @@ class Parser:
             # 与三元分支 / return 操作数同口径——避免单元素列表被误判为输出命令。
             if self._in_dict_value:
                 return self._parse_list_literal()
+            # if/while 条件位语境（34b）：`if [1] { … }` 的 [1] 为列表字面量条件，
+            # 对齐 boot 面——此前落输出命令，vm 求值输出漏出条件值。
+            if self._in_cond_value:
+                return self._parse_list_literal()
             # return 操作数语境：`return [x]` 中的 [x] 为列表字面量（表达式），
             # 而非输出命令——修复单元素列表无法作为返回值的语句位陷阱。
             if getattr(self, '_in_return_value', False):
@@ -3560,10 +3569,13 @@ class Parser:
         self._expect(TokenType.KW_WHILE, "while")
         saved = self._in_control_flow
         self._in_control_flow = True
+        saved_cv = self._in_cond_value
+        self._in_cond_value = True
         try:
             cond = self._parse_expr()
         finally:
             self._in_control_flow = saved
+            self._in_cond_value = saved_cv
         self._expect(TokenType.PUNCT_LBRACE, "{")
         block = self._parse_block_body()
         self._expect(TokenType.PUNCT_RBRACE, "}")
@@ -3610,8 +3622,13 @@ class Parser:
         # （例：`(x) => if x in [1, 2] then 10 else 20`）
         saved_lv = self._in_let_value
         self._in_let_value = False
+        saved_cv = self._in_cond_value
+        self._in_cond_value = True
         try:
             cond = self._parse_expr()
+        finally:
+            self._in_cond_value = saved_cv
+        try:
             # 关键字形式: if cond then expr else expr
             # 阶段 14b：then/else 允许独立成行（与 then-后-else 行首现状对齐）；
             # 未命中则回退位置，`{` 块语句形式保持原行内语义。
