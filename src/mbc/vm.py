@@ -137,8 +137,8 @@ def _op_add(a, b):
 
 
 def _op_sub(a, b):
-    """"-"：字符串/列表不适用（消息与解释器逐字一致）。"""
-    if isinstance(a, (str, list)) or isinstance(b, (str, list)):
+    """"-"：字符串/列表/元组不适用（消息与解释器逐字一致）。"""
+    if isinstance(a, (str, list, tuple)) or isinstance(b, (str, list, tuple)):
         raise MathaRuntimeError("- 不适用于字符串/列表")
     return a - b
 
@@ -613,6 +613,14 @@ def _default_builtins() -> dict:
     b.setdefault("_dict_remove", _curry2(lambda d, k: {kk: vv for kk, vv in d.items() if kk != k}))
     # 元组构造原语（自举解释器元组字面量求值用；与宿主 BUILTINS 对齐）
     b.setdefault("_to_tuple", _builtin_to_tuple)
+    # 迭代源归一（32a-①）：编译器 for/推导迭代统一经此——dict → ('k', v)
+    # 真元组对列表（对齐宿主/插面 31d 语义），其余容器恒等透传（len/get
+    # 下标机制原样可用）。
+    def _iter_source(c):
+        if isinstance(c, dict):
+            return [(k, v) for k, v in c.items()]
+        return c
+    b.setdefault("_迭代源", _iter_source)
     # 位运算原语（供自举 vm.matha 的 应用运算/应用一元 使用）：自举源码不宜书写
     # `&`/`|`/`⊕`/`~` 运算符（会与「解释自身字节码」形成自引用，并阻碍 vm.matha
     # 自解析），故以宿主原语暴露；语义逐条复用 _BINOPS / _UNARYOPS（含非整数操作数
@@ -1143,6 +1151,14 @@ class VM:
             else:
                 items = []
             st.append(items)
+        elif op == OP.BUILD_TUPLE:
+            n = ins[1]
+            if n:
+                items = tuple(st[-n:])
+                del st[-n:]
+            else:
+                items = ()
+            st.append(items)
         elif op == OP.PUSH_NULL:
             st.append(None)
         elif op == OP.UNPACK_SEQ:
@@ -1172,7 +1188,14 @@ class VM:
             st.append(d)
         elif op == OP.BUILD_SLICE:
             end = st.pop(); start = st.pop(); c = st.pop()
-            st.append(c[start:end])
+            try:
+                st.append(c[start:end])
+            except (TypeError, KeyError):
+                # 不可切片容器（int/dict 等）：VM 历史上漏出 Python TypeError，
+                # dict 切片键漏出 KeyError——归一到与 src/interp.py 逐字一致
+                # 文案（裸值 start/end 原样呈现）。
+                raise MathaRuntimeError(
+                    f"切片操作不支持: {type(c).__name__}[{start}:{end}]") from None
         elif op == OP.LOAD_BOX:
             st.append(f.locals[ins[1]].value)
         elif op == OP.MAKE_BOX:

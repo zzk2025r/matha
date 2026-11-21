@@ -195,7 +195,14 @@ module 解释器 {
     expr["递归"] ? 求值递归let(expr, env) : 求值非递归let(expr, env)
 
   func 求值递归let(expr: Dict, env: List) -> Value = (expr, env) =>
-    let env1 = 绑定环境(env, expr["名"], "__递归占位__") in
+    (* 32e：互相递归真化——已有占位对（预绑递归let 预绑）复用同一对，
+       更新绑定值 原地改写共享对，先定义闭包的捕获表可见后定义名；
+       无占位（单自引用/遮蔽外层）照旧新建占位对。环境包含 先判（查找
+       环境缺名抛错），嵌套三元保双面短路。 *)
+    let env1 = 环境包含(env, expr["名"]) ?
+      (查找环境(env, expr["名"]) = "__递归占位__" ? env :
+        绑定环境(env, expr["名"], "__递归占位__")) :
+      绑定环境(env, expr["名"], "__递归占位__") in
     let v = 求值(expr["值"], env1) in
     let env2 = 更新绑定值(env1, expr["名"], v) in
     if expr["有体"] then 求值(expr["体"], env2) else v
@@ -210,7 +217,12 @@ module 解释器 {
      顶层若走它会丢弃新 env → 「未定义变量」）。 *)
   func 绑定求值let(expr: Dict, env: List) -> (Value, List) = (expr, env) =>
     if expr["递归"] then
-      let env1 = 绑定环境(env, expr["名"], "__递归占位__") in
+      (* 32e：已有占位对（预绑递归let 预绑）复用同一对，原地填充共享；
+         环境包含 先判（查找环境缺名抛错），嵌套三元保双面短路 *)
+      let env1 = 环境包含(env, expr["名"]) ?
+        (查找环境(env, expr["名"]) = "__递归占位__" ? env :
+          绑定环境(env, expr["名"], "__递归占位__")) :
+        绑定环境(env, expr["名"], "__递归占位__") in
       let v = 求值(expr["值"], env1) in
       let env2 = 更新绑定值(env1, expr["名"], v) in
       if expr["有体"] then (求值(expr["体"], env2), env2) else (v, env2)
@@ -778,9 +790,26 @@ module 解释器 {
 
   func 执行语句列表(stmts: Dict, env: List) -> (Value, List) = (stmts, env) =>
     if stmts["类型"] = "程序" then
-      执行声明列表(stmts["声明"], 提升函数名(stmts["声明"], env))
+      (* 32e：let rec 名预绑占位（互相递归前向引用）——占位对经闭包捕获
+         共享，绑定求值let 复用同一对 原地填充（30b 提升函数名同构）。 *)
+      执行声明列表(stmts["声明"],
+        预绑递归let(stmts["声明"], 提升函数名(stmts["声明"], env)))
     else
       执行语句(stmts, env)
+
+  (* 32e：块/程序入口 let rec 名预绑占位（互相递归前向引用）——直接声明位
+     语句级 let绑定（有体=假）递归名绑 "__递归占位__" 占位对（已绑跳过，
+     同 宿主 _preregister_rec_let setdefault 语义）；先定义闭包的捕获表
+     经占位对可见后定义名。只扫直接声明位，不深入嵌套块体（嵌套块体
+     在自身入口预绑）。 *)
+  func 预绑递归let(声明们: List, env: List) -> List = (声明们, env) =>
+    声明们 = [] ? env :
+    预绑递归let(声明们[1:],
+      (声明们[0]["类型"] = "let绑定" and 声明们[0]["递归"] and
+       声明们[0]["有体"] = 假) ?
+      (环境包含(env, 声明们[0]["名"]) ? env :
+        绑定环境(env, 声明们[0]["名"], "__递归占位__")) :
+      env)
 
   (* 30b：模块级函数名提升（宿主平铺全局 env + 全局回退查找镜像）——顶层/
      模块体 函数定义 名先绑 占位再执行，函数定义 路由对 占位对走 更新绑定值
@@ -827,7 +856,9 @@ module 解释器 {
       let env2 = 更新绑定值(env1, decl["名"], closure) in
       (closure, env2)
     else if decl["类型"] = "程序" then
-      执行声明列表(decl["声明"], env)
+      (* 32e：嵌套块体（声明位裸块）同入口预绑（执行语句列表 Program 臂
+         同构） *)
+      执行声明列表(decl["声明"], 预绑递归let(decl["声明"], env))
     else if decl["类型"] = "let绑定" then
       绑定求值let(decl, env)
     else if decl["类型"] = "定义运算符" then

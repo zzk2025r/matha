@@ -311,6 +311,9 @@ class Compiler:
         # 里的 X 可以是中文，而已加载集要能跟 plugin_index 的归属名对上。
         self.domain_aliases: dict[str, str] | None = None
         self.loaded_domains: set[str] = set()
+        # 32e：当前块预声明待填充的 let rec 名集合（互相递归——块入口统一
+        # MAKE_BOX，语句位只发 值+STORE_BOX；对齐宿主 _preregister_rec_let）。
+        self._rec_fill: set[str] = set()
 
     # ---- 常量池 ----
     def const(self, value) -> int:
@@ -650,6 +653,23 @@ class Compiler:
         相等比较；块尾留值位两形态均保持比较语义（同宿主边界）。"""
         stmts = block.stmts
         n = len(stmts)
+        # 32e：块级 let rec 互相递归预声明（宿主 _preregister_rec_let 镜像）——
+        # 先为块内全部语句位 let rec（body=None）分配盒槽位并 MAKE_BOX，再逐条
+        # 编译；前定义闭包经帧链捕获后定义盒（LOAD_OUTER_BOX），调用时盒已填充。
+        # 仅函数帧作用域（binds_global 无局部槽数组，顶层互递归经 LOAD_GLOBAL
+        # 调用时晚绑定天然可用）；param 同名遮蔽与重复声明跳过，走原路径。
+        _rec_saved = self._rec_fill
+        if not scope.binds_global:
+            rec_names: list[str] = []
+            for s in stmts:
+                if (isinstance(s, ast.LetBinding) and s.is_recursive
+                        and s.body is None and s.name not in scope.names
+                        and s.name not in rec_names):
+                    rec_names.append(s.name)
+            for name in rec_names:
+                slot = scope.declare_local(name, boxed=True)
+                code.append((OP.MAKE_BOX, slot))
+            self._rec_fill = set(rec_names)
         for i, s in enumerate(stmts):
             last = (i == n - 1)
             is_stmt = isinstance(s, self._STMT_NODES)
@@ -685,6 +705,7 @@ class Compiler:
                            (isinstance(stmts[-1], self._STMT_NODES)
                             and not isinstance(stmts[-1], self._VALUE_STMTS))):
             code.append((OP.PUSH_NULL,))
+        self._rec_fill = _rec_saved
 
     def _emit_if_try_value(self, node, scope: _Scope, code: list) -> None:
         """块尾位置的 if/try/match/switch/output 值表达式发射。"""
@@ -883,7 +904,13 @@ class Compiler:
             names = [names]
         elif isinstance(names, ast.Variable):
             names = [names.name]
+        # _迭代源 归一（32a-①）：dict → ('k', v) 对列表（真元组，对齐 hi/mb
+        # 面 31d 语义），list/tuple/str 等恒等透传——len/get 下标机制对字典源
+        # 天然失效（int 键 KeyError），所有迭代面统一经此归一。
+        # CALL 栈布局 fn 在下 arg 在上：先压函数，再发射迭代表达式，后 CALL 1。
+        code.append((OP.LOAD_GLOBAL, self.sconst("_迭代源")))
         self._emit_expr(stmt.iterable, scope, code)
+        code.append((OP.CALL, 1))
         xs_t = self._alloc_temp(scope, "for_xs")
         i_t = self._alloc_temp(scope, "for_i")
         if scope.binds_global:
@@ -974,7 +1001,10 @@ class Compiler:
         if not name:
             raise RuntimeError("字节码编译：列表推导目标必须是单个变量")
         # 1) 迭代器 → 临时 xs；索引 i=0；累加器 res=[]
+        # _迭代源 归一（32a-①）：CALL 栈布局 fn 在下 arg 在上，同 _emit_for_stmt。
+        code.append((OP.LOAD_GLOBAL, self.sconst("_迭代源")))
         self._emit_expr(node.iter, scope, code)
+        code.append((OP.CALL, 1))
         xs_t = self._alloc_temp(scope, "lc_xs")
         i_t = self._alloc_temp(scope, "lc_i")
         res_t = self._alloc_temp(scope, "lc_res")
@@ -1042,7 +1072,10 @@ class Compiler:
                     else getattr(target_k, "name", None))
             if not name:
                 raise RuntimeError("字节码编译：列表推导目标必须是单个变量")
+            # _迭代源 归一（32a-①）：CALL 栈布局 fn 在下 arg 在上，同 _emit_for_stmt。
+            code.append((OP.LOAD_GLOBAL, self.sconst("_迭代源")))
             self._emit_expr(iter_k, scope, code)
+            code.append((OP.CALL, 1))
             xs_t = self._alloc_temp(scope, f"lc_xs{k}")
             i_t = self._alloc_temp(scope, f"lc_i{k}")
             self._store_temp(code, xs_t)
@@ -1792,7 +1825,7 @@ class Compiler:
         elif isinstance(node, ast.TupleExpr):
             for el in node.elements:
                 self._emit_expr(el, scope, code)
-            code.append((OP.BUILD_LIST, len(node.elements)))  # 元组按列表处理
+            code.append((OP.BUILD_TUPLE, len(node.elements)))
 
         elif isinstance(node, ast.DictLiteral):
             n = 0
@@ -2062,6 +2095,15 @@ class Compiler:
                 self._emit_expr(value, scope, code)
                 scope.declare(node.name, boxed=False)
                 code.append((OP.STORE_GLOBAL, self.sconst(node.name)))
+            elif node.name in self._rec_fill and node.body is None:
+                # 32e：块入口预声明的盒（互相递归）——槽位与 MAKE_BOX 已在
+                # _emit_block 预发，此处只发 值+STORE_BOX 填充既有盒。
+                # body 位守卫：表达式位同名 let rec（body 非 None）不在此列，
+                # 落常规新建盒路径（遮蔽语义）。
+                self._rec_fill.discard(node.name)
+                slot = scope.names[node.name][0]
+                self._emit_expr(value, scope, code)
+                code.append((OP.STORE_BOX, slot))
             else:
                 slot = scope.declare(node.name, boxed=True)
                 code.append((OP.MAKE_BOX, slot))

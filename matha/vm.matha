@@ -45,6 +45,9 @@ module 字节码虚拟机 {
   func 建字典() -> Int   = 81
   func 取下标() -> Int   = 82
   func 存下标() -> Int   = 100
+  (* 建元组 0x65（32-②S1 运行时指令面）：与建列表同栈序产出真元组；
+     零发射方——宿主/boot 编译器暂不发射，仅指令可执行。 *)
+  func 建元组() -> Int   = 101
   func 切片() -> Int     = 83
   func 取属性() -> Int   = 84
   func 解包() -> Int     = 87
@@ -281,6 +284,7 @@ module 字节码虚拟机 {
     else if x = null then "None"
     else if matha_type_of(x) = "String" then x
     else if matha_type_of(x) = "List" then 列表转串(x)
+    else if matha_type_of(x) = "Tuple" then 元组转串(x)
     else if matha_type_of(x) = "Dict" then 字典转串(x)
     else
       "<?>?"
@@ -293,6 +297,18 @@ module 字节码虚拟机 {
     else
       let 前置 = if i = 0 then "" else ", " in
       前置 + 元素repr(xs[i]) + 列表元素串(xs, i + 1)
+
+  (* 元组渲染：CPython str(tuple) 形态——() / (a,) 单元素尾逗号 / (a, b)。 *)
+  func 元组转串(ts) -> String =
+    if len(ts) = 0 then "()"
+    else if len(ts) = 1 then "(" + 元素repr(ts[0]) + ",)"
+    else "(" + 元组元素串(ts, 0) + ")"
+
+  func 元组元素串(ts, i: Int) -> String =
+    if i >= len(ts) then ""
+    else
+      let 前置 = if i = 0 then "" else ", " in
+      前置 + 元素repr(ts[i]) + 元组元素串(ts, i + 1)
 
   func 字典转串(d) -> String =
     "{" + 字典元素串(d, _dict_keys(d), 0) + "}"
@@ -390,6 +406,17 @@ module 字节码虚拟机 {
 
   func 抛错返回(消息) -> List = ["__抛错__", 消息]
 
+  (* 迭代源归一（32a-①）：dict → (键, 值) 对列表，其余容器恒等透传。
+     键值序平行（_dict_keys/_dict_values 均按插入序）；对形态在 ②S1 前
+     编译为 2 元素列表（元组字面量 → 建列表），解包() 下标解构兼容。
+     宿主 vm.py 同名内建为真元组对，语义一致、载体形态 ② 后归一。 *)
+  func 迭代源对子(键们: List, 值们: List, i: Int, acc: List) -> List =
+    i >= len(键们) ? acc
+    : 迭代源对子(键们, 值们, i + 1, acc + [(键们[i], 值们[i])])
+
+  func 迭代源归一(c: Value) -> Value =
+    type_of(c) = "Dict" ? 迭代源对子(_dict_keys(c), _dict_values(c), 0, []) : c
+
   (* 一元内建（参数恰 1；否则部分）——数学/序列/dict/编码一律委托宿主全局 *)
   func 内建一元(名: String, 参数: List) -> List =
     if len(参数) != 1 then 部分返回(名, 参数)
@@ -421,6 +448,7 @@ module 字节码虚拟机 {
     else if 名 = "typeof" then 值返回(type_of(参数[0]))
     else if 名 = "_dict_keys" then 值返回(_dict_keys(参数[0]))
     else if 名 = "_dict_values" then 值返回(_dict_values(参数[0]))
+    else if 名 = "_迭代源" then 值返回(迭代源归一(参数[0]))
     else if 名 = "_read_file" then 值返回(_read_file(参数[0]))
     else if 名 = "encode_binary" then 值返回(encode_binary(参数[0]))
     else if 名 = "decode_binary" then 值返回(decode_binary(参数[0]))
@@ -852,6 +880,14 @@ module 字节码虚拟机 {
       let 项 = 取尾(栈, n) in
       let 栈8 = 栈[:len(栈) - n] in
       ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈8 + [项])), 全局]
+    else if op = 建元组() then
+      (* 32-②S1：弹出 n 项 → 真元组。_to_tuple 双面内建（宿主 BUILTINS
+         interp.py / VM defaults vm.py），vm.matha 两运行语境（VM² 编译
+         执行 / mb 链直解释）均 LOAD_GLOBAL 可命中。 *)
+      let n = 指令[1] in
+      let 项 = 取尾(栈, n) in
+      let 栈8 = 栈[:len(栈) - n] in
+      ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈8 + [_to_tuple(项)])), 全局]
     else if op = 建字典() then
       let n2 = 指令[1] in
       let (d, 栈9) = 建字典对(栈, n2) in
@@ -920,6 +956,7 @@ module 字节码虚拟机 {
     操作码 = 83 ? "0x53" :
     操作码 = 82 ? "0x52" :
     操作码 = 100 ? "0x64" :
+    操作码 = 101 ? "0x65" :
     操作码 = 81 ? "0x51" :
     操作码 = 80 ? "0x50" :
     操作码 = 65 ? "0x41" :
@@ -1033,7 +1070,7 @@ module 字节码虚拟机 {
      "sin", "cos", "tan", "exp", "log", "ln", "log10", "log2",
      "sqrt", "floor", "ceil", "round", "trunc", "sign",
      "deg2rad", "rad2deg", "sum", "max", "min",
-     "type_of", "typeof", "_dict_keys", "_dict_values", "_read_file",
+     "type_of", "typeof", "_dict_keys", "_dict_values", "_迭代源", "_read_file",
      "encode_binary", "decode_binary", "encode_ternary", "decode_ternary",
      "encode_decimal", "decode_decimal",
      "str", "int", "float", "bool",

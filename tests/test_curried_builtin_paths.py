@@ -277,13 +277,15 @@ def _curried_arity_table() -> dict:
 # get(xs)(i) / append(res)(e) 恒融成单条 CALL N（宿主 _emit_curried_builtin
 # 与自举 _for循环码 的 _get齐参/_get逐步 分支同判据、同入池顺序）。以下锁把
 # 「转正后的发射形状」与「遮蔽 arity 不匹配退回逐步」的边界固化，确保这两侧
-# 融合以后不会再破坏 stage2↔stage3 逐字节定点。
+# 融合以后不会再破坏 stage2↔stage3 逐字节定点。阶段 32a 迭代源归一（for/推导
+# 三发射位统一经 LOAD_GLOBAL "_迭代源" + CALL 1）在序列头部多一条前导 CALL 1，
+# get/append 融合面（CALL 2）完全守恒。
 
 B09_FUSE_SHAPES = [
-    # for 语法糖：len 判定 CALL 1 + get(xs)(i) 融合 CALL 2 + 输出 CALL 1
-    ("for_sugar", "t = 0\nfor x in [1, 2, 3] {\n  t = t + x\n}\n输出(t)\n", [1, 2, 1]),
-    # 列表推导：len CALL 1 + get 融合 CALL 2 + append 融合 CALL 2 + 输出 CALL 1
-    ("list_comp", "r = [x * 2 for x in [1, 2, 3]]\n输出(r)\n", [1, 2, 2, 1]),
+    # for 语法糖：迭代源 CALL 1 + len 判定 CALL 1 + get(xs)(i) 融合 CALL 2 + 输出 CALL 1
+    ("for_sugar", "t = 0\nfor x in [1, 2, 3] {\n  t = t + x\n}\n输出(t)\n", [1, 1, 2, 1]),
+    # 列表推导：迭代源 CALL 1 + len CALL 1 + get 融合 CALL 2 + append 融合 CALL 2 + 输出 CALL 1
+    ("list_comp", "r = [x * 2 for x in [1, 2, 3]]\n输出(r)\n", [1, 1, 2, 2, 1]),
 ]
 
 
@@ -304,14 +306,14 @@ def test_b09_shadowed_arity_mismatch_keeps_stepwise():
     """用户把 get 定义成 arity≠2 的顶层函数遮蔽内建 → 融合守卫判假，保持逐步 CALL 1。
 
     融合判据是 `_fn_arities.get(name) == 实参数`（自举侧 `_查元数(元数表,name)==len`）：
-    arity 不匹配时绝不硬融成 CALL 2（否则 CALL 2 会消费错误的栈布局）。历史 [1,1,1,1]
-    形态在此固化，与 test_shadowed_curried_name_keeps_stepwise_semantics 互为形状/值锁。
+    arity 不匹配时绝不硬融成 CALL 2（否则 CALL 2 会消费错误的栈布局）。[1,1,1,1,1]
+    （含 32a 前导迭代源 CALL 1）形态在此固化，与 test_shadowed_curried_name_keeps_stepwise_semantics 互为形状/值锁。
     """
     src = ("func get(x: Int) -> Int = (x) => x\n"
            "t = 0\nfor i in [1, 2] {\n  t = t + i\n}\n输出(t)\n")
     argc = _call_argcs(compile_source(src))
     assert argc.count(2) == 0, f"遮蔽 get(arity=1) 不应触发 CALL 2 融合：{argc}"
-    assert argc == [1, 1, 1, 1], f"逐步形态应保持历史 [1,1,1,1]，实得 {argc}"
+    assert argc == [1, 1, 1, 1, 1], f"逐步形态应保持历史 [1,1,1,1,1]，实得 {argc}"
 
 
 # ---------------------------------------------------- 8：sys_env 编译期折叠（宿主恒开）

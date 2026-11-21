@@ -41,7 +41,8 @@ module 终端执行器 {
   func 显示值(v) -> String =
     if v = null then "null"
     else if matha_type_of(v) = "String" then v
-    else if matha_type_of(v) = "Int" or matha_type_of(v) = "Float" or matha_type_of(v) = "Bool" then str(v)
+    else if matha_type_of(v) = "Bool" then (if v then "真" else "假")
+    else if matha_type_of(v) = "Int" or matha_type_of(v) = "Float" then str(v)
     else if matha_type_of(v) = "List" then "[" + _列表文本(v, 0) + "]"
     else if matha_type_of(v) = "Dict" then "{" + _键值文本(dict_to_list(v), 0) + "}"
     else "<值:" + matha_type_of(v) + ">"

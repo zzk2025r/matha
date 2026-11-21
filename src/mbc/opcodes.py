@@ -54,6 +54,7 @@ RAISE  = 0x61  # 弹出消息 → 抛出
 FORMULA_SCHEMA = 0x62
 RAISE_MATCH = 0x63  # 弹出被匹配值 → 抛出「match 无匹配分支: <渲染值>」（消息形态对齐 interp._fmt）
 STORE_SUBSCRIPT = 0x64  # 弹出 val,index,container → container[index] = val（语句位下标赋值，29b-①）
+BUILD_TUPLE = 0x65  # BUILD_TUPLE n  弹出 n 个元素 → 元组（32-②S1 运行时指令面；暂无发射方）
 HALT   = 0xFF
 
 

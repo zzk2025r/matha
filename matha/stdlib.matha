@@ -412,7 +412,10 @@ module 标准库 {
     if k >= 0 then digits * (10 ** k) * 1.0
     else digits / (10 ** (0 - k))
 
-  (* 数值 → 字符串 *)
+  (* 数值 → 字符串；32d 通用化：容器/布尔/null/函数渲染对齐宿主 str
+     （Python str 形态——Bool→True/False、null→None、列表 [a, b]、
+     元组 (a, b)（单元素尾逗号 (a,)）、字典 {'k': v}、容器内字符串 repr
+     引号转义；vm.matha 函数str 同构镜像）。28-⑨「stdlib str 数字专用」退役。 *)
   func str(n) -> String =
     if matha_type_of(n) = "Int" then
       let rec _digits(x: Int, acc: String) -> String =
@@ -441,45 +444,109 @@ module 标准库 {
       if frac_str = "" then str(i) + ".0"
       else str(i) + "." + frac_str
     else if matha_type_of(n) = "Bool" then
-      if n then "真" else "假"
+      if n then "True" else "False"
+    else if n = null then "None"
+    else if matha_type_of(n) = "String" then n
+    else if matha_type_of(n) = "List" and len(n) > 0 and n[0] = "__closure__" then
+      (* 自举闭包是 Matha 列表 ["__closure__",...]，宿主 type_of 判 "List"，
+         且捕获环境自引用（全局 env 原地含自身）——按闭包形态守卫先行，
+         与 boot 输出归一（interp_matha 可调用三形态）同哨兵。 *)
+      "<function>"
+    else if matha_type_of(n) = "List" then 列表转串(n)
+    else if matha_type_of(n) = "Tuple" then 元组转串(n)
+    else if matha_type_of(n) = "Dict" then 字典转串(n)
+    else if matha_type_of(n) = "Function" then "<function>"
     else
       "<?>?"
 
-  (* 判断是否为数字：通过尝试字符串转换来检测，不调用 str() 避免循环 *)
-  func _is_number(v) -> Bool =
-    if v = 真 or v = 假 or v = null then 假
-    else
-      let s = str_safe(v) in
-      find("<?>?", s) < 0
+  (* 容器渲染 helper 族（32d，vm.matha 函数str 镜像）：CPython str 形态，
+     容器内字符串按 repr 规则加引号转义，容器递归。 *)
+  func 列表转串(xs: List) -> String =
+    "[" + 列表元素串(xs, 0) + "]"
 
-  (* 安全字符串转换：非数字返回 "<?>?" *)
+  func 列表元素串(xs: List, i: Int) -> String =
+    if i >= len(xs) then ""
+    else
+      let 前置 = if i = 0 then "" else ", " in
+      前置 + 元素repr(xs[i]) + 列表元素串(xs, i + 1)
+
+  (* 元组渲染：CPython str(tuple) 形态——() / (a,) 单元素尾逗号 / (a, b)。 *)
+  func 元组转串(ts) -> String =
+    if len(ts) = 0 then "()"
+    else if len(ts) = 1 then "(" + 元素repr(ts[0]) + ",)"
+    else "(" + 元组元素串(ts, 0) + ")"
+
+  func 元组元素串(ts, i: Int) -> String =
+    if i >= len(ts) then ""
+    else
+      let 前置 = if i = 0 then "" else ", " in
+      前置 + 元素repr(ts[i]) + 元组元素串(ts, i + 1)
+
+  func 字典转串(d) -> String =
+    "{" + 字典元素串(d, _dict_keys(d), 0) + "}"
+
+  func 字典元素串(d, 键们: List, i: Int) -> String =
+    if i >= len(键们) then ""
+    else
+      let k = 键们[i] in
+      let 前置 = if i = 0 then "" else ", " in
+      前置 + 元素repr(k) + ": " + 元素repr(d[k]) + 字典元素串(d, 键们, i + 1)
+
+  (* 容器元素的 CPython repr 形态：字符串引号+转义，其余同 str（容器递归）。 *)
+  func 元素repr(x) -> String =
+    if matha_type_of(x) = "String" then 串repr(x)
+    else str(x)
+
+  (* 智能引号：仅含 ' 而无 " 时用双引号包裹（CPython repr 规则）。 *)
+  func 串repr(s: String) -> String =
+    if 含字符(s, "'", 0) and not 含字符(s, "\"", 0) then
+      "\"" + 转义串(s, 0, 真) + "\""
+    else
+      "'" + 转义串(s, 0, 假) + "'"
+
+  func 含字符(s: String, c: String, i: Int) -> Bool =
+    if i >= len(s) then 假
+    else if s[i] = c then 真
+    else 含字符(s, c, i + 1)
+
+  func 转义串(s: String, i: Int, 用双: Bool) -> String =
+    if i >= len(s) then ""
+    else 转义字符(s[i], 用双) + 转义串(s, i + 1, 用双)
+
+  func 转义字符(c: String, 用双: Bool) -> String =
+    if c = "\\" then "\\\\"
+    else if 用双 and c = "\"" then "\\\""
+    else if not 用双 and c = "'" then "\\'"
+    else if c = "\n" then "\\n"
+    else if c = "\r" then "\\r"
+    else if c = "\t" then "\\t"
+    else if 是控制码(ord(c)) then 控制转串(ord(c))
+    else c
+
+  func 是控制码(o: Int) -> Bool =
+    o < 32 or o = 127 or (o >= 128 and o <= 159)
+
+  func 控制转串(o: Int) -> String =
+    "\\x" + 十六进制位(o // 16) + 十六进制位(o % 16)
+
+  func 十六进制位(d: Int) -> String =
+    "0123456789abcdef"[d]
+
+  (* 判断是否为数字/字符串/列表/字典：matha_type_of 直判（32d——str 通用化
+     后 "<?>?" 哨兵启发式失效，改类型直判）。 *)
+  func _is_number(v) -> Bool =
+    matha_type_of(v) = "Int" or matha_type_of(v) = "Float"
+
+  (* 安全字符串转换：Bool/null 返回 "<?>?"，其余 str 渲染 *)
   func str_safe(n) -> String =
     if n = 真 or n = 假 or n = null then "<?>?"
-    else
-      let s = str(n) in
-      if find("<?>?", s) >= 0 then "<?>?" else s
+    else str(n)
 
-  (* 判断是否为字符串：通过比较 str() 结果来判断，但不直接用 str() 做值比较 *)
-  func _is_string(v) -> Bool =
-    if v = 真 or v = 假 or v = null or _is_number(v) then 假
-    else
-      let s = str(v) in
-      if find("<?>?", s) >= 0 then 假 else s = v
+  func _is_string(v) -> Bool = matha_type_of(v) = "String"
 
-  (* 判断是否为列表：通过检查是否能安全索引，不依赖 str() *)
-  func _is_list(v) -> Bool =
-    if _is_number(v) or _is_string(v) or v = 真 or v = 假 or v = null then 假
-    else
-      let s = str(v) in
-      if find("<?>?", s) >= 0 then 假 else 真
+  func _is_list(v) -> Bool = matha_type_of(v) = "List"
 
-  (* 判断是否为字典：剩下就是字典 *)
-  func _is_dict(v) -> Bool =
-    if v = 真 or v = 假 or v = null then 假
-    else if _is_number(v) then 假
-    else if _is_string(v) then 假
-    else if _is_list(v) then 假
-    else 真
+  func _is_dict(v) -> Bool = matha_type_of(v) = "Dict"
 
   (* 获取值类型名称——委托 VM 内建 type_of（Python 层直接类型判定），
      避免 stdlib 纯 Matha 字符串启发式实现与 str 互相调用死循环。*)

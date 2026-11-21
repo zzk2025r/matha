@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 179（`tests/`）
+- **测试文件：** 182（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -271,6 +271,23 @@ both_err→equal）+ warmup barrier + 单文件预算 120→600s。快照 225：
 （37/38/interp.matha 双面真跑 >600s 同判；interp.matha host 面单跑
 1.2s，共享预算 boot 先耗尽——如实归因见 KNOWN_ISSUES 31）。
 
+语言收敛与元组真化（阶段 32）：五片语言收敛 + ② 元组真化中心工程（拍板
+「以维持登记为基础，以切片真化的方式推进，拆分可回滚受控切片逐个验证」）。
+VM 字典迭代四面归一（宿主编译器 for/推导三发射位统一经 `_迭代源` 内建 +
+vm.matha 镜像 + native iter_source，dict → ('k',v) 对——31-① 退役）+
+BUILD_SLICE 不可切片守卫三面同文案；hi 面 ChainStmt 块尾链真化（31-⑤
+退役）；boot 编译器推导发射真化（单/多 for+if——31-⑥ 退役）；mb 面 str
+通用化（Bool/null/容器/函数渲染 + 自举闭包守卫——28-⑨ 退役）；let rec
+互相递归三面贯穿（hi 预注册占位 + VM 预发盒 + boot 待填盒镜像——29-②
+退役）。② 元组真化受控切片：S1 BUILD_TUPLE 运行时指令面（0x65=101，
+三执行体直注执行、零发射零行为变化）；S2 发射面切换（宿主+boot 编译器
+元组字面量 → BUILD_TUPLE——31-②「元组按列表处理」退役；native 消费面
+语料回归；stdlib/vm.matha str 元组渲染臂；`-` 容器守卫四面同文案）。
+自举编译器同名函数重定义出口去重（宿主 dict 保首现序取末值语义镜像，
+拼接编译函数表千级规模出口一次性双遍完成）。Track B 快照 225：双面一致
+206 / 诚实 differ 3 / boot_err 0 / both_err 13 / timeout 3 维持，--check
+两跑一致。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -292,7 +309,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（179 个文件）
+├── tests/                  # 测试套件（182 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

@@ -1187,6 +1187,9 @@ BUILTINS: dict[str, object] = {
     "_dict_remove": _curry_module(2, builtin_dict_remove),
     # 元组构造原语（自举解释器元组字面量求值用；与 VM 后端对齐）
     "_to_tuple": builtin_to_tuple,
+    # 迭代源归一（32a-①）：与 VM 后端同构——dict → ('k', v) 真元组对列表，
+    # 其余容器恒等透传；编译面 for/推导迭代统一经此（vm 面 31d 字典对对齐）。
+    "_迭代源": lambda c: [(k, v) for k, v in c.items()] if isinstance(c, dict) else c,
     # IO 错误构造：["MathaIOError", msg]（与 VM / 原生 / 自举 vm.matha 统一为列表）。
     "MathaIOError": lambda m: ["MathaIOError", m],
     # 注意：typeof 不在此处注册——它是关键字（tokens.py: KW_TYPEOF），
@@ -1403,8 +1406,27 @@ class Interpreter:
             elif isinstance(decl, ast.ModuleDecl):
                 self._collect_deferred_calls(decl.decls, deferred, prefix + (i,))
 
+    def _preregister_rec_let(self, name: str) -> None:
+        """32e：块/程序入口预注册 let rec 名（互相递归前向引用）——占位符
+        经闭包捕获（env 字典快照或 _matha_env 活表）共享，let rec 求值
+        复用同一占位符原地填充（_ref），对齐 vm 面 MAKE_BOX 槽位共享语义
+        与 boot 面 预绑递归let 占位对镜像。已注册占位符跳过。"""
+        if isinstance(self.env.get(name), _RecPlaceholder):
+            return
+        ph = _RecPlaceholder(name)
+        ph._interp = self
+        self.env.setdefault(name, ph)
+        _me = getattr(self, '_matha_env', None)
+        if isinstance(_me, list):
+            _me.append((name, ph))
+
     def _exec_with_deferreds(self, decls, deferred: set, prefix: tuple) -> None:
         """递归执行声明，处理延迟调用。"""
+        # 32e：顶层互相递归 let rec 前向引用预注册（块体位在 CodeBlock 臂）
+        for decl in decls:
+            if (isinstance(decl, ast.LetBinding) and decl.is_recursive
+                    and decl.body is None):
+                self._preregister_rec_let(decl.name)
         for i, decl in enumerate(decls):
             key = prefix + (i,)
             self._log(logging.INFO, f"── decl[{key}] {type(decl).__name__} ──")
@@ -2326,16 +2348,20 @@ class Interpreter:
                 self._log(logging.DEBUG, f"env[{target!r}] = {self._fmt(val)}")
         elif isinstance(stmt, ast.LetBinding):
             # 语句级 let：绑定并执行 body，变量留在 env 中
-            # 预注册绑定名（支持递归自引用）
+            # 预注册绑定名（支持递归自引用）；32e：已有占位符（块/程序入口
+            # 预注册）复用同一占位符——互相递归经共享占位对前向可见
             _saved = self.env.get(stmt.name)
             _ph = None
             if stmt.is_recursive:
-                _ph = _RecPlaceholder(stmt.name)
-                _ph._interp = self
-                self.env[stmt.name] = _ph
-                _me = getattr(self, '_matha_env', None)
-                if isinstance(_me, list):
-                    _me.append((stmt.name, _ph))
+                if isinstance(_saved, _RecPlaceholder):
+                    _ph = _saved
+                else:
+                    _ph = _RecPlaceholder(stmt.name)
+                    _ph._interp = self
+                    self.env[stmt.name] = _ph
+                    _me = getattr(self, '_matha_env', None)
+                    if isinstance(_me, list):
+                        _me.append((stmt.name, _ph))
             else:
                 self.env.setdefault(stmt.name, None)
             # 函数式绑定 let f(args) = body：包装为 Lambda（与 _eval 路径一致）
@@ -2386,10 +2412,15 @@ class Interpreter:
         elif isinstance(stmt, ast.CodeBlock):
             if self.debug:
                 self._log(logging.DEBUG, f"CodeBlock ({len(stmt.stmts)} stmts)")
-            # 预注册所有 let 绑定（支持递归自引用：sum_list = ...sum_list...）
+            # 预注册所有 let 绑定（支持递归自引用：sum_list = ...sum_list...）；
+            # 32e：let rec 名预注册占位符（互相递归前向引用——闭包捕获共享
+            # 占位，let rec 求值复用同一占位符原地填充）
             for s in stmt.stmts:
                 if isinstance(s, ast.LetBinding) and s.body is None:
-                    self.env.setdefault(s.name, None)
+                    if s.is_recursive:
+                        self._preregister_rec_let(s.name)
+                    else:
+                        self.env.setdefault(s.name, None)
             for i, s in enumerate(stmt.stmts):
                 if self.debug:
                     self._log(logging.DEBUG, f"  block[{i}]")
@@ -2847,6 +2878,12 @@ class Interpreter:
             is_rec = expr.is_recursive
             ph = None
             if expr.is_recursive:
+                # 32e 勘误：表达式位 let-in 恒新建占位符——self.env 是跨闭包
+                # 调用持久的全局槽，链代码大量异函数同名 let rec（_go 族）
+                # 复用会在途占位对致 _ref 交叉串线（mb 面推导链 不可调用的值:
+                # True 实证）；Matha 闭包名解析走捕获 _matha_env 列表，全局槽
+                # 必须保持惰性。互递归前向引用仅语句位经块/程序入口预注册复用
+                # （_exec_with_deferreds / CodeBlock 臂 + LetBinding 语句臂）。
                 ph = _RecPlaceholder(expr.name)
                 ph._interp = self
                 self.env[expr.name] = ph
@@ -3059,6 +3096,13 @@ class Interpreter:
         _ext_rule = ast_ext.get_eval(type(expr))
         if _ext_rule is not None:
             return _ext_rule(self, expr)
+        # 块尾值位链（32b）：vm/boot 面链作块尾块值 None——逐链执行、返回
+        # None（输出已入 outputs，值位不回传），对齐 _exec_stmt ChainStmt 臂
+        # 与宿主编译器逐链内联发射。
+        if isinstance(expr, ast.ChainStmt):
+            for link in expr.stmts:
+                self._exec_stmt(link)
+            return None
         raise MathaRuntimeError(f"暂不支持求值: {type(expr).__name__}")
 
     def _eval_try_expr(self, expr: ast.TryStmt):
@@ -3445,11 +3489,17 @@ class Interpreter:
                 result = l + r
                 # 注意：result 可能是含闭包的列表（循环结构），裸 repr 会死循环，必须用 _fmt
             elif op == "-":
-                if isinstance(l, (str, list)) or isinstance(r, (str, list)):
+                if isinstance(l, (str, list, tuple)) or isinstance(r, (str, list, tuple)):
                     raise MathaRuntimeError("- 不适用于字符串/列表")
                 result = l - r
             elif op == "*":
-                if isinstance(l, (int, float)) and isinstance(r, (int, float)) or isinstance(l, str) and isinstance(r, int) or isinstance(l, int) and isinstance(r, str):
+                if (isinstance(l, (int, float)) and isinstance(r, (int, float))
+                        or isinstance(l, str) and isinstance(r, int)
+                        or isinstance(l, int) and isinstance(r, str)):
+                    result = l * r
+                elif isinstance(l, (list, tuple)) and isinstance(r, int) and not isinstance(r, bool):
+                    result = l * r
+                elif isinstance(l, int) and not isinstance(l, bool) and isinstance(r, (list, tuple)):
                     result = l * r
                 else:
                     raise MathaRuntimeError(f"* 操作数类型不支持: left={l!r}({type(l).__name__}), right={r!r}({type(r).__name__})")

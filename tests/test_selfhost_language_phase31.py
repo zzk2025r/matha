@@ -190,11 +190,13 @@ def test_31b_comp_dict_pairs_interp_faces():
 
 
 def test_31b_boot_compiler_honest_reject(bvm):
-    """boot 编译器无推导发射：诚实报错（不假成功），字节码对拍不适用。"""
-    src = _COMP_CASES[2][1]
-    with pytest.raises(Exception) as ei:
-        _stage3(bvm, src)
-    assert "未支持的表达式类型" in str(ei.value) and "列表推导" in str(ei.value), ei.value
+    """boot 编译器推导发射真化（32c）：本锁退役。
+
+    31b 时点 boot 编译器无推导发射（诚实报错不假成功）；32c 真化后
+    boot 编译器支持推导发射且与宿主逐位一致（tests/test_selfhost_language_
+    phase32.py test_32c_comp_parity 承接）。此处锁退役形态：同源编译
+    不再抛错且 stage2↔stage3 逐位一致。"""
+    _assert_parity(bvm, _COMP_CASES[2][1])
 
 
 # ============================================================

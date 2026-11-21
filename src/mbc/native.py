@@ -228,6 +228,10 @@ TYPE_BIGINT = 11
 #   [0]=TYPE_TIMER [8]=start(FILETIME 100ns) [16]=elapsed(double) [24]=running(0/1)
 # 体内无对象指针，GC 扫描到的标量都会被 mark_candidate 判为「非堆指针」而跳过。
 TYPE_TIMER = 12
+# 元组对象（32-②S1）：与列表同堆布局 [TYPE_TUPLE][len][elements...]。
+# S1 零发射方（编译器暂不发射 BUILD_TUPLE），消费面（print/下标/迭代）
+# 随 32-②S2 发射面切换接管。
+TYPE_TUPLE = 13
 
 # 浮点对象：24 字节 [TYPE_FLOAT][len=8][double]（double 在 +16）。
 FLOAT_OBJ_SIZE = 24
@@ -1406,6 +1410,8 @@ def _emit_heap_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "sqr_str")
     em.emit(b"\x83\xFF" + bytes([TYPE_LIST]))      # cmp edi,TYPE_LIST
     em.jcc_rel32(0x84, "sqr_list")
+    em.emit(b"\x83\xFF" + bytes([TYPE_TUPLE]))     # cmp edi,TYPE_TUPLE
+    em.jcc_rel32(0x84, "sqr_list")
     em.jcc_rel32(None, "sqr_none")                  # 字典等非序列
     # ---- 字符串倍增 ----
     em.label_here("sqr_str")
@@ -1482,7 +1488,8 @@ def _emit_heap_runtime(em: _Emitter):
     em.label_here("sqr_list_empty")
     em.emit(b"\x48\xC7\xC7\x10\x00\x00\x00")
     em.call_rel32("alloc")
-    em.emit(b"\x48\xC7\x00" + struct.pack("<I", TYPE_LIST))
+    em.emit(b"\x49\x8B\x55\x00")                    # mov rdx,[r13]  单元类型标签
+    em.emit(b"\x48\x89\x10")                        # mov [rax],rdx  保留原标签（元组空重复仍为元组）
     em.emit(b"\x48\xC7\x40\x08\x00\x00\x00\x00")
     em.jcc_rel32(None, "sqr_done")
     # ---- 非序列 / 次数过大 → None ----
@@ -1534,6 +1541,8 @@ def _emit_heap_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "isc_yes")
     em.emit(b"\x83\xF9" + bytes([TYPE_LIST]))       # cmp ecx,TYPE_LIST
     em.jcc_rel32(0x84, "isc_yes")
+    em.emit(b"\x83\xF9" + bytes([TYPE_TUPLE]))      # cmp ecx,TYPE_TUPLE
+    em.jcc_rel32(0x84, "isc_yes")                   # 元组也按容器排除浮点路径
     em.emit(b"\x83\xF9" + bytes([TYPE_DICT]))       # cmp ecx,TYPE_DICT
     em.jcc_rel32(0x84, "isc_yes")
     em.label_here("isc_no")
@@ -1555,7 +1564,8 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x48\xC1\xE7\x03")                    # shl rdi,3        *8
     em.add_ri(7, 16)                                # add rdi,16       +头
     em.call_rel32("alloc")
-    em.emit(b"\x48\xC7\x00" + struct.pack("<I", TYPE_LIST))  # mov [rax],TYPE_LIST
+    em.emit(b"\x49\x8B\x55\x00")                    # mov rdx,[r13]  左元类型标签
+    em.emit(b"\x48\x89\x10")                        # mov [rax],rdx  保留左元标签（元组+元组拼接仍为元组）
     em.mov_rr(2, 15)                                # mov rdx,r15
     em.emit(b"\x49\x03\x56\x08")                    # add rdx,[r14+8]  总元素数
     em.mov_mem_r(0, 8, 2)                           # mov [rax+8],rdx
@@ -1591,6 +1601,8 @@ def _emit_heap_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "ty_len")                    # je len
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_LIST]))   # cmp rcx,TYPE_LIST
     em.jcc_rel32(0x84, "ty_len")                    # je len
+    em.emit(b"\x48\x83\xF9" + bytes([TYPE_TUPLE]))  # cmp rcx,TYPE_TUPLE
+    em.jcc_rel32(0x84, "ty_len")                    # je len（空元组假值）
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_DICT]))   # cmp rcx,TYPE_DICT
     em.jcc_rel32(0x84, "ty_len")                    # je len
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_FLOAT]))  # cmp rcx,TYPE_FLOAT
@@ -1671,6 +1683,8 @@ def _emit_heap_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "pv_str")                    # je str（None 载荷）
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_LIST]))   # cmp rcx,TYPE_LIST
     em.jcc_rel32(0x84, "pv_list")                   # je list
+    em.emit(b"\x48\x83\xF9" + bytes([TYPE_TUPLE]))  # cmp rcx,TYPE_TUPLE
+    em.jcc_rel32(0x84, "pv_tuple")                  # je tuple
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_DICT]))   # cmp rcx,TYPE_DICT
     em.jcc_rel32(0x84, "pv_dict")                   # je dict
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_FLOAT]))  # cmp rcx,TYPE_FLOAT
@@ -1691,6 +1705,9 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\xC3")                                # ret
     em.label_here("pv_list")
     em.call_rel32("print_list")
+    em.emit(b"\xC3")                                # ret
+    em.label_here("pv_tuple")
+    em.call_rel32("print_tuple")
     em.emit(b"\xC3")                                # ret
     em.label_here("pv_dict")
     em.call_rel32("print_dict")
@@ -1738,6 +1755,42 @@ def _emit_heap_runtime(em: _Emitter):
     em.jcc_rel32(None, "pl_loop")                   # jmp loop
     em.label_here("pl_done")
     em.lea_rip(0, "rb_rb")                          # lea rax,[rb_rb]
+    em.call_rel32("print_raw")
+    _emit_epilogue(em)
+
+    # ---- print_tuple（(e1,) 单元素尾逗号 + CRLF；Python str/ repr 同形）----
+    em.label_here("print_tuple")
+    em.emit(b"\x55")                                # push rbp
+    em.emit(b"\x48\x89\xE5")                        # mov rbp,rsp
+    em.emit(b"\x48\x83\xEC\x40")                    # sub rsp,0x40
+    em.emit(b"\x48\x89\x44\x24\x28")                # mov [rsp+0x28],rax
+    em.lea_rip(0, "pt_plb")                         # lea rax,[pt_plb]  "("
+    em.call_rel32("print_raw")
+    em.emit(b"\x48\xC7\x44\x24\x30\x00\x00\x00\x00")  # mov qword[rsp+0x30],0
+    em.label_here("ptu_loop")
+    em.emit(b"\x48\x8B\x54\x24\x28")                # mov rdx,[rsp+0x28]
+    em.emit(b"\x48\x8B\x4C\x24\x30")                # mov rcx,[rsp+0x30]
+    em.emit(b"\x48\x3B\x4A\x08")                    # cmp rcx,[rdx+8]
+    em.jcc_rel32(0x8D, "ptu_done")                  # jge done
+    em.emit(b"\x48\x85\xC9")                        # test rcx,rcx
+    em.jcc_rel32(0x84, "ptu_nosep")                 # jz nosep
+    em.lea_rip(0, "rb_sep")                         # lea rax,[rb_sep]  ", "
+    em.call_rel32("print_raw")
+    em.label_here("ptu_nosep")
+    em.emit(b"\x48\x8B\x54\x24\x28")                # mov rdx,[rsp+0x28]
+    em.emit(b"\x48\x8B\x4C\x24\x30")                # mov rcx,[rsp+0x30]
+    em.emit(b"\x48\x8B\x44\xCA\x10")                # mov rax,[rdx+rcx*8+16]
+    em.call_rel32("print_repr")
+    em.emit(b"\x48\xFF\x44\x24\x30")                # inc qword [rsp+0x30]
+    em.jcc_rel32(None, "ptu_loop")                  # jmp loop
+    em.label_here("ptu_done")
+    em.emit(b"\x48\x8B\x44\x24\x28")                # mov rdx,[rsp+0x28]
+    em.emit(b"\x48\x83\x7A\x08\x01")                # cmp qword[rdx+8],1
+    em.jcc_rel32(0x85, "ptu_close")                 # jne 非单元素 → 普通收尾
+    em.lea_rip(0, "pt_comma")                       # lea rax,[pt_comma]  ","
+    em.call_rel32("print_raw")
+    em.label_here("ptu_close")
+    em.lea_rip(0, "pt_prb")                         # lea rax,[pt_prb]  ")"
     em.call_rel32("print_raw")
     _emit_epilogue(em)
 
@@ -1815,6 +1868,8 @@ def _emit_heap_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "ve_obj_str")
     em.emit(b"\x83\xF8" + bytes([TYPE_LIST]))       # cmp eax,TYPE_LIST
     em.jcc_rel32(0x84, "ve_obj_list")
+    em.emit(b"\x83\xF8" + bytes([TYPE_TUPLE]))      # cmp eax,TYPE_TUPLE
+    em.jcc_rel32(0x84, "ve_obj_list")               # 同布局逐元素递归
     em.emit(b"\x83\xF8" + bytes([TYPE_DICT]))       # cmp eax,TYPE_DICT
     em.jcc_rel32(0x84, "ve_obj_dict")
     em.emit(b"\x83\xF8" + bytes([TYPE_BIGINT]))     # cmp eax,TYPE_BIGINT
@@ -2605,6 +2660,8 @@ def _emit_gc_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "gos_str")
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_LIST]))
     em.jcc_rel32(0x84, "gos_list")
+    em.emit(b"\x48\x83\xF9" + bytes([TYPE_TUPLE]))  # 元组与列表同布局 [tag][n][指针…]
+    em.jcc_rel32(0x84, "gos_list")
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_DICT]))
     em.jcc_rel32(0x84, "gos_dict")
     em.emit(b"\x48\x83\xF9" + bytes([TYPE_FLOAT]))
@@ -2997,6 +3054,50 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.emit(b"\x41\x5F\x41\x5E\x41\x5D")
     em.emit(b"\xC3")                                # ret
 
+    # ---- iter_source（_迭代源，32a-①）：rax=容器 → rax=迭代源 ----
+    # dict → [(k, v), …]（每对 2 元素元组，插入序）；其余容器恒等透传。
+    # 编译面 for/推导的迭代统一经此归一（vm/hi 面同：dict→真元组对，
+    # 32a-① 对齐；S1 起原生端有元组对象，32-② 内层 pair 对齐为真元组）。
+    # 寄存器：r13=dict，r14=剩余数，r15=pair 步进指针，r9=外层输出指针。
+    em.label_here("iter_source")
+    em.emit(b"\x83\x38" + bytes([TYPE_DICT]))       # cmp dword [rax],TYPE_DICT
+    em.jcc_rel32(0x85, "isrc_identity")              # jne 非字典 → 原样返回
+    em.emit(b"\x41\x55\x41\x56\x41\x57")            # push r13;r14;r15
+    em.mov_rr(13, 0)                                # mov r13,rax（dict）
+    em.mov_rd_mem(14, 13, 8)                        # mov r14,[r13+8]（n）
+    em.mov_rr(7, 14)                                # rdi=n
+    em.shl_ri(7, 3)                                 # ×8
+    em.add_ri(7, 16)
+    em.call_rel32("alloc")
+    em.emit(b"\x50")                                # push rax（外层；内层 alloc 覆盖 rax）
+    em.emit(b"\xC7\x00" + struct.pack("<I", TYPE_LIST))
+    em.emit(b"\x4C\x89\x70\x08")                    # mov [rax+8],r14
+    em.emit(b"\x4C\x8D\x48\x10")                    # lea r9,[rax+16]（输出指针）
+    em.mov_rr(15, 13)                               # mov r15,r13
+    em.add_ri(15, 16)                               # +16 → 首 pair
+    em.label_here("isrc_loop")
+    em.emit(b"\x4D\x85\xF6")                        # test r14,r14
+    em.jcc_rel32(0x84, "isrc_pop")                   # jz pop
+    em.emit(b"\x48\xC7\xC7\x20\x00\x00\x00")        # mov rdi,32（2 元素元组）
+    em.call_rel32("alloc")
+    em.emit(b"\xC7\x00" + struct.pack("<I", TYPE_TUPLE))
+    em.emit(b"\x48\xC7\x40\x08\x02\x00\x00\x00")    # mov qword [rax+8],2
+    em.mov_rd_mem(2, 15, 0)                         # mov rdx,[r15]（键）
+    em.mov_mem_r(0, 16, 2)                          # mov [rax+16],rdx
+    em.mov_rd_mem(2, 15, 8)                         # mov rdx,[r15+8]（值）
+    em.mov_mem_r(0, 24, 2)                          # mov [rax+24],rdx
+    em.mov_mem_r(9, 0, 0)                           # mov [r9],rax（挂到外层）
+    em.add_ri(9, 8)                                 # 下一外层槽
+    em.add_ri(15, 16)                               # 下一 pair
+    em.emit(b"\x49\xFF\xCE")                        # dec r14
+    em.jcc_rel32(0x85, "isrc_loop")                  # jnz loop
+    em.label_here("isrc_pop")
+    em.emit(b"\x58")                                # pop rax（外层列表）
+    em.emit(b"\x41\x5F\x41\x5E\x41\x5D")            # pop r15;r14;r13
+    em.emit(b"\xC3")                                # ret
+    em.label_here("isrc_identity")
+    em.emit(b"\xC3")                                # ret
+
     # ---- dict_put（不可变更新；新键插到表尾，插入序=物理序=显示序）----
     em.label_here("dict_put")
     em.emit(b"\x55\x48\x89\xE5")                    # push rbp;mov rbp,rsp
@@ -3302,6 +3403,8 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.jcc_rel32(0x84, "si_tname_bool")
     em.cmp_ri(1, TYPE_NULL)
     em.jcc_rel32(0x84, "si_tname_null")
+    em.cmp_ri(1, TYPE_TUPLE)
+    em.jcc_rel32(0x84, "si_tname_tuple")
     em.jcc_rel32(None, "si_tname_func")             # closure/partial/未知 → "function"
     em.label_here("si_tname_int")
     em.lea_rip(0, "si_n_int")
@@ -3320,6 +3423,10 @@ def _emit_seq_dict_runtime(em: _Emitter):
     em.jcc_rel32(None, "si_msg")
     em.label_here("si_tname_func")
     em.lea_rip(0, "si_n_func")
+    em.jcc_rel32(None, "si_msg")
+    em.label_here("si_tname_tuple")
+    em.lea_rip(0, "si_n_tuple")
+    em.jcc_rel32(None, "si_msg")
     em.label_here("si_msg")                         # rax=类型名 → 拼「索引操作不支持: T[I]」
     em.mov_rr(3, 0)                                 # rbx=类型名（跨 match_render/str_concat）
     em.mov_rr(0, 14)
@@ -3988,8 +4095,12 @@ def _emit_unpack_seq(em: _Emitter, n: int, tag: str, idx: int):
     em.cmp_heap_used(0)
     em.jcc_rel32(0x83, lnull)                       # jae：非堆指针 → 全 None
     em.emit(b"\x41\x8B\x7D\x00")                    # mov edi,[r13]（类型）
+    lbody = f"unpk_body_{tag}_{idx}"
     em.emit(bytes([0x83, 0xFF, TYPE_LIST]))          # cmp edi,TYPE_LIST
+    em.jcc_rel32(0x84, lbody)                       # je → 序列体（元组同布局）
+    em.emit(bytes([0x83, 0xFF, TYPE_TUPLE]))         # cmp edi,TYPE_TUPLE
     em.jcc_rel32(0x85, lstr)                        # jne → 字符串分支
+    em.label_here(lbody)
     em.emit(b"\x4D\x8B\x75\x08")                    # mov r14,[r13+8] → r14=len
     for i in range(n):
         lnil = f"unpk_n_{tag}_{idx}_{i}"
@@ -4064,6 +4175,8 @@ def _emit_builtin_len(em: _Emitter):
     em.jcc_rel32(0x84, "len_str")                   # je → 文本
     em.emit(b"\x49\x83\xF8" + bytes([TYPE_LIST]))   # cmp r8,TYPE_LIST
     em.jcc_rel32(0x84, "len_cont")                  # je → 容器
+    em.emit(b"\x49\x83\xF8" + bytes([TYPE_TUPLE]))  # cmp r8,TYPE_TUPLE
+    em.jcc_rel32(0x84, "len_cont")                  # je → 容器（元组）
     em.emit(b"\x49\x83\xF8" + bytes([TYPE_DICT]))   # cmp r8,TYPE_DICT
     em.jcc_rel32(0x85, "len_bad")                   # jne → 非容器 → 报错
     em.label_here("len_cont")
@@ -4142,6 +4255,8 @@ def _emit_getitem(em: _Emitter, pfx: str, raise_oob: bool = True):
     em.emit(b"\x4C\x8B\x00")                        # mov r8,[rax]
     em.emit(b"\x49\x83\xF8" + bytes([TYPE_LIST]))  # cmp r8,TYPE_LIST
     em.jcc_rel32(0x84, f"gi_list_{pfx}")
+    em.emit(b"\x49\x83\xF8" + bytes([TYPE_TUPLE]))  # cmp r8,TYPE_TUPLE
+    em.jcc_rel32(0x84, f"gi_list_{pfx}")            # 元组下标读同列表路径
     em.emit(b"\x49\x83\xF8" + bytes([TYPE_STR]))   # cmp r8,TYPE_STR
     em.jcc_rel32(0x84, lstr)
     em.emit(b"\x49\x83\xF8" + bytes([TYPE_DICT]))  # cmp r8,TYPE_DICT
@@ -4179,9 +4294,16 @@ def _emit_getitem(em: _Emitter, pfx: str, raise_oob: bool = True):
     em.jcc_rel32(None, ldone)
     em.label_here(loob_l)
     if raise_oob:
+        ltup_oob = f"gi_tup_oob_{pfx}"
+        em.emit(b"\x48\x83\x38" + bytes([TYPE_TUPLE]))  # cmp qword[rax],TYPE_TUPLE
+        em.jcc_rel32(0x84, ltup_oob)                # je 元组越界文案（rax=容器未动）
         em.lea_rip(0, "err_index_list")             # 越界 → 抛可捕获异常（对齐 VM）
         em.call_rel32("raise_rt")                   # 不返回
         em.emit(b"\x0F\x0B")                        # ud2
+        em.label_here(ltup_oob)
+        em.lea_rip(0, "err_index_tuple")
+        em.call_rel32("raise_rt")                   # "tuple index out of range"
+        em.emit(b"\x0F\x0B")
     else:
         em.lea_rip(0, "null_obj")                   # 安全索引：越界 → null
         em.jcc_rel32(None, ldone)
@@ -4239,8 +4361,9 @@ def _emit_slice(em: _Emitter):
       - start/stop 为 null_obj（编译器对 `y[2:]` 省略的边界）时分别取 0/len；
       - 负下标相对 len 归一化，再钳到 [0, len]；
       - stop < start 时结果为空；
-      - 容器为列表 → 新列表（浅拷贝元素）；字符串 → 新字符串（按字节切，
-        与原生端既有的字符串按字节语义一致）；其他类型 → null_obj。
+      - 容器为列表 → 新列表（浅拷贝元素）；元组 → 新元组（切元组仍为元组）；
+        字符串 → 新字符串（按字节切，与原生端既有的字符串按字节语义一致）；
+        其他类型 → null_obj。
     只用栈帧槽位，不占用 r13/r14/r15，避免破坏调用者的被调用者保存寄存器。
     """
     em.label_here("build_slice")
@@ -4258,6 +4381,8 @@ def _emit_slice(em: _Emitter):
     em.emit(b"\x48\x8B\x45\xF8")                    # mov rax,[rbp-0x08]
     em.emit(b"\x8B\x10")                            # mov edx,[rax]（类型）
     em.emit(b"\x83\xFA" + bytes([TYPE_LIST]))        # cmp edx,TYPE_LIST
+    em.jcc_rel32(0x84, "bs_common")
+    em.emit(b"\x83\xFA" + bytes([TYPE_TUPLE]))       # cmp edx,TYPE_TUPLE
     em.jcc_rel32(0x84, "bs_common")
     em.emit(b"\x83\xFA" + bytes([TYPE_STR]))         # cmp edx,TYPE_STR
     em.jcc_rel32(0x85, "bs_null")                   # 非序列类型 → null
@@ -4331,6 +4456,8 @@ def _emit_slice(em: _Emitter):
     em.emit(b"\x48\x8B\x45\xF8")                    # mov rax,[rbp-0x08]
     em.emit(b"\x83\x38" + bytes([TYPE_LIST]))        # cmp dword [rax],TYPE_LIST
     em.jcc_rel32(0x84, "bs_list")                   # je 列表分支
+    em.emit(b"\x83\x38" + bytes([TYPE_TUPLE]))       # cmp dword [rax],TYPE_TUPLE
+    em.jcc_rel32(0x84, "bs_tuple")                  # je 元组分支
     # ---- 字符串：按字节拷贝 ----
     em.emit(b"\x48\x8B\x7D\xE0")                    # mov rdi,[rbp-0x20]（n）
     em.emit(b"\x48\x83\xC7\x10")                    # add rdi,16
@@ -4353,6 +4480,24 @@ def _emit_slice(em: _Emitter):
     em.emit(b"\x48\x83\xC7\x10")                    # add rdi,16
     em.call_rel32("alloc")
     em.emit(b"\xC7\x00" + struct.pack("<I", TYPE_LIST))
+    em.emit(b"\x48\x8B\x4D\xE0")                    # mov rcx,[rbp-0x20]
+    em.emit(b"\x48\x89\x48\x08")                    # mov [rax+8],rcx
+    em.emit(b"\x48\x8D\x78\x10")                    # lea rdi,[rax+16]
+    em.emit(b"\x48\x8B\x75\xF8")                    # mov rsi,[rbp-0x08]
+    em.emit(b"\x48\x8B\x55\xF0")                    # mov rdx,[rbp-0x10]
+    em.emit(b"\x48\xC1\xE2\x03")                    # shl rdx,3（start×8）
+    em.emit(b"\x48\x01\xD6")                        # add rsi,rdx
+    em.emit(b"\x48\x83\xC6\x10")                    # add rsi,16
+    em.emit(b"\x48\x8B\x4D\xE0")                    # mov rcx,[rbp-0x20]
+    em.emit(b"\xF3\x48\xA5")                        # rep movsq
+    em.jcc_rel32(None, "bs_done")
+    # ---- 元组：逐元素浅拷贝（切元组仍为元组，Python 同）----
+    em.label_here("bs_tuple")
+    em.emit(b"\x48\x8B\x7D\xE0")                    # mov rdi,[rbp-0x20]（n）
+    em.emit(b"\x48\xC1\xE7\x03")                    # shl rdi,3（n×8）
+    em.emit(b"\x48\x83\xC7\x10")                    # add rdi,16
+    em.call_rel32("alloc")
+    em.emit(b"\xC7\x00" + struct.pack("<I", TYPE_TUPLE))
     em.emit(b"\x48\x8B\x4D\xE0")                    # mov rcx,[rbp-0x20]
     em.emit(b"\x48\x89\x48\x08")                    # mov [rax+8],rcx
     em.emit(b"\x48\x8D\x78\x10")                    # lea rdi,[rax+16]
@@ -4400,6 +4545,8 @@ def _emit_in_rt(em: _Emitter):
     em.emit(b"\x8B\x11")                            # mov edx,[rcx]（类型）
     em.emit(b"\x83\xFA" + bytes([TYPE_LIST]))       # cmp edx,TYPE_LIST
     em.jcc_rel32(0x84, "sc_list")
+    em.emit(b"\x83\xFA" + bytes([TYPE_TUPLE]))      # cmp edx,TYPE_TUPLE
+    em.jcc_rel32(0x84, "sc_list")                   # 元组成员判断同列表线性扫描
     em.emit(b"\x83\xFA" + bytes([TYPE_DICT]))       # cmp edx,TYPE_DICT
     em.jcc_rel32(0x84, "sc_dict")
     em.emit(b"\x83\xFA" + bytes([TYPE_STR]))        # cmp edx,TYPE_STR
@@ -4907,22 +5054,25 @@ _CRT_INT_ROUND = {"floor": "floor", "ceil": "ceil", "trunc": "trunc",
 # type_of（英文）/ typeof（中文）→ 类型名静态字符串标签。
 _TYPEOF_EN = {
     "bool": "tname_Bool", "int": "tname_Int", "float": "tname_Float",
-    "str": "tname_String", "list": "tname_List", "dict": "tname_Dict",
+    "str": "tname_String", "list": "tname_List", "tuple": "tname_Tuple",
+    "dict": "tname_Dict",
     "func": "tname_Function", "null": "tname_Null", "unknown": "tname_Unknown",
 }
 _TYPEOF_ZH = {
     "bool": "tz_布尔", "int": "tz_整数", "float": "tz_浮点",
-    "str": "tz_文本", "list": "tz_列表", "dict": "tz_字典",
+    "str": "tz_文本", "list": "tz_列表", "tuple": "tz_元组",
+    "dict": "tz_字典",
     "func": "tz_函数", "null": "tz_空", "unknown": "tz_函数",
 }
 # 类型名/字面量文本静态串：[标签] → 内容。
 _TYPE_NAME_STRINGS = {
     "tname_Bool": "Bool", "tname_Int": "Int", "tname_Float": "Float",
-    "tname_String": "String", "tname_List": "List", "tname_Dict": "Dict",
+    "tname_String": "String", "tname_List": "List", "tname_Tuple": "Tuple",
+    "tname_Dict": "Dict",
     "tname_Function": "Function", "tname_Null": "Null",
     "tname_Unknown": "Unknown",
     "tz_布尔": "布尔", "tz_整数": "整数", "tz_浮点": "浮点", "tz_文本": "文本",
-    "tz_列表": "列表", "tz_字典": "字典", "tz_函数": "函数", "tz_空": "空",
+    "tz_列表": "列表", "tz_元组": "元组", "tz_字典": "字典", "tz_函数": "函数", "tz_空": "空",
     "sob_True": "True", "sob_False": "False", "sob_None": "None",
 }
 
@@ -5188,6 +5338,8 @@ def _emit_builtin_str(em: _Emitter):
     em.jcc_rel32(0x84, l_null)
     em.cmp_ri(2, TYPE_LIST)
     em.jcc_rel32(0x84, l_container)
+    em.cmp_ri(2, TYPE_TUPLE)
+    em.jcc_rel32(0x84, l_container)
     em.cmp_ri(2, TYPE_DICT)
     em.jcc_rel32(0x84, l_container)
     em.cmp_ri(2, TYPE_BIGINT)
@@ -5264,7 +5416,8 @@ def _emit_builtin_type_name(em: _Emitter, name: str, m: dict):
     em.mov_rd_mem(2, 0, 0)                          # rdx=类型
     for ty, lab in ((TYPE_FLOAT, m["float"]), (TYPE_BOOL, m["bool"]),
                     (TYPE_NULL, m["null"]), (TYPE_STR, m["str"]),
-                    (TYPE_LIST, m["list"]), (TYPE_DICT, m["dict"]),
+                    (TYPE_LIST, m["list"]), (TYPE_TUPLE, m["tuple"]),
+                    (TYPE_DICT, m["dict"]),
                     (TYPE_BIGINT, m["int"]),
                     (TYPE_CLOSURE, m["func"]), (TYPE_PARTIAL, m["func"])):
         l_skip = f"tn_{name}_s{ty}"
@@ -5411,6 +5564,16 @@ def _emit_builtin_dict_values(em: _Emitter):
     _emit_prologue(em, 1, 1)
     em.mov_rd_mem(0, 5, -8)
     em.call_rel32("dict_values")
+    em.push_rax()
+    _emit_epilogue(em)
+
+
+def _emit_builtin_iter_source(em: _Emitter):
+    """_迭代源(c) → dict 归一为对列表，其余恒等（32a-①，见 iter_source）。"""
+    em.label_here("fn:_迭代源")
+    _emit_prologue(em, 1, 1)
+    em.mov_rd_mem(0, 5, -8)
+    em.call_rel32("iter_source")
     em.push_rax()
     _emit_epilogue(em)
 
@@ -6047,7 +6210,10 @@ def _emit_builtin_sum(em: _Emitter):
     em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_notlist)                   # 非指针 → 0
     em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))   # cmp qword[rax],TYPE_LIST
-    em.jcc_rel32(0x85, l_notlist)
+    em.jcc_rel32(0x84, "sum_isseq")
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_TUPLE]))  # cmp qword[rax],TYPE_TUPLE
+    em.jcc_rel32(0x85, l_notlist)                   # 元组同列表可求和（vm 面 (list,tuple)）
+    em.label_here("sum_isseq")
     em.lea_mem(9, 0, 16)                            # r9=base（首个元素）
     em.mov_rd_mem(10, 0, 8)                         # r10=n
     em.xor_rr32(8, 8)                               # r8=acc=0（整数）
@@ -6091,6 +6257,7 @@ def _emit_builtin_extremum(em: _Emitter, name: str, want_max: bool):
     l_nonlist, l_loop = f"ex_{name}_nonlist", f"ex_{name}_loop"
     l_fc, l_assign, l_next, l_done = (
         f"ex_{name}_fc", f"ex_{name}_assign", f"ex_{name}_next", f"ex_{name}_done")
+    l_isseq = f"ex_{name}_isseq"
     em.label_here(f"fn:{name}")
     _emit_prologue(em, 1, 1)
     em.mov_rd_mem(0, 5, -8)                         # rax=arg
@@ -6100,7 +6267,10 @@ def _emit_builtin_extremum(em: _Emitter, name: str, want_max: bool):
     em.cmp_heap_used(2)
     em.jcc_rel32(0x83, l_nonlist)
     em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))
-    em.jcc_rel32(0x85, l_nonlist)
+    em.jcc_rel32(0x84, l_isseq)
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_TUPLE]))
+    em.jcc_rel32(0x85, l_nonlist)                   # 元组同列表可取极值
+    em.label_here(l_isseq)
     em.lea_mem(9, 0, 16)                            # r9=base
     em.mov_rd_mem(10, 0, 8)                         # r10=n
     em.test_rr(10, 10)
@@ -7419,6 +7589,8 @@ NATIVE_BUILTINS = (
     # 砖块 16 阶段二：序列 + 字典原语
     "slice", "append", "list_push", "mut_set_at",
     "_dict_keys", "_dict_values", "_dict_has", "_dict_put", "_dict_remove",
+    # 迭代源归一（32a-①）：for/推导迭代统一经此，dict → 对列表
+    "_迭代源",
     # 集合字面量语法糖 {} / {1,2,3} / {x | cond} 的归约目标
     "构造集合", "去重",
     # 安全访问（a?.b / a?[b] 脱糖目标）
@@ -7479,6 +7651,7 @@ _BUILTIN_ARITY = {
     "slice": 3, "append": 2, "list_push": 2, "mut_set_at": 3,
     "_dict_keys": 1, "_dict_values": 1, "_dict_has": 2,
     "_dict_put": 3, "_dict_remove": 2,
+    "_迭代源": 1,
     "构造集合": 3, "去重": 1,
     "安全索引": 2, "安全取属性": 2,
     # 砖块 16 阶段三
@@ -7549,6 +7722,7 @@ _BUILTIN_EMITTERS: dict = {
     "mut_set_at": _emit_builtin_mut_set_at,
     "_dict_keys": _emit_builtin_dict_keys,
     "_dict_values": _emit_builtin_dict_values,
+    "_迭代源": _emit_builtin_iter_source,
     "_dict_has": _emit_builtin_dict_has,
     "_dict_put": _emit_builtin_dict_put,
     "_dict_remove": _emit_builtin_dict_remove,
@@ -7911,6 +8085,8 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.jcc_rel32(0x84, lstr)
             em.emit(b"\x83\xFF" + bytes([TYPE_LIST]))   # cmp edi,TYPE_LIST
             em.jcc_rel32(0x84, llist)
+            em.emit(b"\x83\xFF" + bytes([TYPE_TUPLE]))  # cmp edi,TYPE_TUPLE
+            em.jcc_rel32(0x84, llist)
             em.jcc_rel32(None, lunsup)              # 字典等容器 → 不支持
             # ---- 左值是裸整数 ----
             em.label_here(lchk)
@@ -7950,7 +8126,7 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.jcc_rel32(0x83, lunsup)
             em.mov_rr(0, 9)
             em.emit(b"\x8B\x30")                    # mov esi,[rax]  右值类型
-            em.emit(b"\x83\xFE" + bytes([TYPE_LIST]))   # cmp esi,TYPE_LIST
+            em.emit(b"\x39\xFE")                    # cmp esi,edi  右标签须与左标签同型（元组/列表各自拼接，跨型不支持）
             em.jcc_rel32(0x85, lunsup)
             em.mov_rr(0, 8)
             em.mov_rr(1, 9)
@@ -7985,6 +8161,8 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.jcc_rel32(0x84, lbad)
             em.emit(b"\x83\xFF" + bytes([TYPE_LIST]))   # cmp edi,TYPE_LIST
             em.jcc_rel32(0x84, lbad)
+            em.emit(b"\x83\xFF" + bytes([TYPE_TUPLE]))  # cmp edi,TYPE_TUPLE
+            em.jcc_rel32(0x84, lbad)
             em.jcc_rel32(None, lchk)                # 非 str/list → 查右侧
             # 右侧：同上
             em.label_here(lchk)
@@ -7997,6 +8175,8 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.emit(b"\x83\xFE" + bytes([TYPE_STR]))    # cmp esi,TYPE_STR
             em.jcc_rel32(0x84, lbad)
             em.emit(b"\x83\xFE" + bytes([TYPE_LIST]))   # cmp esi,TYPE_LIST
+            em.jcc_rel32(0x84, lbad)
+            em.emit(b"\x83\xFE" + bytes([TYPE_TUPLE]))  # cmp esi,TYPE_TUPLE
             em.jcc_rel32(0x84, lbad)
             # ---- 数值路径（整数相减，溢出提升大整数）----
             em.label_here(lnum)
@@ -8040,6 +8220,8 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.jcc_rel32(0x84, lm)
             em.emit(b"\x83\xFF" + bytes([TYPE_LIST]))
             em.jcc_rel32(0x84, ll)
+            em.emit(b"\x83\xFF" + bytes([TYPE_TUPLE]))
+            em.jcc_rel32(0x84, ll)
             em.jcc_rel32(None, lunsup)              # 字典等 → 不支持
             # ---- 左侧是整数：检查右侧 ----
             em.label_here(lchk)
@@ -8054,6 +8236,8 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.emit(b"\x83\xFE" + bytes([TYPE_STR]))
             em.jcc_rel32(0x85, lswap)
             em.emit(b"\x83\xFE" + bytes([TYPE_LIST]))
+            em.jcc_rel32(0x85, lswap)
+            em.emit(b"\x83\xFE" + bytes([TYPE_TUPLE]))
             em.jcc_rel32(0x85, lswap)
             em.jcc_rel32(None, lunsup)              # 两侧都是容器且左非序列
             em.label_here(lswap)
@@ -8448,6 +8632,20 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
         em.emit(b"\x48\xC7\xC7" + struct.pack("<i", 16 + 8 * n))  # mov rdi,16+8n
         em.call_rel32("alloc")
         em.emit(b"\x48\xC7\x00" + struct.pack("<I", TYPE_LIST))   # mov [rax],TYPE_LIST
+        em.emit(b"\x48\xC7\x40\x08" + struct.pack("<i", n))       # mov [rax+8],n
+        em.emit(b"\x4C\x89\xE6")                                  # mov rsi,r12
+        em.emit(b"\x48\x81\xEE" + struct.pack("<i", 8 * n))       # sub rsi,8n
+        em.emit(b"\x48\x8D\x78\x10")                              # lea rdi,[rax+16]
+        em.emit(b"\x48\xC7\xC1" + struct.pack("<i", n))           # mov rcx,n
+        em.emit(b"\xF3\x48\xA5")                                  # rep movsq
+        em.emit(b"\x49\x81\xEC" + struct.pack("<i", 8 * n))       # sub r12,8n
+        em.push_rax()
+    elif op == OP.BUILD_TUPLE:
+        # 32-②S1：与 BUILD_LIST 同堆布局（16+8n 头+负载），头标签 TYPE_TUPLE。
+        n = ins[1]
+        em.emit(b"\x48\xC7\xC7" + struct.pack("<i", 16 + 8 * n))  # mov rdi,16+8n
+        em.call_rel32("alloc")
+        em.emit(b"\x48\xC7\x00" + struct.pack("<I", TYPE_TUPLE))  # mov [rax],TYPE_TUPLE
         em.emit(b"\x48\xC7\x40\x08" + struct.pack("<i", n))       # mov [rax+8],n
         em.emit(b"\x4C\x89\xE6")                                  # mov rsi,r12
         em.emit(b"\x48\x81\xEE" + struct.pack("<i", 8 * n))       # sub rsi,8n
@@ -9095,7 +9293,10 @@ def _emit_float_runtime(em: _Emitter):
     em.cmp_heap_used(2)
     em.jcc_rel32(0x83, "fls_bad")                   # jae 非堆对象 → 非列表
     em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))   # cmp qword[rax],TYPE_LIST
-    em.jcc_rel32(0x85, "fls_bad")
+    em.jcc_rel32(0x84, "fls_isseq")
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_TUPLE]))  # cmp qword[rax],TYPE_TUPLE
+    em.jcc_rel32(0x85, "fls_bad")                   # 元组同列表可聚合（vm 面 (list,tuple)）
+    em.label_here("fls_isseq")
     em.lea_mem(9, 0, 16)                            # r9=base（首个元素）
     em.mov_rd_mem(10, 0, 8)                         # r10=n
     em.xor_rr32(8, 8)                               # r8=acc=0
@@ -9142,7 +9343,10 @@ def _emit_float_runtime(em: _Emitter):
     em.cmp_heap_used(2)
     em.jcc_rel32(0x83, "flp_bad")
     em.emit(b"\x48\x83\x38" + bytes([TYPE_LIST]))
-    em.jcc_rel32(0x85, "flp_bad")
+    em.jcc_rel32(0x84, "flp_isseq")
+    em.emit(b"\x48\x83\x38" + bytes([TYPE_TUPLE]))
+    em.jcc_rel32(0x85, "flp_bad")                   # 元组同列表可聚合
+    em.label_here("flp_isseq")
     em.lea_mem(9, 0, 16)                            # r9=base
     em.mov_rd_mem(10, 0, 8)                         # r10=n
     em.mov_r_imm32(8, 1)                            # r8=acc=1
@@ -10558,6 +10762,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
         ed.emit(struct.pack("<d", cval))
         ed.align(8)
     for lbl, s in (("rb_lb", "["), ("rb_rb", "]"), ("rb_sep", ", "),
+                   ("pt_plb", "("), ("pt_prb", ")"), ("pt_comma", ","),
                    ("dk_lb", "{"), ("dk_rb", "}"), ("dk_q", "'"),
                    ("dk_col", ": "),
 ("tag_normal", "__正常__"), ("tag_error", "__异常__"),
@@ -10574,6 +10779,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_decr", "-- 仅适用于数值"),
                      ("err_angle", "<< 仅适用于整数或浮点数"),
                      ("err_index_list", "list index out of range"),
+                     ("err_index_tuple", "tuple index out of range"),
                      ("err_index_str", "string index out of range"),
                      ("err_list_assign", "list assignment index out of range"),
                      ("err_idx_usup", "索引操作不支持: "),
@@ -10583,6 +10789,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("si_n_int", "int"), ("si_n_str", "str"),
                      ("si_n_float", "float"), ("si_n_bool", "bool"),
                      ("si_n_null", "NoneType"), ("si_n_func", "function"),
+                     ("si_n_tuple", "tuple"),
                      ("err_dedup", "去重() 需要列表"),
                      ("err_sum", "求和() 需要列表"),
                      ("err_prod", "求积() 需要列表"),

@@ -453,7 +453,9 @@ def test_output_single_value_unaffected(compiler_boot_vm):
 _M4_OUTPUT_LIST_CASES = [
     ("expr_then_comma", "#：[1 + 1, 2]\n", [[2, 2]]),
     ("nested_list_then_comma", "#：[[1], 2]\n", [[[1], 2]]),
-    ("tuple_then_comma", "#：[(1, 2), 3]\n", [[[1, 2], 3]]),
+    # 32-② 元组发射真化：元组字面量编译为 BUILD_TUPLE，运行时产真 tuple
+    # （原 ②「元组按列表编译」契约退役——[(1, 2), 3] 而非 [[1, 2], 3]）
+    ("tuple_then_comma", "#：[(1, 2), 3]\n", [[(1, 2), 3]]),
     ("call_then_comma", "f = (x, y) => x + y\n#：[f(1, 2), 3]\n", [[3, 3]]),
     ("nested_lists", "#：[[1], [2]]\n", [[[1], [2]]]),
     ("three_values", "#：[1 + 1, 2, 3]\n", [[2, 2, 3]]),

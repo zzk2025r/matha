@@ -455,6 +455,24 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   KNOWN_ISSUES 31；stdlib_symbols 600s 预算内 ok）。A 轨新档
   test_selfhost_language_phase31（19 项三面+字节码对拍）；登记不修清单见
   KNOWN_ISSUES 阶段 31 收官条目。
+- 阶段 32 语言收敛与元组真化（五片语言收敛 + ② 元组真化受控切片，拍板
+  「以维持登记为基础，以切片真化的方式推进，拆分可回滚受控切片逐个验证」）：
+  **32a VM 字典迭代四面归一**——宿主编译器 for/推导三发射位统一经 `_迭代源`
+  内建 + vm.matha 镜像 + native iter_source（dict → ('k',v) 对；31-①
+  VM 字典源 KeyError 退役）+ BUILD_SLICE 不可切片守卫三面同文案；**32b hi
+  面 ChainStmt 块尾链真化**（31-⑤ 退役，三面同判）；**32c boot 编译器推导
+  发射真化**——单/多 for+if（31-⑥ 退役，28c parity 全语料）；**32d mb 面
+  str 通用化**——Bool/null/容器/函数渲染 + 自举闭包守卫（28-⑨「stdlib str
+  数字专用」退役）；**32e let rec 互相递归三面贯穿**——hi 预注册占位 +
+  VM 预发盒 + boot 待填盒镜像（29-② 退役）。**32-② 元组真化受控切片**：
+  S1 BUILD_TUPLE 运行时指令面（0x65=101，三执行体直注执行、零发射零行为
+  变化）；S2 发射面切换——宿主+boot 编译器元组字面量 → BUILD_TUPLE
+  （31-②「元组按列表处理」退役），native 消费面语料回归，stdlib/vm.matha
+  str 元组渲染臂，`-` 容器守卫四面同文案；自举编译器同名函数重定义出口
+  去重（宿主 dict 保首现序取末值语义镜像，拼接编译函数表千级规模出口
+  一次性双遍完成）。A 轨新档 test_tuple_instruction_s1_phase32（11）+
+  test_tuple_emission_s2_phase32（44）+ test_selfhost_language_phase32
+  （20）；登记不修清单见 KNOWN_ISSUES 阶段 32 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

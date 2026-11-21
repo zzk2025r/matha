@@ -2187,6 +2187,80 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 32 收官（语言收敛与元组真化：五片语言收敛 + ② 元组真化受控
+  切片 S1/S2）**：五片全落；② 拍板「以维持登记为基础，以切片真化的方式进行
+  中心工程推进，必须拆分成可回滚受控切片，逐个验证与安全进行」。
+  **32a VM 字典迭代四面归一**：宿主编译器 for/推导三发射位统一经
+  `LOAD_GLOBAL "_迭代源"` + CALL 1（get/append 融合 CALL 2 守恒，B09 形状
+  锁随之改锁：for [1,2,1]→[1,1,2,1]、推导 [1,2,2,1]→[1,1,2,2,1]、遮蔽
+  [1,1,1,1]→[1,1,1,1,1]）+ vm.matha 镜像 + native iter_source（dict →
+  ('k',v) 对）——31-①「VM 面字典源迭代 KeyError(0)」退役；BUILD_SLICE
+  不可切片守卫三面同文案。
+  **32b hi 面 ChainStmt 块尾链真化**（块值模型对齐，三面同判）——31-⑤
+  退役。**32c boot 编译器推导发射真化**：单/多 for+if（31-⑥「boot 推导
+  发射未支持」退役；28c parity 全语料逐位一致）。
+  **32d mb 面 str 通用化**：Bool/null/容器/函数渲染 + 自举闭包守卫
+  （28-⑨「stdlib str 数字专用」退役）——副产品真修：term_engine 显示值
+  Bool 臂此前委托 str，CPython 对齐（True/False）击穿终端显示语言 12c
+  真/假 产品约定，显示值 Bool 臂自持渲染（`if v then "真" else "假"`）
+  修复（嵌套经 _列表文本/_键值文本 递归一并覆盖）。
+  **32e let rec 互相递归三面贯穿**：hi 预注册占位 + VM 预发盒 + boot 待填
+  盒镜像——29-②「boot 面互相递归 let rec 前向引用报未定义变量」退役。
+  **32-② S1 BUILD_TUPLE 运行时指令面**：0x65=101（TYPE_TUPLE=13），vm/
+  vm.matha/native 元组对象三执行体直注执行，零发射零行为变化。
+  **32-② S2 发射面切换**：宿主+boot 编译器元组字面量 → BUILD_TUPLE
+  （31-②「VM 元组切片返 List/元组按列表处理」退役）；native 消费面语料
+  回归；stdlib/vm.matha str 元组渲染臂；`-` 容器守卫四面同文案。验证链：
+  m4 元组锁 + stage4c 拼接编译双编译器 282 条目函数表逐位一致 + fixpoint
+  763.66s + parity 定点 + 重档批次 1171 过（2670.41s）。
+  配套根因修复：自举编译器同名函数重定义出口去重——宿主 mod.functions 为
+  dict（同名重定义保首现序取末值），自举镜像逐次 append 列表，拼接编译
+  （stdlib+vm.matha 千级函数表）逐次线性扫描致 MemoryError；出口一次性
+  双遍完成（后向前 dict_put 收末值 → 前向按首现序发射）。实现踩坑两记：
+  字面 `{}` 在 Matha 解析为空集合构造非空字典（空字典必须
+  dict_from_pairs([])，compiler_matha 87-88 行注记早已警示，实现首稿仍
+  踩）；倒序收末值会以早者覆盖晚者（末值表必须前向扫描）。
+  **门禁两跑**：run1 全量 tests lane 7681 过 + 1 skip 3841.24s——6 红全
+  为真缺陷/锁漂移（非 31 式车道并行伪影）：3 红 test_matha_term_12c
+  显示值 = 产品缺陷（见 32d 副产品，修复）；3 红 test_curried_builtin_paths
+  B09 = 32a 形状锁漂移（改锁）；定向复跑 434/434 绿（12c/curried/12e/
+  13a/13b/13c/desktop/semantic_parity19 + parity 全语料 188 +
+  ast_vm_gap 11）。run2 干净全量 tests lane 7687 过 + 1 平台 skip
+  3857.42s。quick lanes：kernel_purity 14 绿 + ast_vm_gap 11 绿（快照
+  重生成：指令码 35→36 ×2 行 + BUILD_TUPLE 行，78 节点/59 发射/19 无码/
+  0 阻塞缺口/语料与节点类型零变化）+ golden 39/39 + dep_audit 39 内核
+  文件 189 import 边 0 违规 + native_parity 38/39（0 失败，native 已知
+  未实现 1 例不计分母）+ Track B selfhost_matrix --check 一致（快照 225：
+  双面一致 206 / 诚实 differ 3 / boot_err 0 / both_err 13 / timeout 3
+  维持）。
+  算术闭合：7791 条件 = 7790 过（tests 7687 + purity 14 + ast_vm_gap 11 +
+  golden 39 + native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 7716
+  （31 条件）+ 75（test_tuple_instruction_s1_phase32 11 +
+  test_tuple_emission_s2_phase32 44 + test_selfhost_language_phase32 20）。
+  doc 同步：README（阶段 32 段 + Track B 快照句 + 测试文件 182 ×2）；
+  ARCHITECTURE（本体量 32,951 → 33,224（+273 = mbc 四文件 compiler +42/
+  native +207/opcodes +1/vm +23；32b/32e 宿主 interp.py +61−11 与自举镜像
+  matha/*.matha、三新锁档不在口径）+ 阶段 32 节 + 测试文件 182 +
+  指令码 36）；CHANGELOG 阶段 32 条目；ast_vm_gap 快照重生成。
+  登记不修十二条（2026-11-21 收官快照实测，S2 元组真化探测取证）：①尾逗号
+  元组 `(1,)` vm/hi ParseError vs mb 静默误析 1；②空括号 `()` 双面诚实
+  0 解析维持；③mb 面 `in` 未知运算符（vm/hi 支持）；④mb 面 `==` 返回
+  1.0/0.0（vm/hi 返布尔）；⑤mb 面用户域符号 type_of/_to_tuple 未定义
+  （30e carve-out 承继）；⑥mb 面 sum 返回浮点（vm/hi 返整数）；⑦mb 面
+  空元组真值为真（vm/hi 空容器为假）；⑧native 跨型 +/- 返 null（既有
+  约定维持）；⑨boot 面 `for (k,v) in` 多变量目标未支持（诚实报错维持）；
+  ⑩链式 let-in 表达式互递归 vm [0] vs hi/mb 未定义变量（形态分歧）；
+  ⑪hi 面 func 值（FuncDef 节点）未实现求值；⑫use 标准库装载面走 sweep
+  驱动器（裸 bootvm 边界维持）。
+  退役七条：29-②（互相递归 let rec）、31-①（VM 字典迭代 KeyError）、
+  31-②（元组按列表处理）、31-④（mb str []）、31-⑤（hi ChainStmt）、
+  31-⑥（boot 推导发射）、28-⑨（stdlib str 数字专用）。
+  承继：31-③（VM 非容器切片 TypeError vs hi/mb MathaRuntimeError 原生
+  形态——BUILD_SLICE 守卫三面文案已同、异常载体形态维持登记）+ 31-⑦⑧⑨
+  （timeout 3 归因 / both_err 13 构成 / differ 3 维持）+ 28-⑦⑧（语句位
+  `[` 路由一致性 / Dijkstra 距离桩）+ 29-①⑥⑦（native dict_put 不可
+  扩容 / 29e opt-in 中段跳过 / mb.interpret breaking 注记）。
+
 - **2026-11 阶段 31 收官（语言完备与判定面收敛：func-> 简写 + 双 for 推导 +
   切片/守卫/字典迭代 + sweep 预装载装配）**：六片全落；31g 拍板维持 sweep
   单预算 600s 驱动器（不拆双面预算——快照类形不翻动，timeout 如实分类）。
