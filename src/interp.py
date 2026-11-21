@@ -2722,6 +2722,10 @@ class Interpreter:
             self._log_enter("eval If")
             cond = self._eval(expr.cond)
             branch = expr.then if cond else expr.else_
+            if branch is None:
+                # 无 else 且条件 falsy → null（VM 面 [None] 同判；33 期对齐）
+                self._log_exit("eval If", None)
+                return None
             if isinstance(branch, ast.CodeBlock):
                 r = self._eval_block_value(branch)
             else:
@@ -2733,6 +2737,10 @@ class Interpreter:
             self._log_enter("eval IfStmt")
             cond = self._eval(expr.cond)
             branch = expr.then_block if cond else expr.else_block
+            if branch is None:
+                # 无 else 且条件 falsy → null（VM 面 [None] 同判；33 期对齐）
+                self._log_exit("eval IfStmt", None)
+                return None
             r = self._eval_block_value(branch)
             self._log_exit("eval IfStmt", r)
             return r

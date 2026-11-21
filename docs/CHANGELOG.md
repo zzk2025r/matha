@@ -473,6 +473,31 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   一次性双遍完成）。A 轨新档 test_tuple_instruction_s1_phase32（11）+
   test_tuple_emission_s2_phase32（44）+ test_selfhost_language_phase32
   （20）；登记不修清单见 KNOWN_ISSUES 阶段 32 收官条目。
+- 阶段 33 mb 面分歧收敛（六项 mb↔宿主语义/文案分歧三面 + VM² 收口）：
+  **33a 单元素尾逗号 `(1,)` 诚实拒绝对齐宿主**——boot 解析括号消解 逗号
+  分支补右括号守卫（此前经 解析实参列表 RPAREN-first 空参臂静默吞成分组
+  (1)——32-① 退役；宿主=SPEC 同文案带 L:C 前缀）；**33b mb 比较族九臂
+  与 not 返 真/假 Bool**（interp_matha 应用运算全族改 真/假——32-④
+  退役）+ **条件路由真值归一**（求值 if/语句 if/while 经 真值 helper，
+  空容器/零/null falsy——32-⑦ 退役）；**33c `in` 成员判断四面真化**——
+  vm `_op_in` 容器守卫（vm.py）+ native 容器守卫（raise_rt 可捕获，旧锁
+  test_in_non_container_is_false 按真化退役惯例改锁诚实报错）+ mb
+  `_成员判断`（标准库.find/dict_has 委托）+ VM² interp.matha 镜像；
+  List/Tuple/Dict/Str 命中/未中 + 非容器右侧「in 右侧需为序列/集合/字典，
+  实际 int」四面同文案（32-③ 退役）；**33d hi 面 if 无 else 条件假 →
+  null**（src/interp.py IfExpr/IfStmt else 缺失臂补 None，此前崩
+  NoneType；VM 面 None 同判）；**33e mb type_of/_to_tuple 注册真化**
+  （32-⑤ 退役）+ **sum 累加器 0 起**（stdlib list_sum，sum([])=0 Int
+  ——32-⑥ 退役）。**33h slice 内建字符串臂真化**（收官探针踩中顺手真修）
+  ——mb 应用内建实 slice 臂此前无条件走 list_slice，字符串实参产出字符
+  列表（split 块变 ['a'] 形）；33b 提速后 golden 38 语料 600s 预算内
+  首次真跑完成、timeout→differ 漂移显形此根因。String 实参改走 31f
+  `_切片值` 字符串臂（负回绕/端钳 Python 语义）、List 维持 list_slice、
+  Tuple/其他诚实报错「slice() 需要字符串或列表」（宿主=SPEC 同文案）。
+  A 轨新档 test_selfhost_language_phase33（24 项：比较族/真值/in 三面
+  +VM²+尾逗号诚实拒绝+hi 无 else+sum/type_of+slice 字符串臂/split 往返）
+  + test_native.py in 节改锁+元组成员判断；登记不修清单见 KNOWN_ISSUES
+  阶段 33 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

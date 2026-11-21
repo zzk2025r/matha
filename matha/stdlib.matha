@@ -243,12 +243,13 @@ module 标准库 {
         else _min(i + 1, best)
       in _min(1, lst[0])
 
-  (* 列表求和 *)
-  func list_sum(lst: List) -> Float =
-    let rec _sum(i: Int, acc: Float) -> Float =
+  (* 列表求和（33-⑥：累加器 0 起——空表返 Int 0、全整数和返 Int，
+     对齐宿主 sum([])=0 / sum([1,2])=3；非 0.0 起避免 0.0+… 浮点化） *)
+  func list_sum(lst: List) -> Value =
+    let rec _sum(i: Int, acc: Value) -> Value =
       if i >= len(lst) then acc
       else _sum(i + 1, acc + lst[i])
-    in _sum(0, 0.0)
+    in _sum(0, 0)
 
   (* 列表映射：list_map(lst, f) → [f(x0), f(x1), ...]——纯 Matha，
      不委托宿主 映射 内建（自举链可用）。f 为单参函数值；空列表返回 []。 *)
@@ -728,6 +729,7 @@ module 标准库 {
     "keys": keys,
     "values": values,
     "dict_has": dict_has,
+    "find": find,
     "dict_size": dict_size,
     "dict_get": dict_get,
     "dict_put": dict_put,

@@ -187,6 +187,12 @@ def _op_fdiv(a, b):
     return a // b
 
 
+def _op_in(a, b):
+    if isinstance(b, (list, tuple, str, dict, set)):
+        return a in b
+    raise MathaRuntimeError(f"in 右侧需为序列/集合/字典，实际 {type(b).__name__}")
+
+
 _BINOPS = {
     "+": _op_add,
     "-": _op_sub,
@@ -203,7 +209,10 @@ _BINOPS = {
     ">=": lambda a, b: a >= b,
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
-    "in": lambda a, b: a in b,
+    # 33-②：容器守卫——非序列/集合/字典右侧诚实报错（四面同文案，
+    # 对齐 src/interp.py in 守卫；裸 Python `a in b` 对 int 抛平台
+    # TypeError 文本随版本，此处归一为 Matha 文案）。
+    "in": _op_in,
     "is": lambda a, b: a is b,
     # 严格相等：类型完全相同且值相等，与解释器后端同语义（阶段 16 D5 对齐）。
     "===": lambda a, b: (type(a) is type(b)) and (a == b),

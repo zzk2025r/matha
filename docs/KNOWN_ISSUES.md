@@ -2187,6 +2187,69 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 33 收官（mb 面分歧收敛：六项 mb↔宿主语义/文案分歧三面
+  （vm/hi/mb）+ VM² 收口）**：四项拍板全走推荐项（①33a boot 诚实拒绝
+  对齐宿主 ②33b 全族对齐 Bool ③33c 四面同文案 ④33d 顺手真修 hi）。
+  **33a 单元素尾逗号 `(1,)` 诚实拒绝对齐宿主**：boot 解析括号消解 逗号
+  分支补右括号守卫（宿主=SPEC 同文案带 L:C 前缀；boot 解析错误以输出行
+  呈现不上抛）——32-① 退役。
+  **33b mb 比较族九臂与 not 返 真/假 Bool + 条件路由真值归一**：应用运
+  算全族改 真/假、求值 if/语句 if/while 经 真值 helper（空容器/零/null
+  falsy）——32-④⑦ 退役；副产品 mb 面提速：golden 37/38/interp.matha
+  三 timeout 档 600s 预算内真跑完成。
+  **33c `in` 成员判断四面真化**：vm `_op_in` 容器守卫 + native 容器守卫
+  （raise_rt 可捕获，旧锁 test_in_non_container_is_false 按真化退役惯例
+  改锁诚实报错）+ mb `_成员判断` + VM² interp.matha 镜像；List/Tuple/
+  Dict/Str 命中/未中 + 非容器右侧「in 右侧需为序列/集合/字典，实际 int」
+  四面同文案——32-③ 退役。
+  **33d hi 面 if 无 else 条件假 → null**：src/interp.py IfExpr/IfStmt
+  else 缺失臂补 None（此前崩 NoneType；VM 面 None 同判）。
+  **33e mb type_of/_to_tuple 注册真化 + sum 累加器 0 起**：应用内建委托
+  宿主实现（闭包安全包装注册）+ stdlib list_sum 累加器 0 起（sum([])=0
+  Int）——32-⑤⑥ 退役。
+  **33h slice 内建字符串臂真化**（收官探针踩中顺手真修）：mb 应用内建实
+  slice 臂此前无条件走 list_slice、字符串实参产出字符列表（split 块变
+  ['a'] 形）；String 实参改走 31f `_切片值` 字符串臂（负回绕/端钳 Python
+  语义）、List 维持 list_slice、Tuple/其他诚实报错「slice() 需要字符串
+  或列表」（宿主=SPEC 同文案）；根因链：33b 提速后 golden 38 语料 600s
+  预算内首次真跑完成、Track B timeout→differ 漂移显形此根因，修复归等。
+  **门禁**：首跑 tests lane 因 mid-edit 状态 + tail 管道缓冲伪影（0 字
+  节输出 + 孤儿进程滞留）作废，TaskStop 收拾后干净重跑——tests 7715 过
+  + 1 平台 skip 3934.02s。quick lanes：kernel_purity 14 + ast_vm_gap 11
+  + golden 39/39 + dep_audit 39 内核文件 189 import 边 0 违规 +
+  native_parity 38/39（0 失败，native 已知未实现 1 例不计分母）+ Track B
+  selfhost_matrix --write 重生成 --check 两跑一致（快照 225：双面一致
+  209 / 诚实 differ 3（08_auto_optimize/data_pipeline/neural_network 对
+  象身份/未定种子如实分歧）/ boot_err 0 / both_err 13 / timeout 3→0 清
+  零——timeout 档全数真跑完成，分类面不复存在）。
+  算术闭合：7819 条件 = 7818 过（tests 7715 + purity 14 + ast_vm_gap 11
+  + golden 39 + native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）=
+  7791（32 条件）+ 28（test_selfhost_language_phase33 24 + test_native
+  in 节改锁+元组成员判断 1→5 面 +4）。
+  doc 同步：README（阶段 33 段 + Track B 快照句 + 测试文件 183 ×2）；
+  ARCHITECTURE（本体量 33,224 → 33,290（+66 = 33c native 容器守卫 +57 /
+  vm `_op_in` 容器守卫 +10−1；33d src/interp.py +8 不在口径）+ 阶段 33
+  节 + 测试文件 183）；CHANGELOG 阶段 33 条目；Track B 快照重生成。
+  登记不修五条（2026-11-21 收官快照实测，均有登记锁防漂移）：①多元素尾
+  逗号 `(1, 2,)` 与调用位 尾逗号 boot 维持通用文案「期望表达式，实际 ）」
+  （33 只收单元素吞没位）；②语句位 if 以 `[` 开头的字面量条件被宿主解
+  析器析为输出命令（IfStmt.cond=Output，vm 面旁路输出条件值 vs hi 面不
+  求值——既有解析器形态分歧，与 33b 真值语义无关）；③字符串容器+非字符
+  串左侧 in 文案分歧（vm/hi Python TypeError 形态 vs mb/VM²「in 左侧需
+  为字符串」vs native 静默返 False——33c 只收非容器右侧）；④slice() 元
+  组实参 vm 面宽松返元组 vs hi/mb 诚实报错（native 走 build_slice 共用
+  路径）；⑤mb 词法器递归深度上限（matha_bootstrap harness 限制——库级
+  boot 判据走 VM²，非产品分歧；33h 往返锁三面 vm/hi/VM² 口径）。
+  退役七条：32-①（单元素尾逗号静默吞没）、32-③（mb in 未知运算符）、
+  32-④（mb 比较返 1.0/0.0）、32-⑤（mb type_of/_to_tuple 未注册）、
+  32-⑥（mb sum 返浮点）、32-⑦（mb 空元组真值为真）、31-⑦（timeout 3
+  归因——三档全部真跑完成，分类面不复存在）。
+  承继：32-②（空括号 ()）⑧⑨⑩⑪⑫ + 31-③（VM 非容器切片 TypeError vs
+  hi/mb MathaRuntimeError 原生形态）⑧⑨（both_err 13 构成 / differ 3 维
+  持）+ 28-⑦⑧（语句位 `[` 路由一致性 / Dijkstra 距离桩）+ 29-①⑥⑦
+  （native dict_put 不可扩容 / 29e opt-in 中段跳过 / mb.interpret
+  breaking 注记）维持原登记不修。
+
 - **2026-11 阶段 32 收官（语言收敛与元组真化：五片语言收敛 + ② 元组真化受控
   切片 S1/S2）**：五片全落；② 拍板「以维持登记为基础，以切片真化的方式进行
   中心工程推进，必须拆分成可回滚受控切片，逐个验证与安全进行」。

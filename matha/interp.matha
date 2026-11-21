@@ -16,7 +16,7 @@ module 解释器 {
 
   use 词法器 { Token | 类型 | 扫描 | 做Token | tokenize }
   use 语法器 { parse | 做BinaryOp | 做IntLit | 做If | 做Variable | 做Lambda | 做FuncApp }
-  use 标准库 { len | str | int | ord_matha | chr_matha | list_get | list_slice | list_append | list_max | list_min | list_sum | matha_type_of | 原地设置 | dict_from_pairs }
+  use 标准库 { len | str | int | ord_matha | chr_matha | list_get | list_slice | list_append | list_max | list_min | list_sum | matha_type_of | 原地设置 | dict_from_pairs | find | dict_has }
 
   (* ===== 环境：列表 [[name, value], ...] ===== *)
 
@@ -170,9 +170,14 @@ module 解释器 {
     op = "^" ? v ** 0.5 :
     错误("未知一元运算符: " + op)
 
-  (* if 表达式求值 ===== *)
+  (* if 表达式求值 =====
+     33-④：无 else（节点 null）时返 null——裸 if 条件面 VM JZ Python 真值
+     语义已对齐，仅需 null 分支守卫（宿主 IfExpr branch None → None 同形） *)
   func 求值if(cond: Dict, then_b: Dict, else_b: Dict, env: List) -> Value =
-    if 求值(cond, env) then 求值(then_b, env) else 求值(else_b, env)
+    if 求值(cond, env) then
+      (if then_b = null then null else 求值(then_b, env))
+    else
+      (if else_b = null then null else 求值(else_b, env))
 
   (* Lambda 求值 → 闭包 ===== *)
   func 求值lambda(params: List, body: Dict, env: List) -> Value =
@@ -215,7 +220,26 @@ module 解释器 {
     op = "=" ? l = r :
     op = "==" ? l = r :
     op = "!=" ? l != r :
+    (* 33-②：`in` 成员判断（容器守卫文案对齐 vm/hi；List/Tuple 元素、
+       String 子串、Dict 键成员） *)
+    op = "in" ? _成员判断(l, r) :
     错误("未知运算符: " + op)
+
+  func _成员判断(l, r) -> Value =
+    matha_type_of(r) = "List" or matha_type_of(r) = "Tuple" ?
+      _列表成员(l, r) :
+    matha_type_of(r) = "String" ?
+      (matha_type_of(l) = "String" ?
+        (l = "" ? 真 : find(l, r) >= 0) :
+        错误("in 左侧需为字符串，实际 " + matha_type_of(l))) :
+    matha_type_of(r) = "Dict" ? dict_has(r, l) :
+    错误("in 右侧需为序列/集合/字典，实际 " + matha_type_of(r))
+
+  func _列表成员(l, r) -> Value =
+    let rec _go(i: Int) -> Value =
+      i >= len(r) ? 假 :
+      r[i] = l ? 真 : _go(i + 1)
+    in _go(0)
 
   (* 函数应用分发 =====
      31d-①：类型守卫前置（30c 同款 List/Tuple 探测→不可调用）——此前 f[0]
@@ -272,10 +296,12 @@ module 解释器 {
       let v = 求值(stmt.值, env) in
       (v, 绑定环境(env, stmt.名, v)) :
     stmt.类型 = "if" ?
+      (* 33-④：无 else（假分支节点 null）→ (null, env)，宿主 IfStmt 同形 *)
       if 求值(stmt.条件, env) then
         执行语句列表(stmt.真分支, env)
       else
-        执行语句列表(stmt.假分支, env) :
+        (if stmt.假分支 = null then (null, env)
+         else 执行语句列表(stmt.假分支, env)) :
     stmt.类型 = "while" ?
       执行while循环(stmt.条件, stmt.体, env) :
     stmt.类型 = "for" ?
@@ -570,7 +596,11 @@ module 解释器 {
     let env20 = 绑定环境(env19, "min", ["builtin", func_min]) in
     let env21 = 绑定环境(env20, "sum", ["builtin", func_sum]) in
     let env22 = 绑定环境(env21, "原地设置", ["builtin", func_原地设置]) in
-    并插口(env22, 解释器插口[0])
+    (* 33-⑤：type_of/_to_tuple 注册（镜像 interp_matha 注册内建；裸名委托
+       VM globals 宿主内建 builtin_type_of/builtin_to_tuple 同实现） *)
+    let env23 = 绑定环境(env22, "type_of", ["builtin", func_type_of]) in
+    let env24 = 绑定环境(env23, "_to_tuple", ["builtin", func_to_tuple]) in
+    并插口(env24, 解释器插口[0])
 
   (* 内建函数实现 ===== *)
   func func_ord(c) -> Int = ord_matha(c)
@@ -597,6 +627,10 @@ module 解释器 {
   func func_max(lst) -> Value = list_max(lst)
   func func_min(lst) -> Value = list_min(lst)
   func func_sum(lst) -> Float = list_sum(lst)
+  (* 33-⑤：type_of 委托 matha_type_of（stdlib 委托宿主 builtin_type_of）；
+     _to_tuple 委托 VM globals 同名内建（builtin_to_tuple：List → 元组） *)
+  func func_type_of(v) -> String = matha_type_of(v)
+  func func_to_tuple(xs) -> Value = _to_tuple(xs)
 
   (* ===== 顶层入口 ===== *)
 

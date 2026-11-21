@@ -8327,6 +8327,62 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.jcc_rel32(None, lbi)
             em.label_here(f"pow_skip_{tag}_{idx}")
         elif sym == "in":
+            # 33-②：容器守卫（四面同文案）——List/Tuple/Dict/Str 之外右侧
+            # 诚实报错，对齐 vm._op_in 与 src/interp.py in 守卫；此前非容器
+            # 右侧经 seq_contains 静默返 0（假成功分歧）。裸整数（非堆）
+            # 直接按 "int" 报错，堆对象按类型标签分派（si_n_* 名字串）。
+            lin_ok = f"in_ok_{tag}_{idx}"
+            lin_int = f"in_n_int_{tag}_{idx}"
+            lin_flt = f"in_n_flt_{tag}_{idx}"
+            lin_bln = f"in_n_bln_{tag}_{idx}"
+            lin_nul = f"in_n_nul_{tag}_{idx}"
+            lin_fnc = f"in_n_fnc_{tag}_{idx}"
+            lin_msg = f"in_msg_{tag}_{idx}"
+            em.mov_rr(2, 1)                            # rdx=右（容器）
+            em.lea_rip(10, "heap_base")
+            em.sub_rr(2, 10)
+            em.cmp_heap_used(2)
+            em.jcc_rel32(0x83, lin_int)                # jae：非堆 → 裸整数 "int"
+            em.emit(b"\x8B\x11")                       # mov edx,[rcx]（类型）
+            em.emit(b"\x83\xFA" + bytes([TYPE_LIST]))
+            em.jcc_rel32(0x84, lin_ok)
+            em.emit(b"\x83\xFA" + bytes([TYPE_TUPLE]))
+            em.jcc_rel32(0x84, lin_ok)
+            em.emit(b"\x83\xFA" + bytes([TYPE_DICT]))
+            em.jcc_rel32(0x84, lin_ok)
+            em.emit(b"\x83\xFA" + bytes([TYPE_STR]))
+            em.jcc_rel32(0x84, lin_ok)
+            em.emit(b"\x83\xFA" + bytes([TYPE_BIGINT]))
+            em.jcc_rel32(0x84, lin_int)
+            em.emit(b"\x83\xFA" + bytes([TYPE_FLOAT]))
+            em.jcc_rel32(0x84, lin_flt)
+            em.emit(b"\x83\xFA" + bytes([TYPE_BOOL]))
+            em.jcc_rel32(0x84, lin_bln)
+            em.emit(b"\x83\xFA" + bytes([TYPE_NULL]))
+            em.jcc_rel32(0x84, lin_nul)
+            em.jcc_rel32(None, lin_fnc)                # closure/partial/未知 → "function"
+            em.label_here(lin_fnc)
+            em.lea_rip(0, "si_n_func")
+            em.jcc_rel32(None, lin_msg)
+            em.label_here(lin_int)
+            em.lea_rip(0, "si_n_int")
+            em.jcc_rel32(None, lin_msg)
+            em.label_here(lin_flt)
+            em.lea_rip(0, "si_n_float")
+            em.jcc_rel32(None, lin_msg)
+            em.label_here(lin_bln)
+            em.lea_rip(0, "si_n_bool")
+            em.jcc_rel32(None, lin_msg)
+            em.label_here(lin_nul)
+            em.lea_rip(0, "si_n_null")
+            em.jcc_rel32(None, lin_msg)
+            em.label_here(lin_msg)
+            em.mov_rr(1, 0)                            # rcx=类型名
+            em.lea_rip(0, "err_in_prefix")
+            em.call_rel32("str_concat")                # rax=完整消息
+            em.call_rel32("raise_rt")                  # 不返回
+            em.emit(b"\x0F\x0B")                       # ud2
+            em.label_here(lin_ok)
             em.call_rel32("seq_contains")              # rax=左元素 rcx=右容器
             _emit_rax_to_bool(em, tag, f"{idx}m")
         elif sym in _SET_BINOPS:
@@ -10783,6 +10839,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_index_str", "string index out of range"),
                      ("err_list_assign", "list assignment index out of range"),
                      ("err_idx_usup", "索引操作不支持: "),
+                     ("err_in_prefix", "in 右侧需为序列/集合/字典，实际 "),
                      ("err_dict_newkey",
                       "原生后端暂不支持字典下标新增键写入（原生 dict_put 为函数式，"
                       "无法原位扩容）"),

@@ -1123,9 +1123,35 @@ def test_in_operator_matches_vm(src, expected):
 
 
 @pytest.mark.parametrize("src", ["输出(1 in 5)\n", '输出("a" in 3)\n'])
-def test_in_non_container_is_false(src):
-    """非容器类型：VM 抛 TypeError，原生取 False（不崩溃优先）。"""
-    assert _run(src) == (0, "False")
+def test_in_non_container_honest_error(src):
+    """非容器右侧诚实报错可捕获（33c 拍板「四面同文案」）——此前原生
+    经 seq_contains 静默返 False（假成功分歧，33c 真化退役）。"""
+    wrapped = 'try {\n  %s  输出("误")\n} catch (e) {\n  输出("守卫")\n}\n' % src
+    assert _run(wrapped) == (0, "守卫")
+    assert _vm(wrapped) == ["守卫"]
+
+
+def test_in_non_container_error_text_matches_vm():
+    """非容器右侧错误文案与 VM 逐字一致（33c 四面同文案锁）。"""
+    src = 'try {\n  输出(1 in 5)\n} catch (e) {\n  输出(e)\n}\n'
+    assert _run(src) == (0, "in 右侧需为序列/集合/字典，实际 int")
+    assert _vm(src) == ["in 右侧需为序列/集合/字典，实际 int"]
+
+
+@pytest.mark.parametrize("src,expected", [
+    ("输出(1 in (1, 2))\n", "True"),
+    ("输出(3 in (1, 2))\n", "False"),
+])
+def test_in_tuple_membership(src, expected):
+    """元组容器成员判断（32-② 元组对象消费面，33c 镜像锁）。"""
+    assert _run(src) == (0, expected)
+
+
+def test_in_str_left_nonstr_registered_divergence():
+    """登记锁（不修）：字符串容器+非字符串左侧——vm/hi/mb 诚实报错
+    （33c _成员判断/Python TypeError），原生静默返 False（KNOWN_ISSUES
+    阶段 33 登记）。锁现状防漂移（不崩溃优先）。"""
+    assert _run('输出(1 in "abc")\n') == (0, "False")
 
 
 # 原生整数是 int64，VM 是任意精度 Python int；左移溢出宽度属已知固有偏差。

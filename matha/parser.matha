@@ -1512,9 +1512,15 @@ module 语法器 {
         let pb = 置lambda体(置let值(pbraw, (推进(pa)).在let值), (推进(pa)).在lambda体) in
         (做Lambda([first], body), pb)
       else
-      (* 逗号 → 多元素（元组或 lambda 多参）；否则单元素 *)
+      (* 逗号 → 多元素（元组或 lambda 多参）；否则单元素。
+         33-①：逗号后紧跟 ) （尾逗号）诚实拒绝对齐宿主——此前经 解析实参列表
+         的 RPAREN-first 空参臂返回 []，单元素尾逗号 (1,) 被吞成 (1) 分组；
+         文案对齐宿主 _parse_expr「期望表达式 (got PUNCT_RPAREN ')')」。
+         多元素尾逗号 (1, 2,) 已由 解析实参列表 严格路径诚实拒绝。 *)
       let (elems, p3) = 匹配(p2, 类型.逗号) ?
         let p3a = 推进(p2) in
+        匹配(p3a, 类型.右括号) ?
+          错误("期望表达式 (got PUNCT_RPAREN ')')") :
         let (rest, p3b) = 解析实参列表(p3a) in
         ([first] + rest, p3b) :
         ([first], p2) in

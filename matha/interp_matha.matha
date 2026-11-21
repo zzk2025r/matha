@@ -282,19 +282,22 @@ module 解释器 {
     op = "null" ? null :
     let v = 求值(operand, env) in
     op = "-" ? -v :
-    op = "not" or op = "非" ? (if v = 0.0 or v = 假 then 1.0 else 0.0) :
+    op = "not" or op = "非" ? (if 真值(v) then 假 else 真) :
     (* 30a：一元 sqrt（^9 前缀形——boot 解析器归一为一元运算符 sqrt，
        宿主 _eval_unary 同支对拍；examples/01 实证面。参数直取，同
        应用内建 数学分支口径） *)
     op = "sqrt" ? 运行时引擎.sqrt(v) :
     错误("未知一元运算符: " + op)
 
-  (* if 表达式求值 ===== *)
+  (* if 表达式求值 =====
+     33-④：条件经 真值 归一（空容器/""/0/null 均 falsy，对齐宿主/VM
+     Python 真值面）；无 else（then_b 节点 null）或 else 分支为 null
+     时返 null（对齐宿主 IfExpr branch None → None）。 *)
   func 求值if(cond: Dict, then_b: Dict, else_b: Dict, env: List) -> Value =
     (cond, then_b, else_b, env) =>
-    if 求值(cond, env) != 0.0 and 求值(cond, env) != 假 then 求值(then_b, env)
-    else if else_b != None and 求值(else_b, env) != None then 求值(else_b, env)
-    else 求值(then_b, env)
+    真值(求值(cond, env)) ?
+      (then_b = null ? null : 求值(then_b, env)) :
+      (else_b = null ? null : 求值(else_b, env))
 
   (* Lambda 求值 → 闭包 ===== *)
   func 求值lambda(params: List, body: Dict, env: List) -> Value =
@@ -437,15 +440,40 @@ module 解释器 {
     (* 30c：整除 // 真化（宿主 Python floor 语义镜像：int/int → int、
        含浮点 → float ×1.0 同型；大整数经浮点除法有精度边界） *)
     op = "//" ? (if r = 0 then 错误("整除除零错误: " + 标准库.str(l) + " // 0") else (if type_of(l) = "Int" and type_of(r) = "Int" then 运行时引擎.floor(l / r) else 运行时引擎.floor(l / r) * 1.0)) :
-    op = "<" ? (if l < r then 1.0 else 0.0) :
-    op = ">" ? (if l > r then 1.0 else 0.0) :
-    op = "<=" ? (if l <= r then 1.0 else 0.0) :
-    op = ">=" ? (if l >= r then 1.0 else 0.0) :
-    op = "=" ? (if l = r then 1.0 else 0.0) :
-    op = "==" ? (if l = r then 1.0 else 0.0) :
-    op = "!=" ? (if l != r then 1.0 else 0.0) :
+    (* 33-③：比较族返 真/假 Bool（宿主/VM 比较面 Python bool 同判；
+       此前 1.0/0.0 浮点与三面分歧） *)
+    op = "<" ? (if l < r then 真 else 假) :
+    op = ">" ? (if l > r then 真 else 假) :
+    op = "<=" ? (if l <= r then 真 else 假) :
+    op = ">=" ? (if l >= r then 真 else 假) :
+    op = "=" ? (if l = r then 真 else 假) :
+    op = "==" ? (if l = r then 真 else 假) :
+    op = "!=" ? (if l != r then 真 else 假) :
+    (* 33-②：`in` 成员判断（宿主/VM/native 四面同文案守卫；boot 词法/
+       编译面早已对齐，仅解释器应用臂缺失） *)
+    op = "in" ? _成员判断(l, r) :
     (* 29d：and/or 已上移 求值二元 短路面（值语义），非短路强转分支删除 *)
     错误("未知运算符: " + op)
+
+  (* 33-②：`in` 成员判断——List/Tuple 逐元素 =、String 子串（空串恒命中，
+     对齐 Python "" in s）、Dict 键成员。非容器右侧按宿主/VM 文案诚实报错
+     （四面同文案）；字符串容器 + 非字符串左侧：宿主/VM 抛 Python 平台
+     TypeError（文本随版本），boot 面诚实报错登记分歧。 *)
+  func _成员判断(l, r) -> Value =
+    type_of(r) = "List" or type_of(r) = "Tuple" ?
+      _列表成员(l, r) :
+    type_of(r) = "String" ?
+      (type_of(l) = "String" ?
+        (l = "" ? 真 : 标准库.find(l, r) >= 0) :
+        错误("in 左侧需为字符串，实际 " + _类型名(l))) :
+    type_of(r) = "Dict" ? 标准库.dict_has(r, l) :
+    错误("in 右侧需为序列/集合/字典，实际 " + _类型名(r))
+
+  func _列表成员(l, r) -> Value =
+    let rec _go(i: Int) -> Value =
+      i >= 标准库.len(r) ? 假 :
+      r[i] = l ? 真 : _go(i + 1)
+    in _go(0)
 
   (* 30c：索引错误类型名宿主对齐（host type(c).__name__ 同形小写面）——
      VM type_of 词首大写（Int/Float/Bool/String/List/Tuple/Dict/Function/
@@ -587,7 +615,11 @@ module 解释器 {
     name = "chr" ? 标准库.chr_matha(标准库.int(num_to_str(args[0]))) :
     name = "len" or name = "list_len" ? 标准库.len(args[0]) :
     name = "get" ? 标准库.list_get(args[0], 标准库.int(num_to_str(args[1]))) :
-    name = "slice" ? 标准库.list_slice(args[0], 标准库.int(num_to_str(args[1])), 标准库.int(num_to_str(args[2]))) :
+    name = "slice" ? (type_of(args[0]) = "String" ?
+      _切片值(args[0], 标准库.int(num_to_str(args[1])), 标准库.int(num_to_str(args[2])), "String") :
+      type_of(args[0]) = "List" ?
+        标准库.list_slice(args[0], 标准库.int(num_to_str(args[1])), 标准库.int(num_to_str(args[2]))) :
+        错误("slice() 需要字符串或列表")) :
     name = "append" ? 标准库.list_append(args[0], args[1]) :
     name = "concat" or name = "concat_list" ? 标准库.list_concat(args[0], args[1]) :
     name = "reverse" ? 标准库.list_reverse(args[0]) :
@@ -609,6 +641,11 @@ module 解释器 {
     name = "输出" or name = "print" ? (let 忽略 = 输出记录(args[0]) in args[0]) :
     name = "assert" ? (标准库.assert(args[0] != 0.0 and args[0] != 假 and args[0] != "0" and args[0] != "", num_to_str(args[1])), 空()) :
     name = "parse_JSON" ? 标准库.parse_JSON(num_to_str(args[0])) :
+    (* 33-⑤：type_of/_to_tuple 面真化——裸名委托宿主 BUILTINS（vm/hi 双面
+       同实现 builtin_type_of/builtin_to_tuple；30e carve-out 后用户程序 env
+       缺名致未定义变量，此臂补齐应用面。元数 1 走 内建元数 默认臂） *)
+    name = "type_of" ? type_of(args[0]) :
+    name = "_to_tuple" ? _to_tuple(args[0]) :
     (* 30a：数学函数参数直取（宿主 BUILTINS 直接 math.sin(v) 镜像）——
        此前 标准库.float(num_to_str(v)) 经 str 往返（~7 位有效数字）截断
        非整数值（sin(圆周率/2) 实证 0.9999999999999466 vs 宿主 1.0）。 *)
@@ -650,10 +687,11 @@ module 解释器 {
       let env2 = 更新绑定值(env1, stmt["名"], closure) in
       (closure, env2) :
     stmt["类型"] = "if" ?
-      if 求值(stmt["条件"], env) != 0.0 and 求值(stmt["条件"], env) != 假 then
-        执行语句列表(stmt["真分支"], env)
-      else
-        执行语句列表(stmt["假分支"], env) :
+      (* 33-④：真值 归一 + 无 else（假分支节点 null）→ (null, env)，
+         对齐宿主 IfStmt branch None 面 *)
+      真值(求值(stmt["条件"], env)) ?
+        执行语句列表(stmt["真分支"], env) :
+        (stmt["假分支"] = null ? (null, env) : 执行语句列表(stmt["假分支"], env)) :
     stmt["类型"] = "while" ?
       执行while循环(stmt["条件"], stmt["体"], env) :
     stmt["类型"] = "for" ?
@@ -1153,7 +1191,8 @@ module 解释器 {
      _ReturnException 捕获面同构）。 *)
   func 执行while循环(cond: Dict, body: Dict, env: List) -> (Value, List) =
     (cond, body, env) =>
-    if 求值(cond, env) = 0.0 or 求值(cond, env) = 假 then (None, env)
+    (* 33-④：真值 归一（空容器/""/0/null 均 falsy，对齐宿主/VM） *)
+    if not 真值(求值(cond, env)) then (None, env)
     else
       let (v, env2) = 执行语句(body, env) in
       if 信号种类(v) = "跳出" then (None, env2)
@@ -1287,7 +1326,11 @@ module 解释器 {
        自举链五模块 ns dict 在 VM globals（bootvm 装载时登记），绑入 env
        供 use 导入查表（宿主面 env 同形状）。 *)
     let env37 = 绑定环境(env36b, "__公式库__", []) in
-    env37
+    (* 33-⑤：type_of/_to_tuple 注册（30e carve-out 后用户程序 env 缺名；
+       应用面经 应用内建实 裸名委托宿主 BUILTINS，vm/hi 同实现） *)
+    let env38 = 绑定环境(env37, "type_of", ("__builtin__", "type_of")) in
+    let env39 = 绑定环境(env38, "_to_tuple", ("__builtin__", "_to_tuple")) in
+    env39
 
   (* ===== 顶层入口 ===== *)
 
