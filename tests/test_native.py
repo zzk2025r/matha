@@ -420,22 +420,29 @@ def test_unpack_seq_matches_vm(src, expected):
     assert [str(v) for v in run_module(compile_source(src))] == expected.split("\n")
 
 
-def test_unpack_short_sequence_fills_none():
-    """长度不足的解构：缺项为 None（vm.py:520 的 `else None`）。"""
-    rc, out = _run("let (a, b) = [1] in 输出(a)\n输出(b)\n")
-    assert rc == 0 and out.split("\n") == ["1", "None"]
+def test_unpack_short_sequence_honest_error():
+    """短序列解构：35a 统一解构语义诚实报错（可捕获），对齐 vm/hi/mb 三面——
+    旧「缺项补 None」宽松语义退役（34-④）。"""
+    rc, out = _run("try { let (a, b) = [1] in 输出(a) } catch (e) { 输出(e) }\n")
+    assert rc == 0 and out == "解构失败：期望 2 个元素，实际 list"
 
 
-def test_unpack_from_string_yields_chars():
-    """字符串解构按字节取，与 VM 的 seq[i] 单字符语义一致。"""
-    rc, out = _run("let (a, b) = \"hi\" in 输出(a)\n输出(b)\n")
-    assert rc == 0 and out.split("\n") == ["h", "i"]
+def test_unpack_from_string_honest_error():
+    """字符串解构：不再逐字节取，诚实报错（对齐 vm/hi/mb 同文案）。"""
+    rc, out = _run("try { let (a, b) = \"hi\" in 输出(a) } catch (e) { 输出(e) }\n")
+    assert rc == 0 and out == "解构失败：期望 2 个元素，实际 str"
 
 
-def test_unpack_non_sequence_yields_all_none():
-    """非序列解构：全部为 None（VM 侧同样不抛错的路径之外，原生端取 None）。"""
-    rc, out = _run("let (a, b) = 5 in 输出(a)\n输出(b)\n")
-    assert rc == 0 and out.split("\n") == ["None", "None"]
+def test_unpack_non_sequence_honest_error():
+    """非序列解构：诚实报错（此前静默全 None）。"""
+    rc, out = _run("try { let (a, b) = 5 in 输出(a) } catch (e) { 输出(e) }\n")
+    assert rc == 0 and out == "解构失败：期望 2 个元素，实际 int"
+
+
+def test_unpack_uncaught_exits_one():
+    """未捕获解构错误：rc=1，消息走 stderr（stdout 保持已有输出）。"""
+    rc, out = _run("输出(\"x\")\nlet (a, b) = 5 in 输出(a)\n")
+    assert rc == 1 and out == "x"
 
 
 # ---------- for 循环（依赖内建 get） ----------

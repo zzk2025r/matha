@@ -4074,78 +4074,85 @@ def _emit_mathlib_runtime(em: _Emitter):
 
 
 def _emit_unpack_seq(em: _Emitter, n: int, tag: str, idx: int):
-    """UNPACK_SEQ n：弹出序列，依次压入第 0..n-1 个元素。
+    """UNPACK_SEQ n：弹出序列，依次压入第 0..n-1 个元素（35a 统一解构语义）。
 
-    栈效果对齐 vm.py:515（None 视为空序列；越界项补 None；字符串按字节取）。
+    严格守卫：序列 = list/tuple 且长度精确等于 n，否则抛可捕获异常
+    「解构失败：期望 n 个元素，实际 T」（T 为 Python 小写类型名，si_n_* 静态
+    标签），对齐 vm.py UNPACK_SEQ 与 interp.py let 元组/for 解构面——此前
+    越界补 None、字符串逐字节解构、非序列产出全 None，34-④ 退役。
     输入 [.., seq]（seq 在栈顶）→ 输出 [.., e0, e1, ..., e(n-1)]，
     e(n-1) 位于栈顶。vm.py:488 的注释说明 BUILD_LIST 压入顺序即书写顺序，
     故 e0 必须位于 e(n-1) 之下，编译器的 `for nm in reversed(names)` 依赖这一点。
 
-    寄存器：R13=序列基址，R14=长度。循环内不调用任何子程序，因此无需
-    保存被调用者保存寄存器（R13/R14）。
+    寄存器：R13=序列基址，R14=实际长度；错误路径以 rbx 跨 int_to_str/
+    str_concat 保存类型名（两 helper 均不触碰 rbx）。匹配路径不调用任何
+    子程序，无需保存被调用者保存寄存器。
     """
-    em.pop_to(0)                                    # rax = 序列
-    lnull = f"unpk_null_{tag}_{idx}"
+    uerr = f"unpk_err_{tag}_{idx}"
+    lbody = f"unpk_body_{tag}_{idx}"
     ldone = f"unpk_done_{tag}_{idx}"
-    lstr = f"unpk_str_{tag}_{idx}"
+    em.pop_to(0)                                    # rax = 序列
     em.emit(b"\x49\x89\xC5")                        # mov r13,rax（r13=序列）
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
     em.emit(b"\x4C\x89\xC5")                        # mov rax,r13
     em.emit(b"\x48\x29\xD0")                        # sub rax,rdx
     em.cmp_heap_used(0)
-    em.jcc_rel32(0x83, lnull)                       # jae：非堆指针 → 全 None
+    em.jcc_rel32(0x83, f"unpk_scalar_{tag}_{idx}")  # jae：非堆标量 → 解构失败
     em.emit(b"\x41\x8B\x7D\x00")                    # mov edi,[r13]（类型）
-    lbody = f"unpk_body_{tag}_{idx}"
     em.emit(bytes([0x83, 0xFF, TYPE_LIST]))          # cmp edi,TYPE_LIST
     em.jcc_rel32(0x84, lbody)                       # je → 序列体（元组同布局）
     em.emit(bytes([0x83, 0xFF, TYPE_TUPLE]))         # cmp edi,TYPE_TUPLE
-    em.jcc_rel32(0x85, lstr)                        # jne → 字符串分支
+    em.jcc_rel32(0x84, lbody)
+    # 非序列 → 按类型名诚实报错（对齐 vm/hi/mb 三面同文案）
+    for ty, tn in ((TYPE_BIGINT, "int"), (TYPE_STR, "str"),
+                   (TYPE_FLOAT, "float"), (TYPE_BOOL, "bool"),
+                   (TYPE_NULL, "NoneType"), (TYPE_DICT, "dict")):
+        em.emit(bytes([0x83, 0xFF, ty]))            # cmp edi,ty
+        em.jcc_rel32(0x84, f"unpk_tn_{tag}_{idx}_{tn}")  # je → 类型名
+    em.jcc_rel32(None, f"unpk_tn_{tag}_{idx}_function")  # 其余 → "function"
+    em.label_here(f"unpk_scalar_{tag}_{idx}")
+    em.lea_rip(0, "si_n_int")                       # 裸整数/哨兵 → "int"
+    em.jcc_rel32(None, uerr)
+    for tn in ("int", "str", "float", "bool", "NoneType", "dict"):
+        em.label_here(f"unpk_tn_{tag}_{idx}_{tn}")
+        em.lea_rip(0, f"si_n_{tn if tn != 'NoneType' else 'null'}")
+        em.jcc_rel32(None, uerr)
+    em.label_here(f"unpk_tn_{tag}_{idx}_function")
+    em.lea_rip(0, "si_n_func")                      # closure/partial/未知
+    em.label_here(uerr)
+    # rax=类型名 → 拼「解构失败：期望 N 个元素，实际 T」→ raise_rt（可捕获）
+    em.emit(b"\x48\x89\xC3")                        # mov rbx,rax
+    em.emit(b"\x48\xC7\xC0" + struct.pack("<i", n))  # mov rax,n
+    em.call_rel32("int_to_str")                     # rax=str(n)
+    em.emit(b"\x48\x89\xC1")                        # mov rcx,rax（rcx=str(n)）
+    em.lea_rip(0, "err_unpack_pre")                 # rax="解构失败：期望 "
+    em.call_rel32("str_concat")                     # rax=pre+str(n)
+    em.lea_rip(1, "err_unpack_mid")                 # rcx=" 个元素，实际 "
+    em.call_rel32("str_concat")                     # rax=pre+str(n)+mid
+    em.emit(b"\x48\x89\xD9")                        # mov rcx,rbx（rcx=类型名）
+    em.call_rel32("str_concat")                     # rax=完整消息
+    em.call_rel32("raise_rt")                       # 永不返回
+    em.emit(b"\x0F\x0B")                            # ud2
     em.label_here(lbody)
-    em.emit(b"\x4D\x8B\x75\x08")                    # mov r14,[r13+8] → r14=len
+    em.emit(b"\x4D\x8B\x75\x08")                    # mov r14,[r13+8] → 实际长度
+    em.emit(b"\x49\x81\xFE" + struct.pack("<i", n))  # cmp r14,n（32 位）
+    em.jcc_rel32(0x85, f"unpk_len_{tag}_{idx}")     # jne → 长度不等 → 报错
     for i in range(n):
-        lnil = f"unpk_n_{tag}_{idx}_{i}"
-        lok = f"unpk_k_{tag}_{idx}_{i}"
-        em.emit(b"\x49\x83\xFE" + bytes([i & 0xFF]))  # cmp r14d,i
-        em.jcc_rel32(0x86, lnil)                    # jbe i>=len → None
         # 偏移 16+8i 为编译期常量，用 lea+mov 避免 SIB 手工编码
         em.emit(b"\x49\x8D\x45")                    # lea rax,[r13+disp8]
         em.emit(bytes([16 + 8 * i]))
         em.emit(b"\x48\x8B\x00")                    # mov rax,[rax]
-        em.jcc_rel32(None, lok)
-        em.label_here(lnil)
-        em.lea_rip(0, "null_obj")
-        em.label_here(lok)
         em.push_rax()
     em.jcc_rel32(None, ldone)
-    em.label_here(lstr)
-    em.emit(bytes([0x83, 0xFF, TYPE_STR]))           # cmp edi,TYPE_STR
-    em.jcc_rel32(0x85, lnull)                        # jne：非序列 → 全 None
-    em.emit(b"\x4D\x8B\x75\x08")                    # mov r14,[r13+8] → r14=len
-    for i in range(n):
-        lnil = f"unpk_sn_{tag}_{idx}_{i}"
-        lok = f"unpk_sk_{tag}_{idx}_{i}"
-        em.emit(b"\x49\x83\xFE" + bytes([i & 0xFF]))  # cmp r14d,i
-        em.jcc_rel32(0x86, lnil)                    # jbe i>=len → None
-        # 字符串按字节取，与 vm 的 seq[i] 一致（VM 得到单字符 str）；
-        # 原生端构造 1 字节 str 对象，保证 输出 / == 语义一致。
-        em.emit(b"\x48\xC7\xC7\x11\x00\x00\x00")    # mov rdi,17
-        em.call_rel32("alloc")                        # alloc 不触碰 r13/r14
-        em.emit(b"\x4D\x8D\x5D")                    # lea r11,[r13+disp8]（16+i）
-        em.emit(bytes([16 + i]))
-        em.emit(b"\x45\x0F\xB6\x1B")                # movzx r11d,byte [r11]
-        em.emit(b"\x48\xC7\x00" + struct.pack("<I", TYPE_STR))
-        em.emit(b"\x48\xC7\x40\x08\x01\x00\x00\x00")  # mov [rax+8],1
-        em.emit(b"\x4C\x88\x58\x10")                # mov [rax+16],r11b
-        em.jcc_rel32(None, lok)
-        em.label_here(lnil)
-        em.lea_rip(0, "null_obj")
-        em.label_here(lok)
-        em.push_rax()
-    em.jcc_rel32(None, ldone)
-    em.label_here(lnull)
-    for _ in range(n):
-        em.lea_rip(0, "null_obj")
-        em.push_rax()
+    em.label_here(f"unpk_len_{tag}_{idx}")
+    # 长度不等：edi 仍持有类型标签 → "list"/"tuple"
+    em.emit(bytes([0x83, 0xFF, TYPE_LIST]))          # cmp edi,TYPE_LIST
+    em.jcc_rel32(0x84, f"unpk_lt_{tag}_{idx}")      # je → "list"
+    em.lea_rip(0, "si_n_tuple")
+    em.jcc_rel32(None, uerr)
+    em.label_here(f"unpk_lt_{tag}_{idx}")
+    em.lea_rip(0, "si_n_list")
+    em.jcc_rel32(None, uerr)
     em.label_here(ldone)
 
 
@@ -10932,6 +10939,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_in_prefix", "in 右侧需为序列/集合/字典，实际 "),
                      ("err_in_left_prefix", "in 左侧需为字符串，实际 "),
                      ("err_slice_dom", "slice() 需要字符串或列表"),
+                     ("err_unpack_pre", "解构失败：期望 "),
+                     ("err_unpack_mid", " 个元素，实际 "),
                      ("err_dict_newkey",
                       "原生后端暂不支持字典下标新增键写入（原生 dict_put 为函数式，"
                       "无法原位扩容）"),

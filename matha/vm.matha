@@ -921,8 +921,12 @@ module 字节码虚拟机 {
     else if op = 解包() then
       let (序列, 栈u) = 栈弹(栈) in
       let 长度 = 指令[1] in
-      let 新栈 = 解包栈(序列, 长度, 栈u) in
-      ["__下一__", 换顶(帧栈步, 换栈(帧步, 新栈)), 全局]
+      let t = matha_type_of(序列) in
+      let 可解 = (t = "List") or (t = "Tuple") in
+      let 合长 = 可解 ? (len(序列) = 长度) : 假 in
+      合长 ?
+        ["__下一__", 换顶(帧栈步, 换栈(帧步, 解包栈(序列, 长度, 栈u))), 全局] :
+        错误("解构失败：期望 " + 数字转串(长度) + " 个元素，实际 " + _解构类型名(序列))
     else if op = 复制() then
       let 栈d = 栈 + [栈[len(栈) - 1]] in
       ["__下一__", 换顶(帧栈步, 换栈(帧步, 栈d)), 全局]
@@ -983,15 +987,30 @@ module 字节码虚拟机 {
     操作码 = 0  ? "0x00" :
     数字转串(操作码)
 
-  (* 解包序列：push seq[i]（越界 → null），按索引顺序入栈 *)
+  (* 解包序列：push seq[i]（35a 守卫后 序列 必为 List/Tuple 且长度精确匹配），
+     按索引顺序入栈 *)
   func 解包栈(序列, n: Int, 栈: List) -> List =
     if n = 0 then 栈
     else 解包栈(序列[1:], n - 1, 栈 + [解包项(序列, 0)])
 
-  func 解包项(序列, i: Int) -> Value =
-    if 序列 = null then null
-    else if i < len(序列) then 序列[i]
-    else null
+  func 解包项(序列, i: Int) -> Value = 序列[i]
+
+  (* 35a 解构错误类型名：Matha 类型名 → 宿主小写面（对齐 hi
+     type(x).__name__ 与 interp_matha _类型名；VM² 闭包是 3 元
+     ["__闭包__", 信息, 帧] Matha 列表，标记命中归 function——对齐
+     vm Closure / hi FuncDef / native 闭包同文案）。 *)
+  func _解构类型名(v) -> String =
+    let t = matha_type_of(v) in
+    t = "List" ?
+      (len(v) > 0 ? (v[0] = "__闭包__" ? "function" : "list") : "list") :
+    t = "Tuple" ? "tuple" :
+    t = "Int" ? "int" :
+    t = "Float" ? "float" :
+    t = "Bool" ? "bool" :
+    t = "String" ? "str" :
+    t = "Dict" ? "dict" :
+    t = "Null" ? "NoneType" :
+    "function"
 
   func 找函数信息(函数: List, 名: String) -> Value =
     函数 = [] ? 错误("函数未定义: " + 名) :

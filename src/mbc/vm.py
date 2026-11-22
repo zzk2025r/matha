@@ -1188,11 +1188,18 @@ class VM:
         elif op == OP.PUSH_NULL:
             st.append(None)
         elif op == OP.UNPACK_SEQ:
+            # 35a 解构统一语义：序列 = list/tuple 且长度精确匹配，否则诚实
+            # 报错（对齐 hi 语句位/表达式位 let 元组与 for 解构面——此前
+            # 越界补 None、非序列漏出 Python len() TypeError，34-④ 退役）。
+            # 闭包归 "function"（对齐 native si_n_func / hi FuncDef 面）。
             seq = st.pop()
-            seq = seq if seq is not None else []
             n = ins[1]
-            for i in range(n):
-                st.append(seq[i] if i < len(seq) else None)
+            if not isinstance(seq, (list, tuple)) or len(seq) != n:
+                tname = ("function" if isinstance(seq, Closure)
+                         else type(seq).__name__)
+                raise MathaRuntimeError(
+                    f"解构失败：期望 {n} 个元素，实际 {tname}")
+            st.extend(seq)
         elif op == OP.LOAD_OUTER_BOX:
             st.append(self._outer(f, ins[1]).locals[ins[2]].value)
         elif op == OP.STORE_GLOBAL:

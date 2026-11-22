@@ -526,6 +526,33 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   改锁）+ test_31g_snapshot_classes timeout→all-ok（33 收官快照重
   生成后改锁滞后收口，非缺陷）+ phase33 33c/33h in·slice 锁随真化
   收敛改锁；登记不修清单见 KNOWN_ISSUES 阶段 34 收官条目。
+- 阶段 35 自举解构贯穿（两项登记分歧同根退役 34-①④，主线拍板走推荐项
+  「自举解构贯穿」）：**35a S1 UNPACK_SEQ 长度守卫四执行体真化**——
+  统一解构语义（序列 = List/Tuple 且长度精确等于目标数，否则诚实报错
+  「解构失败：期望 N 个元素，实际 <类型名>」list/tuple/int/float/bool/
+  str/dict/NoneType/function 八族）：①vm 面 0x57 处理器严格化（此前
+  越界补 None、非序列漏出 Python len() TypeError；Closure 映射
+  "function"——34-④「编译路径宽松补 null」退役）；②hi interp.py let
+  元组绑定守卫（语句位此前非序列静默不绑定假成功→下游未定义变量、
+  短元组补 None；表达式位此前仅 tuple、短元组补 None、异文案；扩
+  List/Tuple 同判，FuncDef/Lambda 节点与 ("__closure__",…) 标记元组
+  → "function"）；③vm.matha 解包守卫（懒三元 合长，防 eager and/or
+  陷阱）+ `_解构类型名` 映射（VM² 闭包 ["__闭包__",…] 3 元列表标记 →
+  "function"）；④native unpack 严格化（si_n_* 静态类型名 + int_to_str
+  运行期拼消息，try/catch 可捕获 + 未捕获 rc=1 stderr——旧 全 None/
+  字符串逐字节解构/越界补 None 路径退役）。**35b S2 boot 编译器 for
+  解构发射真化**——compiler_matha `_分配循环变量` 收窄单变量 +
+  `_分配循环变量们`/`_分配循环位置们` 名单归一逐名折叠（宿主
+  _emit_for_stmt names 归一 + var_ts 镜像）+ `_for循环码` UNPACK_SEQ n
+  发射 + `_存解构逆序` 逆序存储（宿主 reversed(var_ts) 镜像）——
+  34-①「boot 编译器 for 解构目标暂未支持」退役；单变量 for 字节码零
+  变化（parity 回归锁）；多变量五语料（单变量/字典对/三变量/局部函数/
+  元组对）stage2↔stage3 逐位一致 + M3V 运行面真跑。A 轨新档
+  test_selfhost_language_phase35（42 项：let 元组 vm/hi 正控·错控·
+  语句位·闭包映射·mb 登记锁 + for 三面 + VM² interp + M3V 正控·错控
+  + 35b parity·M3V runs·try/catch 登记锁）+ test_native.py 解构节
+  宽松锁改诚实锁（3→4）+ phase34 34e 编译面诚实拒绝锁按真化退役改锁
+  UNPACK_SEQ 发射；登记不修清单见 KNOWN_ISSUES 阶段 35 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

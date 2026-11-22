@@ -42,8 +42,10 @@
 附带发现（登记不修，见 KNOWN_ISSUES 阶段 34）：boot 字典字面量裸键
   {a: 1} 析为变量引用（未定义变量 'a'）vs hi 面字符串键；引号键
   {"a": 1} 三面一致。vm 面编译路径 UNPACK_SEQ 长度不匹配宽松补 null
-  （31b 引入，解释面 hi/mb 诚实报错 解构失败——编译面 vs 解释面
-  解构语义分歧）。
+  登记（34e 收官时）已由 35a S1 真化退役——UNPACK_SEQ 长度守卫 +
+  native unpack 严格化 + vm.matha 解包守卫三执行体同判（本档
+  test_34e_for_pair_fail_vm_true 真化退役锁；见
+  tests/test_selfhost_language_phase35.py）。
 """
 import os
 import sys
@@ -346,14 +348,11 @@ def test_34e_for_pair_fail_hi_mb():
     assert mb_err is None and mb == [1, _WANT_DESTRUCT], ("mb", mb, mb_err)
 
 
-def test_34e_for_pair_fail_vm_lenient_registration():
-    """登记锁（维持）：vm 面编译路径 UNPACK_SEQ 长度不匹配宽松补 null
-    （vm.py seq[i] if i < len(seq) else None——31b 引入，列表推导路径
-    不触发；解释面 hi/mb 诚实报错）。编译面 vs 解释面解构语义分歧，
-    登记不修（修复需 UNPACK_SEQ 长度守卫 + native unpack_rt 镜像，
-    超出 34e 切片）。"""
-    outs, err = exec_api.run_checked(_FAIL)
-    assert err is None and outs == [1, 3], ("vm", outs, err)
+def test_34e_for_pair_fail_vm_true():
+    """vm 面长度不匹配诚实报错同文案（35a S1 真化退役锁——34e 旧登记锁
+    「vm 宽松补 null」退役：UNPACK_SEQ 长度守卫三执行体真化，vm/hi/mb
+    三面同判 [1, 解构失败文案]）。"""
+    _three_faces("pair_fail", _FAIL, [1, _WANT_DESTRUCT])
 
 
 def test_34e_for_single_regression():
@@ -372,14 +371,20 @@ def test_34e_for_pair_vm2(bootvm):
         assert err is None and outs == want, (tag, "vm2", outs, err)
 
 
-def test_34e_boot_compiler_pair_honest_reject(bvm):
-    """boot 编译器发射面 List 目标诚实拒绝（登记维持）：
-    「boot 编译器 for 解构目标暂未支持」——UNPACK_SEQ 自举镜像未做，
-    解释器面（mb/VM²）真化、编译面（stage3）显式拒绝不假编译。"""
+def test_34e_boot_compiler_pair_emits_unpack_seq(bvm):
+    """真化退役锁（35b S2——34-①「boot 编译器 for 解构目标暂未支持」退役）：
+    boot 编译器 for 解构目标发射真 UNPACK_SEQ（87）+ 逆序存储，不再诚实
+    拒绝；stage2↔stage3 逐位一致与 M3V 运行面真跑锁归
+    tests/test_selfhost_language_phase35.py（对拍/运行基础设施所在）。"""
     src = 'd = {"a": 1}\ns = ""\nfor (k, v) in d {\n  s = s + k\n}\n输出(s)\n'
-    with pytest.raises(MathaRuntimeError) as ei:
-        bvm.call("编译", _strip_bom(src))
-    assert "boot 编译器 for 解构目标暂未支持" in str(ei.value)
+    d = bvm.call("编译", _strip_bom(src))
+    ops = [x[0] for x in d["主码"]]
+    i87 = ops.index(87)
+    stores = [x for x in d["主码"][i87 + 1:] if x[0] == 24][:2]
+    v_idx = d["常量"].index("v")
+    k_idx = d["常量"].index("k")
+    assert [x[1] for x in stores] == [v_idx, k_idx], \
+        ([x[1] for x in stores], v_idx, k_idx)
 
 
 # ============================================================

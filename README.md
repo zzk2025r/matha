@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 184（`tests/`）
+- **测试文件：** 185（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -342,6 +342,23 @@ if 无 then 解析拒绝与 func 体块尾 mb 块值 '<function>' 维持登记�
 键（引号键三面一致）；vm 面编译路径 UNPACK_SEQ 长度不匹配宽松补 null
 （解释面 hi/mb 诚实报错——编译面 vs 解释面解构语义分歧）。
 
+自举解构贯穿（阶段 35）：两项登记分歧同根退役（34-①④）。35a S1
+UNPACK_SEQ 长度守卫四执行体真化：vm 面 0x57 处理器严格化（List/Tuple
+且长度精确匹配逐位绑定，否则「解构失败：期望 N 个元素，实际 <类型名>」，
+Closure 映射 "function"——34-④ 宽松补 null 退役）+ native
+`_emit_unpack_seq` 严格化重写（err 池串同文案，try/catch 可捕获）+
+vm.matha `_解构类型名`（"__闭包__" 哨兵镜像）+ hi interp.py let 元组
+绑定守卫（语句位+表达式位）。35b S2 boot 编译器 for 解构发射真化：
+compiler_matha `_分配循环变量` 收窄单变量 + `_分配循环变量们`/
+`_分配循环位置们` 名单归一逐名折叠 + `_for循环码` UNPACK_SEQ 发射 +
+`_存解构逆序` 逆序存储（宿主 _emit_for_stmt 镜像，正序压栈存储逆序）
+——34-①「boot 编译器 for 解构目标暂未支持」退役；单变量目标零字节码
+变化回归；五语料 stage2↔stage3 逐位一致 + M3V 运行面真跑（字典对/
+三变量/局部函数/元组对）。登记不修：mb 表达式位 let 元组绑定 honest
+reject「未知表达式类型: let元组绑定」；m3v 编译态 try/catch 不捕获
+运行期错误（全族，既有边界——vm.matha 解释循环无异常帧机制，登记锁
+防漂移）。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -363,7 +380,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（184 个文件）
+├── tests/                  # 测试套件（185 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

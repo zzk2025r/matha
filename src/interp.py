@@ -2391,11 +2391,21 @@ class Interpreter:
                 self._exec_stmt_or_expr(stmt.body)
             # 不清理语句级 let 变量（与 Binding 行为一致）
         elif isinstance(stmt, ast.LetTupleBinding):
-            # 语句级 let 元组解构
+            # 语句级 let 元组解构（35a 统一解构语义：序列 = list/tuple 且长度
+            # 精确匹配，否则诚实报错——此前非序列静默不绑定（假成功，下游
+            # 未定义变量）、短元组补 None）
             val = self._eval(stmt.value)
-            if isinstance(val, tuple):
-                for i, name in enumerate(stmt.names):
-                    self.env[name] = val[i] if i < len(val) else None
+            if not isinstance(val, (list, tuple)) or len(val) != len(stmt.names):
+                # 闭包形态归 "function"：FuncDef/Lambda 节点与 ("__closure__",…)
+                # 标记元组（hi lambda 闭包 3 元组），对齐 vm Closure / native 面
+                tname = ("function" if isinstance(val, (ast.FuncDef, ast.Lambda))
+                         or (isinstance(val, tuple) and val
+                             and val[0] == "__closure__")
+                         else type(val).__name__)
+                raise MathaRuntimeError(
+                    f"解构失败：期望 {len(stmt.names)} 个元素，实际 {tname}")
+            for i, name in enumerate(stmt.names):
+                self.env[name] = val[i]
             if self.debug:
                 self._log(logging.DEBUG, f"stmt LetTupleBinding {stmt.names}")
             if stmt.body is not None:
@@ -2956,30 +2966,37 @@ class Interpreter:
         if isinstance(expr, ast.ListComp):
             return self._eval_list_comprehension(expr)
         if isinstance(expr, ast.LetTupleBinding):
-            # let (a, b) = tuple_val in body
+            # let (a, b) = seq_val in body（35a 统一解构语义：序列 = list/tuple
+            # 且长度精确匹配；此前仅 tuple、短元组补 None、非元组报
+            # 「元组解构期望元组」——统一为 解构失败 文案）
             val = self._eval(expr.value)
-            if isinstance(val, tuple):
-                # 跳过 4 元组 closure 的 "__closure__" 标记：
-                # ("__closure__", params, body, env) 应解构为 (params, body, env)
-                start = 0
-                if len(val) == 4 and val[0] == "__closure__":
-                    start = 1
-                for i, name in enumerate(expr.names):
-                    idx = start + i
-                    if idx < len(val):
-                        self.env[name] = val[idx]
-                    else:
-                        self.env[name] = None
-                if self.debug:
-                    self._log(logging.DEBUG,
-                              f"eval LetTupleBinding {expr.names} = {self._fmt(val)}")
-                if expr.body is not None:
-                    r = self._eval(expr.body)
-                else:
-                    r = val
-            else:
+            if not isinstance(val, (list, tuple)):
+                # 闭包形态归 "function"（同语句位——FuncDef/Lambda 节点）
+                tname = ("function" if isinstance(val, (ast.FuncDef, ast.Lambda))
+                         else type(val).__name__)
                 raise MathaRuntimeError(
-                    f"元组解构期望元组，实际得到 {type(val).__name__}")
+                    f"解构失败：期望 {len(expr.names)} 个元素，实际 {tname}")
+            # 跳过 4 元组 closure 的 "__closure__" 标记（仅真元组：
+            # ("__closure__", params, body, env) 应解构为 (params, body, env)）
+            start = 0
+            if isinstance(val, tuple) and len(val) == 4 and val[0] == "__closure__":
+                start = 1
+            if len(val) - start != len(expr.names):
+                # 标记元组（hi lambda 闭包 3 元组）归 "function"（同语句位）
+                tname = ("function" if isinstance(val, tuple) and val
+                         and val[0] == "__closure__"
+                         else type(val).__name__)
+                raise MathaRuntimeError(
+                    f"解构失败：期望 {len(expr.names)} 个元素，实际 {tname}")
+            for i, name in enumerate(expr.names):
+                self.env[name] = val[start + i]
+            if self.debug:
+                self._log(logging.DEBUG,
+                          f"eval LetTupleBinding {expr.names} = {self._fmt(val)}")
+            if expr.body is not None:
+                r = self._eval(expr.body)
+            else:
+                r = val
             # 清理局部绑定
             for name in expr.names:
                 self.env.pop(name, None)

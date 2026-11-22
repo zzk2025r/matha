@@ -2187,6 +2187,59 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 35 收官（自举解构贯穿：UNPACK_SEQ 长度守卫四执行体 + boot
+  编译器 for 解构发射真化，34-①④ 同根退役）**：主线拍板走推荐项「自举
+  解构贯穿」（32-② 受控切片模式延续——S1 运行时面先行、S2 发射面后切）。
+  **35a S1 统一解构语义四执行体**（序列 = List/Tuple 且长度精确等于目标数，
+  否则诚实报错「解构失败：期望 N 个元素，实际 <类型名>」，八族类型名
+  list/tuple/int/float/bool/str/dict/NoneType/function）：①vm 面 0x57 处理器
+  严格化（此前越界补 None、非序列漏出 Python len() TypeError；Closure →
+  "function"——34-④ 退役）②hi interp.py let 元组绑定守卫（语句位此前非序列
+  静默不绑定假成功→下游未定义变量、短元组补 None；表达式位此前仅 tuple、
+  短元组补 None、异文案；扩 List/Tuple 同判；FuncDef/Lambda 节点与
+  ("__closure__",…) 标记元组 → "function"）③vm.matha 解包守卫（懒三元 合长，
+  防 eager and/or 陷阱）+ `_解构类型名`（VM² 闭包 ["__闭包__",…] 3 元列表
+  标记 → "function"）④native unpack 严格化（si_n_* 静态类型名 + int_to_str
+  运行期拼消息，try/catch 可捕获 + 未捕获 rc=1 stderr——旧 全 None/字符串
+  逐字节解构/越界补 None 路径退役；test_native 解构节 3 宽松锁改 4 诚实锁）。
+  **35b S2 boot 编译器 for 解构发射真化**（34-① 退役）：compiler_matha
+  `_分配循环变量` 收窄单变量 + `_分配循环变量们`/`_分配循环位置们` 名单归一
+  逐名折叠（宿主 _emit_for_stmt names 归一 + var_ts 镜像）+ `_for循环码`
+  UNPACK_SEQ n 发射 + `_存解构逆序` 逆序存储（宿主 reversed(var_ts) 镜像，
+  `_存储元组全局逆序` 同协议）；实现踩坑一记：UNPACK_SEQ 必须在调用位发射
+  （首稿置于 _存解构逆序 内致 stage3 缺 87 指令、下游栈欠载 LOAD_GLOBAL 池
+  越界——parity 探针抓获即修）；单变量 for 字节码零变化（parity 回归锁）；
+  五语料（单变量/字典对/三变量/局部函数/元组对）stage2↔stage3 逐位一致 +
+  M3V 运行面真跑。phase34 两锁按真化退役改锁：vm 宽松登记锁 →
+  test_34e_for_pair_fail_vm_true、编译面诚实拒绝锁 →
+  test_34e_boot_compiler_pair_emits_unpack_seq（UNPACK_SEQ 发射 + 逆序存储锁）。
+  **门禁**：定向批次先行（mbc_vm_matha/tuple s1·s2/mbc_bootstrap/
+  stage4_closure/phase32/33/bootstrap_host 996 过 2438.37s）+ 全量 tests lane
+  7787 过 + 1 平台 skip 4233.55s 首跑零红（34 收官 run2 两红此跑即净：
+  m5 tmpdir 伪影与 doc_facts 均已事后修复转绿）+ kernel_purity 14 +
+  ast_vm_gap 11（快照零扰动无需重生成）+ golden 39/39 + dep_audit 39 内核
+  文件 189 import 边 0 违规 + native_parity 38/39（0 失败，native 已知未实现
+  1 例不计分母）+ Track B selfhost_matrix --check 一致（快照 225 分类零扰动
+  ——语料无语句位 let 元组解构，35a hi 守卫不翻分类）。算术闭合：7891 条件
+  = 7890 过（tests 7787 + purity 14 + ast_vm_gap 11 + golden 39 + native 38
+  + dep_audit 1）+ 1 skip（平台 skip 承继）= 7846（34 条件）+ 45
+  （test_selfhost_language_phase35 42 + test_native 解构节净 +1 + 34 收官
+  run2 两红事后转绿 m5/doc_facts +2）。doc 同步：README（阶段 35 段 +
+  测试文件 185 ×2）；ARCHITECTURE（本体量 33,417→33,433（+16 = 35a vm.py
+  UNPACK_SEQ 守卫 +7 / native `_emit_unpack_seq` 严格化重写 +9 净；
+  src/interp.py let 元组守卫 +43−26 与 boot 镜像 matha/{vm,compiler_matha}
+  .matha、新锁档不在 core_py_lines 口径）+ 阶段 35 节 + 测试文件 185）；
+  CHANGELOG 阶段 35 条目。登记不修三条（2026-11-22 收官实测，均有登记锁防
+  漂移）：①mb 面表达式位 let 元组绑定 honest reject「未知表达式类型:
+  let元组绑定」（boot 求值面暂不支持，不假编译——语句位 let 元组 boot 面
+  32 已落地）②m3v 编译态 try/catch 不捕获运行期错误（除零/越界/未定义变量/
+  解构失败全族一致上抛——vm.matha 解释器循环未实现异常帧机制，35b 探针踩中
+  既有边界非本阶段引入；vm/hi/mb/native 四面 try/catch 捕获正常）③承继：
+  34-②③⑤（mb 表达式位 if 无 then/func 体块尾 mb 块值/boot 字典裸键）+
+  33-⑤（mb 词法器递归深度上限）+ 32-②⑧⑩⑫ + 31-③⑧⑨ + 28-⑧ +
+  29-①⑥⑦ 维持原登记不修。退役两条：34-①（boot 编译器 for 解构目标暂未
+  支持）、34-④（vm 编译路径 UNPACK_SEQ 宽松补 null）。
+
 - **2026-11 阶段 34 收官（语言面继续收敛：六项登记分歧全族真化）**：两项
   拍板全走推荐项（①34c 统一 boot 中文文案 ②34f hi→None 对齐 vm）。
   **34a 尾逗号全族**（33-① 退役）：33a 单元素机制扩展——多元素 `(1, 2,)`

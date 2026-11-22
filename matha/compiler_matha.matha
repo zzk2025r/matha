@@ -1820,8 +1820,8 @@ module 编译器 {
     let (i位置, sc3, bc3) = _分配临时(sc2, bcb, "for_i") in
     let (zero, bc4) = _加常量(bc3, 0) in
     let (c3, bc5) = _存临时(i位置, _发(c2, [OP_PUSH_CONST, zero]), bc4) in
-    let (v位置, sc4, bc6) = _分配循环变量(sc3, bc5, e["变量"]) in
-    let (c9, bc9) = _for循环码(c3, xs位置, i位置, v位置, e, sc4, bc6, len(c3), zero) in
+    let (v位置们, sc4, bc6) = _分配循环变量们(sc3, bc5, e["变量"]) in
+    let (c9, bc9) = _for循环码(c3, xs位置, i位置, v位置们, e, sc4, bc6, len(c3), zero) in
     let c10 = 留值 ? _发(c9, [OP_PUSH_NULL]) : c9 in
     (c10, sc4, bc9)
 
@@ -1838,16 +1838,30 @@ module 编译器 {
       let (sc2, slot) = _声明局部(sc, "__" + hint, 假) in
       (["l", slot], sc2, bc)
 
-  func _分配循环变量(sc: List, bc: Dict, name: Value)
+  func _分配循环变量(sc: List, bc: Dict, name: String)
       -> (List, List, Dict) =
-    (* 34e：解构目标（"变量"= List）boot 编译器发射面暂未支持
-       （UNPACK_SEQ 镜像未做）——诚实拒绝；boot 解释器面（mb/VM²）已支持。 *)
-    type_of(name) = "List" ?
-      错误("boot 编译器 for 解构目标暂未支持") :
+    (* 35b S2：34-①「boot 编译器 for 解构目标暂未支持」退役——本函数收窄为
+       单变量（String）；解构名单（List）由 _分配循环变量们 逐名折叠分配
+       （宿主 _emit_for_stmt names 归一 + var_ts 逐名构建镜像）。 *)
     _绑定落全局(sc) ?
       (["g", name], sc, bc) :
       let (sc2, slot) = _声明(sc, name, 假) in
       (["l", slot], sc2, bc)
+
+  (* 35b S2 for 解构目标：目标 String=单变量 | List=解构名单（34e 解析器
+     形态）。逐名分配（sc/bc 顺序折叠，槽序与宿主 _declare_slot 同向），
+     返回 位置们（与宿主 var_ts 同序）。 *)
+  func _分配循环变量们(sc: List, bc: Dict, 目标: Value)
+      -> (List, List, Dict) =
+    let names = type_of(目标) = "String" ? [目标] : 目标 in
+    _分配循环位置们(sc, bc, names)
+
+  func _分配循环位置们(sc: List, bc: Dict, names: List)
+      -> (List, List, Dict) =
+    names = [] ? ([], sc, bc) :
+    let (p0, sc1, bc1) = _分配循环变量(sc, bc, names[0]) in
+    let (其余, sc2, bc2) = _分配循环位置们(sc1, bc1, names[1:]) in
+    ([p0] + 其余, sc2, bc2)
 
   func _存临时(位置: List, code: List, bc: Dict) -> (List, Dict) =
     位置[0] = "l" ? (_发(code, [OP_STORE_LOCAL, 位置[1]]), bc) :
@@ -1883,9 +1897,18 @@ module 编译器 {
     let (c9, bc9) = _压临时(c8, i位置, bc) in
     (_发(c9, [OP_CALL, 1]), bc9)
 
+  (* 35b S2 for 解构存储：UNPACK_SEQ n + 逆序 _存临时（宿主 len(var_ts)>1
+     分支镜像——UNPACK_SEQ 正序压栈 [seq0..seqN]，栈顶为末元素，故先存
+     末位置；_存储元组全局逆序 同协议）。i 从 len-1 降到 0。 *)
+  func _存解构逆序(code: List, bc: Dict, 位置们: List, i: Int)
+      -> (List, Dict) =
+    i < 0 ? (code, bc) :
+    let (c2, bc2) = _存临时(位置们[i], code, bc) in
+    _存解构逆序(c2, bc2, 位置们, i - 1)
+
   (* for 主循环（统一发射，本地/全局位置都支持）。栈布局严格遵循
      fn 在下、arg 在上。返回 (完成码, bc) *)
-  func _for循环码(code, xs位置, i位置, v位置, e, sc, bc, top, zero)
+  func _for循环码(code, xs位置, i位置, v位置们, e, sc, bc, top, zero)
       -> (List, Dict) =
     let (c0, bca) = _压临时(code, i位置, bc) in
     let (c1, bcb) = _压全局名(c0, bca, "len") in
@@ -1904,7 +1927,11 @@ module 编译器 {
     let (ca, bcg) =
       _查元数(bcd["元数表"], "get") = 2 ? _get齐参(c7, i位置, bcf) : _get逐步(c7, i位置, bcf)
     in
-    let (cb, bch) = _存临时(v位置, ca, bcg) in
+    let (cb, bch) =
+      len(v位置们) = 1 ?
+        _存临时(v位置们[0], ca, bcg) :
+        _存解构逆序(_发(ca, [OP_UNPACK_SEQ, len(v位置们)]), bcg,
+                    v位置们, len(v位置们) - 1) in
     (* 循环体（栈平衡）；break/continue（29b-⑦）经 _推循环帧 记入本循环帧 *)
     let (cc, sc2, bci) = _发射体(e["体"], cb, sc, _推循环帧(bch), 假) in
     (* i += 1 *)
