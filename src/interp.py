@@ -1278,6 +1278,8 @@ class Interpreter:
         self._engine_active: bool = False
         # 递归深度缩进，让 _eval / _exec_stmt / _call_lambda 嵌套可读
         self._depth: int = 0
+        # 37c 链式 let rec 注册表栈：链头预绑整链 rec 名，成员复用未填占位
+        self._rec_chain: list[dict] = []
         # 若开启 debug 但尚未配置 handler，自动装一个 stderr handler
         if self.debug and not any(
             isinstance(h, logging.StreamHandler) and not isinstance(h, logging.NullHandler)
@@ -1420,13 +1422,22 @@ class Interpreter:
         if isinstance(_me, list):
             _me.append((name, ph))
 
+    def _preregister_rec_chain(self, node) -> None:
+        """37c：链式 let rec 预注册（32-⑩ 真化）——沿 body 链收集 rec 名
+        （非 rec 成员跳过但继续走链）逐个预注册；带体链此前 body is None
+        条件漏注册，先定义闭包快照缺后定义名占位 → 未定义变量。"""
+        while isinstance(node, ast.LetBinding):
+            if node.is_recursive:
+                self._preregister_rec_let(node.name)
+            node = node.body
+
     def _exec_with_deferreds(self, decls, deferred: set, prefix: tuple) -> None:
         """递归执行声明，处理延迟调用。"""
-        # 32e：顶层互相递归 let rec 前向引用预注册（块体位在 CodeBlock 臂）
+        # 32e：顶层互相递归 let rec 前向引用预注册（块体位在 CodeBlock 臂）；
+        # 37c：链式带体 let rec 沿 body 链整链预注册
         for decl in decls:
-            if (isinstance(decl, ast.LetBinding) and decl.is_recursive
-                    and decl.body is None):
-                self._preregister_rec_let(decl.name)
+            if isinstance(decl, ast.LetBinding) and decl.is_recursive:
+                self._preregister_rec_chain(decl)
         for i, decl in enumerate(decls):
             key = prefix + (i,)
             self._log(logging.INFO, f"── decl[{key}] {type(decl).__name__} ──")
@@ -2424,13 +2435,16 @@ class Interpreter:
                 self._log(logging.DEBUG, f"CodeBlock ({len(stmt.stmts)} stmts)")
             # 预注册所有 let 绑定（支持递归自引用：sum_list = ...sum_list...）；
             # 32e：let rec 名预注册占位符（互相递归前向引用——闭包捕获共享
-            # 占位，let rec 求值复用同一占位符原地填充）
+            # 占位，let rec 求值复用同一占位符原地填充）；37c：带体链式
+            # let rec 沿 body 链整链预注册
             for s in stmt.stmts:
                 if isinstance(s, ast.LetBinding) and s.body is None:
                     if s.is_recursive:
                         self._preregister_rec_let(s.name)
                     else:
                         self.env.setdefault(s.name, None)
+                elif isinstance(s, ast.LetBinding) and s.is_recursive:
+                    self._preregister_rec_chain(s)
             for i, s in enumerate(stmt.stmts):
                 if self.debug:
                     self._log(logging.DEBUG, f"  block[{i}]")
@@ -2895,21 +2909,51 @@ class Interpreter:
             # 递归绑定：使用占位符使 lambda 闭包能引用自身
             is_rec = expr.is_recursive
             ph = None
+            pushed_chain = False
             if expr.is_recursive:
-                # 32e 勘误：表达式位 let-in 恒新建占位符——self.env 是跨闭包
-                # 调用持久的全局槽，链代码大量异函数同名 let rec（_go 族）
-                # 复用会在途占位对致 _ref 交叉串线（mb 面推导链 不可调用的值:
-                # True 实证）；Matha 闭包名解析走捕获 _matha_env 列表，全局槽
-                # 必须保持惰性。互递归前向引用仅语句位经块/程序入口预注册复用
-                # （_exec_with_deferreds / CodeBlock 臂 + LetBinding 语句臂）。
-                ph = _RecPlaceholder(expr.name)
-                ph._interp = self
-                self.env[expr.name] = ph
-                # 让 Lambda 捕获的 list 环境也包含占位符，
-                # 这样递归调用 _iter(...) 时能在闭包环境中解析到自身
-                me = getattr(self, '_matha_env', None)
-                if isinstance(me, list):
-                    me.append((expr.name, ph))
+                # 37c：链式 let rec 互递归预绑（32-⑩ 真化）——链头沿 body
+                # 链收集 rec 名（非 rec 成员跳过但继续走链）建注册表压栈，
+                # 逐名预绑占位符；链中成员（占位未填）复用注册表占位对，
+                # 占位对经 _ref 原地填充，先定义闭包可见后定义名。注册表
+                # 弹栈后同名恒新建（32e 勘误保留：全局槽跨闭包持久，链外
+                # 复用会 _ref 串线；成员复用守卫 _ref 未填同时掐断跨函数
+                # 在途占位串线——先定义成员填值后才轮到后续成员求值）。
+                # 语句位预注册（_preregister_rec_let / LetBinding 语句臂）
+                # 不经此路径。嵌套链同名成员为登记边界（env 槽被内层占位
+                # 覆写，注册表弹栈不还原 env）。
+                chain = self._rec_chain[-1] if self._rec_chain else None
+                top_ph = chain.get(expr.name) if chain else None
+                if top_ph is not None and top_ph._ref[0] is None:
+                    ph = top_ph
+                    me = getattr(self, '_matha_env', None)
+                    if isinstance(me, list):
+                        me.append((expr.name, ph))
+                else:
+                    names = []
+                    node = expr
+                    while isinstance(node, ast.LetBinding):
+                        if node.is_recursive:
+                            names.append(node.name)
+                        node = node.body
+                    registry = {}
+                    for nm in names:
+                        existing = self.env.get(nm)
+                        if (isinstance(existing, _RecPlaceholder)
+                                and existing._ref[0] is None):
+                            # 37c：块/程序入口已预注册的未填占位复用——同一
+                            # 占位对象原地填充，先定义闭包快照可见后定义名
+                            p = existing
+                        else:
+                            p = _RecPlaceholder(nm)
+                            p._interp = self
+                            self.env[nm] = p
+                            me = getattr(self, '_matha_env', None)
+                            if isinstance(me, list):
+                                me.append((nm, p))
+                        registry[nm] = p
+                    self._rec_chain.append(registry)
+                    pushed_chain = True
+                    ph = registry[expr.name]
             # 函数式绑定 let f(args) = body / let rec f(args) = body：
             # parser 把形参放在 expr.params，value 是裸函数体，需包装为 Lambda
             lb_params = getattr(expr, 'params', None)
@@ -2938,6 +2982,8 @@ class Interpreter:
             else:
                 r = val
             # 清理局部绑定（递归绑定保留在 env 中供闭包访问）
+            if pushed_chain:
+                self._rec_chain.pop()
             if not is_rec:
                 self.env.pop(expr.name, None)
             return r

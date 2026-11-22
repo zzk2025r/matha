@@ -2010,11 +2010,14 @@ class Compiler:
         """编译一个表达式节点并在栈上留值；插件规则用它编译子节点。"""
         self._emit_expr(node, scope, code)
 
-    def _literal_key(self, node) -> str:
+    def _literal_key(self, node):
+        # 36-①：字典字面量键自然类型（int/float/bool/str 原值入常量池）——
+        # 与宿主解释器键求值（DictLiteral 臂）、boot 镜像 _字典键、native
+        # dict_get val_eq 扫描同判；此前 IntegerLit 字符串化致 d[2] vm null。
         if isinstance(node, ast.StringLit):
             return node.value
-        if isinstance(node, ast.IntegerLit):
-            return str(node.value)
+        if isinstance(node, (ast.IntegerLit, ast.FloatLit, ast.BoolLit)):
+            return node.value
         return str(node)
 
     def _emit_load(self, name: str, scope: _Scope, code: list) -> None:

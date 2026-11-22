@@ -259,34 +259,37 @@ def test_36d_let_tuple_vm_squared(bootvm):
 # 附带发现登记锁（登记不修）
 # ============================================================
 
-def test_36x_vm_dict_intkey_registration():
-    """登记锁（维持）：vm 面 dict 字面量非字符串字面量键 str 归一
-    （compiler.py _literal_key IntegerLit→str）→ d[2] 缺失键 null
-    （29b-④ 语义）vs hi/mb int 键命中；vm 面 d["2"] 反向命中。
-    语料约定引号键，登记不修。"""
+def test_36x_vm_dict_intkey_true():
+    """vm 面 dict 字面量自然键真化（36-① 登记随 37d 退役）：compiler.py
+    _literal_key IntegerLit/FloatLit/BoolLit → 原值入常量池，d[2] int 键
+    命中、d["2"] 反向缺键 null，三面同判。"""
     src = 'let d = {"k": 1, 2: "v"} in 输出(d["k"])\n输出(d[2])'
     outs, err = exec_api.run_checked(src)
-    assert err is None and outs == [1, None], ("vm", outs, err)
+    assert err is None and outs == [1, "v"], ("vm", outs, err)
     hi, hi_err = _hi_interp(src)
     assert hi_err is None and hi == [1, "v"], ("hi", hi, hi_err)
     mb, mb_err = _boot_interp(src)
     assert mb_err is None and mb == [1, "v"], ("mb", mb, mb_err)
     rev = 'let d = {2: "v"} in 输出(d["2"])'
     outs, err = exec_api.run_checked(rev)
-    assert err is None and outs == ["v"], ("vm", outs, err)
+    assert err is None and outs == [None], ("vm", outs, err)
+    hi, hi_err = _hi_interp(rev)
+    assert hi_err is None and hi == [None], ("hi", hi, hi_err)
+    mb, mb_err = _boot_interp(rev)
+    assert mb_err is None and mb == [None], ("mb", mb, mb_err)
 
 
-def test_36x_blk_tail_binding_registration():
-    """登记锁（维持）：boot 块值 Binding 尾 { let x = 5 } 块值 5
-    vs vm/hi None（宿主 _BLOCK_TAIL_STMT_NODES 面）——34-③ 同族
-    Binding 尾未真化，登记不修（let 元组尾已随 36d 真化对齐）。"""
+def test_36x_blk_tail_binding_true():
+    """boot 块值 Binding 尾真化（36-② 登记随 37b 退役）：{ let x = 5 }
+    块值 null 三面同判（_块尾值 尾值映射——绑定/let绑定/let元组绑定尾
+    不回传值，宿主 _BLOCK_TAIL_STMT_NODES 同判）。"""
     src = "let r = { let x = 5 } in 输出(r)"
     outs, err = exec_api.run_checked(src)
     assert err is None and outs == [None], ("vm", outs, err)
     hi, hi_err = _hi_interp(src)
     assert hi_err is None and hi == [None], ("hi", hi, hi_err)
     mb, mb_err = _boot_interp(src)
-    assert mb_err is None and mb == [5], ("mb", mb, mb_err)
+    assert mb_err is None and mb == [None], ("mb", mb, mb_err)
 
 
 if __name__ == "__main__":

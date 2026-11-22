@@ -311,14 +311,17 @@ def test_31f_slice_tuple_pairs_interp_faces():
 
 
 def test_31f_slice_noncontainer_honest():
-    """非容器切片：宿主/插面同文案 MathaRuntimeError（VM 面诚实错形态登记）。"""
+    """非容器切片：三面同文案 MathaRuntimeError（31-③ 登记随 37a 退役——
+    31f 真化后编译面 raise_rt 与解释面同源，vm 面文案+类型同步同判）。"""
     src = "输出(5[1:2])"
     hi, hi_err = _hi_interp(src)
     assert hi_err is not None and "切片操作不支持: int[1:2]" in str(hi_err), hi_err
     mb, mb_err = _boot_interp(src)
     assert mb_err is not None and "切片操作不支持: int[1:2]" in str(mb_err), mb_err
     outs, err = exec_api.run_checked(src)
-    assert err is not None, (outs, err)
+    assert err is not None and "切片操作不支持: int[1:2]" in str(err), (outs, err)
+    from src.kernel.errors import MathaRuntimeError
+    assert isinstance(err, MathaRuntimeError), type(err)
 
 
 # ============================================================

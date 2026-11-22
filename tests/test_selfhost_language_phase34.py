@@ -439,8 +439,8 @@ def test_34x_dict_bare_key_true():
     """真化改锁（34-⑤ 退役）：boot 字典字面量裸键 {a: 1} 析为键字符串
     "a"（interp_matha/interp.matha 求值字典 _字典键 臂，宿主 interp.py
     2947-2951 键面同构）——未定义变量分歧退役三面同判；引号键维持。
-    vm 面非字符串字面量键（int 键 str 归一 _literal_key）分歧另行登记，
-    见 test_selfhost_language_phase36.test_36x_vm_dict_intkey_registration。"""
+    vm 面非字符串字面量键分歧已随 37d 自然键真化退役，
+    见 test_selfhost_language_phase36.test_36x_vm_dict_intkey_true。"""
     bare = "let d = {a: 1} in { 输出(d) }\n"
     _three_faces("dict_bare", bare, [{"a": 1}])
     quoted = 'let d = {"a": 1} in { 输出(d) }\n'

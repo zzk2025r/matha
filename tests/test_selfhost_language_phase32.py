@@ -437,18 +437,15 @@ def test_32e_blk_mutual_stage3_run(bvm):
     assert vm2.run() == [True, False, False]
 
 
-def test_32e_chained_mutual_honest_divergence():
-    """链式 let-in 表达式互递归：登记分歧锁（32f ③）。
+def test_32e_chained_mutual_true():
+    """链式 let-in 表达式互递归：三面真化同判 [0]（32-⑩ 登记随 37c 退役）。
 
-    vm 面 [0]（编译面 LOAD_GLOBAL 晚绑定——b 调用时已在全局）vs
-    hi/mb 面 未定义变量 'b'（解释面 lambda 定义时刻捕获 env——a 的
-    闭包先于 b 定义物化）。本质分歧：编译面符号解析 vs 解释面
-    词法捕获时刻。三面行为各自如实锁定。"""
+    37c 前分歧：vm 面 [0]（编译面 LOAD_GLOBAL 晚绑定）vs hi/mb 面
+    未定义变量 'b'（解释面 lambda 定义时刻捕获 env）。37c 链头收集
+    body 链 rec 名预绑占位、成员复用未填占位后 hi/mb 收敛 vm 面。"""
     outs, err = exec_api.run_checked(_CHAINED_MUTUAL)
     assert err is None and outs == [0], (outs, err)
     hi, hi_err = _hi_interp(_CHAINED_MUTUAL)
-    assert hi is None and hi_err is not None
-    assert "未定义变量 'b'" in str(hi_err), hi_err
+    assert hi_err is None and hi == [0], (hi, hi_err)
     mb, mb_err = _boot_interp(_CHAINED_MUTUAL)
-    assert mb is None and mb_err is not None
-    assert "未定义变量 'b'" in str(mb_err), mb_err
+    assert mb_err is None and mb == [0], (mb, mb_err)

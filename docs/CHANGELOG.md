@@ -578,6 +578,40 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   三锁按真化退役改锁（34f×2 + 34x 裸键）+ phase35 35a 登记锁改锁
   test_35a_let_tuple_mb_true；登记不修清单见 KNOWN_ISSUES 阶段 36
   收官条目。
+- 阶段 37 语言面清尾批（五项登记分歧退役：32-② 31-③ 协议一致锁 +
+  32-⑩ 36-① 36-② 真化，主线拍板走推荐项「A：语言面清尾批」）：
+  **37a 陈旧登记退役**——32-② 空括号 () 三面早已统一零参调用约定
+  （() 降糖 IntegerLit(0)，f() = f(0)，表达式位 () 即 0）与 31-③ 非
+  容器切片三面早已统一 MathaRuntimeError 同文案「切片操作不支持:
+  int[1:2]」（31f 真化后编译面 raise_rt 与解释面同源），均无行为改动，
+  协议一致锁防漂移；**37b 块尾 Binding 值模型收尾（36-② 退役 + 同族
+  顺手真修）**——interp_matha 绑定求值let 无体臂 (v, env)→(null, env)
+  + interp.matha 同形 + 表达式位块（求值程序/求值 程序 臂）尾值
+  `_块尾值` 映射（绑定/let绑定/let元组绑定尾不回传值，宿主
+  _BLOCK_TAIL_STMT_NODES 头三族；程序位顶层 run_ast → 执行语句保持
+  「程序值 = 尾表达式值」约定不映射——首稿映射置 执行声明列表 尾泄漏
+  程序位，门禁 run1 phase8pre gapfix 四红抓获即修收窄至表达式位）
+  ——四形态三面 + VM² 同判 [None]，有体 let 尾与裸赋值尾同族收敛；
+  **37c 链式 let rec 互递归真化（32-⑩ 退役）**——interp.py 表达式位
+  LetBinding 链头收集 body 链 rec 名建注册表压栈（`_rec_chain`）逐名
+  预绑占位，成员复用未填占位（_ref 未填守卫——32e 勘误保留：弹栈后
+  同名恒新建、跨函数在途占位不串线）+ 块/程序入口预注册沿 body 链整链
+  （`_preregister_rec_chain`——37c 前 body is None 条件漏带体链）+
+  interp_matha/interp.matha 预绑链占位镜像 + 占位复用守卫——三面 +
+  VM² 同判 [0]；**37d 字典自然键真化（36-① 退役）**——compiler.py
+  `_literal_key` IntegerLit/FloatLit/BoolLit 原值入常量池（此前 int 键
+  字符串化致 d[2] vm null）+ parser.matha `花括号种类` 数字/布尔首
+  token 冒号前瞻 → 字典（此前 mb/VM² 误析集合）——int/float/bool/str
+  键 + d["2"] 反向 null 三面 + VM² 同判；boot 编译器/解释器/native 随
+  既有路径自然同判零改动。附带发现登记：vm/hi 输出尾块值 host 内部
+  分歧（编译面语句尾 PUSH_NULL vs 解释面输出通道规则）+ mb 面集合
+  构造求值未知表达式类型 + 37c 嵌套链同名成员 env 槽覆写边界。A 轨
+  新档 test_selfhost_language_phase37（19 项：37a 协议一致锁 ×4 +
+  37b 四形态三面+VM²+中性 / 37c 四形态三面+VM²+回归 / 37d 三面+VM²+
+  中性 / 37x 登记锁 ×2）+ 旧锁真化改锁四处（phase31 31f vm 面文案+
+  类型加强、phase32 test_32e_chained_mutual_true、phase36
+  test_36x_vm_dict_intkey_true / test_36x_blk_tail_binding_true）；
+  登记不修清单见 KNOWN_ISSUES 阶段 37 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

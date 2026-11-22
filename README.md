@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 186（`tests/`）
+- **测试文件：** 187（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -380,6 +380,30 @@ vm 面编译路径字典字面量非字符串键（compiler `_literal_key` Integ
 `d["2"]` vm 命中）；boot 面块尾 Binding `{ let x = 5 }` 块值 mb [5] vs
 vm/hi [None]（34-③ 同族 Binding 尾未真化）。
 
+语言面清尾批（阶段 37）：五项登记分歧退役（32-② 31-③ 协议一致锁 +
+32-⑩ 36-① 36-② 真化）+ 同族顺手真修。37a 陈旧登记退役：32-② 空括号
+() 三面早已统一零参调用约定（() 降糖 IntegerLit(0)，f() = f(0)，表达式
+位 () 即 0）与 31-③ 非容器切片三面早已统一 MathaRuntimeError 同文案
+「切片操作不支持: int[1:2]」——协议一致锁防漂移。37b 块尾 Binding 值
+模型收尾：interp_matha 绑定求值let 无体臂 (v, env)→(null, env) +
+interp.matha 同形 + 表达式位块（求值程序/求值 程序 臂）尾值 `_块尾值`
+映射（绑定/let绑定/let元组绑定尾不回传值；程序位顶层 run_ast → 执行
+语句保持「程序值 = 尾表达式值」约定不映射——phase8pre gapfix 程序值
+锁同源）——`{ let x = 5 }` 等四形态三面 + VM²
+同判 [None]，有体 let 尾与裸赋值尾同族顺手真修（36-② 退役）。37c 链式
+let rec 互递归真化：interp.py 表达式位 LetBinding 链头收集 body 链
+rec 名建注册表压栈（`_rec_chain`）逐名预绑占位、成员复用未填占位
+（_ref 未填守卫，32e 勘误保留）+ 块/程序入口预注册沿 body 链整链
+（`_preregister_rec_chain`）+ interp_matha/interp.matha 预绑链占位镜像
+——`let rec a = … b(n-1) … in let rec b = … a(n-1) …` 三面 + VM² 同判
+[0]（32-⑩ 退役）。37d 字典自然键真化：compiler.py `_literal_key`
+IntegerLit/FloatLit/BoolLit 原值入常量池（此前 int 键字符串化致 d[2]
+vm null）+ parser.matha `花括号种类` 数字/布尔首 token 冒号前瞻 → 字典
+（此前 mb/VM² 误析集合）——int/float/bool/str 键 + d["2"] 反向 null
+三面 + VM² 同判（36-① 退役）。附带发现登记：vm/hi 输出尾块值 host
+内部分歧（编译面语句尾 PUSH_NULL vs 解释面输出通道规则）+ mb 面集合
+构造求值未知表达式类型 + 37c 嵌套链同名成员 env 槽覆写边界。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -401,7 +425,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（186 个文件）
+├── tests/                  # 测试套件（187 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

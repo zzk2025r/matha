@@ -1015,8 +1015,12 @@ module 语法器 {
   func 花括号种类(p2: 解析器) -> String =
     let t = 当前(p2).类型 in
     if t = 类型.右括号花 then "集合"
-    else if 是逗号类型(t) or t = 类型.管道 or t = 类型.整数 or
-            t = 类型.浮点 or t = 类型.布尔 then "集合"
+    else if 是逗号类型(t) or t = 类型.管道 then "集合"
+    else if t = 类型.整数 or t = 类型.浮点 or t = 类型.布尔 then
+      (* 36-①：数字/布尔首 token + 冒号 → 字典字面量（宿主
+         _parse_brace_dispatch 整数/浮点/布尔 + OP_COLON 同判）；
+         否则集合枚举 {1, 2, 3} 维持 *)
+      当前(推进(p2)).类型 = 类型.冒号 ? "字典" : "集合"
     else if t = 类型.字符串 then
       let t2 = 当前(推进(p2)).类型 in
       if t2 = 类型.冒号 then "字典"

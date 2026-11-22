@@ -168,10 +168,17 @@ module 解释器 {
   (* 29d：程序（块体）表达式位（宿主块体函数体同位）——顺序执行声明取末
      值，空体 null；绑定仅在块内存活（返回值面，环境丢弃）。宿主块体
      lambda 体 _eval 逐语句同构。29b06 块体用例此前 boot 面落入未知
-     表达式类型兜底报错（被 interpret 静默回退 Python 面掩盖）。 *)
+     表达式类型兜底报错（被 interpret 静默回退 Python 面掩盖）。
+     36-②：块尾绑定族不回传值（宿主 _eval_block_value 同位）——映射仅
+     此表达式位应用，程序位顶层（run_ast → 执行语句）保持尾表达式值。 *)
   func 求值程序(prog: Dict, env: List) -> Value = (prog, env) =>
+    let ds = prog["声明"] in
+    ds = [] ? null :
     let (v, 忽略) = 执行语句列表(prog, env) in
-    v
+    _块尾值(_尾声明(ds), v)
+
+  func _尾声明(ds: List) -> Dict = (ds) =>
+    ds[1:] = [] ? ds[0] : _尾声明(ds[1:])
 
   (* 绑定表达式：let x = expr in body *)
   func 求值绑定(binding: Dict, env: List) -> (Value, List) = (binding, env) =>
@@ -194,18 +201,30 @@ module 解释器 {
     env = [] ? 假 :
     env[0][0] = name ? 真 : 环境包含(env[1:], name)
 
+  (* 37c：链式 let rec 互递归预绑（32-⑩ 真化，宿主 interp.py 链头收集
+     镜像）——沿 体 链收集 rec 名逐个预绑占位对（非 rec 成员跳过但继续
+     走链）；占位对经 更新绑定值 原地填充，链内闭包共享同一对。 *)
+  func 预绑链占位(expr: Dict, env: List) -> List =
+    let env1 = expr["递归"] ?
+      绑定环境(env, expr["名"], "__递归占位__") : env in
+    expr["有体"] ?
+      (expr["体"]["类型"] = "let绑定" ?
+        预绑链占位(expr["体"], env1) :
+        env1) :
+      env1
+
   func 求值let绑定(expr: Dict, env: List) -> Value = (expr, env) =>
     expr["递归"] ? 求值递归let(expr, env) : 求值非递归let(expr, env)
 
   func 求值递归let(expr: Dict, env: List) -> Value = (expr, env) =>
-    (* 32e：互相递归真化——已有占位对（预绑递归let 预绑）复用同一对，
-       更新绑定值 原地改写共享对，先定义闭包的捕获表可见后定义名；
-       无占位（单自引用/遮蔽外层）照旧新建占位对。环境包含 先判（查找
-       环境缺名抛错），嵌套三元保双面短路。 *)
+    (* 32e：已有占位对（预绑递归let 预绑）复用同一对，更新绑定值 原地
+       改写共享对；37c：无占位时沿链预绑（预绑链占位）——链式 let rec
+       互递归成员前向可见。环境包含 先判（查找环境缺名抛错），嵌套三元
+       保双面短路。 *)
     let env1 = 环境包含(env, expr["名"]) ?
       (查找环境(env, expr["名"]) = "__递归占位__" ? env :
-        绑定环境(env, expr["名"], "__递归占位__")) :
-      绑定环境(env, expr["名"], "__递归占位__") in
+        预绑链占位(expr, env)) :
+      预绑链占位(expr, env) in
     let v = 求值(expr["值"], env1) in
     let env2 = 更新绑定值(env1, expr["名"], v) in
     if expr["有体"] then 求值(expr["体"], env2) else v
@@ -220,19 +239,21 @@ module 解释器 {
      顶层若走它会丢弃新 env → 「未定义变量」）。 *)
   func 绑定求值let(expr: Dict, env: List) -> (Value, List) = (expr, env) =>
     if expr["递归"] then
-      (* 32e：已有占位对（预绑递归let 预绑）复用同一对，原地填充共享；
+      (* 32e：已有占位对复用同一对原地填充共享；37c：无占位时沿链预绑；
          环境包含 先判（查找环境缺名抛错），嵌套三元保双面短路 *)
       let env1 = 环境包含(env, expr["名"]) ?
         (查找环境(env, expr["名"]) = "__递归占位__" ? env :
-          绑定环境(env, expr["名"], "__递归占位__")) :
-        绑定环境(env, expr["名"], "__递归占位__") in
+          预绑链占位(expr, env)) :
+        预绑链占位(expr, env) in
       let v = 求值(expr["值"], env1) in
       let env2 = 更新绑定值(env1, expr["名"], v) in
-      if expr["有体"] then (求值(expr["体"], env2), env2) else (v, env2)
+      (* 36-②：块尾 let 无体 → null（宿主 _BLOCK_TAIL_STMT_NODES 面，
+         Binding 尾不回传值；35-① 绑定求值let元组 同形） *)
+      if expr["有体"] then (求值(expr["体"], env2), env2) else (null, env2)
     else
       let v = 求值(expr["值"], env) in
       let env1 = 绑定环境(env, expr["名"], v) in
-      if expr["有体"] then (求值(expr["体"], env1), env1) else (v, env1)
+      if expr["有体"] then (求值(expr["体"], env1), env1) else (null, env1)
 
   (* 35-①：let (a, b) = expr [in body] 表达式位求值（宿主 interp.py
      LetTupleBinding _eval 镜像）——解构经 _解构绑定元组（闭包标记 4 元组
@@ -922,6 +943,14 @@ module 解释器 {
     if 信号种类(v) != null then (v, env2)
     else if items[1:] = [] then (v, env2)
     else _执行单元列表(items[1:], env2)
+
+  (* 36-② 收尾（37 顺手真修）：块尾值模型——绑定/let绑定/let元组绑定尾
+     不回传值（宿主 _BLOCK_TAIL_STMT_NODES 头三族；函数定义 臂 36b 已
+     null）。仅表达式位块（求值程序）应用；程序位顶层（run_ast → 执行
+     语句）保持「程序值 = 尾表达式值」约定不映射（phase8pre gapfix 锁）。 *)
+  func _块尾值(decl: Dict, v: Value) -> Value =
+    let t = decl["类型"] in
+    ((t = "绑定") or (t = "let绑定") or (t = "let元组绑定")) ? null : v
 
   func 执行声明列表(decls: List, env: List) -> (Value, List) = (decls, env) =>
     if decls = [] then

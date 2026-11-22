@@ -96,24 +96,43 @@ module 解释器 {
     expr.类型 = "match" ? 求值match(expr, env) :
     expr.类型 = "程序" ?
       (* 34-②：表达式位花括号 if 分支为程序节点（宿主 CodeBlock 块值
-         模型同位）——块执行取尾值 *)
+         模型同位）——块执行取尾值；36-②：块尾绑定族不回传值（宿主
+         _eval_block_value 同位）——映射仅表达式位应用，程序位顶层
+         （执行语句）保持「程序值 = 尾表达式值」约定不映射 *)
+      let ds = expr.声明 in
+      ds = [] ? null :
       let (r, ig) = 执行语句列表(expr, env) in
-      r :
+      _块尾值(_尾声明(ds), r) :
     错误("未知表达式类型: " + expr.类型)
 
+  (* 37c：链式 let rec 互递归预绑（32-⑩ 真化，宿主链头收集镜像）——
+     沿 体 链收集 rec 名逐个预绑占位对（非 rec 成员跳过但继续走链）；
+     占位对经 更新绑定值 原地填充，链内闭包共享同一对。 *)
+  func 预绑链占位(expr: Dict, env: List) -> List =
+    let env1 = expr.递归 ? 绑定环境(env, expr.名, "__递归占位__") : env in
+    if expr.有体 then
+      (if expr.体.类型 = "let绑定" then 预绑链占位(expr.体, env1) else env1)
+    else
+      env1
+
   (* let [rec] 名 = 值 [in 体] —— 返回 (结果值, 新环境)
-     递归：占位符绑定 → 求值 → 原地更新（闭包捕获的 env 同步看到真实值）
+     递归：占位符绑定 → 求值 → 原地更新（闭包捕获的 env 同步看到真实值）；
+     37c：无占位时沿链预绑（预绑链占位）——链式互递归成员前向可见
      非递归：先求值后绑定（标准词法作用域，值中不可引用绑定名） *)
   func 绑定求值let(expr: Dict, env: List) -> (Value, List) =
     if expr.递归 then
-      let env1 = 绑定环境(env, expr.名, "__递归占位__") in
+      let env1 = 环境包含(env, expr.名) ?
+        (查找环境(env, expr.名) = "__递归占位__" ? env :
+          预绑链占位(expr, env)) :
+        预绑链占位(expr, env) in
       let v = 求值(expr.值, env1) in
       let env2 = 更新绑定值(env1, expr.名, v) in
-      if expr.有体 then (求值(expr.体, env2), env2) else (v, env2)
+      (* 36-②：块尾 let 无体 → null（宿主 _BLOCK_TAIL_STMT_NODES 面） *)
+      if expr.有体 then (求值(expr.体, env2), env2) else (null, env2)
     else
       let v = 求值(expr.值, env) in
       let env1 = 绑定环境(env, expr.名, v) in
-      if expr.有体 then (求值(expr.体, env1), env1) else (v, env1)
+      if expr.有体 then (求值(expr.体, env1), env1) else (null, env1)
 
   (* 属性求值 =====
      1. 对象变量已绑定且为 struct 实例 / enum 命名空间 → 字段/构造子访问；
@@ -394,6 +413,17 @@ module 解释器 {
   func 执行声明列表(decls: List, env: List) -> (Value, List) =
     let env0 = 预绑定函数(decls, env) in
     执行声明列表已预绑(decls, env0)
+
+  (* 36-② 收尾（37 顺手真修）：块尾值模型——绑定/let绑定/let元组绑定尾
+     不回传值（宿主 _BLOCK_TAIL_STMT_NODES 头三族；函数定义 臂 36b 已
+     null）。仅表达式位块（求值 程序 臂）应用；程序位顶层（执行语句）
+     保持「程序值 = 尾表达式值」约定不映射（phase8pre gapfix 锁）。 *)
+  func _块尾值(decl: Dict, v: Value) -> Value =
+    let t = decl.类型 in
+    ((t = "绑定") or (t = "let绑定") or (t = "let元组绑定")) ? null : v
+
+  func _尾声明(ds: List) -> Dict = (ds) =>
+    ds[1:] = [] ? ds[0] : _尾声明(ds[1:])
 
   (* 返回最后一条声明的结果（程序值 = 尾表达式值） *)
   func 执行声明列表已预绑(decls: List, env: List) -> (Value, List) =

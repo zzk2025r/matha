@@ -2187,6 +2187,58 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 37 收官（语言面清尾批：五项登记分歧退役——32-② 31-③ 协议一致
+  锁 + 32-⑩ 36-① 36-② 真化，同族顺手真修）**：方向拍板走推荐项「A：语言面清尾
+  批」（五项一批收官）。**37a 陈旧登记退役（协议一致锁——三面已收敛，无行为改
+  动）**：32-② 空括号 () 解析——三面早已统一零参调用约定（() 降糖
+  IntegerLit(0)，f() = f(0)，表达式位 () 即 0），登记「解析歧义」陈旧；
+  31-③ VM 非容器切片异常载体——三面早已统一 MathaRuntimeError 同文案「切片操
+  作不支持: int[1:2]」（31f 真化后编译面 raise_rt 与解释面同源），登记「VM 原
+  生异常形态」陈旧；31f 旧锁同步加强（vm 面文案+类型同判）。**37b 块尾 Binding
+  值模型收尾（36-② 退役 + 同族顺手真修）**：interp_matha 绑定求值let 无体臂
+  (v, env)→(null, env) + interp.matha 同形（36-② 登记形态 { let x = 5 }）+
+  表达式位块（求值程序/求值 程序 臂）尾值 `_块尾值` 映射（绑定/let绑定/
+  let元组绑定尾不回传值——宿主 _BLOCK_TAIL_STMT_NODES 头三族；程序位顶层
+  run_ast → 执行语句保持「程序值 = 尾表达式值」约定不映射——phase8pre gapfix
+  程序值锁同源）——四形态三面 + VM² 同判 [None]；有体 let 尾 { let x = 10 in
+  x * 12 } 与裸赋值尾 { x = 5 } 同族收敛（此前 mb/VM² 回传值 vs vm/hi None）。
+  **37c 链式 let rec 互递归真化（32-⑩ 退役）**：interp.py 表达式位 LetBinding
+  链头收集 body 链 rec 名建注册表压栈（`_rec_chain`）逐名预绑占位符，成员复用
+  未填占位（_ref 未填守卫——32e 勘误保留：弹栈后同名恒新建、跨函数在途占位不串
+  线）；块/程序入口预注册沿 body 链整链（`_preregister_rec_chain`——37c 前
+  body is None 条件漏带体链，先定义闭包快照缺后定义名）；interp_matha/
+  interp.matha 预绑链占位镜像 + 占位复用守卫——三面 + VM² 同判 [0]。
+  **37d 字典自然键真化（36-① 退役）**：compiler.py `_literal_key`
+  IntegerLit/FloatLit/BoolLit 原值入常量池（此前 int 键字符串化致 d[2] vm
+  null）+ parser.matha `花括号种类` 数字/布尔首 token 冒号前瞻 → 字典（此前
+  mb/VM² 误析集合）——int/float/bool/str 键 + d["2"] 反向 null 三面 + VM² 同
+  判；boot 编译器/解释器/native 随既有路径自然同判零改动。
+  **门禁**：全量 tests lane 两跑——run1 7825 过 + 4 红 + 1 skip 4363.42s（4 红
+  全为 37b 首稿映射置 执行声明列表 尾泄漏程序位踩中的 phase8pre gapfix 程序值
+  锁案——文件在修复前跑过；修复后定向复跑 gapfix+phase8a+bootstrap_host
+  141/141 绿）→ 37b 收窄至表达式位 → run2 干净 7829 过 + 1 平台 skip
+  4291.54s 零红；kernel_purity 14 + ast_vm_gap 11（快照零扰动无需重生成——
+  指令码不变）+ golden 39/39 + dep_audit 39 内核文件 189 import 边 0 违规 +
+  native_parity 38/39（0 失败，native 已知未实现 1 例不计分母）+ Track B
+  selfhost_matrix --check 一致（快照零扰动——225 分类不变，语料不含四族真化形
+  态）。算术闭合：7933 条件 = 7932 过（tests 7829 + purity 14 + ast_vm_gap 11
+  + golden 39 + native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 7914
+  （36 条件）+ 19（test_selfhost_language_phase37）。doc 同步：README（阶段 37
+  段 + 测试文件 187 ×2）；ARCHITECTURE（本体量 33,433→33,436（+3 = 37d
+  compiler.py `_literal_key` +6−3；interp.py 表达式位链注册与 matha/*.matha
+  镜像不在 core_py_lines 口径）+ 阶段 37 节 + 测试文件 187）；CHANGELOG 阶段 37
+  条目。登记不修三条（2026-11-22 收官实测，均有登记锁防漂移）：①vm/hi 输出尾
+  块值 host 内部分歧（编译面语句尾 PUSH_NULL vs 解释面输出通道规则；
+  test_37x_output_tail_block_value_registration 防漂移）②mb 面集合构造求值
+  「未知表达式类型: 集合构造」（test_37x_mb_set_construct_eval_registration 防
+  漂移）③37c 嵌套链同名成员 env 槽被内层占位覆写（注册表弹栈不还原 env——
+  单调用形态三面同判锁 test_37c_nested_same_name_three_faces 防漂移）。退役五
+  条：32-②（空括号 () 解析歧义）、31-③（VM 非容器切片原生异常形态）、32-⑩
+  （链式 let-in 表达式互递归 vm [0] vs hi/mb 未定义变量）、36-①（vm 字典字面
+  量非字符串键 d[2] null）、36-②（boot 块尾 Binding mb [5] vs vm/hi [None]）。
+  承继：35-②（m3v 编译态 try/catch 不捕获运行期错误）+ 33-⑤（mb 词法器递归深
+  度上限）+ 32-⑧⑫ + 31-⑧⑨ + 28-⑧ + 29-①⑥⑦ 维持原登记不修。
+
 - **2026-11 阶段 36 收官（mb/boot 面收口批：四项登记分歧真化，35-① +
   34-②③⑤ 退役）**：方向拍板走推荐项「A：mb/boot 面收口批」（四项一
   批收官）。**36a 表达式位花括号 if**（34-② 退役）：boot parser.matha
