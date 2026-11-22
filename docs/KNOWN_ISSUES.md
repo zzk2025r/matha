@@ -2187,6 +2187,52 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 36 收官（mb/boot 面收口批：四项登记分歧真化，35-① +
+  34-②③⑤ 退役）**：方向拍板走推荐项「A：mb/boot 面收口批」（四项一
+  批收官）。**36a 表达式位花括号 if**（34-② 退役）：boot parser.matha
+  解析if表达式补花括号分支（宿主 _parse_if_expr_impl 语句形式分支同构：
+  解析语句列表块体 + 期望右括号花；else 附着仅 否则 关键字，英文 else
+  不消费；无 否则 假分支=null 33d 同形）+ interp.matha 求值 程序 臂
+  （块执行取尾值，宿主 CodeBlock 块值模型同位）——六形态三面同判 +
+  输出尾块值 [5, 6] + 语句位 if 花括号控制流中性维持。**36b mb 面块尾
+  func 定义块值真化**（34-③ 退役）：interp_matha 执行语句/执行声明
+  函数定义臂 (closure, env2) → (null, env2)（函数仍入 env 仅值面不回
+  传，宿主 FuncDef 执行返 None 同构）+ interp.matha 双臂镜像——块值
+  [None] 三面同判、blk_used `f()` [1] 维持。**36c boot 字典裸键真化**
+  （34-⑤ 退役）：interp_matha/interp.matha 求值字典 `_字典键` helper
+  （"变量" 键析为字符串键名，其余求值）——`{a: 1}` ≡ `{"a": 1}` 四面
+  同判。**36d mb 表达式位 let 元组绑定真化**（35-① 退役）：
+  interp_matha 求值let元组/绑定求值let元组 + `_解构绑定元组`（闭包
+  标记 ["__closure__",参数,体,env] 跳参绑定镜像宿主，懒三元防 eager
+  and/or 陷阱；错误「解构失败：期望 N 个元素，实际 <类型名>」四面同
+  文案，FuncDef/Lambda → function 同判）+ 求值/执行语句/执行声明 三臂
+  路由。boot 编译器零改动（_发射体 null/程序 臂与 _发射块末条 留值
+  PUSH_NULL 宿主同构已具备；_发射字典键面已归一）。
+  **门禁**：全量 tests lane 7810 过 + 1 平台 skip 4145.01s 首跑零红 +
+  kernel_purity 14 + ast_vm_gap 11（快照零扰动无需重生成——src/ 零
+  改动指令码不变）+ golden 39/39 + dep_audit 39 内核文件 189 import 边
+  0 违规 + native_parity 38/39（0 失败，native 已知未实现 1 例不计
+  分母）+ Track B selfhost_matrix --check 一致（快照零扰动——225 分类
+  不变，语料不含四族真化形态）。算术闭合：7914 条件 = 7913 过（tests
+  7810 + purity 14 + ast_vm_gap 11 + golden 39 + native 38 + dep_audit
+  1）+ 1 skip（平台 skip 承继）= 7891（35 条件）+ 23
+  （test_selfhost_language_phase36）。doc 同步：README（阶段 36 段 +
+  测试文件 186 ×2）；ARCHITECTURE（本体量 33,433 不变——四片全在
+  matha/{parser,interp_matha,interp}.matha 自举镜像不在 core_py_lines
+  口径 + 阶段 36 节 + 测试文件 186）；CHANGELOG 阶段 36 条目。
+  登记不修三条（2026-11-22 收官实测，均有登记锁防漂移）：
+  ①vm 面编译路径字典字面量非字符串键（compiler `_literal_key`
+  IntegerLit→"2" 字符串化 + INDEX_GET 缺键 null——`d[2]` vm null vs
+  hi/mb "v"、`d["2"]` vm 命中；test_36x_vm_dict_intkey_registration
+  防漂移）②boot 面块尾 Binding `{ let x = 5 }` 块值 mb [5] vs
+  vm/hi [None]（34-③ 同族 Binding 尾未真化；
+  test_36x_blk_tail_binding_registration 防漂移）③承继：35-②（m3v
+  编译态 try/catch 不捕获运行期错误）+ 33-⑤（mb 词法器递归深度上限）+
+  32-②⑧⑩⑫ + 31-③⑧⑨ + 28-⑧ + 29-①⑥⑦ 维持原登记不修。退役四条：
+  35-①（mb 表达式位 let 元组绑定 honest reject）、34-②（mb 表达式位
+  if 无 then 解析拒绝）、34-③（func 体块尾 mb 块值 '<function>'）、
+  34-⑤（boot 字典裸键析为变量引用）。
+
 - **2026-11 阶段 35 收官（自举解构贯穿：UNPACK_SEQ 长度守卫四执行体 + boot
   编译器 for 解构发射真化，34-①④ 同根退役）**：主线拍板走推荐项「自举
   解构贯穿」（32-② 受控切片模式延续——S1 运行时面先行、S2 发射面后切）。

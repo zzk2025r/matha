@@ -94,6 +94,11 @@ module 解释器 {
       let (r, new_env_after) = 绑定求值let(expr, env) in
       r :
     expr.类型 = "match" ? 求值match(expr, env) :
+    expr.类型 = "程序" ?
+      (* 34-②：表达式位花括号 if 分支为程序节点（宿主 CodeBlock 块值
+         模型同位）——块执行取尾值 *)
+      let (r, ig) = 执行语句列表(expr, env) in
+      r :
     错误("未知表达式类型: " + expr.类型)
 
   (* let [rec] 名 = 值 [in 体] —— 返回 (结果值, 新环境)
@@ -197,11 +202,16 @@ module 解释器 {
 
   (* 字典字面量 {k1: v1, k2: v2}：键/值为并行列表（对齐宿主 DictLiteral）。
      先逐对求值收集 [[k, v], ...]，再经 dict_from_pairs 构建真实字典
-     （折叠 _dict_put + _empty_dict 原语，宿主/VM 两端均已提供）。 *)
+     （折叠 _dict_put + _empty_dict 原语，宿主/VM 两端均已提供）。
+     34-⑤：裸键归一（宿主 interp.py 2947-2951 键面同构）——Variable 键
+     节点取 名 字符串，其余键照常求值。 *)
+  func _字典键(k: Dict, env: List) -> Value =
+    k.类型 = "变量" ? k.名 : 求值(k, env)
+
   func 求值字典(keys: List, vals: List, env: List) -> Dict =
     let rec _go(i: Int, acc: List) -> List =
       if i >= len(keys) then acc
-      else _go(i + 1, acc + [[求值(keys[i], env), 求值(vals[i], env)]])
+      else _go(i + 1, acc + [[_字典键(keys[i], env), 求值(vals[i], env)]])
     in dict_from_pairs(_go(0, []))
 
   (* 运算分发 ===== *)
@@ -362,16 +372,17 @@ module 解释器 {
   func 执行函数定义(decl: Dict, env: List) -> (Value, List) =
     let lam = 做Lambda(decl.参数, decl.体) in
     if 环境包含(env, decl.名) then
-      (* 预绑定路径：env 已含占位符，求值后原地更新为真实闭包 *)
+      (* 预绑定路径：env 已含占位符，求值后原地更新为真实闭包；
+         34-③：块值 null（宿主块值模型 FuncDef 尾不回传） *)
       let closure = 求值(lam, env) in
       let env2 = 更新绑定值(env, decl.名, closure) in
-      (closure, env2)
+      (null, env2)
     else
       (* 未预绑定路径：先绑占位符再求值再更新，闭包经共享 pair 看到自身 *)
       let env1 = 绑定环境(env, decl.名, "__函数占位__") in
       let closure = 求值(lam, env1) in
       let env2 = 更新绑定值(env1, decl.名, closure) in
-      (closure, env2)
+      (null, env2)
 
   func 执行语句列表(stmts: Dict, env: List) -> (Value, List) =
     if stmts.类型 = "程序" then

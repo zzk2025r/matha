@@ -553,6 +553,31 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   + 35b parity·M3V runs·try/catch 登记锁）+ test_native.py 解构节
   宽松锁改诚实锁（3→4）+ phase34 34e 编译面诚实拒绝锁按真化退役改锁
   UNPACK_SEQ 发射；登记不修清单见 KNOWN_ISSUES 阶段 35 收官条目。
+- 阶段 36 mb/boot 面收口批（四项登记分歧真化收官，35-① + 34-②③⑤
+  退役）：**36a 表达式位花括号 if 真化**——boot parser.matha 解析if
+  表达式补花括号分支（宿主 _parse_if_expr_impl 语句形式分支同构：解析
+  语句列表块体 + 期望右括号花；else 附着仅 否则 关键字，英文 else 不
+  消费；无 否则 假分支=null 33d 同形）+ interp.matha 求值 程序 臂
+  （块执行取尾值，宿主 CodeBlock 块值模型同位）——`let x = if 1 { 2 }
+  in 输出(x)` 六形态三面同判 + 输出尾块值 [5, 6]（34-②「mb 表达式位
+  if 无 then 解析拒绝」退役）；**36b mb 面块尾 func 定义块值真化**——
+  interp_matha 执行语句/执行声明 函数定义臂 (closure, env2) →
+  (null, env2)（函数仍入 env 仅值面不回传，宿主 FuncDef 执行返 None
+  同构）+ interp.matha 双臂镜像——`{ func f() = 1 }` 块值 [None] 三面
+  同判、blk_used `f()` [1] 维持（34-③ 退役）；**36c boot 字典裸键
+  真化**——interp_matha/interp.matha 求值字典 `_字典键` helper
+  （"变量" 键析为字符串键名，其余求值）——`{a: 1}` ≡ `{"a": 1}` 四面
+  同判（34-⑤ 退役）；**36d mb 表达式位 let 元组绑定真化**——
+  interp_matha 求值let元组/绑定求值let元组 + `_解构绑定元组`（闭包
+  标记 ["__closure__",参数,体,env] 跳参绑定镜像宿主，懒三元防 eager
+  and/or 陷阱；错误「解构失败：期望 N 个元素，实际 <类型名>」四面同
+  文案）+ 求值/执行语句/执行声明 三臂路由——`let (a, b) = [1, 2] in
+  a + b` 三面 [3]（35-① 退役）。A 轨新档 test_selfhost_language_
+  phase36（23 项：36a 六形态三面+语句位中性+VM² / 36b 块值三面+VM² /
+  36c 四形态三面+VM² / 36d 正控·错控四面+function 映射+VM²）+ phase34
+  三锁按真化退役改锁（34f×2 + 34x 裸键）+ phase35 35a 登记锁改锁
+  test_35a_let_tuple_mb_true；登记不修清单见 KNOWN_ISSUES 阶段 36
+  收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

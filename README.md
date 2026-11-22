@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 185（`tests/`）
+- **测试文件：** 186（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -359,6 +359,27 @@ reject「未知表达式类型: let元组绑定」；m3v 编译态 try/catch 不
 运行期错误（全族，既有边界——vm.matha 解释循环无异常帧机制，登记锁
 防漂移）。
 
+mb/boot 面收口批（阶段 36）：四项登记分歧真化（35-① + 34-②③⑤ 退役）。
+36a 表达式位花括号 if：boot parser.matha 解析if表达式补花括号分支（宿主
+_parse_if_expr_impl 语句形式分支同构，否则 仅 否则 关键字、无则 假分支
+=null——33d 同形）+ interp.matha 求值 程序 臂块执行取尾值——`let x =
+if 1 { 2 } in …` 六形态三面同判、输出尾块值 [5, 6]（34-② 退役）。36b
+mb 面块尾 func 定义块值真化：interp_matha 执行语句/执行声明 函数定义臂
+(closure, env2) → (null, env2)（函数仍入 env，仅值面不回传，宿主 FuncDef
+执行返 None 同构）+ interp.matha 双臂镜像——`{ func f() = 1 }` 块值
+[None] 三面同判、blk_used `f()` [1] 维持（34-③ 退役）。36c boot 字典
+裸键真化：interp_matha/interp.matha 求值字典 `_字典键` helper（"变量"
+键析为字符串键名，其余求值）——`{a: 1}` ≡ `{"a": 1}` 四面同判（34-⑤
+退役）。36d mb 表达式位 let 元组绑定真化：interp_matha 求值let元组/
+绑定求值let元组 + `_解构绑定元组`（闭包标记 ["__closure__",参数,体,env]
+跳参绑定镜像宿主，懒三元防 eager and/or 陷阱；错误「解构失败：期望 N 个
+元素，实际 <类型名>」四面同文案）三臂路由（求值/执行语句/执行声明）——
+`let (a, b) = [1, 2] in a + b` 三面 [3]（35-① 退役）。附带发现登记：
+vm 面编译路径字典字面量非字符串键（compiler `_literal_key` IntegerLit
+→ "2" 字符串化 + INDEX_GET 缺键 null——`d[2]` vm null vs hi/mb "v"；
+`d["2"]` vm 命中）；boot 面块尾 Binding `{ let x = 5 }` 块值 mb [5] vs
+vm/hi [None]（34-③ 同族 Binding 尾未真化）。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -380,7 +401,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（185 个文件）
+├── tests/                  # 测试套件（186 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

@@ -151,6 +151,9 @@ module 解释器 {
     expr["类型"] = "输出" ? (求值(expr["expr"], env), env) :
     expr["类型"] = "绑定" ? 求值绑定(expr, env) :
     expr["类型"] = "let绑定" ? 求值let绑定(expr, env) :
+    (* 35-①：let (a, b) = expr [in body] 表达式位（宿主 LetTupleBinding
+       _eval 同位） *)
+    expr["类型"] = "let元组绑定" ? 求值let元组(expr, env) :
     expr["类型"] = "match" ? 求值match(expr, env) :
     expr["类型"] = "下标" ? 求值下标(expr["容器"], expr["索引"], env) :
     expr["类型"] = "切片" ? 求值切片(expr["容器"], expr["开始"], expr["结束"], env) :
@@ -230,6 +233,44 @@ module 解释器 {
       let v = 求值(expr["值"], env) in
       let env1 = 绑定环境(env, expr["名"], v) in
       if expr["有体"] then (求值(expr["体"], env1), env1) else (v, env1)
+
+  (* 35-①：let (a, b) = expr [in body] 表达式位求值（宿主 interp.py
+     LetTupleBinding _eval 镜像）——解构经 _解构绑定元组（闭包标记 4 元组
+     三名绑定跳标记位，与宿主 _eval start=1 同判），绑定沿 绑定环境 链
+     天然不泄漏（宿主 POPS 同效）；有体取体值，无体取右值。 *)
+  func 求值let元组(e: Dict, env: List) -> Value = (e, env) =>
+    let v = 求值(e["值"], env) in
+    let env2 = _解构绑定元组(env, e["名字"], v, 真) in
+    e["有体"] ? 求值(e["体"], env2) : v
+
+  (* 语句/声明级 let 元组绑定：解构不跳闭包标记（宿主 _exec_stmt 长度面
+     同判——闭包 4 元组仅与名单同长时逐位绑定，错误文案仍归 function）；
+     无体块值 null（宿主 _BLOCK_TAIL_STMT_NODES 面），有体走体值。 *)
+  func 绑定求值let元组(e: Dict, env: List) -> (Value, List) = (e, env) =>
+    let v = 求值(e["值"], env) in
+    let env2 = _解构绑定元组(env, e["名字"], v, 假) in
+    e["有体"] ? (求值(e["体"], env2), env2) : (null, env2)
+
+  (* 解构核心（34e _解构绑定 同族 + 闭包标记 tname 归 function）：
+     List/Tuple 且长度精确匹配逐位绑定；闭包标记 4 元组
+     ["__closure__", …] 错误文案归 "function"（宿主 _eval/_exec_stmt
+     错误路径同判）；嵌套三元保短路（null 臂不取 len）。 *)
+  func _解构绑定元组(env: List, 名单: List, v, 跳闭包: Bool) -> List =
+    let 是闭包 = if type_of(v) = "List" then
+        (if 标准库.len(v) = 4 then v[0] = "__closure__" else 假)
+      else 假 in
+    let 期望 = 标准库.len(名单) in
+    let 元素们 = 是闭包 and 跳闭包 and 期望 = 3 ? [v[1], v[2], v[3]] :
+      type_of(v) = "Tuple" ? _元组元素(v) :
+      type_of(v) = "List" ? v :
+      null in
+    元素们 = null ?
+      错误("解构失败：期望 " + 标准库.str(期望) + " 个元素，实际 " +
+        (是闭包 ? "function" : _类型名(v))) :
+      标准库.len(元素们) = 期望 ?
+        _解构绑定进(env, 名单, 元素们, 0) :
+        错误("解构失败：期望 " + 标准库.str(期望) + " 个元素，实际 " +
+          (是闭包 ? "function" : _类型名(v)))
 
   (* 二元运算求值 ===== *)
   (* 29d：and/or 短路值语义（宿主 _eval_binary &&/||/and/or 同构）——左
@@ -421,11 +462,16 @@ module 解释器 {
 
   (* 字典字面量 {k1: v1, k2: v2}：键/值为并行列表（对齐宿主 DictLiteral）。
      先逐对求值收集 [[k, v], ...]，再经 标准库.dict_from_pairs 构建真实字典
-     （折叠 _dict_put + _empty_dict 原语，宿主/VM 两端均已提供）。 *)
+     （折叠 _dict_put + _empty_dict 原语，宿主/VM 两端均已提供）。
+     34-⑤：裸键归一（宿主 interp.py 2947-2951 键面同构）——Variable 键
+     节点取 名 字符串（{a: 1} 键 "a"），其余键照常求值。 *)
+  func _字典键(k: Dict, env: List) -> Value = (k, env) =>
+    k["类型"] = "变量" ? k["名"] : 求值(k, env)
+
   func 求值字典(keys: List, vals: List, env: List) -> Dict = (keys, vals, env) =>
     let rec _go(i: Int, acc: List) -> List =
       i >= 标准库.len(keys) ? acc
-      : _go(i + 1, acc + [[求值(keys[i], env), 求值(vals[i], env)]])
+      : _go(i + 1, acc + [[_字典键(keys[i], env), 求值(vals[i], env)]])
     in 标准库.dict_from_pairs(_go(0, []))
 
   (* 运算分发 ===== *)
@@ -685,7 +731,9 @@ module 解释器 {
         绑定环境(env, stmt["名"], "__函数占位__") in
       let closure = 求值(语法器.做Lambda(stmt["参数"], stmt["体"]), env1) in
       let env2 = 更新绑定值(env1, stmt["名"], closure) in
-      (closure, env2) :
+      (* 34-③：块值 null（宿主 _exec_stmt FuncDef 隐式 None / 块尾
+         _BLOCK_TAIL_STMT_NODES 面）——函数仍入 env，仅值面不回传 *)
+      (null, env2) :
     stmt["类型"] = "if" ?
       (* 33-④：真值 归一 + 无 else（假分支节点 null）→ (null, env)，
          对齐宿主 IfStmt branch None 面 *)
@@ -710,6 +758,10 @@ module 解释器 {
       执行语句列表(stmt, env) :
     stmt["类型"] = "let绑定" ?
       绑定求值let(stmt, env) :
+    stmt["类型"] = "let元组绑定" ?
+      (* 35-①：语句位 let 元组绑定（宿主 _exec_stmt 同位——解构绑定，
+         块值 null） *)
+      绑定求值let元组(stmt, env) :
     stmt["类型"] = "match" ?
       (let v = 求值match(stmt, env) in
        let 忽略 = 输出记录(v) in
@@ -892,13 +944,18 @@ module 解释器 {
         绑定环境(env, decl["名"], "__函数占位__") in
       let closure = 求值(语法器.做Lambda(decl["参数"], decl["体"]), env1) in
       let env2 = 更新绑定值(env1, decl["名"], closure) in
-      (closure, env2)
+      (* 34-③：块值 null（宿主块值模型 FuncDef 尾不回传）——声明列表
+         尾值取 null，函数绑定不变 *)
+      (null, env2)
     else if decl["类型"] = "程序" then
       (* 32e：嵌套块体（声明位裸块）同入口预绑（执行语句列表 Program 臂
          同构） *)
       执行声明列表(decl["声明"], 预绑递归let(decl["声明"], env))
     else if decl["类型"] = "let绑定" then
       绑定求值let(decl, env)
+    else if decl["类型"] = "let元组绑定" then
+      (* 35-①：顶层位 let 元组绑定（宿主 _exec_decl → _exec_stmt 同构） *)
+      绑定求值let元组(decl, env)
     else if decl["类型"] = "定义运算符" then
       (* 自定义运算符声明：编译期 / 解析期已登记，运行期无副作用（对齐宿主 NOOP） *)
       (None, env)

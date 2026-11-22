@@ -34,12 +34,12 @@
   目标暂未支持」——UNPACK_SEQ 镜像未做，登记维持。
 
 34f hi 面 func 值求值真化（32-⑪ 退役）：块尾 func 定义块值 → None
-  （src/interp.py _eval 补 FuncDef 臂；vm 面同判 None；mb 面表达式位
-  if-then 缺失维持解析拒绝登记）。func 体块尾 func 定义 mb 面
-  产 '<function>' vs vm/hi None——宿主块值模型（输出入 outputs、
-  块值 None）vs boot 面块值（函数值）分歧，登记维持（本档登记锁）。
+  （src/interp.py _eval 补 FuncDef 臂；vm 面同判 None）。mb 面
+  表达式位 if-then 缺失与 func 体块尾 '<function>' 两登记由阶段 36
+  真化退役（parser.matha 花括号臂 + boot 函数定义块值 null）。
 
-附带发现（登记不修，见 KNOWN_ISSUES 阶段 34）：boot 字典字面量裸键
+附带发现（登记不修，见 KNOWN_ISSUES 阶段 34；34-⑤ 已由阶段 36
+  真化退役——boot 求值字典 _字典键 臂）：boot 字典字面量裸键
   {a: 1} 析为变量引用（未定义变量 'a'）vs hi 面字符串键；引号键
   {"a": 1} 三面一致。vm 面编译路径 UNPACK_SEQ 长度不匹配宽松补 null
   登记（34e 收官时）已由 35a S1 真化退役——UNPACK_SEQ 长度守卫 +
@@ -401,26 +401,29 @@ def test_34f_block_tail_funcdef_vm_hi():
     assert hi_err is None and hi == [None], ("hi", hi, hi_err)
 
 
-def test_34f_block_tail_funcdef_mb_parse_reject():
-    """登记锁（维持）：mb 面表达式位 if 无 then 解析拒绝
-    「期望 then/:/elif/else，实际 {」——boot 解析器表达式位 if 语法
-    未支持，维持登记不修。"""
-    mb, mb_err = _boot_interp("输出(if 1 { func g(x) = x })\n")
-    assert mb_err is None and any("期望 then/:/elif/else，实际 {" in str(o)
-                                  for o in (mb or [])), (mb, mb_err)
-
-
-def test_34f_funcbody_tail_funcdef_registration():
-    """登记锁（维持）：func 体块尾 func 定义——vm/hi 块值 None
-    （输出入 outputs、块值不回传）vs mb 块值 '<function>'（boot 面
-    函数值回传）。宿主块值模型 vs boot 块值模型分歧，登记不修。"""
-    src = "func g() = {\n  func f() = 1\n}\n输出(g())\n"
+def test_34f_block_tail_funcdef_mb_true():
+    """真化改锁（34-② 退役）：mb 面表达式位 if 无 then 花括号形态解析
+    真化（parser.matha 解析if表达式 花括号臂，宿主 _parse_if_expr_impl
+    3880-3890 同构）——块尾 func 定义块值 null（36b 同批真化）三面同判。"""
+    src = "输出(if 1 { func g(x) = x })\n"
     outs, err = exec_api.run_checked(src)
     assert err is None and outs == [None], ("vm", outs, err)
     hi, hi_err = _hi_interp(src)
     assert hi_err is None and hi == [None], ("hi", hi, hi_err)
     mb, mb_err = _boot_interp(src)
-    assert mb_err is None and mb == ["<function>"], ("mb", mb, mb_err)
+    assert mb_err is None and mb == [None], ("mb", mb, mb_err)
+
+
+def test_34f_funcbody_tail_funcdef_true():
+    """真化改锁（34-③ 退役）：func 体块尾 func 定义块值 null 三面同判
+    ——boot 面 执行语句/执行声明 函数定义臂改返 null（宿主
+    _BLOCK_TAIL_STMT_NODES 块值模型对齐，函数仍绑定入 env）。"""
+    src = "func g() = {\n  func f() = 1\n}\n输出(g())\n"
+    _three_faces("funcbody_tail", src, [None])
+    blk = "let r = { func f() = 1 } in 输出(r)\n"
+    _three_faces("let_blk_tail", blk, [None])
+    used = "let r = { func f() = 1\n f() } in 输出(r)\n"
+    _three_faces("blk_tail_used", used, [1])
 
 
 def test_34f_statement_block_funcdef_neutral():
@@ -432,16 +435,14 @@ def test_34f_statement_block_funcdef_neutral():
 # 附带发现登记锁：boot 字典字面量裸键（登记不修）
 # ============================================================
 
-def test_34x_dict_bare_key_registration():
-    """登记锁（维持）：boot 字典字面量裸键 {a: 1} 析为变量引用
-    （未定义变量 'a'）vs hi 面字符串键；引号键 {"a": 1} 三面一致。
-    34e 探针踩中附带发现——boot 解析器字典键位标识符非字符串字面量，
-    登记不修（语料/文档约定引号键）。"""
+def test_34x_dict_bare_key_true():
+    """真化改锁（34-⑤ 退役）：boot 字典字面量裸键 {a: 1} 析为键字符串
+    "a"（interp_matha/interp.matha 求值字典 _字典键 臂，宿主 interp.py
+    2947-2951 键面同构）——未定义变量分歧退役三面同判；引号键维持。
+    vm 面非字符串字面量键（int 键 str 归一 _literal_key）分歧另行登记，
+    见 test_selfhost_language_phase36.test_36x_vm_dict_intkey_registration。"""
     bare = "let d = {a: 1} in { 输出(d) }\n"
-    hi, hi_err = _hi_interp(bare)
-    assert hi_err is None and hi == [{"a": 1}], ("hi", hi, hi_err)
-    mb, mb_err = _boot_interp(bare)
-    assert mb_err is not None and "未定义变量 'a'" in str(mb_err), (mb, mb_err)
+    _three_faces("dict_bare", bare, [{"a": 1}])
     quoted = 'let d = {"a": 1} in { 输出(d) }\n'
     _three_faces("dict_quoted", quoted, [{"a": 1}])
 

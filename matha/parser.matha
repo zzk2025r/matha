@@ -1435,6 +1435,22 @@ module 语法器 {
       解析if尾(p7, cond, then_e, 真)
     else if 匹配关键字文本(p3, "else") then
       解析if无then尾(p3, cond)
+    else if 匹配(p3, 类型.左括号花) then
+      (* 34-②：表达式位花括号形态（宿主 _parse_if_expr_impl 3880-3890
+         语句形式分支同构）——块体经 解析语句列表 产 程序节点（求值面
+         走 块值模型）；else 附着仅 否则（宿主 KW_OTHERWISE，英文 else
+         不消费），无则 假分支=null（求值面 null → null，33d 同形） *)
+      let p4 = 推进(p3) in
+      let (then_body, p5) = 解析语句列表(p4) in
+      let p6 = 期望(p5, 类型.右括号花) in
+      if 匹配关键字文本(p6, "否则") then
+        let p7 = 推进(p6) in
+        let p8 = 期望(p7, 类型.左括号花) in
+        let (else_body, p9) = 解析语句列表(p8) in
+        let p10 = 期望(p9, 类型.右括号花) in
+        (做If(cond, then_body, else_body), p10)
+      else
+        (做If(cond, then_body, null), p6)
     else
       错误("期望 then/:/elif/else，实际 " + 类型名(当前(p3).类型))
 

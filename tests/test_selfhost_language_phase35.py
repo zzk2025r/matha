@@ -261,13 +261,14 @@ def test_35a_let_function_vm_hi():
                "解构失败：期望 2 个元素，实际 function")
 
 
-def test_35a_let_mb_honest_reject():
-    """登记锁（维持）：mb 表达式位 let 元组绑定 honest reject
-    「未知表达式类型: let元组绑定」——boot 求值面暂不支持（不假编译）；
-    语句位 let 元组 boot 面 32 已落地。"""
-    mb, mb_err = _boot_interp("let (a, b) = [1, 2] in 输出(a + b)\n")
-    assert mb_err is not None and "未知表达式类型: let元组绑定" in str(mb_err), \
-        (mb, mb_err)
+def test_35a_let_tuple_mb_true():
+    """真化改锁（35-① 退役）：mb 表达式位 let 元组绑定真化（interp_matha
+    求值let元组 臂 + _解构绑定元组 闭包标记同判，宿主 _eval 镜像）——
+    「未知表达式类型: let元组绑定」诚实拒绝退役，三面同判；语句位
+    维持 32 落地面。"""
+    _three_faces("let_tuple_expr", "let (a, b) = [1, 2] in 输出(a + b)\n", [3])
+    _three_faces("let_tuple_val", "let r = (let (a, b) = [1, 2] in a) in 输出(r)\n",
+                 [1])
 
 
 # ============================================================
