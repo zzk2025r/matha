@@ -503,6 +503,16 @@ def _builtin_to_tuple(xs):
     return tuple(xs)
 
 
+def _builtin_undefined_error(msg):
+    """未定义错误(msg)：类型化抛错内建（39b，与 _GlobalScope.__missing__ 同载体）。
+
+    自举链 查找环境/查找环境链 缺名臂编译为 LOAD_GLOBAL 由此命中，
+    抛 MathaUndefinedNameError（消息与宿主 _eval_variable 逐字一致），
+    boot/VM² 双面异常类与宿主面归一。
+    """
+    raise MathaUndefinedNameError(msg)
+
+
 # ---------- 文本编码原语（二进制/三进制/十进制） ----------
 
 def _builtin_encode_binary(text):
@@ -626,6 +636,9 @@ def _default_builtins() -> dict:
     b.setdefault("_dict_remove", _curry2(lambda d, k: {kk: vv for kk, vv in d.items() if kk != k}))
     # 元组构造原语（自举解释器元组字面量求值用；与宿主 BUILTINS 对齐）
     b.setdefault("_to_tuple", _builtin_to_tuple)
+    # 39b：未定义变量类型化抛错（与 _GlobalScope.__missing__ 同载体）——
+    # 自举链 查找环境 缺名臂 LOAD_GLOBAL 由此命中，异常类与宿主面归一。
+    b.setdefault("未定义错误", _builtin_undefined_error)
     # 迭代源归一（32a-①）：编译器 for/推导迭代统一经此——dict → ('k', v)
     # 真元组对列表（对齐宿主/插面 31d 语义），其余容器恒等透传（len/get
     # 下标机制原样可用）。
@@ -930,8 +943,11 @@ class _GlobalScope(dict):
 class VM:
     # 28d 开放插口保留名（与 vm.matha 内建特殊独占集同口径）：处理器是
     # 宿主侧纯值函数，不触 VM 输出指针/帧栈，不可覆盖输出类专用内建。
+    # 未定义错误（39b）同族：自举链缺名臂的类型化抛错载体，被插口遮蔽即
+    # 异常类口径漂移，故同列保留。
     _RESERVED_BUILTINS = frozenset(
-        {"输出", "print", "打印文本", "调用捕获", "错误", "MathaIOError"})
+        {"输出", "print", "打印文本", "调用捕获", "错误", "未定义错误",
+         "MathaIOError"})
     _PORT_ABSENT = object()
 
     def __init__(self, mod: MModule, builtins: dict | None = None, verbose: bool = False):

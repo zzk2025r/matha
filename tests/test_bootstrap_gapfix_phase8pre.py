@@ -29,7 +29,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import src.matha_bootstrap as mb
-from src.interp import Interpreter, MathaRuntimeError
+from src.interp import Interpreter, MathaRuntimeError, MathaUndefinedNameError
 from src.parser import parse as py_parse
 from src.mbc.compiler import Compiler
 from src.mbc.vm import VM
@@ -125,8 +125,9 @@ def test_top_let_host_parity(src, want):
 
 
 def test_top_let_undefined_still_rejected_mb(mb_boot):
-    """显式拒绝：未绑定变量仍抛错（env 修复不引入静默 null）。"""
-    with pytest.raises(MathaRuntimeError, match="未定义变量 'n'"):
+    """显式拒绝：未绑定变量仍抛错（env 修复不引入静默 null）；
+    39b 真化后与宿主同载体 MathaUndefinedNameError。"""
+    with pytest.raises(MathaUndefinedNameError, match="未定义变量 'n'"):
         _run_source(mb_boot, "n + 1")
 
 

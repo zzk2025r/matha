@@ -38,7 +38,7 @@ import pytest
 
 from src import formula_schema as _fs
 from src import ast_nodes as ast
-from src.kernel.errors import MathaRuntimeError
+from src.kernel.errors import MathaRuntimeError, MathaUndefinedNameError
 from src.mbc.compiler import Compiler, MFunction, MModule
 from src.mbc.vm import VM
 from src.parser import parse as py_parse
@@ -294,8 +294,8 @@ def test_l4_interp_hit_no_eval(boot_vm):
 
 
 def test_l4_interp_foreign_shape_honest_error(boot_vm):
-    # 异形（+ 形状无 * 模式命中）→ 求值 → 未定义变量诚实错
-    with pytest.raises(MathaRuntimeError, match="半径"):
+    # 异形（+ 形状无 * 模式命中）→ 求值 → 未定义变量诚实错（39b 后同载体）
+    with pytest.raises(MathaUndefinedNameError, match="半径"):
         _run_boot(
             boot_vm, "#1：？单价 * ？数量 = ？总价\n#2：半径 + 补 = 圆\n1")
 

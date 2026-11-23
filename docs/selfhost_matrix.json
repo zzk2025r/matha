@@ -16,34 +16,35 @@
  ],
  "summary": {
   "files": 225,
-  "both_ok_equal": 209,
+  "both_ok_equal": 211,
   "both_ok_differ": 3,
   "boot_err_host_ok": 0,
   "boot_ok_host_err": 0,
-  "both_err": 13,
+  "both_err_equal": 11,
+  "both_err": 0,
   "timeout": 0
  },
  "files": [
   {
    "path": "matha/bootstrap_full_test.matha",
-   "boot": "err",
-   "host": "err",
-   "boot_err": "MathaRuntimeError: 未定义变量 'dict_from_pairs'",
-   "host_err": "MathaUndefinedNameError: 未定义变量 '不折叠'"
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 22
   },
   {
    "path": "matha/bootstrap_matha.matha",
-   "boot": "err",
-   "host": "err",
-   "boot_err": "TypeError: object of type 'Partial' has no len()",
-   "host_err": "MathaRuntimeError: 属性访问失败: str.类型"
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 4
   },
   {
    "path": "matha/bootstrap_test.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 不可调用的值: {'类型': 'lambda', '参数': [{'类型': '变量', '名': 'x', '是占位': False}], '体': {'类型': '二元运算', '运算符': '+', '左': {'类型': '变量', '名': 'x', '是占位': False}, '右': {'类型': '整数', '值': 1}}}",
-   "host_err": "MathaRuntimeError: 不可调用的值: {'类型': 'lambda', '参数': [{'类型': '变量', '名': 'x', '是占位': False}], '体': {'类型': '二元运算', '运算符': '+', '左': {'类型': '变量', '名': 'x', '是占位': False}, '右': {'类型': '整数', '值': 1}}}"
+   "boot_err": "MathaRuntimeError: 不可调用的值: ''",
+   "host_err": "MathaRuntimeError: 不可调用的值: ''"
   },
   {
    "path": "matha/bootstrap_test_v2.matha",
@@ -1255,7 +1256,7 @@
    "path": "golden_tests/cases/13_error_undefined.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 未定义变量 '缺失变量'",
+   "boot_err": "MathaUndefinedNameError: 未定义变量 '缺失变量'",
    "host_err": "MathaUndefinedNameError: 未定义变量 '缺失变量'"
   },
   {
@@ -1381,7 +1382,7 @@
    "path": "golden_tests/cases/31_error_undef_func.matha",
    "boot": "err",
    "host": "err",
-   "boot_err": "MathaRuntimeError: 未定义变量 '未知函数'",
+   "boot_err": "MathaUndefinedNameError: 未定义变量 '未知函数'",
    "host_err": "MathaUndefinedNameError: 未定义变量 '未知函数'"
   },
   {

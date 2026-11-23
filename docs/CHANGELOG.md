@@ -632,6 +632,42 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   native 38/39 + Track B --check 一致）。算术闭合：7945 条件 = 7944 过 +
   1 skip = 7933（37 条件）+ 12；登记不修清单见 KNOWN_ISSUES 阶段 38 收
   官条目（vm↔m3v 下标越界文案分歧① + 新建全局名捕获路径丢失②）。
+- 阶段 39 Track B both_err 归因批（方向 A：逐个归因 13 both_err 语料——清零
+  或如实登记为边界）：**39a 链面应用分派收口**——① λ-AST 字典应用臂（
+  interp_matha/interp.matha 应用函数·应用多参数函数 Dict 臂此前只认
+  "__builtin__"，`语法器.做Lambda` 裸节点字典落「不可调用的值」；现经
+  `求值lambda` 折闭包重入 __closure__ 机制，柯里化/多参同臂复用）② 不可调用
+  值渲染载体 `标准库.str` → `标准库.元素repr`（CPython repr 规则，str/空串/
+  int/列表/CJK/转义六形态 vm/hi/mb/bootvm 四面消息逐字同判，既有 ': 5' /
+  ': []' 锁零扰动）③ interp.matha 零参 λ 守卫（`做Lambda([], body)` 此前落
+  原生 IndexError，镜像 interp_matha 29d 空参数表口径）；**39b/39b-2 未定义
+  变量异常类真化（31-⑧ 退役）**——类型化抛错内建 `未定义错误` →
+  `MathaUndefinedNameError`（hi BUILTINS + VM `_default_builtins` 同类抛错、
+  消息逐字不变），链面 `查找环境`/`查找环境链`/`查全局` 缺名臂改走该内建，
+  vm.matha `内建名表` 注册（防 查全局 自递归）+ `内建特殊` 带内臂 + `应用内建`
+  专用名守卫补名，且同列宿主两侧 `_RESERVED_BUILTINS` 与 vm.matha `是保留
+  内建名`（守卫先于插口分派——注册必被遮蔽，四面一致诚实拒绝）；**39c/39d
+  语料与源序**——`bootstrap_matha` 刷新到现行柯里化 API（host 面旧错「属性
+  访问失败: str.类型」退役为 4 输出双面 ok）+ `compiler_matha` 的 `不折叠`
+  模块级 let 前移模块顶（宿主闭包按定义序快照环境——`bootstrap_full_test`
+  host 面旧首错名退役，22 输出双面逐字相等）+ 本地 `dict_from_pairs` 十行
+  副本退役为 `use 标准库` 导入；**39e 判定面细分**——`_classify` 双 err 且
+  `boot_err == host_err` 逐字全等 → `both_err_equal`（双面同判的诚实边界与
+  残留分歧分列）+ summary 七分类键 + `structure_check` 缺键诚实报「需 --write
+  重生成」。A 轨新档 test_selfhost_language_phase39 31 项（39a λ-dict 四面+
+  元素repr 六形态四面+零参三面+VM² / 39b 未定义变量四面同载体+类层级+golden
+  逐字 / 39b-2 m3v 三锁+结构锁 / 39c/39d 语料双面+源序锁 / 39e 细分三锁）+
+  陈旧边界锁改真化锁两处（phase21 `test_boundary_bootstrap_full_test` /
+  `test_boundary_bootstrap_matha`）。门禁：tests lane 7871 过 + 1 skip
+  4260.29s + 1 红（doc_facts 本体量过期——docs 同步后单跑全绿）+ purity 14 +
+  gap 11（快照零扰动）+ golden 39/39 + dep_audit 39 内核文件 189 import 边
+  0 违规 + native 38/39（0 失败）+ Track B --write 重生成 225 = 双面一致 211
+  / 诚实 differ 3 / both_err_equal 11 / both_err 0 / timeout 0（both_err
+  13→0）+ --check 复现一致。算术闭合：7976 条件 = 7975 过 + 1 skip = 7945
+  （38 条件）+ 31；src/ 仅 vm.py +16 行（39b 类型化抛错内建 + 注册 + 插口保留
+  名），boot 编译器 stage2↔stage3 逐位一致零扰动；登记不修清单见 KNOWN_ISSUES
+  阶段 39 收官条目（三引号字符串 / 加载模块 胶水形状 / m3v 直调 未定义错误
+  边界类）。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

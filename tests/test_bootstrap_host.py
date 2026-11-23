@@ -19,7 +19,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import src.matha_bootstrap as mb
-from src.interp import MathaRuntimeError, Interpreter
+from src.interp import MathaRuntimeError, MathaUndefinedNameError, Interpreter
 
 
 @pytest.fixture(scope="module")
@@ -93,10 +93,12 @@ def test_bootstrap_syntax_error_is_reported(boot):
 
 
 def test_bootstrap_undefined_variable_raises(boot):
-    """未定义变量经自举求值抛 MathaRuntimeError（宿主/自举语义对齐）。"""
-    with pytest.raises(MathaRuntimeError):
+    """未定义变量经自举求值抛 MathaUndefinedNameError（39b 真化——
+    与宿主 _eval_variable 同载体，异常类消息双面归一；此前锁
+    MathaRuntimeError 为 31-⑧ 登记分歧，已退役）。"""
+    with pytest.raises(MathaUndefinedNameError):
         mb.interpret("x + 1")
-    print("  ✓ 未定义变量 → MathaRuntimeError")
+    print("  ✓ 未定义变量 → MathaUndefinedNameError")
 
 
 def test_matha_runtime_error_builtin_registered():

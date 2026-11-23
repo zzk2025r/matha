@@ -4,7 +4,7 @@
 全量重跑对拍（--check）为重档 lane，不在常规 pytest 门禁：
   python scripts/selfhost_matrix.py --check
 结构锁判据：快照在位 + 文件清单与语料枚举一致（五目录 rglob("*.matha")，
-boot 链 5 文件排除）+ summary 六分类算术闭合 + 条目无 unknown 形态。
+boot 链 5 文件排除）+ summary 七分类算术闭合（39e both_err_equal 细分）+ 条目无 unknown 形态。
 """
 import os
 import sys
@@ -33,7 +33,8 @@ def test_summary_arithmetic_closed():
     s = snap["summary"]
     assert set(s.keys()) == {
         "files", "both_ok_equal", "both_ok_differ", "boot_err_host_ok",
-        "boot_ok_host_err", "both_err", "timeout"}, f"summary 键形 {set(s.keys())}"
+        "boot_ok_host_err", "both_err_equal", "both_err",
+        "timeout"}, f"summary 键形 {set(s.keys())}"
     total = sum(v for k, v in s.items() if k != "files")
     assert total == s["files"], f"汇总算术不闭合: {s}"
     assert s["files"] == len(snap["files"]), "files 计数与条目数不一致"

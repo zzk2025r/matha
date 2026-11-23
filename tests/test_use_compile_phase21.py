@@ -10,7 +10,8 @@
 - 对拍：官方门面（exec_api）与宿主面在 use 解析后收敛
 - 闭环：加载模块 胶水真加载/幂等/命名空间/枚举/let 物化；发射与内联抑制
 - 防回潮：stdlib 死导入清除 + 双端内联守卫在场
-- 登记边界：裸 VM 无加载全局诚实报错；三 host-ERR 链文件双面失败形态
+- 登记边界：裸 VM 无加载全局诚实报错；三链文件双面形态（39c/39d 后两文件
+  双面 ok、bootstrap_test 双端同判 err——加载模块 形状与三引号字符串残留）
 """
 
 import pathlib
@@ -221,27 +222,30 @@ def test_host_compiler_inline_guard_present():
 
 
 # ============================================================
-# 登记边界：host-ERR 链文件双面失败形态（存量分歧，拍板登记不修）
+# 登记边界：链文件双面形态（39 收官后两文件转 ok，bootstrap_test 仍双端同判 err）
 # HEAD 9803068 基线：六链文件 VM 面全部 未定义变量（use 符号无绑定）——
-# 21b 真化消除该屏障后 VM 面走深；三文件 host 面错误不变（host 零扰动），
-# VM 面新形态按现状锁（更深处的链内分歧，与 use 编译面正交）。
+# 21b 真化消除该屏障后 VM 面走深；39c/39d 进一步把 bootstrap_matha 语料刷新到
+# 现行柯里化 API、compiler_matha 的 不折叠 模块级 let 前移（宿主闭包按定义序
+# 快照环境），两文件 host 面旧错误退役为 ok。bootstrap_test 残留三引号字符串
+# 根因双端同判（both_err_equal 边界，见 phase39 锁）。
 # ============================================================
 
 def test_boundary_bootstrap_full_test():
-    """host 面链载即炸（未定义变量 不折叠，HEAD 同形不变）；
-    VM 面 HEAD err 未定义变量 'tokenize' → 真化后跑通到底（ok 21 输出，
-    越过宿主面——host 挂在更早的 不折叠）。"""
+    """39d 后双面全跑通：host 面旧首错名 '不折叠' 退役（模块级 let 前移），
+    与 VM 面 22 输出逐字同判。"""
     h, v = _faces(ROOT / "matha/bootstrap_full_test.matha")
-    assert h[0] == "err" and "未定义变量 '不折叠'" in h[1]
-    assert v[0] == "ok"
+    assert h == v, f"host={h}\n  vm={v}"
+    assert h[0] == "ok" and len(h[1]) == 22, (len(h[1]), h[1][:3])
 
 
 def test_boundary_bootstrap_matha():
-    """host 面属性访问失败 str.类型（HEAD 同形不变）；
-    VM 面 HEAD err 未定义变量 '自举加载器' → 真化后 TypeError len(Partial)。"""
+    """39c 语料刷新后双面 ok：旧 host 面 属性访问失败 str.类型 与 VM 面
+    TypeError len(Partial) 均退役；前 3 输出同判，第 4 项为 加载模块 胶水
+    返回形状（hi bool vs VM 面 list[str]，登记边界）。"""
     h, v = _faces(ROOT / "matha/bootstrap_matha.matha")
-    assert h[0] == "err" and "属性访问失败: str.类型" in h[1]
-    assert v[0] == "err" and "has no len()" in v[1]
+    assert h[0] == "ok" and v[0] == "ok", (h[1], v[1])
+    assert len(h[1]) == len(v[1]) == 4, (h[1], v[1])
+    assert h[1][:3] == v[1][:3], (h[1], v[1])
 
 
 def test_boundary_bootstrap_test():

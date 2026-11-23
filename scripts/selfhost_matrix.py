@@ -644,12 +644,22 @@ def _classify(entry: dict) -> str:
     if b == "ok" and h == "ok":
         return "both_ok_equal" if entry.get("equal") else "both_ok_differ"
     if b == "err" and h == "err":
+        # 39e：判定面细分——双 err 条目 boot_err 与 host_err 逐字相等
+        # （载体类名+消息全等）= both_err_equal（双面同判的诚实分歧面），
+        # 归因后差异残留维持 both_err。
+        if entry.get("boot_err") == entry.get("host_err"):
+            return "both_err_equal"
         return "both_err"
     if b == "err":
         return "boot_err_host_ok"
     if h == "err":
         return "boot_ok_host_err"
     return "unknown"
+
+
+# 39e：summary 分类键序（both_err 细分 both_err_equal——双 err 逐字相等）
+_SUMMARY_KEYS = ("both_ok_equal", "both_ok_differ", "boot_err_host_ok",
+                 "boot_ok_host_err", "both_err_equal", "both_err", "timeout")
 
 
 # ---------------- sweep driver ----------------
@@ -695,8 +705,7 @@ def summarize(entries: list[dict]) -> dict:
         c = _classify(e)
         counts[c] = counts.get(c, 0) + 1
     summary = {"files": len(entries)}
-    for key in ("both_ok_equal", "both_ok_differ", "boot_err_host_ok",
-                "boot_ok_host_err", "both_err", "timeout"):
+    for key in _SUMMARY_KEYS:
         summary[key] = counts.get(key, 0)
     return summary
 
@@ -781,8 +790,10 @@ def structure_check() -> tuple[bool, str]:
        [e["path"] for e in snap["files"]] != files:
         return False, "快照文件清单与当前语料枚举不一致（需 --write 重生成）"
     s = snap["summary"]
-    total = (s["both_ok_equal"] + s["both_ok_differ"] + s["boot_err_host_ok"]
-             + s["boot_ok_host_err"] + s["both_err"] + s["timeout"])
+    missing = [k for k in _SUMMARY_KEYS if k not in s]
+    if missing:
+        return False, f"快照 summary 缺分类键 {missing}（39e 细分后需 --write 重生成）"
+    total = sum(s[k] for k in _SUMMARY_KEYS)
     if total != s["files"] or s["files"] != len(snap["files"]):
         return False, f"汇总算术不闭合: {s}"
     for e in snap["files"]:

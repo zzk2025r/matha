@@ -25,7 +25,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import src.matha_bootstrap as mb
-from src.interp import Interpreter, MathaRuntimeError
+from src.interp import Interpreter, MathaRuntimeError, MathaUndefinedNameError
 from src.parser import parse as py_parse
 from src.mbc.compiler import Compiler
 from src.mbc.vm import VM
@@ -272,14 +272,15 @@ def test_match_no_match_rejected_fresh(fresh_boot):
 
 
 def test_match_binding_no_leak_mb(mb_boot):
-    """绑定不泄漏（mb）：match 分支绑定的 x 在 match 外不可见。"""
-    with pytest.raises(MathaRuntimeError, match="未定义变量 'x'"):
+    """绑定不泄漏（mb）：match 分支绑定的 x 在 match 外不可见；
+    39b 真化后与宿主同载体 MathaUndefinedNameError。"""
+    with pytest.raises(MathaUndefinedNameError, match="未定义变量 'x'"):
         _run_source(mb_boot, 'match 5 {\n| x => x + 1\n}\nx')
 
 
 def test_match_binding_no_leak_fresh(fresh_boot):
-    """绑定不泄漏（fresh）：同上。"""
-    with pytest.raises(MathaRuntimeError, match="未定义变量 'x'"):
+    """绑定不泄漏（fresh）：同上（39b 后同载体）。"""
+    with pytest.raises(MathaUndefinedNameError, match="未定义变量 'x'"):
         _run_source(fresh_boot, 'match 5 {\n| x => x + 1\n}\nx')
 
 

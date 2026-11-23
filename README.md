@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 188（`tests/`）
+- **测试文件：** 189（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -416,6 +416,29 @@ src/ 零改动、指令码不变。附带发现登记：vm↔m3v 下标越界文
 案「列表索引越界: 5」——同一载体守卫、不同检测点，38a1 双面文案锁防漂
 移）+ 38a 窄分歧新建全局名捕获路径丢失（结构脊展开，38a7 登记锁）。
 
+Track B both_err 归因批（阶段 39）：逐个归因 13 both_err 语料，快照重生成
+225 = 双面一致 211 / 诚实 differ 3 / both_err_equal 11 / both_err 0 /
+boot_err 0 / timeout 0——残留错误条目全为双端逐字同判的诚实边界。39a 链面
+应用分派收口：Dict 应用臂补 λ 节点识别（`求值lambda` 折闭包重入 __closure__
+——柯里化/多参复用）+ 不可调用值渲染载体改 `标准库.元素repr`（CPython repr
+规则，str/空串/int/列表/CJK/转义六形态 vm/hi/mb/bootvm 四面消息逐字同判）+
+interp.matha 零参 λ 守卫（此前 `params[0]` 落原生 IndexError）。39b/39b-2
+未定义变量异常类真化（31-⑧ 退役）：类型化抛错内建 `未定义错误` →
+`MathaUndefinedNameError` 注册 hi/VM/vm.matha 三面且同列插口保留名，链面
+`查找环境`/`查找环境链`/`查全局` 缺名臂改走该内建——四面 + m3v 面异常类与
+宿主归一，消息逐字不变。39c/39d：`bootstrap_matha` 语料刷新到现行柯里化
+API（host 面旧错「属性访问失败: str.类型」退役，4 输出双面 ok）+
+`compiler_matha` 的 `不折叠` 模块级 let 前移模块顶（宿主闭包按定义序快照
+环境——`bootstrap_full_test` host 面旧首错名退役，22 输出双面逐字相等）+
+本地 `dict_from_pairs` 副本退役为 `use 标准库` 导入。39e 判定面细分：双 err
+且 `boot_err == host_err` 逐字全等 → `both_err_equal`（与残留分歧分列）+
+summary 七分类键 + `structure_check` 缺键诚实报需重生成。新锁档
+test_selfhost_language_phase39 31 项；phase21 两条陈旧边界锁改真化锁；
+boot 编译器 stage2↔stage3 逐位一致零扰动、src/ 仅 vm.py +16 行。残留登记
+不修：三引号字符串双端词法器均不支持（同判「不可调用的值: ''」）/
+`加载模块` 胶水返回形状（hi bool vs VM 面 list[str]）/ m3v 直调 `未定义错误`
+逃逸边界经 `错误()` 转宿主 MathaRuntimeError（带内通道无类型载体）。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -437,7 +460,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（188 个文件）
+├── tests/                  # 测试套件（189 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

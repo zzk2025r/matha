@@ -99,7 +99,9 @@ module 字节码虚拟机 {
     深度 = 1 ? 帧[2] : 找外层(帧[2], 深度 - 1)
 
   func 查全局(全局: List, 名: String) -> Value =
-    全局 = [] ? 错误("未定义变量 '" + 名 + "'") :
+    (* 39b-2：缺名臂类型化抛错（宿主 _GlobalScope.__missing__ / VM
+       LOAD_GLOBAL 同载体 MathaUndefinedNameError，消息逐字不变）。 *)
+    全局 = [] ? 未定义错误("未定义变量 '" + 名 + "'") :
     全局[0][0] = 名 ? 全局[0][1] : 查全局(全局[1:], 名)
 
   (* 原地更新 pair；找不到则 prepend 新 pair *)
@@ -582,6 +584,10 @@ module 字节码虚拟机 {
       值返回(["__捕获器__", 参数[0]])
     else if 名 = "错误" and len(参数) >= 1 then
       抛错返回(参数[0])
+    (* 39b-2：类型化抛错内建带内臂——与 错误 同通道（M3V 码内抛错经
+       捕获闭包/载体守卫带内传播，消息逐字不变）。 *)
+    else if 名 = "未定义错误" and len(参数) >= 1 then
+      抛错返回(参数[0])
     else if 名 = "MathaIOError" and len(参数) = 1 then
       值返回(["MathaIOError", 参数[0]])
     else 部分返回(名, 参数)
@@ -643,7 +649,7 @@ module 字节码虚拟机 {
     表 = [] ? -1 : (表[0][0] = 名 ? 0 : 查插口(表[1:], 名))
 
   func 是保留内建名(名: String) -> Bool =
-    名 = "输出" or 名 = "print" or 名 = "打印文本" or 名 = "调用捕获" or 名 = "错误" or 名 = "MathaIOError"
+    名 = "输出" or 名 = "print" or 名 = "打印文本" or 名 = "调用捕获" or 名 = "错误" or 名 = "未定义错误" or 名 = "MathaIOError"
 
   func 注册内建插口(名: String, 处理器) -> Bool =
     是保留内建名(名) ? 错误("保留内建 '" + 名 + "' 不可注册插口") : 注册内建插口基(名, 处理器)
@@ -699,7 +705,7 @@ module 字节码虚拟机 {
 
   (* 应用内建顶层分发（专用内建独占 → 注册插口优先 → 内建链回落） *)
   func 应用内建(名: String, 参数: List, 输出指针: List) -> List =
-    if (名 = "输出" or 名 = "print" or 名 = "打印文本" or 名 = "调用捕获" or 名 = "错误" or 名 = "MathaIOError") then 内建特殊(名, 参数, 输出指针)
+    if (名 = "输出" or 名 = "print" or 名 = "打印文本" or 名 = "调用捕获" or 名 = "错误" or 名 = "未定义错误" or 名 = "MathaIOError") then 内建特殊(名, 参数, 输出指针)
     else if 插口命中(名) then 值返回(插口取(名)(参数))
     else if 名 ∈ 三元名表() then 内建三元(名, 参数)
     else if 名 ∈ 二元名表() then 内建二元(名, 参数)
@@ -1115,7 +1121,7 @@ module 字节码虚拟机 {
      "_dict_has", "_dict_remove", "_write_file", "_append_file",
      "slice", "mut_set_at", "_dict_put",
      "逻辑非", "集合基数", "平均值", "阶乘",
-     "输出", "print", "打印文本", "调用捕获", "错误", "MathaIOError",
+     "输出", "print", "打印文本", "调用捕获", "错误", "MathaIOError", "未定义错误",
      (* ===== 补充：与宿主 VM 全局表逐名对齐（砖块 15/16/17 + 正则 + 日期时间） ===== *)
      "asin", "acos", "atan", "sinh", "cosh", "tanh",
      "去重", "素数判定", "素数筛", "杨辉三角", "中位数", "方差", "标准差", "集合幂集",

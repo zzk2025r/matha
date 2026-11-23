@@ -29,14 +29,17 @@ module 解释器 {
     [pair] + env
 
   func 查找环境(env: List, name: String) -> Value = (env, name) =>
-    env = [] ? 错误("未定义变量 '" + name + "'") :
+    (* 39b：缺名臂类型化抛错——宿主/VM 面同源 未定义错误 内建，
+       异常类 MathaUndefinedNameError（此前 错误 → MathaRuntimeError，
+       与宿主 _eval_variable/_GlobalScope.__missing__ 分歧 31-⑧）。 *)
+    env = [] ? 未定义错误("未定义变量 '" + name + "'") :
     env[0][0] = name ? env[0][1] : 查找环境(env[1:], name)
 
   func 查找环境链(envs: List, name: String) -> Value = (envs, name) =>
-    envs = [] ? 错误("未定义变量 '" + name + "'（词法作用域外）") :
+    envs = [] ? 未定义错误("未定义变量 '" + name + "'（词法作用域外）") :
     let env = envs[0] in
     let rec _lookup(e: List) -> Value =
-      e = [] ? (envs = [] ? 错误("未定义变量 '" + name + "'") : _lookup(envs[1:]))
+      e = [] ? (envs = [] ? 未定义错误("未定义变量 '" + name + "'") : _lookup(envs[1:]))
       : e[0][0] = name ? e[0][1] : _lookup(e[1:])
     in _lookup(env)
 
@@ -568,15 +571,23 @@ module 解释器 {
      由 VM 记 Partial，多参走嵌套应用逐参累积（与宿主柯里化同语义） *)
   func 调VM单参(f: Value, a: Value) -> Value = (f, a) => f(a)
 
-  (* 函数应用分发 ===== *)
+  (* 函数应用分发 =====
+     39a-2：不可调用值渲染经 标准库.元素repr（CPython repr 规则——字符串加引号
+     转义、其余同 str）对齐宿主 f"{func!r}"（src/interp.py:3800、
+     src/mbc/vm.py:1310）——此前用 str 丢字符串引号，bootstrap_test 三引号
+     残留面双端消息不同（'不可调用的值: ' vs "不可调用的值: ''"）。 *)
   func 应用函数(f: Value, arg: Value, call_env: List) -> Value =
     (f, arg, call_env) =>
     if type_of(f) = "Function" then 调VM单参(f, arg)
     else if type_of(f) = "Dict" then
       (if f["类型"] = "__builtin__" then 应用内建(f["名"], [arg], call_env)
-       else 错误("不可调用的值: " + 标准库.str(f)))
+       (* 39a：裸 λ-AST 字典应用臂（bootstrap_test 3.6/3.7/3.9 直调链 API 形态）——
+          经 求值lambda 折成闭包重入 __closure__ 机制，柯里化/多参语义同臂复用。 *)
+       else if f["类型"] = "lambda" then
+         应用函数(求值lambda(f["参数"], f["体"], call_env), arg, call_env)
+       else 错误("不可调用的值: " + 标准库.元素repr(f)))
     else if type_of(f) = "List" or type_of(f) = "Tuple" then
-      (if 标准库.len(f) = 0 then 错误("不可调用的值: " + 标准库.str(f))
+      (if 标准库.len(f) = 0 then 错误("不可调用的值: " + 标准库.元素repr(f))
        else if f[0] = "__closure__" then
          let params = f[1] in
          let body = f[2] in
@@ -606,12 +617,12 @@ module 解释器 {
             （宿主 _curry_module builder 同构）。 *)
          应用内建(f[1], f[2] + [arg], call_env)
        else
-         错误("不可调用的值: " + 标准库.str(f)))
+         错误("不可调用的值: " + 标准库.元素repr(f)))
     else
       (* 30c：类型守卫前置——此前 f[0] 直接探测对 Int/Float 等不可索引值落
          VM 下标错误「索引操作不支持: int[0]」，宿主同形报「不可调用的值: 5」
          （golden 28 双面文案对齐）。 *)
-      错误("不可调用的值: " + 标准库.str(f))
+      错误("不可调用的值: " + 标准库.元素repr(f))
 
   func 调VM多参(f: Value, args: List) -> Value = (f, args) =>
     let rec _go(i: Int, acc: Value) -> Value =
@@ -624,9 +635,12 @@ module 解释器 {
     if type_of(f) = "Function" then 调VM多参(f, args)
     else if type_of(f) = "Dict" then
       (if f["类型"] = "__builtin__" then 应用内建(f["名"], args, call_env)
-       else 错误("不可调用的值: " + 标准库.str(f)))
+       (* 39a：裸 λ-AST 字典多参应用臂（应用函数 同改）。 *)
+       else if f["类型"] = "lambda" then
+         应用多参数函数(求值lambda(f["参数"], f["体"], call_env), args, call_env)
+       else 错误("不可调用的值: " + 标准库.元素repr(f)))
     else if type_of(f) = "List" or type_of(f) = "Tuple" then
-      (if 标准库.len(f) = 0 then 错误("不可调用的值: " + 标准库.str(f))
+      (if 标准库.len(f) = 0 then 错误("不可调用的值: " + 标准库.元素repr(f))
        else if f[0] = "__closure__" then
          let params = f[1] in
          let body = f[2] in
@@ -649,11 +663,11 @@ module 解释器 {
        else if f[0] = "__内建部分__" then
          应用内建(f[1], f[2] + args, call_env)
        else
-         错误("不可调用的值: " + 标准库.str(f)))
+         错误("不可调用的值: " + 标准库.元素repr(f)))
     else
       (* 30c：类型守卫前置（应用函数 同改）——不可索引值直接报
          「不可调用的值」，不再落 VM 下标错误。 *)
-      错误("不可调用的值: " + 标准库.str(f))
+      错误("不可调用的值: " + 标准库.元素repr(f))
 
   (* 30d：内建元数表——柯里化 AST（嵌套单参 FuncApp）下多参内建首参调用
      须记偏应用待续参补全，镜像宿主 _curry_module（src/interp.py:71）

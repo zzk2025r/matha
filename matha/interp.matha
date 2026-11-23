@@ -16,7 +16,7 @@ module 解释器 {
 
   use 词法器 { Token | 类型 | 扫描 | 做Token | tokenize }
   use 语法器 { parse | 做BinaryOp | 做IntLit | 做If | 做Variable | 做Lambda | 做FuncApp }
-  use 标准库 { len | str | int | ord_matha | chr_matha | list_get | list_slice | list_append | list_max | list_min | list_sum | matha_type_of | 原地设置 | dict_from_pairs | find | dict_has }
+  use 标准库 { len | str | 元素repr | int | ord_matha | chr_matha | list_get | list_slice | list_append | list_max | list_min | list_sum | matha_type_of | 原地设置 | dict_from_pairs | find | dict_has }
 
   (* ===== 环境：列表 [[name, value], ...] ===== *)
 
@@ -27,7 +27,9 @@ module 解释器 {
     [pair] + env
 
   func 查找环境(env: List, name: String) -> Value =
-    env = [] ? 错误("未定义变量 '" + name + "'") :
+    (* 39b：缺名臂类型化抛错（与 interp_matha.matha 同改）——宿主
+       _eval_variable 的 未定义错误 内建回退，异常类 MathaUndefinedNameError。 *)
+    env = [] ? 未定义错误("未定义变量 '" + name + "'") :
     env[0][0] = name ? env[0][1] : 查找环境(env[1:], name)
 
   (* ===== 递归绑定支持：占位符 + 原地更新 =====
@@ -289,19 +291,24 @@ module 解释器 {
   (* 函数应用分发 =====
      31d-①：类型守卫前置（30c 同款 List/Tuple 探测→不可调用）——此前 f[0]
      直接探测对 Int/Float 落下标错误「索引操作不支持: int[0]」、空列表落
-     原生 IndexError，宿主同形报「不可调用的值: 5」（8a 双链对拍同口径）。 *)
+     原生 IndexError，宿主同形报「不可调用的值: 5」（8a 双链对拍同口径）。
+     39a-2：值渲染改 元素repr（interp_matha.matha 同改）——对齐宿主
+     f"{func!r}"，字符串值带引号、其余同 str。 *)
   func 应用函数(f: Value, arg: Value, call_env: List) -> Value =
     if matha_type_of(f) = "List" or matha_type_of(f) = "Tuple" then
-      (if len(f) = 0 then 错误("不可调用的值: " + str(f))
+      (if len(f) = 0 then 错误("不可调用的值: " + 元素repr(f))
        else if f[0] = "__closure__" then
       let params = f[1] in
       let body = f[2] in
       let captured = f[3] in
-      let p0 = params[0] in
+      (* 39a-3：零参闭包守卫（interp_matha.matha 29d 同口径）——空参数表
+         （做Lambda([], body)，parser.matha 零参 λ 形态）忽略 IntLit(0) 占位
+         直接求值体；此前 params[0] 无守卫落原生 IndexError。 *)
+      let p0 = len(params) = 0 ? null : params[0] in
       (* 参数名双形态：func 定义经 解析参数列表 产字符串，lambda 经表达式
          解析产 Variable 节点（与 interp_matha.matha 同口径）。 *)
       let pname = if matha_type_of(p0) = "Dict" then (if p0.类型 = "变量" then p0.名 else p0) else p0 in
-      let new_env = 绑定环境(captured, pname, arg) in
+      let new_env = len(params) = 0 ? captured : 绑定环境(captured, pname, arg) in
       (* 柯里化：若还有多余参数，返回部分应用闭包。
          注意不可在此提前求值 body——多参函数在首个参数处后续参数尚未绑定，
          提前求值会报「未定义变量」；应留到最后一个参数绑定后再求值。 *)
@@ -316,8 +323,14 @@ module 解释器 {
     else if f[0] = "__struct部分__" then
       应用结构体工厂(f[1], f[2:] + [arg])
     else
-      错误("不可调用的值: " + str(f)))
-    else 错误("不可调用的值: " + str(f))
+      错误("不可调用的值: " + 元素repr(f)))
+    else if matha_type_of(f) = "Dict" then
+      (* 39a：裸 λ-AST 字典应用臂（interp_matha.matha 同改）——
+         求值lambda 折闭包后重入本函数。 *)
+      (if f.类型 = "lambda" then
+         应用函数(求值lambda(f.参数, f.体, call_env), arg, call_env)
+       else 错误("不可调用的值: " + 元素repr(f)))
+    else 错误("不可调用的值: " + 元素repr(f))
 
   (* struct 工厂应用：按字段数收集参数，齐了即构造实例（柯里化，
      对齐宿主 _struct_factory 的逐参数应用）。零字段 struct 无参即构造。 *)

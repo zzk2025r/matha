@@ -44,7 +44,7 @@ module 自举加载器 {
     let _r = 加载核心模块() in
 
     (* 2. 词法分析 *)
-    let toks = 词法器.扫描(source) in
+    let toks = 词法器.扫描(source)(0)(1)(1)([]) in
 
     (* 3. 语法分析 *)
     let ast = 语法器.parse(toks) in
@@ -61,14 +61,14 @@ module 自举加载器 {
   (* ===== 表达式求值入口 ===== *)
   func bootstrap_eval(expr_src: String) -> Value = (expr_src) =>
     let _r = 加载核心模块() in
-    let toks = 词法器.扫描(expr_src) in
+    let toks = 词法器.扫描(expr_src)(0)(1)(1)([]) in
     let ast = 语法器.parse(toks) in
     let env = 解释器.注册内建(解释器.空环境()) in
     解释器.求值(ast, env)
 
   (* ===== 工具函数：连接词法器和解释器 ===== *)
   func token_stream(source: String) -> List = (source) =>
-    词法器.扫描(source)
+    词法器.扫描(source)(0)(1)(1)([])
 
   func parse_tokens(tokens: List) -> Dict = (tokens) =>
     语法器.parse(tokens)

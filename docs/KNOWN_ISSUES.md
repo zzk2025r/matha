@@ -2187,6 +2187,90 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 39 收官（Track B both_err 归因批：31-⑧ 退役——both_err 13
+  → 0，11 条转 both_err_equal 双面同判诚实面 + 2 条转 both_ok_equal）**：
+  方向拍板走推荐项「A：Track B both_err 归因批」；13 语料逐文件归因后按根因
+  分四片真化 + 一片判定面细分，残留三根因如实登记为边界。
+  **39a 链面应用分派补齐**：interp_matha.matha/interp.matha 应用函数/应用多
+  参数函数 补裸 λ-AST 字典臂（`f["类型"] = "lambda"` → 求值lambda 折闭包重入
+  __closure__ 机制，柯里化/多参语义同臂复用）——bootstrap_test 3.6/3.7/3.9
+  直调链 API 形态双面 + VM² 同判；不可调用值渲染改 标准库.元素repr（CPython
+  repr 规则——字符串加引号转义、其余同 str）对齐宿主 `f"{func!r}"`（载体位
+  src/interp.py 与 src/mbc/vm.py 各一处），此前 str 丢字符串引号致双端消息
+  不同（'' vs 空）——链面 8/4 处渲染点全改尽结构锁 + 六值形×四面文案锁；
+  零参闭包守卫（`len(params) = 0 ? null : params[0]` + 空参数表直返 captured，
+  29d 同口径）——此前 params[0] 落原生 IndexError。
+  **39b 未定义变量异常类真化（31-⑧ 根因之一退役）**：新类型化抛错内建
+  `未定义错误` → MathaUndefinedNameError（MathaRuntimeError + KeyError 双继
+  承，消息逐字不变「未定义变量 '<名>'」），注册 src/interp.py BUILTINS +
+  src/mbc/vm.py `_default_builtins` + vm.matha 内建名表，且三处保留内建面
+  （28d 插口不可遮蔽）同步扩展；自举链 查找环境/查找环境链、interp.matha
+  查找环境、vm.matha 查全局 缺名臂改裸名调用——vm/hi/mb/VM² 四面异常类归一
+  （golden 13/31 双端逐字同判锁）。旧载体锁真化改锁五处（phase8pre ×1 +
+  phase8a ×2 + bootstrap_host ×1 + formula29 ×1：MathaRuntimeError →
+  MathaUndefinedNameError）。
+  **39b-2 m3v 面**：vm.matha 内建特殊 补 未定义错误 带内臂（与 错误 同通道
+  `抛错返回(参数[0])`）+ 是保留内建名/应用内建 特殊名守卫/内建名表 三处同族
+  扩展；vm.matha 自身 查全局 缺名命中宿主内建故类型保留，唯目标码直调本内建
+  后逃逸 运行M3V 边界经 `错误(结果[1])` 转宿主 MathaRuntimeError——带内通道
+  无类型载体，登记不修③。
+  **39c bootstrap_matha 语料刷新**：词法器.扫描 补现代柯里化 API 尾参
+  `(0)(1)(1)([])` 三处——boot 面 Partial len TypeError vs host 面 属性访问失
+  败 str.类型 双端异根因清零，双面 ok 且 4 输出前 3 项逐字同判（第 4 项
+  加载模块 胶水返回形状，登记不修②）。
+  **39d compiler_matha 源序 + 符号导入**：`let 不折叠 = " nofold"` 哨兵前移
+  至模块顶（宿主闭包按定义序快照环境，后定义模块级 let 对先定义函数不可见）
+  + `use 标准库` 补 dict_from_pairs/dict_get/dict_has/dict_put/int_of_num——
+  boot 未定义变量 'dict_from_pairs' vs host 未定义变量 '不折叠' 双端异根因清
+  零，bootstrap_full_test 22 输出逐字同判；boot 编译器发射面 stage2↔stage3
+  逐位一致（parity 回归锁绿，指令码零漂移）。附带 hi 面 BUILTINS 补
+  list_push（与 VM `_default_builtins`/`_curry2` 同构原语——自举编译器 `_发`
+  构建器 O(1) 原地追加发射位）。phase21 两条陈旧边界锁真化改锁（bootstrap_-
+  matha/bootstrap_full_test 双面 ok）。
+  **39e 判定面细分**：scripts/selfhost_matrix.py `_classify` 双 err 条目按
+  boot_err == host_err 逐字相等细分 both_err_equal（双面同判的诚实报错面），
+  归因后仍存差异者维持 both_err；summary 分类键序扩至七键 + structure_check
+  缺分类键诚实报错（旧快照需 --write 重生成，不静默漏计）；phase29 结构锁同
+  步七键算术闭合。快照重生成 225 = both_ok_equal 211 / both_ok_differ 3 /
+  boot_err_host_ok 0 / boot_ok_host_err 0 / both_err_equal 11 / both_err 0 /
+  timeout 0（both_err_equal 11 = bootstrap_test + golden 12/13/14/24/25/26/
+  27/28/29/31），--check 复跑 225/225 条目复现一致。
+  A 轨新档 test_selfhost_language_phase39 31 项（39a λ-dict 四形态 + 元素repr
+  六值形×四面 + 载体 wired 结构 + 零参 λ / 39b 载体四面×2 + 子类关系 + golden
+  同判 + 双宿主注册 + 保留面 / 39b2 m3v 三态 + vm.matha 注册结构 / 39d 导入
+  + 源序 / 39c 双面 ×3 / 39e 判定 ×3）。
+  **门禁**：tests lane 7871 过 + 1 skip + 1 红 4260.29s（唯一红为 test_doc_-
+  facts 本体量口径过期——39b src/mbc/vm.py +16 行未同步 ARCHITECTURE；
+  33,436 → 33,452 后 doc_facts 18 绿复跑，tests 口径 7872）+ kernel_purity
+  14 + ast_vm_gap 11（快照零扰动无需重生成——指令码不变）+ golden 39/39 +
+  dep_audit 39 内核文件 189 import 边 0 违规 + native_parity 38/39（0 失败，
+  native 已知未实现 1 例不计分母）+ Track B --write/--check 两跑一致。算术闭
+  合：7976 条件 = 7975 过（tests 7872 + purity 14 + ast_vm_gap 11 + golden
+  39 + native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 7945（38 条件）
+  + 31（test_selfhost_language_phase39）。doc 同步：README（阶段 39 段 + 测
+  试文件 189 ×2）；ARCHITECTURE（本体量 33,436→33,452（+16 = 39b src/mbc/-
+  vm.py `_builtin_undefined_error` + b.setdefault + 保留集与注释；src/interp.py
+  与 matha/*.matha 镜像不在 core_py_lines 口径）+ 阶段 39 节 + 测试文件
+  189）；CHANGELOG 阶段 39 条目；KNOWN_ISSUES 阶段 39 收官条目。
+  登记不修三条（2026-11-24 收官实测，均有锁防漂移）：①三引号字符串——
+  bootstrap_test 残留根因，宿主与 boot 词法器双双不支持 `"""…"""` 多行字符
+  串（双端同形失败，如实分类 both_err_equal 而非修复项；
+  test_39c_bootstrap_test_still_both_err_triple_quote 锁）②加载模块 胶水返
+  回形状面差——hi 面 `加载模块_文件` → Bool（src/interp.py:4308
+  `_b_load_matha_module`）vs VM 面 → list[str]（src/kernel/exec_api.py:171 注
+  入 src/domains/capability.py:297 编译面胶水），bootstrap_matha 第 4 输出形
+  状分歧（test_39c_bootstrap_matha_corpus_two_faces_ok 前 3 项逐字锁 + 长度
+  锁；Track B boot↔host 面第 4 项同判 equal，boot 注入宿主真实现）③m3v 面直
+  调 未定义错误 逃逸边界类转换（带内 "__抛错__" 通道无类型载体，
+  test_39b2_m3v_undefined_error_builtin_in_band 锁——错误串
+  「MathaRuntimeError: 手工」非本类）。判定面口径注记：both_err_equal 的逐字
+  相等以 `_ERR_TRUNC = 240` 截断后的 boot_err/host_err 串比较为准，超长同根因
+  消息不另设判据。
+  退役一条：31-⑧（both_err 13 构成）。承继：33-⑤（mb 词法器递归深度上限）
+  + 32-⑧⑫ + 31-⑨（differ 3 维持——08_auto_optimize/data_pipeline/
+  neural_network 对象身份/未定种子如实分歧）+ 28-⑧ + 29-①⑥⑦ + 37-①②③ +
+  38-①② 维持原登记不修。边界维持：pyproject dependencies=[] 不变。
+
 - **2026-11 阶段 38 收官（m3v 异常帧机制：35-② 真化——编译态 try/catch 捕
   获运行期错误，载体不可知单点包裹）**：方向拍板走推荐项「A：m3v 异常帧机
   制」；修复形态拍板走推荐项「捕获闭包单点包裹」——不复制 vm.py 异常帧机

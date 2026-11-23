@@ -227,6 +227,20 @@ def builtin_matha_runtime_error(msg: str) -> None:
     raise MathaRuntimeError(msg)
 
 
+def builtin_undefined_error(msg: str) -> None:
+    """未定义错误(msg)：类型化抛错内建（39b，与 _eval_variable 同载体）。
+
+    自举链 查找环境/查找环境链 缺名臂经此抛 MathaUndefinedNameError，
+    boot/mb 双面异常类与宿主一致（消息仍为「未定义变量 '<名>'」，
+    msg 由链面已拼好；而 VM 面 LOAD_GLOBAL 未命中走 _GlobalScope.__missing__
+    同类抛错，vm/hi/mb/VM² 四面口径归一）。m3v 面（vm.matha 查全局 经带内
+    错误通道）未捕获时同样呈现本类，唯直调本内建后逃逸 运行M3V 边界经
+    错误() 转宿主 MathaRuntimeError——带内通道无类型载体，见 KNOWN_ISSUES
+    阶段 39 登记。
+    """
+    raise MathaUndefinedNameError(msg)
+
+
 def builtin_guarded_call(interp):
     """调用捕获(fn)(args) → 运行 fn(*args)，返回 tagged 结果：
     正常 ["__正常__", 值]；异常 ["__异常__", 消息字符串]。
@@ -1095,6 +1109,14 @@ def builtin_dict_remove(d, k):
     return {kk: vv for kk, vv in d.items() if kk != k}
 
 
+def builtin_list_push(lst, x):
+    """list_push(lst, x) → 原地追加 x 并返回 lst（与 VM _builtin_list_push 同构；
+    调用方（自举编译器 _发）保证列表由单一线性函数式链持有、不与其它绑定
+    别名共享，故原地更新对外可观察结果与「返回新列表」等价）。"""
+    lst.append(x)
+    return lst
+
+
 def builtin_to_tuple(xs):
     """_to_tuple(xs)：列表 → 元组（自举解释器求值元组字面量的构造原语；
     纯 Matha 无构造元组的操作码，与 _dict_put 等原语同例）。"""
@@ -1176,6 +1198,9 @@ BUILTINS: dict[str, object] = {
     "抛出错误": builtin_throw,
     "错误": builtin_throw,
     "MathaRuntimeError": builtin_matha_runtime_error,
+    # 39b：未定义变量类型化抛错（与 _eval_variable 同载体 MathaUndefinedNameError）——
+    # 自举链 查找环境 缺名臂裸名调用经 builtins 回退命中（mb 面）。
+    "未定义错误": builtin_undefined_error,
     # ---------- 与 VM 后端对齐的原语（src/mbc/vm.py::_default_builtins） ----------
     # 空字典常量：{} 在 Matha 语法中是空集合构造，故空字典须由宿主提供。
     "_empty_dict": {},
@@ -1185,6 +1210,8 @@ BUILTINS: dict[str, object] = {
     "_dict_has": _curry_module(2, builtin_dict_has),
     "_dict_put": _curry_module(3, builtin_dict_put),
     "_dict_remove": _curry_module(2, builtin_dict_remove),
+    # 列表构建器原语（与 VM _default_builtins 对齐；自举编译器 _发 O(1) 原地追加）
+    "list_push": _curry_module(2, builtin_list_push),
     # 元组构造原语（自举解释器元组字面量求值用；与 VM 后端对齐）
     "_to_tuple": builtin_to_tuple,
     # 迭代源归一（32a-①）：与 VM 后端同构——dict → ('k', v) 真元组对列表，
@@ -1470,9 +1497,11 @@ class Interpreter:
         return False
 
     # 28d 开放插口保留名（与 VM.register_builtin 同口径）：输出/错误类专用
-    # 内建直写解释器输出/异常面，注册处理器不可覆盖。
+    # 内建直写解释器输出/异常面，注册处理器不可覆盖。未定义错误（39b）同族：
+    # 自举链缺名臂的类型化抛错载体，被插口遮蔽即异常类口径漂移，故同列保留。
     _RESERVED_BUILTINS = frozenset(
-        {"输出", "print", "打印文本", "调用捕获", "错误", "MathaIOError"})
+        {"输出", "print", "打印文本", "调用捕获", "错误", "未定义错误",
+         "MathaIOError"})
     _PORT_ABSENT = object()
 
     def register_builtin(self, name: str, fn) -> bool:
