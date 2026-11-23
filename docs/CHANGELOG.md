@@ -612,6 +612,26 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   类型加强、phase32 test_32e_chained_mutual_true、phase36
   test_36x_vm_dict_intkey_true / test_36x_blk_tail_binding_true）；
   登记不修清单见 KNOWN_ISSUES 阶段 37 收官条目。
+- 阶段 38 m3v 异常帧机制（35-② 真化收官，载体不可知单点包裹）：方向拍板
+  走推荐项「A：m3v 异常帧机制」+ 修复形态拍板走推荐项「捕获闭包单点包
+  裹」。vm.matha 两个分派位用 Matha 级 调用捕获 单点包裹——**捕获闭包
+  位** `调用捕获((p) => 执行(p[0],…,p[4]))`（实参双嵌套 [[…]] 配对
+  invoke_value 的 fn(*args) 铺开）：守卫 "__异常__" 时以 ["__异常__",
+  消息] 标记入顶帧（try/catch 正常接管），否则 子结果 = 守卫[1] 走既有
+  "__抛错__"/"__停机__" 臂（带内路径零变化）；**捕获内建位**同形 →
+  "__异常__" 转 ["__抛错__", 消息] 统一打标。载体派发家族（除零/解构失
+  败/未定义变量）三面 + VM² 同判；带内 RAISE 路径零扰动。A 轨新档
+  test_selfhost_language_phase38 12 项（38a1 四族 vm↔m3v 捕获 parity——
+  badindex 双面各断正典文案 / 38a2 带内回归 / 38a3 finally 序 / 38a4
+  catch 重抛逃逸 / 38a5 部分输出保序 / 38a6 既有名保序 / 38a7 新建名登
+  记锁 / 38a8 内层边界胜+逃逸对齐）+ 35x 真化改锁
+  （test_35x_m3v_try_catch_registration → test_35x_m3v_try_catch_true，
+  一函数三族内部循环）。vm.matha +46−31 单文件改动；src/ 零改动、指令
+  码不变；门禁全绿首跑零红（tests lane 7841 过 + 1 平台 skip 4532.21s +
+  purity 14 + gap 11 快照零扰动 + golden 39/39 + dep_audit 0 违规 +
+  native 38/39 + Track B --check 一致）。算术闭合：7945 条件 = 7944 过 +
+  1 skip = 7933（37 条件）+ 12；登记不修清单见 KNOWN_ISSUES 阶段 38 收
+  官条目（vm↔m3v 下标越界文案分歧① + 新建全局名捕获路径丢失②）。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

@@ -20,10 +20,10 @@
 
 登记不修（KNOWN_ISSUES 阶段 35）：mb 表达式位 let 元组绑定 honest
   reject「未知表达式类型: let元组绑定」——boot 求值面暂不支持（不假
-  编译），语句位 let 元组 boot 面 32 已落地；本档登记锁。
-  附带发现（35b 探针踩中，既有边界非本阶段引入）：m3v 面编译态
-  try/catch 不捕获运行期错误（除零/越界/未定义变量/解构失败全族一致
-  上抛——vm.matha 解释器循环未实现异常帧机制），本档登记锁；
+  编译），语句位 let 元组 boot 面 32 已落地。
+  附带发现（35b 探针踩中）：m3v 面编译态 try/catch 不捕获运行期错误
+  （除零/越界/未定义变量/解构失败全族一致上抛）——38a 捕获闭包单点
+  包裹真化（35-② 退役），35x 锁真化改锁 test_35x_m3v_try_catch_true；
   vm/hi/mb/native 四面 try/catch 捕获正常（native/VM 面锁在
   test_native.py / phase34 _FAIL 三面锁）。
 
@@ -431,20 +431,23 @@ def test_35b_for_m3v_runs(m3v, tag, src, want):
     assert _m3v_err(m3v, src) == (want, None)
 
 
-def test_35x_m3v_try_catch_registration(m3v):
-    """登记锁（维持，既有边界非 35 引入）：m3v 面编译态 try/catch 不捕获
-    运行期错误——除零/越界/解构失败全族一致上抛（vm.matha 解释器循环
-    未实现异常帧机制）。vm/hi/mb/native 四面捕获正常（对齐锁见
-    test_native.py / phase34）。修复需 vm.matha 异常帧协议，登记不修。"""
-    for tag, src in [
-        ("div0", 'try {\n  输出(1 / 0)\n} catch (e) {\n  输出(e)\n}\n'),
+def test_35x_m3v_try_catch_true(m3v):
+    """真化锁（38a 捕获闭包单点包裹——35-② 退役）：m3v 面编译态 try/catch
+    捕获运行期错误——除零/越界/解构失败三族消息=载体异常串，与宿主 vm
+    面同源逐字一致（同一 _make_guarded_call 提供者）。未定义变量族扩锁
+    与 finally/重抛/保序全族在 test_selfhost_language_phase38.py。"""
+    for tag, src, want in [
+        ("div0", 'try {\n  输出(1 / 0)\n} catch (e) {\n  输出(e)\n}\n',
+         "除零错误: 1 / 0"),
         ("badindex", 'try {\n  let xs = [1]\n  输出(xs[5])\n} catch (e) {\n'
-                     "  输出(e)\n}\n"),
-        ("unpack", 'try {\n  for (a, b) in [[1]] { 输出(a)\n }\n} catch (e) {\n'
-                   "  输出(e)\n}\n"),
+                     "  输出(e)\n}\n",
+         "列表索引越界: 5"),
+        ("unpack", 'try {\n  for (a, b) in [[1]] { 输出(a) }\n} catch (e) {\n'
+                   "  输出(e)\n}\n",
+         "解构失败：期望 2 个元素，实际 list"),
     ]:
         outs, err = _m3v_err(m3v, src)
-        assert err is not None and outs is None, (tag, outs, err)
+        assert err is None and outs == [want], (tag, outs, err)
 
 
 if __name__ == "__main__":

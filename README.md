@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 187（`tests/`）
+- **测试文件：** 188（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -404,6 +404,18 @@ vm null）+ parser.matha `花括号种类` 数字/布尔首 token 冒号前瞻 �
 内部分歧（编译面语句尾 PUSH_NULL vs 解释面输出通道规则）+ mb 面集合
 构造求值未知表达式类型 + 37c 嵌套链同名成员 env 槽覆写边界。
 
+m3v 异常帧机制（阶段 38）：35-② 真化——编译态 try/catch 捕获运行期错误。
+vm.matha 捕获闭包/捕获内建两个分派位用 Matha 级 调用捕获 单点包裹（实参
+双嵌套 [[…]] 配对 invoke_value 的 fn(*args) 铺开），载体异常（宿主 VM
+Python try/except / interp.py / native longjmp——载体不可知）在分派边界
+统一转带内 "__异常__" 标记——载体派发家族（除零/解构失败/未定义变量）
+try/catch 全捕获，三面 + VM² 同判；带内 "__抛错__"/"__停机__" 路径零变
+化。八形态锁档 38a1–38a8 + 35x 真化改锁；vm.matha +46−31 单文件改动，
+src/ 零改动、指令码不变。附带发现登记：vm↔m3v 下标越界文案分歧（vm/hi
+透传 Python IndexError「list index out of range」vs m3v stdlib get 域文
+案「列表索引越界: 5」——同一载体守卫、不同检测点，38a1 双面文案锁防漂
+移）+ 38a 窄分歧新建全局名捕获路径丢失（结构脊展开，38a7 登记锁）。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -425,7 +437,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（187 个文件）
+├── tests/                  # 测试套件（188 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包
