@@ -1,7 +1,7 @@
 {
   "_comment": "Matha 领域插件清单 —— 纯数据，由 scripts/gen_domain_manifest.py 生成，请勿手改。运行时 src/plugin_api.PluginResolver 只读此文件即可完成符号→插件的归属判定，从而不在启动时 import 任何领域模块。plugins 数组的顺序即加载顺序（沿用旧 interp eager 注册顺序），跨领域重名符号按后者覆盖。",
   "protocol_version": 1,
-  "generated_at": "2026-11-17T08:57:16",
+  "generated_at": "2026-11-24T08:01:08",
   "generator": "scripts/gen_domain_manifest.py",
   "plugins": [
     {
@@ -4190,6 +4190,7 @@
         "添加层",
         "添加池化",
         "训练模型",
+        "随机种子",
         "预测"
       ],
       "declared_symbols": [],

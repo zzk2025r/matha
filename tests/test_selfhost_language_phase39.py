@@ -35,11 +35,12 @@
   → both_err_equal（双面同判的诚实边界，与"分歧残留" both_err 分列）；
   summary 七分类键；structure_check 缺键诚实报「需 --write 重生成」。
 
-登记不修（KNOWN_ISSUES 阶段 39）：三引号字符串 """"..."""" 双端词法器均不支持
-  （析为 FuncApp 链 → 同判「不可调用的值: ''」）、加载模块 胶水返回形状
+登记不修（KNOWN_ISSUES 阶段 39）：加载模块 胶水返回形状
   （hi bool vs VM 面 list[str]，boot/host 面同源不进 Track B）、
   m3v 面直接调用 未定义错误 逃逸边界经 运行M3V 的 错误 转宿主
   MathaRuntimeError（带内通道无类型载体）。
+  （原「三引号字符串双端词法器均不支持」条由阶段 40a 真化退役，
+  39c 根因锁相应改锁为真跑值锁。）
 """
 import os
 import pathlib
@@ -498,15 +499,13 @@ def test_39c_bootstrap_full_test_corpus_two_faces_equal():
     assert [repr(x) for x in hi] == [repr(x) for x in vo], (hi, vo)
 
 
-def test_39c_bootstrap_test_still_both_err_triple_quote():
-    """bootstrap_test 残留根因锁：三引号字符串 双端词法器均不支持 → 双面
-    同判「不可调用的值: ''」（both_err_equal 边界，非分歧）。"""
+def test_39c_bootstrap_test_triple_quote_true():
+    """39-① 真化（阶段 40a）：三引号字符串双端词法器落地——同形源双面
+    真跑得值（此前双端同判「不可调用的值: ''」登记不修）。"""
     src = 'let s = """a""" in 输出(s)\n'
-    _, verr = exec_api.run_checked(src)
-    _, hi_err = _hi_run(src)
-    assert verr is not None and hi_err is not None, (verr, hi_err)
-    assert _err_str(verr) == _err_str(hi_err) == \
-        "MathaRuntimeError: 不可调用的值: ''", (_err_str(verr), _err_str(hi_err))
+    vo, verr = exec_api.run_checked(src)
+    hi, hi_err = _hi_run(src)
+    assert (vo, verr) == (["a"], None) and hi == ["a"], (vo, verr, hi)
 
 
 # ============================================================

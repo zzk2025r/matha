@@ -16,11 +16,11 @@
  ],
  "summary": {
   "files": 225,
-  "both_ok_equal": 211,
-  "both_ok_differ": 3,
+  "both_ok_equal": 215,
+  "both_ok_differ": 0,
   "boot_err_host_ok": 0,
   "boot_ok_host_err": 0,
-  "both_err_equal": 11,
+  "both_err_equal": 10,
   "both_err": 0,
   "timeout": 0
  },
@@ -41,10 +41,10 @@
   },
   {
    "path": "matha/bootstrap_test.matha",
-   "boot": "err",
-   "host": "err",
-   "boot_err": "MathaRuntimeError: 不可调用的值: ''",
-   "host_err": "MathaRuntimeError: 不可调用的值: ''"
+   "boot": "ok",
+   "host": "ok",
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "matha/bootstrap_test_v2.matha",
@@ -126,10 +126,8 @@
    "path": "matha/examples/08_auto_optimize.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": false,
-   "first_div": 0,
-   "n_boot_outs": 2,
-   "n_host_outs": 2
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "matha/examples/08_optimize_sub.matha",
@@ -1140,10 +1138,8 @@
    "path": "examples/ai/data_pipeline.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": false,
-   "first_div": 1,
-   "n_boot_outs": 2,
-   "n_host_outs": 2
+   "equal": true,
+   "n_outs": 2
   },
   {
    "path": "examples/ai/genetic_algo.matha",
@@ -1156,10 +1152,8 @@
    "path": "examples/ai/neural_network.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": false,
-   "first_div": 0,
-   "n_boot_outs": 3,
-   "n_host_outs": 3
+   "equal": true,
+   "n_outs": 3
   },
   {
    "path": "examples/basic_examples.matha",

@@ -11,7 +11,7 @@
 - 闭环：加载模块 胶水真加载/幂等/命名空间/枚举/let 物化；发射与内联抑制
 - 防回潮：stdlib 死导入清除 + 双端内联守卫在场
 - 登记边界：裸 VM 无加载全局诚实报错；三链文件双面形态（39c/39d 后两文件
-  双面 ok、bootstrap_test 双端同判 err——加载模块 形状与三引号字符串残留）
+  双面 ok；bootstrap_test 由 40a 三引号真化后双面 ok 逐值同判）
 """
 
 import pathlib
@@ -248,12 +248,17 @@ def test_boundary_bootstrap_matha():
     assert h[1][:3] == v[1][:3], (h[1], v[1])
 
 
-def test_boundary_bootstrap_test():
-    """host 面 不可调用的值（HEAD 同形不变）；
-    VM 面 HEAD err 未定义变量 '词法器' → 21b 后 KeyError: 0 → 29b-④ 缺键返
-    null（vm→host 对齐，应用函数 f[0] 探测字典键落到 错误 分支）后与 host
-    同文案，双端消息逐字一致。"""
-    h, v = _faces(ROOT / "matha/bootstrap_test.matha")
-    assert h[0] == "err" and "不可调用的值" in h[1]
-    assert v[0] == "err" and "不可调用的值" in v[1]
-    assert h[1] == v[1]
+def test_bootstrap_test_both_faces_true():
+    """〔40a 真化改锁〕三引号字符串双端词法器落地后，bootstrap_test 不再
+    早停于「不可调用的值」——双面跑通全程 [54, 3, 57] 逐值同判（Track B
+    分类相应由 both_err_equal 转 both_ok_equal）。
+    递归预算：自举链嵌套装载需深栈，pytest 进程栈底较深，按 Track B 口径
+    抬升上限并在退出时还原（裸解释器面同形态锁在 test_semantic_parity_phase19）。"""
+    old = sys.getrecursionlimit()
+    sys.setrecursionlimit(20000)
+    try:
+        h, v = _faces(ROOT / "matha/bootstrap_test.matha")
+    finally:
+        sys.setrecursionlimit(old)
+    assert h == v, f"host={h}\n  vm={v}"
+    assert h[0] == "ok" and h[1] == ["54", "3", "57"], (h[0], h[1][:6])

@@ -339,10 +339,38 @@ module 词法器 {
          (c = "\\") ? ("\\", pos + 1) :
          ("\\" + c, pos + 1)))
 
+  (* ===== 字符串定界辅助 ===== *)
+
+  (* 三连定界符检测：pos 起连续三字符同为 界（宿主 lexer.py 三引号分支同源）。
+     pos + 2 < len(src) 即 "还有 3 个字符可读"，越界 get 返回 "" 不误判。 *)
+  func 是三连(src: String, pos: Int, 界: String) -> Bool =
+    (src, pos, 界) =>
+      (pos + 2 < len(src) and get(src)(pos) = 界 and
+       get(src)(pos + 1) = 界 and get(src)(pos + 2) = 界) ? 真 : 假
+
+  (* 三引号字符串续：pos 指向开定界符**之后**首字符，界为 `"` 或 `'`。
+     语义对齐宿主 _string_triple：定界符内换行原样入值并推进行号（行 +1、列归 1），
+     转义序列照常解码（三引号不改转义规则），EOF 未闭合诚实报错同 扫描字符串续。 *)
+  func 扫描三引号续(src: String, pos: Int, line: Int, col: Int, toks: List,
+                    起行: Int, 起列: Int, 缓存: String, 界: String) -> List =
+    (src, pos, line, col, toks, 起行, 起列, 缓存, 界) =>
+      (pos >= len(src)) ?
+        错误("字符串未闭合") :
+      (是三连(src)(pos)(界)) ?
+        扫描(src)(pos + 3)(line)(col + 3)(append(toks)(做Token(字符串, 缓存, 起行, 起列))) :
+      (get(src)(pos) = "\\") ?
+        (pos + 1 < len(src) ?
+          (let (文本, 新pos) = 解转义(src)(pos + 1) in
+            扫描三引号续(src)(新pos)(line)(col + 新pos - pos)(toks)(起行)(起列)(缓存 + 文本)(界)) :
+          扫描三引号续(src)(pos + 1)(line)(col + 1)(toks)(起行)(起列)(缓存 + get(src)(pos))(界)) :
+      (是换行码(ord(get(src)(pos)))) ?
+        扫描三引号续(src)(pos + 1)(line + 1)(1)(toks)(起行)(起列)(缓存 + get(src)(pos))(界) :
+        扫描三引号续(src)(pos + 1)(line)(col + 1)(toks)(起行)(起列)(缓存 + get(src)(pos))(界)
+
   func 扫描字符串续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
     (src, pos, line, col, toks, 起列, 缓存) =>
       (pos >= len(src)) ?
-        append(toks)(做Token(字符串, 缓存, line, 起列)) :
+        错误("字符串未闭合") :
       (get(src)(pos) = "\\") ?
         (pos + 1 < len(src) ?
           (let (文本, 新pos) = 解转义(src)(pos + 1) in
@@ -358,7 +386,7 @@ module 词法器 {
   func 扫描单引号续(src: String, pos: Int, line: Int, col: Int, toks: List, 起列: Int, 缓存: String) -> List =
     (src, pos, line, col, toks, 起列, 缓存) =>
       (pos >= len(src)) ?
-        append(toks)(做Token(字符串, 缓存, line, 起列)) :
+        错误("字符串未闭合") :
       (get(src)(pos) = "\\") ?
         (pos + 1 < len(src) ?
           (let (文本, 新pos) = 解转义(src)(pos + 1) in
@@ -402,12 +430,16 @@ module 词法器 {
       (* 空白跳过 *)
       (是空白码(ord(get(src)(pos))) ?
         扫描(src)(pos + 1)(line)(col + 1)(toks) :
-      (* 字符串 *)
+      (* 字符串（三连定界符 → 多行串，宿主 lexer.py 同序） *)
       (get(src)(pos) = "\"") ?
-        扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(col)("") :
+        (是三连(src)(pos)("\"") ?
+          扫描三引号续(src)(pos + 3)(line)(col + 3)(toks)(line)(col)("")("\"") :
+          扫描字符串续(src)(pos + 1)(line)(col + 1)(toks)(col)("")) :
       (* 单引号字符串（宿主 ' 同为字符串定界符） *)
       (get(src)(pos) = "'") ?
-        扫描单引号续(src)(pos + 1)(line)(col + 1)(toks)(col)("") :
+        (是三连(src)(pos)("'") ?
+          扫描三引号续(src)(pos + 3)(line)(col + 3)(toks)(line)(col)("")("'") :
+          扫描单引号续(src)(pos + 1)(line)(col + 1)(toks)(col)("")) :
       (* 数字：先判进制前缀 0b/0t/0x，再走十进制/小数扫描 *)
       (是数字码(ord(get(src)(pos))) ?
         (get(src)(pos) = "0" and pos + 1 < len(src) and 是进制前缀码(ord(get(src)(pos + 1)))) ?

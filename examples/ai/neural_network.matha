@@ -3,7 +3,9 @@
 (* 口径：默认配置 100 轮为 API 演示，XOR 未收敛（loss≈0.25）； *)
 (*       训练有效性不背书，收敛闭环见 tests/test_neural_network_plugin.py *)
 (*       CNN/RNN 无背书实现，构建方法显式拒绝（见 README） *)
+(*       权重初始化取全局 random——显式播种使本示例可复现（boot/host 双面对拍） *)
 @：【加载领域】，神经网络
+随机种子(2026)
 nn = 创建神经网络(2, 4)
 添加层(nn, 2, 4, "sigmoid")
 添加层(nn, 4, 1, "sigmoid")

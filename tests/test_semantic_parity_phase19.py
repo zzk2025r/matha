@@ -303,12 +303,21 @@ class TestBoundariesPhase19:
 
     def test_bootstrap_test_compiles_and_c_class_boundary(self):
         # 〔勘误 2026-11 阶段 21b〕同上：裸 VM 诚实拒绝边界前移至加载器名
+        # 〔40a 真化改锁〕三引号字符串落地后裸 host 面不再早停于「不可调用
+        # 的值」，自举链全程跑通 [54, 3, 57]（与 v2 同族）；深栈需抬递归
+        # 预算（裸解释器默认上限下 pytest 栈底即触发 RecursionError——限幅
+        # 伪影非语义分歧，官方门面/exec_api 面见 test_use_compile_phase21）
         src = (ROOT / "matha/bootstrap_test.matha").read_text(encoding="utf-8")
         vo = _run_raw(src, "vm")
         assert isinstance(vo, str) and "暂不支持的节点" not in vo
         assert "未定义变量 '加载模块'" in vo
-        ho = _run_raw(src, "host")
-        assert isinstance(ho, str) and "不可调用的值" in ho
+        old = sys.getrecursionlimit()
+        sys.setrecursionlimit(20000)
+        try:
+            ho = _run_raw(src, "host")
+        finally:
+            sys.setrecursionlimit(old)
+        assert isinstance(ho, list) and ho == [54, 3, 57], ho
 
 
 # ============================================================

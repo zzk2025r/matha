@@ -219,18 +219,37 @@ class _Sample:
 
 
 class _OptResult:
-    """优化结果。"""
+    """优化结果（值语义对象：可变故不可哈希）。"""
     def __init__(self, 成功, 变更):
         self.成功 = 成功
         self.变更 = 变更
 
+    def __eq__(self, other):
+        if not isinstance(other, _OptResult):
+            return NotImplemented
+        return (self.成功, self.变更) == (other.成功, other.变更)
+
+    def __repr__(self):
+        return f"_OptResult(成功={self.成功!r}, 变更={self.变更!r})"
+
 
 class _GrowResult:
-    """成长结果。"""
-    def __init__(self, 成功, 新能力, 名称=""):
+    """成长结果（值语义对象：可变故不可哈希）。"""
+    def __init__(self, 成功, 新能力, 名称="", 错误=""):
         self.成功 = 成功
         self.新能力 = 新能力
         self.名称 = 名称
+        self.错误 = 错误
+
+    def __eq__(self, other):
+        if not isinstance(other, _GrowResult):
+            return NotImplemented
+        return ((self.成功, self.新能力, self.名称, self.错误)
+                == (other.成功, other.新能力, other.名称, other.错误))
+
+    def __repr__(self):
+        return (f"_GrowResult(成功={self.成功!r}, 新能力={self.新能力!r}, "
+                f"名称={self.名称!r}, 错误={self.错误!r})")
 
 
 # ── AutoDebugger ──────────────────────────────────────────────────────────────

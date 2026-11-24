@@ -731,6 +731,7 @@ class DomainRegistry:
                 "创建神经网络", "创建CNN", "创建RNN",
                 "添加层", "前向传播", "训练模型", "预测",
                 "添加卷积层", "添加池化", "添加LSTM", "添加GRU",
+                "随机种子",
             ],
             "constants": {"DEFAULT_LAYERS": 3, "DEFAULT_HIDDEN": 64},
             "optimization_passes": ["MathaNNOptPass"],

@@ -540,9 +540,12 @@ class Lexer:
                 yield self._number()
                 continue
 
-            # 字符串字面量（双引号；单引号同为字符串定界符）
+            # 字符串字面量（双引号；单引号同为字符串定界符；三连为多行串）
             if ch == '"' or ch == "'":
-                yield self._string(ch)
+                if self.src[self.pos:self.pos + 3] == ch * 3:
+                    yield self._string_triple(ch)
+                else:
+                    yield self._string(ch)
                 continue
 
             # 标识符 / 关键字 / CJK / 顿号（、在【】内作为文本分隔符）
@@ -764,6 +767,31 @@ class Lexer:
             raise LexerError("字符串未闭合", start_line, start_col)
         self._advance()  # 消费闭引号
         return Token(TokenType.LIT_STRING, result, start_line, start_col)
+
+    def _string_triple(self, quote: str) -> Token:
+        """解析三引号字符串（定界符为 `quote` 重复三次）。
+
+        语义对齐 CPython：定界符内换行原样保留为值的一部分，转义序列照常
+        解码（三引号不改变转义规则），故复用 _decode_escape。
+        """
+        delim = quote * 3
+        start_line, start_col = self.line, self.col
+        for _ in range(3):
+            self._advance()  # 消费开定界符
+        result = ""
+        while self.pos < self.n:
+            if self.src[self.pos:self.pos + 3] == delim:
+                for _ in range(3):
+                    self._advance()  # 消费闭定界符
+                return Token(TokenType.LIT_STRING, result, start_line, start_col)
+            ch = self.src[self.pos]
+            if ch == "\\":
+                esc_line, esc_col = self.line, self.col
+                self._advance()                        # 消费反斜杠
+                result += self._decode_escape(esc_line, esc_col)
+            else:
+                result += self._advance()
+        raise LexerError("字符串未闭合", start_line, start_col)
 
     def _identifier(self) -> Token:
         """解析标识符 / 关键字。

@@ -668,6 +668,42 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   名），boot 编译器 stage2↔stage3 逐位一致零扰动；登记不修清单见 KNOWN_ISSUES
   阶段 39 收官条目（三引号字符串 / 加载模块 胶水形状 / m3v 直调 未定义错误
   边界类）。
+- 阶段 40 真缺陷批（方向 A：Track B 两类残留缺陷清零——三引号字符串 +
+  differ 3 语料；40b 形态拍板「产品侧真修」；未闭合字符串同批真修）：
+  **40a 三引号多行字符串双端词法器真化（39-① 退役）**——宿主 `src/lexer.py`
+  新增 `_string_triple` 三态扫描（闭合三连 / 转义续行 / EOF 未闭合诚实报错）
+  + `"` 与 `'` 首字符三连判定分派位（+30−2 → 本体量 33,480）；boot 镜像
+  `matha/lexer.matha` `是三连`/`扫描三引号续`（+37−5）。七形态 token 值/行/
+  列双端逐位 parity（`""""""` 空串、跨行串、`"""a\tb"""` 转义、`'''…'''`
+  单引号三连…），多行值 vm/hi/mb/VM² 四面 + M3V 六文件链同判；未闭合串四形
+  态双端同文案「字符串未闭合」（载体类名 LexerError↔MathaRuntimeError 登
+  记③，225 语料零含未闭合串故判定面零漂移）；`matha/bootstrap_test.matha`
+  测试 4 由诚实拒绝真化为跑通。**40b differ 3 语料收口（31-⑨ 退役，
+  both_ok_differ 3 → 0）**——按登记根因产品侧真修而非放宽 `selfhost_matrix.-
+  _norm`（不透明对象仍按身份比较）：宿主值语义 `__eq__`/`__repr__` 补
+  `src/autonomous.py` `_OptResult`/`_GrowResult` 与 `src/domains/data_science.-
+  py` `Dataset`（值元组逐字段、可变故不设 `__hash__`；`_Sample` 含挂钟耗时
+  故意不改）；神经网络显式播种——`src/ai_framework.py` `seed_random`（同种
+  子同权重 / 异种子异权重 / 非 int 含 bool 诚实拒绝）+ `src/domains/neural_-
+  network.py` `随机种子` 柯里化内建 + `_nn_symtab_names` + registry 模板
+  functions + `manifest.json` 重生成（`--check` 绿，89 插件 / 2806 符号）+
+  语料 `examples/ai/neural_network.matha` 顶置 `随机种子(2026)`；
+  `输出(随机种子(2026))` hi/vm 双面 [2026]。**40c 旧锁收口与判定面**——
+  Track B 快照重生成 225 = 双面一致 215 / differ 0 / both_err_equal 10 /
+  both_err 0 / timeout 0（bootstrap_test 由 both_err_equal 转 both_ok_equal）
+  + --check 复现一致；真化改锁四处（phase30 differ 三语料、phase39 39c 三
+  引号根因、phase19 与 phase21 bootstrap_test 边界锁——裸解释器面需按 Track
+  B worker 口径抬递归预算方可跑通 [54, 3, 57]，登记④限幅伪影；官方门面
+  exec_api 面同判）。新登记两条语言面边界：`matha/interp.matha` 缺 机械单元/
+  生成语句 执行臂（29c 只落 interp_matha.matha）+ NEWLINE token 位置/值约定
+  分歧（其余 token 逐位同判）。A 轨新档 test_selfhost_language_phase40 27
+  项。门禁全绿首跑两红皆为 40a 意外真化的陈旧边界锁（改锁后定向复跑 46/46
+  绿）：tests lane 7899 过 + 1 平台 skip 4493.00s + purity 14 + gap 11（快
+  照零扰动，无新 AST 节点/opcode）+ golden 39/39 + dep_audit 0 违规 + native
+  38/39（0 失败）+ doc_facts 18。算术闭合：8003 条件 = 8002 过 + 1 skip =
+  7976（39 条件）+ 27；登记不修清单见 KNOWN_ISSUES 阶段 40 收官条目（interp.-
+  matha 镜像臂缺口① / NEWLINE 约定② / 未闭合串载体类名③ / 裸解释器递归预
+  算④；退役 39-①、31-⑨）。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

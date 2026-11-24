@@ -41,6 +41,21 @@ class Dataset:
         self._labels: list[Any] = []
         self.encoded_labels: list[list[int]] = []
 
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Dataset):
+            return NotImplemented
+        return ((self.name, self.features, self.samples, self._data,
+                 self._labels, self.encoded_labels)
+                == (other.name, other.features, other.samples, other._data,
+                    other._labels, other.encoded_labels))
+
+    def __repr__(self) -> str:
+        # 值语义 repr：默认 object.__repr__ 的内存地址使同一数据集在双执行面/
+        # 两次运行间不可比（Track B both_ok_differ 根因）。
+        return (f"Dataset(name={self.name!r}, features={self.features}, "
+                f"samples={self.samples}, rows={len(self._data)}, "
+                f"labels={len(self._labels)})")
+
     def load_csv(self, path: str, label_column: int | None = None) -> bool:
         """读数值 CSV。每行等宽、单元格可转 float，否则如实抛错。
 

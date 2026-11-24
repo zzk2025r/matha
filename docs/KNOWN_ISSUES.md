@@ -2187,6 +2187,85 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 40 收官（真缺陷批：三引号多行字符串双端词法器真化——39-①
+  退役 + differ 3 语料收口——31-⑨ 退役，Track B both_ok_differ 3 → 0）**：
+  方向拍板走推荐项「A：真缺陷批——三引号 + differ 3」；40b 形态拍板走推荐项
+  「A：产品侧真修（`__eq__`/`__repr__` + 播种内建）」；未闭合字符串分歧拍板
+  走推荐项「同批真修」；节奏拍板「先摸底后实现」。
+  **40a 三引号多行字符串双端真化（39-① 退役）**：宿主 src/lexer.py 新
+  `_string_triple`（三态扫描：闭合三连 / 转义续行 / EOF 未闭合诚实报错）+
+  `"`/`'` 首字符三连判定分派位（+30−2——本体量 33,452 → 33,480）；boot 镜像
+  matha/lexer.matha `是三连`/`扫描三引号续`（+37−5）——`""""""` 空串、
+  `"""li1\nli2"""` 跨行、`"""a\tb"""` 转义、`'''…'''` 单引号三连同形；词法
+  token 值/行/列双端逐位 parity（NEWLINE 约定除外，登记②）；多行值 vm/hi/
+  mb/VM² 四面 + M3V 六文件链同判。matha/bootstrap_test.matha 测试 4（三引号
+  多行串）由诚实拒绝真化为跑通（−10+4），39c 根因锁相应改锁。未闭合串四形
+  态（单/双/三引号 + 三连尾随引号）双端诚实报错同文案「字符串未闭合」——
+  225 语料零含未闭合串，判定面零漂移。
+  **40b differ 3 语料收口（31-⑨ 退役）**：按登记根因（宿主对象无 `__eq__`
+  故跨运行实例身份不等 / 神经网络无种子）产品侧真修，而非放宽
+  `selfhost_matrix._norm`。宿主值语义：src/autonomous.py `_OptResult`/
+  `_GrowResult` + src/domains/data_science.py `Dataset` 补 `__eq__`（值元组
+  逐字段、异类 NotImplemented）与 `__repr__`（可变故不设 `__hash__`——
+  hash() 诚实 TypeError），08_auto_optimize / data_pipeline 双面同判；
+  `_Sample` 故意不改（挂钟 avg_ms/times 非确定，值语义化无意义）。神经网络
+  显式播种：src/ai_framework.py `seed_random`（同种子同权重 / 异种子异权重 /
+  非 int 含 bool 诚实拒绝）+ src/domains/neural_network.py `随机种子` 柯里化
+  内建与 `_nn_symtab_names` + src/domains/registry.py NeuralNetwork 模板
+  functions 追加 + src/domains/manifest.json 重生成（`gen_domain_manifest.py
+  --check` 绿——89 插件 / 2806 可载符号）+ 语料 examples/ai/neural_network.-
+  matha 顶置 `随机种子(2026)`；`输出(随机种子(2026))` hi [2026] ↔ vm
+  ([2026], None) 双面同判。
+  **40c 判定面与旧锁收口**：Track B 快照重生成 225 = both_ok_equal **215**
+  + both_ok_differ **0** + both_err_equal **10** + both_err 0 + timeout 0
+  （原 211/3/11——differ 3 全转 equal，bootstrap_test 由 both_err_equal 转
+  both_ok_equal），--write/--check 两跑一致；31-⑨ 登记锁改三语料双面同判真
+  化锁、39c 三引号根因锁改真跑值锁。附带发现两处陈旧边界锁被 40a 意外真化
+  ——裸 host 面 bootstrap_test 不再早停「不可调用的值」而跑通全程 [54, 3,
+  57]（test_semantic_parity_phase19 边界锁 + test_use_compile_phase21 改锁
+  test_bootstrap_test_both_faces_true）：自举链嵌套装载深栈，裸解释器面默认
+  预算（run() 自抬 5000+len//10）在 pytest 进程下仍触发 RecursionError——
+  限幅伪影非语义分歧，按 Track B worker 口径抬 20000 并退出还原后跑通；官方
+  门面（exec_api + 完整 Interpreter）同判 [54, 3, 57]。裸 VM
+  面无加载器注入仍诚实拒绝 未定义变量 '加载模块'。
+  A 轨新档 test_selfhost_language_phase40 27 项（40a1 token parity 七形态 +
+  单行串回归四形态 + 全流 parity / 40a2 多行值四面 + M3V 往返四形态 / 40a3
+  未闭合串双面 + m3v 面 / 40b1 播种可复现与守卫 / 40b2 注册四面（BUILTINS /
+  符号表 / registry 模板 / manifest）+ 双面值 / 40b3 Dataset 与 _OptResult·
+  _GrowResult 值语义（含不可哈希）/ 40b4 打印双面 / 40c 登记锁两项）。
+  **门禁全绿，首跑两红皆为 40a 意外真化的陈旧边界锁（改锁后定向复跑 46/46
+  绿）**：tests lane 7899 过 + 1 平台 skip（4493.00s）+ kernel_purity 14 +
+  ast_vm_gap 11（快照零扰动——无新 AST 节点与 opcode，指令码不变）+ golden
+  39/39 + dep_audit 39 内核文件 189 import 边 0 违规 + native_parity 38/39
+  （0 失败，native 已知未实现 1 例不计分母）+ Track B --write/--check 一致 +
+  doc_facts 18 过。算术闭合：8003 条件 = 8002 过（tests 7899 + purity 14 +
+  ast_vm_gap 11 + golden 39 + native 38 + dep_audit 1）+ 1 skip（平台 skip
+  承继）= 7976（39 条件）+ 27（test_selfhost_language_phase40）。doc 同步：
+  README（阶段 40 段 + 测试文件 190 ×2）；ARCHITECTURE（本体量 33,452→
+  33,480（+28 = 40a src/lexer.py +30−2；src/autonomous.py、src/domains/*、
+  src/ai_framework.py、matha/*.matha 与新锁档均不在 core_py_lines 口径）+
+  阶段 40 节 + 测试文件 190）；CHANGELOG 阶段 40 条目；KNOWN_ISSUES 阶段 40
+  收官条目。
+  登记不修四条（2026-11-24 收官实测，均有锁防漂移）：①interp.matha 四文件
+  链面缺 机械单元/生成语句 执行臂——同 AST 形态 `#：[1 + 1]` 在 interp_matha
+  （五文件 boot 链）真跑得 2，interp.matha 落「未知表达式类型: 机械单元」
+  （29c 仅落 interp_matha.matha；test_40c_interp_matha_mech_unit_mirror_-
+  registration 锁）②NEWLINE token 约定分歧——宿主推进到下一行后记 (行+1, 1)
+  且值为两字符转义文本 `"\n"`，链面推进前记本行末列且值为真换行（其余
+  token 值/行/列逐位同判，流级 parity 锁显式除外 NEWLINE；既有边界非本片
+  引入，test_40c_newline_token_position_registration 锁）③未闭合串载体类名
+  分歧——宿主 LexerError（消息带 `at L:col` 前缀）vs 链面 MathaRuntimeError
+  「字符串未闭合」，文案同源而类型载体不同（test_40a3 双面锁各断本类与消
+  息，m3v 面编译期即报不静默成 token）④bootstrap_test 裸解释器面（无 exec_
+  api 注入）自举链嵌套装载深栈需递归预算高于 `Interpreter.run` 自适应抬升
+  值（5000+len//10）——限幅伪影非语义分歧，两处边界锁按 Track B worker 口径
+  显式抬 20000 并退出还原后跑通 [54, 3, 57]（官方门面 exec_api 面无需抬
+  即同判）。判定面口径注记承继 39（`_ERR_TRUNC = 240` 截断比较）。
+  退役两条：39-①（三引号字符串双端词法器均不支持）、31-⑨（对象身份 / 无
+  种子致 differ 3）。承继 33-⑤（mb 词法器递归深度上限）+ 32-⑧⑫ + 28-⑧ +
+  29-①⑥⑦ + 37-①②③ + 38-①② + 39-②③ 维持原登记不修。边界维持：pyproject
+  dependencies=[] 不变。
+
 - **2026-11 阶段 39 收官（Track B both_err 归因批：31-⑧ 退役——both_err 13
   → 0，11 条转 both_err_equal 双面同判诚实面 + 2 条转 both_ok_equal）**：
   方向拍板走推荐项「A：Track B both_err 归因批」；13 语料逐文件归因后按根因

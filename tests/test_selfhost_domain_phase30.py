@@ -56,7 +56,8 @@ _EQUAL_CORPUS = [
     "tests/test_plugin_series.matha",
 ]
 
-# ⑤ 登记不修：对象身份（宿主对象无 __eq__，跨运行实例不等）/无种子训练分歧
+# ⑤ 阶段 40b 真化：宿主对象值语义 __eq__/__repr__ + 神经网络显式播种，
+#    三语料双面同判（原登记不修「对象身份/无种子分歧」退役）。
 _DIFFER_CORPUS = [
     "matha/examples/08_auto_optimize.matha",
     "examples/ai/data_pipeline.matha",
@@ -212,12 +213,12 @@ def test_plugin_load_symbolic_integrate(driver):
     assert _norm(b_outs) == _norm(h_outs), f"双面分歧 {b_outs!r} vs {h_outs!r}"
 
 
-# ⑤ 登记不修对照（both_ok_differ 如实分类，不得造假 equal）
+# ⑤ 真化对照（31-⑨ 退役：值语义 __eq__ + 显式播种后双面同判）
 @pytest.mark.parametrize("rel", _DIFFER_CORPUS, ids=[os.path.basename(p) for p in _DIFFER_CORPUS])
-def test_registered_differ_honest(driver, rel):
+def test_registered_differ_true(driver, rel):
     rec = driver._run_one(rel)
     assert rec.get("boot") == "ok", f"{rel} boot: {rec.get('boot_err', '')[:240]}"
     assert rec.get("host") == "ok", f"{rel} host: {rec.get('host_err', '')[:240]}"
-    assert rec.get("equal") is False, \
-        f"{rel} 对象身份/无种子分歧应如实 differ（不得造假 equal）"
-    assert driver._classify(rec) == "both_ok_differ"
+    assert rec.get("equal") is True, \
+        f"{rel} 值语义对象/播种后双面应同判，first_div={rec.get('first_div')}"
+    assert driver._classify(rec) == "both_ok_equal"

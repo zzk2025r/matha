@@ -175,6 +175,19 @@ def _rand_matrix(rows: int, cols: int, sigma: float) -> list[list[float]]:
     return [[random.gauss(0.0, sigma) for _ in range(cols)] for _ in range(rows)]
 
 
+def seed_random(seed: int) -> int:
+    """播种全局随机数发生器并回显种子。
+
+    存在理由：`_rand_matrix`（Linear/Conv2D 权重初始化）与 Dropout 的
+    seed=None 掩码路径共用全局 `random` 状态——无播种插口时同一源码两次
+    运行、boot/host 双执行面结果不可比（loss/精度/history 全抖）。
+    """
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError(f"seed 须为整数：{seed!r}")
+    random.seed(seed)
+    return seed
+
+
 @dataclass
 class Operation:
     forward_fn: callable

@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 189（`tests/`）
+- **测试文件：** 190（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -439,6 +439,27 @@ boot 编译器 stage2↔stage3 逐位一致零扰动、src/ 仅 vm.py +16 行。
 `加载模块` 胶水返回形状（hi bool vs VM 面 list[str]）/ m3v 直调 `未定义错误`
 逃逸边界经 `错误()` 转宿主 MathaRuntimeError（带内通道无类型载体）。
 
+真缺陷批（阶段 40）：三引号多行字符串双端词法器真化（39-① 退役）+ Track B
+differ 3 语料级收口（31-⑨ 退役）。40a 宿主 `src/lexer.py` 新增
+`_string_triple` 三态扫描（闭合三连 / 转义续行 / EOF 未闭合诚实报错）+ `"`
+与 `'` 首字符三连判定分派；boot 镜像 `matha/lexer.matha` `是三连`/
+`扫描三引号续`——`""""""` 空串、跨行串、`"""a\tb"""` 转义、`'''…'''` 四形态
+token 值/行/列双端逐位 parity，多行值 vm/hi/mb/VM² 四面 + M3V 六文件链同判；
+`matha/bootstrap_test.matha` 测试 4 由诚实拒绝真化为跑通。未闭合串四形态
+双端诚实报错同文案「字符串未闭合」（载体类名分歧登记）。40b 按登记根因产品
+侧真修（判定面 `_norm` 零放宽）：宿主值语义 `__eq__`/`__repr__`——
+`src/autonomous.py` `_OptResult`/`_GrowResult` 与 `src/domains/data_science.-
+py` `Dataset`（可变故不可哈希；`_Sample` 含挂钟耗时故意不改）+ 神经网络显式
+播种（`seed_random` → `随机种子` 域内建四面注册 + registry 模板 + manifest
+重生成 + `examples/ai/neural_network.matha` 顶置 `随机种子(2026)`）。Track B
+快照重生成 225 = 双面一致 215 / differ 0 / both_err_equal 10 / both_err 0 /
+timeout 0；四处旧锁真化改锁（phase30 differ、phase39 39c 根因、phase19 与
+phase21 bootstrap_test 边界）。新登记不修：`matha/interp.matha` 缺 机械单元/
+生成语句 执行臂（29c 只落 interp_matha）/ NEWLINE token 位置与值约定分歧 /
+未闭合串载体类名分歧 / 裸解释器面深栈递归预算（限幅伪影）。新锁档
+test_selfhost_language_phase40 27 项；src/ 仅 lexer.py +28 行，指令码与
+ast_vm_gap 快照零扰动。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -460,7 +481,7 @@ matha/
 │   ├── mbc/               # 主执行链：compiler → vm →（可选）native
 │   ├── repl.py            # REPL 入口
 │   └── ...
-├── tests/                  # 测试套件（189 个文件）
+├── tests/                  # 测试套件（190 个文件）
 ├── golden_tests/           # 39 例逐字节黄金用例（vm/interp/native）
 ├── dist/                   # 可执行文件输出（由 build_exe.py 本地生成，不随仓库分发）
 ├── offline_package/        # 离线安装包

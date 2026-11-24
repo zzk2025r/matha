@@ -269,6 +269,9 @@ def _register_nn(builtins: dict) -> None:
     builtins["添加池化"] = lambda c: lambda p: c.add_pooling(p)
     builtins["添加LSTM"] = lambda r: lambda u: r.add_lstm(u)
     builtins["添加GRU"] = lambda r: lambda u: r.add_gru(u)
+    # 权重初始化走全局 random（ai_framework._rand_matrix）——无播种插口时同一
+    # 源码两次运行/双执行面不可比。单插件一名（与 创建神经网络 归本插件同口径）。
+    builtins["随机种子"] = lambda s: _af.seed_random(s)
 
 
 def _nn_symtab_names() -> list[str]:
@@ -276,6 +279,7 @@ def _nn_symtab_names() -> list[str]:
         "创建神经网络", "创建CNN", "创建RNN",
         "添加层", "前向传播", "训练模型", "预测",
         "添加卷积层", "添加池化", "添加LSTM", "添加GRU",
+        "随机种子",
     ]
 
 
