@@ -499,6 +499,7 @@ _CN2FILE = {
     "内核": "os/kernel.matha",
     "桌面": "os/desktop.matha",
     "资源索引": "library/index.matha",
+    "装载器": "loader.matha",
 }
 
 _module_cache: dict = {}

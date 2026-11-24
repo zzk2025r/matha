@@ -670,7 +670,31 @@ module 解释器 {
        VM globals 宿主内建 builtin_type_of/builtin_to_tuple 同实现） *)
     let env23 = 绑定环境(env22, "type_of", ["builtin", func_type_of]) in
     let env24 = 绑定环境(env23, "_to_tuple", ["builtin", func_to_tuple]) in
-    并插口(env24, 解释器插口[0])
+    (* 42b：16 条载体原语入本链固定面（镜像 interp_matha.matha 注册内建 +
+       应用内建实 逐名臂）——此前 os_runtime 的 _BOOT_CHAIN_FILES 面调这些名字
+       只能靠驱动器注入宿主内建表。包装函数体内裸名走 VM globals 宿主实现
+       （与既有 func_len 委托裸名 len 同先例）。 *)
+    let env25 = 绑定环境(env24, "执行命令", ["builtin", func_执行命令]) in
+    let env26 = 绑定环境(env25, "执行命令输入", ["builtin", func_执行命令输入]) in
+    let env27 = 绑定环境(env26, "管道输入", ["builtin", func_管道输入]) in
+    let env28 = 绑定环境(env27, "管道结束", ["builtin", func_管道结束]) in
+    let env29 = 绑定环境(env28, "输入行", ["builtin", func_输入行]) in
+    let env30 = 绑定环境(env29, "列目录", ["builtin", func_列目录]) in
+    let env31 = 绑定环境(env30, "建目录", ["builtin", func_建目录]) in
+    let env32 = 绑定环境(env31, "删除路径", ["builtin", func_删除路径]) in
+    let env33 = 绑定环境(env32, "复制文件", ["builtin", func_复制文件]) in
+    let env34 = 绑定环境(env33, "改名", ["builtin", func_改名]) in
+    let env35 = 绑定环境(env34, "换目录", ["builtin", func_换目录]) in
+    let env36 = 绑定环境(env35, "路径存在", ["builtin", func_路径存在]) in
+    let env37 = 绑定环境(env36, "执行Matha", ["builtin", func_执行Matha]) in
+    let env38 = 绑定环境(env37, "调试Matha", ["builtin", func_调试Matha]) in
+    let env39 = 绑定环境(env38, "升级包", ["builtin", func_升级包]) in
+    let env40 = 绑定环境(env39, "检查包更新", ["builtin", func_检查包更新]) in
+    (* 42c：语言级 raise 名入固定面（镜像 interp_matha 注册内建 + 应用内建实 臂）
+       ——终端/标准库 level-2 代码的显式拒绝全走 错误(...)，缺名即「未定义变量
+       '错误'」掩盖真实拒绝文案。包装体裸名命中模块自有 错误（raise msg）。 *)
+    let env41 = 绑定环境(env40, "错误", ["builtin", func_错误]) in
+    并插口(env41, 解释器插口[0])
 
   (* 内建函数实现 ===== *)
   func func_ord(c) -> Int = ord_matha(c)
@@ -701,6 +725,32 @@ module 解释器 {
      _to_tuple 委托 VM globals 同名内建（builtin_to_tuple：List → 元组） *)
   func func_type_of(v) -> String = matha_type_of(v)
   func func_to_tuple(xs) -> Value = _to_tuple(xs)
+
+  (* 42b：16 条载体原语包装（镜像 interp_matha.matha 应用内建实 逐名臂）。
+     体内裸名 = boot VM 全局宿主实现（终端内核节懒物化 / os 域插件符号 /
+     宿主 执行Matha·调试Matha），实参形状随各原语正典调用：二元走柯里化
+     (a)(b)，零参载体不带 args。 *)
+  func func_执行命令(c) -> Value = 执行命令(c)
+  func func_执行命令输入(c) -> Value = (c) =>
+    (i) => 执行命令输入(c)(i)
+  func func_管道输入(l) -> Value = 管道输入(l)
+  func func_管道结束(v) -> Value = 管道结束()
+  func func_输入行(v) -> Value = 输入行()
+  func func_列目录(p) -> Value = 列目录(p)
+  func func_建目录(p) -> Value = 建目录(p)
+  func func_删除路径(p) -> Value = 删除路径(p)
+  func func_复制文件(a) -> Value = (a) =>
+    (b) => 复制文件(a)(b)
+  func func_改名(a) -> Value = (a) =>
+    (b) => 改名(a)(b)
+  func func_换目录(p) -> Value = 换目录(p)
+  func func_路径存在(p) -> Value = 路径存在(p)
+  func func_执行Matha(s) -> Value = 执行Matha(s)
+  func func_调试Matha(s) -> Value = 调试Matha(s)
+  func func_升级包(p) -> Value = 升级包(p)
+  func func_检查包更新(v) -> Value = 检查包更新()
+  (* 42c：语言级 raise——模块自有 错误（raise msg）委托，异常文案与宿主面同判 *)
+  func func_错误(c) -> Value = 错误(c)
 
   (* ===== 顶层入口 ===== *)
 

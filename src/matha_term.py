@@ -2,9 +2,15 @@
 """Matha 终端 —— 独立入口（阶段 12d）。
 
 以 CMD 为模板的显示型终端。终端的全部命令逻辑（词法/句法/分发/执行/透传决策）
-为纯 Matha 模块（matha/term_lexer / term_parser / term_engine），跑在 Matha 自身
-解释器上；本文件是**薄壳**：只做行读取、行打印、进程退出码与批处理文件读取，
-不含任何命令逻辑（诚实边界，见 docs/KNOWN_ISSUES.md 阶段 12a 条目）。
+为纯 Matha 模块（matha/term_lexer / term_parser / term_engine）；本文件是**薄壳**：
+只做后端选择、行读取、行打印、进程退出码与批处理文件读取，不含任何命令逻辑
+（诚实边界，见 docs/KNOWN_ISSUES.md 阶段 12a 条目）。
+
+后端（阶段 42c）：默认 **chain** —— boot 链 + 纯 Matha 装载器（matha/loader.matha）
+装载 终端执行器，命令逻辑跑在 Matha 自身解释器上（src/matha_chain.py）；
+`MATHA_TERM_BACKEND=host` 切回宿主 Python 树遍历器面（对拍/排障用，装载走
+src/interp.py 的 load_matha_module）。两面无静默回落：链面失败如实报错，不偷跑
+宿主面。链面冷启动需先由链解释器装载命令模块（十秒级），逐行执行亦慢于宿主面。
 
 用法：
   python -m src.matha_term                 交互式 REPL（提示符 Matha>）
@@ -24,6 +30,7 @@
     「自启动(第 N 行)」后继续；其中的 退出 标志**不**结束会话）。-c 与批处理
     不触发。
 """
+import os
 import sys
 from pathlib import Path
 
@@ -35,9 +42,29 @@ sys.setrecursionlimit(max(30000, sys.getrecursionlimit()))
 PROMPT = "Matha>"
 BANNER = "Matha 终端（CMD 模板子集）— 输入 帮助 查看命令，退出 结束会话"
 AUTORUN_FILE = "matha_term_extensions.msh"
+#: 后端选择环境变量：chain（默认，纯 Matha 自举链面）| host（宿主解释器面）
+_BACKEND_ENV = "MATHA_TERM_BACKEND"
 
 
-def _make_runner():
+def _make_runner(backend: str | None = None):
+    """构建引擎调用器：默认走纯 Matha 自举链面（阶段 42c）。
+
+    链面 = boot 链（词法器/语法器/标准库/运行时引擎/解释器）+ 装载器 装载
+    终端执行器，命令逻辑跑在 Matha 自己装载出来的数据闭包上；宿主解释器面
+    （``MATHA_TERM_BACKEND=host``）保留为对拍与排障入口。两面无静默回落——
+    链面装配/执行失败如实上抛，由薄壳按错误口径打印，不偷换执行体。
+    """
+    backend = backend or os.environ.get(_BACKEND_ENV, "chain")
+    if backend == "chain":
+        from src.matha_chain import make_term_runner
+        return make_term_runner()
+    if backend == "host":
+        return _make_host_runner()
+    raise RuntimeError(
+        f"未知终端后端: {backend}（{_BACKEND_ENV} 可用值: chain | host）")
+
+
+def _make_host_runner():
     """构建引擎调用器：宿主解释器加载 终端执行器（调试Matha 可用）。"""
     from src.interp import Interpreter
 
@@ -60,6 +87,21 @@ def _emit(result: dict) -> bool:
     for line in result.get("输出", []):
         print(line, flush=True)
     return bool(result.get("退出", False))
+
+
+def _startup():
+    """装配引擎调用器，返回 (调用器, 退出码)；失败如实报告且不回落另一后端。
+
+    后端装配（boot 链 + 装载器 装载 终端执行器）发生在读第一行之前，异常若逃逸
+    出薄壳即成 traceback，与终端「错误如实打印」口径不符，故在此单点收口。
+    """
+    try:
+        return _make_runner(), 0
+    except RuntimeError as e:
+        print(f"错误: {e}", flush=True)
+    except Exception as e:  # noqa: BLE001 —— 薄壳如实显示，不让终端崩溃
+        print(f"错误: {type(e).__name__}: {e}", flush=True)
+    return None, 1
 
 
 def _autorun(run) -> None:
@@ -122,7 +164,9 @@ def _run_msh_lines(run, lines, *, prefix: str) -> None:
 
 def repl() -> int:
     """交互式主循环。"""
-    run = _make_runner()
+    run, rc = _startup()
+    if run is None:
+        return rc
     print(BANNER, flush=True)
     _autorun(run)
     while True:
@@ -151,7 +195,9 @@ def repl() -> int:
 
 def run_command(line: str) -> int:
     """单命令模式：执行一行，退出码 0/1 如实。"""
-    run = _make_runner()
+    run, rc = _startup()
+    if run is None:
+        return rc
     try:
         result = run(line)
     except RuntimeError as e:
@@ -166,11 +212,13 @@ def run_command(line: str) -> int:
 
 def run_script(path: str) -> int:
     """批处理模式：.msh 脚本逐行执行，错误如实打印继续（CMD 风格）。"""
-    run = _make_runner()
     p = Path(path)
     if not p.is_file():
         print(f"错误: 脚本不存在: {path}", flush=True)
         return 1
+    run, rc = _startup()
+    if run is None:
+        return rc
     had_error = False
     for lineno, raw in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
         line = raw.rstrip()

@@ -27,12 +27,12 @@ _ENV = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONPATH": str(ROOT)}
 _TIMEOUT = 180
 
 
-def _run(args, stdin=None, cwd=None):
+def _run(args, stdin=None, cwd=None, env=None):
     return subprocess.run(
         [PY, "-m"] + args,
         input=stdin, capture_output=True, text=True,
         encoding="utf-8", errors="replace",
-        env=_ENV, timeout=_TIMEOUT, cwd=str(cwd or ROOT),
+        env={**_ENV, **(env or {})}, timeout=_TIMEOUT, cwd=str(cwd or ROOT),
     )
 
 
@@ -75,8 +75,13 @@ def test_e2e_c_mode_run_matha():
 
 
 def test_e2e_c_mode_debug_host_backend():
-    """终端默认宿主后端：调试Matha 的轨迹+快照经入口可用。"""
-    r = _run(["src.matha_term", "-c", '调试 "let 值 = 5 in 输出(值 + 1)"'])
+    """调试Matha 依赖宿主解释器的逐节点轨迹与环境快照：定向 host 后端可用。
+
+    默认后端已是纯 Matha 链面（阶段 42c），链面上 调试 走显式拒绝（非静默降级），
+    拒绝路径锁见 tests/test_selfhost_language_phase42.py。
+    """
+    r = _run(["src.matha_term", "-c", '调试 "let 值 = 5 in 输出(值 + 1)"'],
+             env={"MATHA_TERM_BACKEND": "host"})
     assert r.returncode == 0, r.stderr
     assert "== 轨迹 ==" in r.stdout and "== 输出 ==" in r.stdout and "== 变量 ==" in r.stdout
     assert "6" in r.stdout

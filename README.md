@@ -11,8 +11,8 @@
 - **领域插件：** 88（`src/domains/` 共 90 个 `.py`，其中 `__init__.py` / `registry.py` 不是插件）
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
-- **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 191（`tests/`）
+- **`.matha` 语料：** 184（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
+- **测试文件：** 192（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -128,7 +128,11 @@ python -m src.matha_term                # 独立入口（同一三种形态）
 
 终端的全部命令逻辑（词法/句法/分发/执行/透传决策）为纯 Matha 模块
 （`matha/term_lexer` / `term_parser` / `term_engine`），跑在 Matha 自身解释器/VM
-上；Python 层只保留 IO 原语与进程入口。CMD 模板命令集（目录/换目录/显示文件/
+上；Python 层只保留 IO 原语与进程入口。执行体（阶段 42c）：默认 `chain` 后端——
+boot 链 + 纯 Matha 装载器（`matha/loader.matha`）装载 `终端执行器`，命令逻辑跑在
+Matha 自己装载出来的数据闭包上；`MATHA_TERM_BACKEND=host` 切回宿主 Python 树遍历器
+面（对拍/排障用，`调试` 命令需要它）。两面无静默回落：链面装配或执行失败如实报
+「错误: …」并以退出码 1 结束，不偷换执行体。CMD 模板命令集（目录/换目录/显示文件/
 复制/删除/建目录/改名/回显/清屏/帮助/退出，英文别名大小写不敏感）+ Matha 代码
 命令（运行/加载/编写/调试）+ CMD 式透传（未知命令交系统 shell 真执行，失败如实
 显示退出码）。扩展与升级（阶段 12e）：`注册命令/注销命令` 持久化当前目录
@@ -488,6 +492,36 @@ test_resource_algorithm_true_phase41 247 项（223 三面同判正典读数 + 52
 快照重生成（节点 78 / 指令码 36 结构不变，13 节点 `used_in` 随资源构造
 变动：ListLiteral 79→92、IndexExpr 77→85、SliceExpr 25→31、CodeBlock
 104→110、IfExpr 96→101 等）。新登记不修见 KNOWN_ISSUES 阶段 41。
+
+纯 Matha 装载器与终端链面默认（阶段 42）：方向拍板——「终端与装载全由
+Python 代劳」这条缺陷收口，本阶段只做**纯 Matha 装载器**（自修复/生长面不在
+本阶段），载体原语按**逐名补 16 条 Matha 臂**，终端**链面直接设为默认**。
+42a 新增 `matha/loader.matha`：模块名表（22 条）、三级解析序（`matha/` 主路径
+→ `.matha_packages/` 扩展包 `manifest.json` 的 `entry`/`enabled` → `matha/library/`
+资源库递归）、`use` 依赖递归装载、模块函数摊平、`内建` 别名表并入、`机械单元`
+自测块剔除、命名空间产出——解析序与报错文案逐条镜像宿主
+`src/interp.py` 的 `load_matha_module`，装载这件事本身由 Matha 完成，宿主 Python
+仅作 OS 能力的载体；装配壳 `src/matha_chain.py` 把 boot 链五模块 + 装载器编为
+level-1 M3V，被装载模块体经 `解释器.执行语句` 以 level-2 数据闭包执行，`装载根`
+注入仓库根绝对路径使 `换目录` 之后装载仍命中同一批源。42b `matha/interp_matha.matha`
+/ `matha/interp.matha` 双镜像补 16 条载体原语逐名臂（执行命令/执行命令输入/管道输入/
+管道结束/输入行/列目录/建目录/删除路径/复制文件/改名/换目录/路径存在/执行Matha/
+调试Matha/升级包/检查包更新）+ 语言级 `错误` 名，链面固定面 47→59 名，缺臂名如实
+报「未知内建函数」不静默回落宿主实现。42c `MATHA_TERM_BACKEND` 默认 `chain`
+（`host` 保留为对拍/排障入口，未知取值显式拒绝），两面无静默回落；后端装配失败
+在薄壳单点收口为「错误: …」+ 退出码 1（此前异常逃逸成 traceback）。链面冷启动
+成本实测 boot 装配 ~1.8s、装载 `终端执行器` ~20s、逐行 0.1–1.2s（诚实标价，非缺陷）。
+新锁档 `tests/test_selfhost_language_phase42.py` 33 项（42a 解析序/清单/依赖/摊平
+对宿主逐条同判 + 42b 注册面 59 名与逐名臂静态锁、level-2 真达宿主、偏应用零副作用
++ 42c 后端默认值、无静默回落、双面 9 行命令逐字同判、`调试` 显式拒绝端到端）；
+ast_vm_gap 快照重生成（节点 78 / 指令码 36 结构不变，语料 230→231 随 `loader.matha`
+入语料，21 节点 `used_in` 各 +1）；Track B 快照 225→226 = 双面一致 216 / differ 0 /
+both_err_equal 10 / both_err 0 / timeout 0（唯一变动是新语料 `loader.matha` 双面
+同判 both_ok_equal，其余 225 语料分类零漂移——boot 链 `interp_matha.matha` 补臂
+不改判定面），`--write`/`--check` 两跑一致；本体量口径（`src/lexer.py`+`parser.py`
++`ast_nodes.py`+`kernel/`+`mbc/`）内改动仅 `src/mbc/vm.py` 拒绝文案 +1 行（本体量
+33,481），新增装配壳 `src/matha_chain.py` 与 `src/interp.py` 的 `_CN2FILE` 装载器
+条目不属内核五件、不在口径。新登记不修见 KNOWN_ISSUES 阶段 42。
 
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`

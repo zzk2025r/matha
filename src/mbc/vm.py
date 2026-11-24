@@ -568,7 +568,8 @@ def _debug_matha_unavailable(_source=None) -> None:
     VM 帧式执行无此表示。诚实报错，不静默降级、不伪造轨迹。"""
     raise RuntimeError(
         "调试Matha 需要宿主解释器后端：VM 编译链无逐节点轨迹与环境快照能力"
-        "（显式拒绝，非静默降级）。请改用宿主解释器（如 matha 终端默认后端）。")
+        "（显式拒绝，非静默降级）。请改用宿主解释器后端"
+        "（matha 终端 MATHA_TERM_BACKEND=host）。")
 
 
 def _default_builtins() -> dict:

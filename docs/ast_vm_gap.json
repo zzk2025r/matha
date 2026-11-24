@@ -1,6 +1,6 @@
 {
   "_comment": "AST × VM 覆盖矩阵快照，由 scripts/ast_vm_matrix.py --write 生成，请勿手改。vm ∈ emits（编译期发射字节码）/ noop（有意不产码：标注、类型、文件标记）/ missing（编译器不认识，运行到即报「暂不支持的节点」）。used_in = 语料里出现该节点的 .matha 文件数。缺口判定：vm=missing 且 used_in>0。",
-  "generated_at": "2026-11-24T18:11:12",
+  "generated_at": "2026-11-24T22:27:01",
   "generator": "scripts/ast_vm_matrix.py",
   "corpus_dirs": [
     "matha",
@@ -16,7 +16,7 @@
     "noop": 19,
     "missing": 0,
     "blocking": 0,
-    "corpus_files": 230,
+    "corpus_files": 231,
     "opcodes": 36,
     "opcode_vm": 36,
     "opcode_native": 36,
@@ -27,73 +27,73 @@
       "node": "Program",
       "vm": "emits",
       "interp": "no",
-      "used_in": 230
+      "used_in": 231
     },
     {
       "node": "Variable",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 222
+      "used_in": 223
     },
     {
       "node": "IntegerLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 205
+      "used_in": 206
     },
     {
       "node": "BinaryOp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 182
+      "used_in": 183
     },
     {
       "node": "FuncApp",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 181
+      "used_in": 182
     },
     {
       "node": "Lambda",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 174
+      "used_in": 175
     },
     {
       "node": "BasicType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 171
+      "used_in": 172
     },
     {
       "node": "FuncDef",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 171
+      "used_in": 172
     },
     {
       "node": "FuncType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 171
+      "used_in": 172
     },
     {
       "node": "ModuleDecl",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 147
+      "used_in": 148
     },
     {
       "node": "TupleType",
       "vm": "noop",
       "interp": "no",
-      "used_in": 140
+      "used_in": 141
     },
     {
       "node": "StringLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 129
+      "used_in": 130
     },
     {
       "node": "CodeBlock",
@@ -105,19 +105,19 @@
       "node": "LetBinding",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 105
+      "used_in": 106
     },
     {
       "node": "IfExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 101
+      "used_in": 102
     },
     {
       "node": "ListLiteral",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 92
+      "used_in": 93
     },
     {
       "node": "FloatLit",
@@ -129,16 +129,16 @@
       "node": "IndexExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 85
-    },
-    {
-      "node": "Output",
-      "vm": "emits",
-      "interp": "yes",
-      "used_in": 63
+      "used_in": 86
     },
     {
       "node": "UnaryOp",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 64
+    },
+    {
+      "node": "Output",
       "vm": "emits",
       "interp": "yes",
       "used_in": 63
@@ -165,7 +165,7 @@
       "node": "BoolLit",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 49
+      "used_in": 50
     },
     {
       "node": "OutputTrail",
@@ -183,7 +183,7 @@
       "node": "SliceExpr",
       "vm": "emits",
       "interp": "yes",
-      "used_in": 31
+      "used_in": 32
     },
     {
       "node": "ImportDecl",
@@ -216,16 +216,16 @@
       "used_in": 26
     },
     {
-      "node": "ReadBlock",
-      "vm": "noop",
+      "node": "DictLiteral",
+      "vm": "emits",
       "interp": "yes",
       "used_in": 23
     },
     {
-      "node": "DictLiteral",
-      "vm": "emits",
+      "node": "ReadBlock",
+      "vm": "noop",
       "interp": "yes",
-      "used_in": 22
+      "used_in": 23
     },
     {
       "node": "ChainStmt",
@@ -240,6 +240,12 @@
       "used_in": 16
     },
     {
+      "node": "PathExpr",
+      "vm": "emits",
+      "interp": "yes",
+      "used_in": 14
+    },
+    {
       "node": "LetTupleBinding",
       "vm": "emits",
       "interp": "yes",
@@ -247,12 +253,6 @@
     },
     {
       "node": "MatchStmt",
-      "vm": "emits",
-      "interp": "yes",
-      "used_in": 13
-    },
-    {
-      "node": "PathExpr",
       "vm": "emits",
       "interp": "yes",
       "used_in": 13

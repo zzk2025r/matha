@@ -677,6 +677,9 @@ module 解释器 {
     name = "range" or name = "split" or name = "repeat" or name = "assert" or
     name = "pow" or name = "gcd" or name = "max" or name = "list_max" or
     name = "min" or name = "list_min" ? 2 :
+    (* 42b：终端/装载器载体原语的柯里化二元面（宿主 curry2/lambda 链形状：
+       复制文件(a)(b) 改名(a)(b) 执行命令输入(a)(b)——首参调用须记偏应用待续参。 *)
+    name = "复制文件" or name = "改名" or name = "执行命令输入" ? 2 :
     name = "slice" or name = "replace" ? 3 : 1
 
   (* 内建函数应用 ===== *)
@@ -747,6 +750,31 @@ module 解释器 {
     name = "is_prime" ? 运行时引擎.is_prime(标准库.int(num_to_str(args[0]))) :
     name = "pi" ? PI :
     name = "e" ? E :
+    (* 42b：16 条载体原语逐名臂（阶段 42「让 Matha 自身装载/运行 Matha」）——
+       此前链面调这些名字只能靠驱动器把宿主内建表注入 env（Python 代劳）；
+       逐名臂使链面自带分派，裸名委托 boot VM 全局：内核终端节
+       （src/kernel/terminal_builtin.py 懒物化 LazyKernelFn）、os 域插件符号
+       （src/domains/os_module.py，经 VM 惰性解析器）、宿主 执行Matha/调试Matha。
+       实参形状按各原语的正典调用（终端执行器 同源写法）：二元柯里化走 (a)(b)，
+       零参载体（管道结束/输入行/检查包更新）不带 args——链面 () 即零参调用，
+       宿主对应实现无必选参数。 *)
+    name = "执行命令" ? 执行命令(args[0]) :
+    name = "执行命令输入" ? 执行命令输入(args[0])(args[1]) :
+    name = "管道输入" ? 管道输入(args[0]) :
+    name = "管道结束" ? 管道结束() :
+    name = "输入行" ? 输入行() :
+    name = "列目录" ? 列目录(args[0]) :
+    name = "建目录" ? 建目录(args[0]) :
+    name = "删除路径" ? 删除路径(args[0]) :
+    name = "复制文件" ? 复制文件(args[0])(args[1]) :
+    name = "改名" ? 改名(args[0])(args[1]) :
+    name = "换目录" ? 换目录(args[0]) :
+    name = "路径存在" ? 路径存在(args[0]) :
+    name = "执行Matha" ? 执行Matha(args[0]) :
+    name = "调试Matha" ? 调试Matha(args[0]) :
+    name = "升级包" ? 升级包(args[0]) :
+    name = "检查包更新" ? 检查包更新() :
+    name = "错误" ? 错误(args[0]) :
     错误("未知内建函数: " + name)
 
   func bool(v) -> Bool = (v) => v != 0.0 and v != 假 and v != "0" and v != ""
@@ -1449,7 +1477,31 @@ module 解释器 {
        应用面经 应用内建实 裸名委托宿主 BUILTINS，vm/hi 同实现） *)
     let env38 = 绑定环境(env37, "type_of", ("__builtin__", "type_of")) in
     let env39 = 绑定环境(env38, "_to_tuple", ("__builtin__", "_to_tuple")) in
-    env39
+    (* 42b：16 条载体原语入链面固定面（与 应用内建实 逐名臂同批）——此前只靠
+       驱动器注入宿主内建表，链面自身「未定义变量」；注册后名字恒以
+       ("__builtin__", 名) 形态分派到臂，宿主面同名符号不再需要注入。 *)
+    let env40 = 绑定环境(env39, "执行命令", ("__builtin__", "执行命令")) in
+    let env41 = 绑定环境(env40, "执行命令输入", ("__builtin__", "执行命令输入")) in
+    let env42 = 绑定环境(env41, "管道输入", ("__builtin__", "管道输入")) in
+    let env43 = 绑定环境(env42, "管道结束", ("__builtin__", "管道结束")) in
+    let env44 = 绑定环境(env43, "输入行", ("__builtin__", "输入行")) in
+    let env45 = 绑定环境(env44, "列目录", ("__builtin__", "列目录")) in
+    let env46 = 绑定环境(env45, "建目录", ("__builtin__", "建目录")) in
+    let env47 = 绑定环境(env46, "删除路径", ("__builtin__", "删除路径")) in
+    let env48 = 绑定环境(env47, "复制文件", ("__builtin__", "复制文件")) in
+    let env49 = 绑定环境(env48, "改名", ("__builtin__", "改名")) in
+    let env50 = 绑定环境(env49, "换目录", ("__builtin__", "换目录")) in
+    let env51 = 绑定环境(env50, "路径存在", ("__builtin__", "路径存在")) in
+    let env52 = 绑定环境(env51, "执行Matha", ("__builtin__", "执行Matha")) in
+    let env53 = 绑定环境(env52, "调试Matha", ("__builtin__", "调试Matha")) in
+    let env54 = 绑定环境(env53, "升级包", ("__builtin__", "升级包")) in
+    let env55 = 绑定环境(env54, "检查包更新", ("__builtin__", "检查包更新")) in
+    (* 42c：语言级 raise 名入固定面——终端/标准库 level-2 代码的显式拒绝路径
+       全走 错误(...)，此前该名只在宿主 BUILTINS/VM _default_builtins 有实现，
+       level-2 环境查不到 → 「未定义变量 '错误'」掩盖了真实拒绝文案。臂体委托
+       模块自有 错误（raise MathaRuntimeError(msg)），与宿主面异常类/文案同判。 *)
+    let env56 = 绑定环境(env55, "错误", ("__builtin__", "错误")) in
+    env56
 
   (* ===== 顶层入口 ===== *)
 

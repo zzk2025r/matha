@@ -1,0 +1,188 @@
+(* ============================================================
+   Matha 纯链装载器（阶段 42a）——Matha 自身装载 Matha 模块
+
+   边界：本模块只用链面已有能力（词法器.扫描 / 语法器.parse /
+   解释器.执行语句）与载体原语（read_file / 路径存在 / 列目录 /
+   解析_JSON），不含任何终端命令逻辑。宿主面对位实现是
+   src/interp.py 的 load_matha_module + _load_matha_source 三级解析；
+   本模块逐条镜像其解析序与报错文案，使「装载模块」这件事本身
+   由 Matha 完成——宿主 Python 仅作 OS 能力的载体。
+
+   自举层级：本文件与链五模块合并编译进 boot VM 时，函数体是 VM
+   字节码（level-1，快）；被链解释器 执行语句 装载时是 Matha 数据
+   闭包（level-2，慢但同语义）。两级的路径/依赖/命名空间判据同源。
+   ============================================================ *)
+
+module 装载器 {
+
+  (* ===== 中文模块名 → 英文文件名（宿主 _CN2FILE 逐条镜像） ===== *)
+  func 名表() -> List = () => [
+    ["词法器", "lexer.matha"],
+    ["语法器", "parser.matha"],
+    ["标准库", "stdlib.matha"],
+    ["解释器", "interp.matha"],
+    ["虚拟机", "vm/matha_vm.matha"],
+    ["自举加载器", "bootstrap_matha.matha"],
+    ["编译器", "compiler_matha.matha"],
+    ["自然语言词法器", "nl_lexer.matha"],
+    ["自然语言句法器", "nl_parser.matha"],
+    ["自然语言执行器", "nl_engine.matha"],
+    ["用户词典", "nl_dict.matha"],
+    ["自然语言英语词法器", "nl_lexer_en.matha"],
+    ["自然语言英语句法器", "nl_parser_en.matha"],
+    ["自然语言英语执行器", "nl_engine_en.matha"],
+    ["终端词法器", "term_lexer.matha"],
+    ["终端句法器", "term_parser.matha"],
+    ["终端执行器", "term_engine.matha"],
+    ["应用中心", "store_engine.matha"],
+    ["内核", "os/kernel.matha"],
+    ["桌面", "os/desktop.matha"],
+    ["资源索引", "library/index.matha"],
+    ["装载器", "loader.matha"]]
+
+  (* ===== 载体判定与候选选择 ===== *)
+
+  func 查对(对们: List, 名: String) -> String = (对们, 名) =>
+    对们 = [] ? "" : (对们[0][0] = 名 ? 对们[0][1] : 查对(对们[1:], 名))
+
+  func 有(路径: String) -> Bool = (路径) => 路径存在(路径)
+
+  func 首个(路径们: List) -> String = (路径们) =>
+    路径们 = [] ? "" : (有(路径们[0]) ? 路径们[0] : 首个(路径们[1:]))
+
+  (* ===== 三级解析序（镜像 _load_matha_source / _matha_module_path） ===== *)
+
+  (* 装载根：装配方（src/matha_chain.py）注入 boot VM 全局的仓库根绝对路径——
+     宿主 _matha_dir() 的第一候选是 src/.. 而非 cwd，终端 换目录 之后装载仍须
+     命中同一批源；未注入时该名在链面未定义，如实报错不猜相对路径。 *)
+  func 根() -> String = 装载根
+
+  func 路径(名: String) -> String = (名) =>
+    首个([主路径(名), 包路径(名), 库路径(名)])
+
+  func 主路径(名: String) -> String = (名) =>
+    名 = "运行时引擎" ? 根() + "/matha/runtime/matha_runtime.matha" :
+      根() + "/matha/" + (查对(名表(), 名) = "" ? 名 + ".matha" : 查对(名表(), 名))
+
+  (* 扩展包：.matha_packages/<名>/manifest.json 的 entry/enabled 语义
+     与 _package_module_path 同口径（enabled 为假 → 整包跳过，不回落同名
+     源文件）；无清单时按 <名>.matha 入口。清单缺失/损坏由 解析_JSON
+     如实上抛，不静默当空清单。
+     根序分歧登记：宿主扫描序是 (cwd, 仓库根)，链面只有仓库根一根——
+     取 cwd 需 当前目录 内建臂（本批 16 名之外），故不镜像 cwd 候选。 *)
+  func 包路径(名: String) -> String = (名) =>
+    有(包目录(名)) ?
+      (有(包目录(名) + "/manifest.json") ?
+         装包(名, 解析_JSON(read_file(包目录(名) + "/manifest.json"))) :
+         首个([包目录(名) + "/" + 名 + ".matha"])) :
+      ""
+
+  func 包目录(名: String) -> String = (名) => 根() + "/.matha_packages/" + 名
+
+  func 装包(名: String, 清单: Value) -> String = (名, 清单) =>
+    启用(清单) ?
+      首个([包目录(名) + "/" + 入口(清单), 包目录(名) + "/" + 名 + ".matha"]) :
+      ""
+
+  func 启用(清单: Value) -> Bool = (清单) =>
+    标准库.dict_has(清单, "enabled") ? 清单["enabled"] = 真 : 真
+
+  func 入口(清单: Value) -> String = (清单) =>
+    标准库.dict_has(清单, "entry") ? 清单["entry"] : ""
+
+  (* 资源库：matha/library/ 递归找同名 .matha（宿主 sorted(rglob) 同集，
+     本处按目录序深度优先——同名重复文件时两侧择路可能不同，登记不修） *)
+  func 库路径(名: String) -> String = (名) => 库走([根() + "/matha/library"], 名)
+
+  func 库走(待走: List, 名: String) -> String = (待走, 名) =>
+    待走 = [] ? "" :
+      (有(待走[0] + "/" + 名 + ".matha") ? 待走[0] + "/" + 名 + ".matha" :
+         库走(待走[1:] + 子目录(待走[0]), 名))
+
+  func 子目录(目录: String) -> List = (目录) =>
+    有(目录) ? 挑目录(目录, 列目录(目录), []) : []
+
+  func 挑目录(目录: String, 项们: List, acc: List) -> List = (目录, 项们, acc) =>
+    项们 = [] ? acc :
+      挑目录(目录, 项们[1:], (项们[0][1] ? acc + [目录 + "/" + 项们[0][0]] : acc))
+
+  (* ===== AST 形态工具（boot 语法器 dict-AST） ===== *)
+
+  (* 顶层降一层：boot 语法器把整文件包成单个 模块 节点，use 依赖须看
+     模块体内声明；执行仍用原顶层（模块节点才产出命名空间）。 *)
+  func 内声明(decls: List) -> List = (decls) =>
+    decls = [] ? [] : (decls[0]["类型"] = "模块" ? decls[0]["声明"] : decls)
+
+  func 收集使用名(decls: List, acc: List) -> List = (decls, acc) =>
+    decls = [] ? acc :
+      收集使用名(decls[1:],
+                 (decls[0]["类型"] = "导入" ? acc + [decls[0]["模块名"]] : acc))
+
+  (* 机械单元（#：{ } 自测块）不随装载执行——宿主 _load_matha_modules
+     同样只执行 ModuleDecl，自测块递归运行自举解释器，装载时不必要。 *)
+  func 去机械(decls: List, acc: List) -> List = (decls, acc) =>
+    decls = [] ? acc : 去机械(decls[1:], (decls[0]["类型"] = "机械单元" ? acc : acc + [decls[0]]))
+
+  func 取名(名: String, env: List) -> Value = (名, env) =>
+    env = [] ? null : (env[0][0] = 名 ? env[0][1] : 取名(名, env[1:]))
+
+  (* 标准库 等模块以 `let 内建 = {…}` 自述内建别名表；宿主 use 导入有
+     「ns 缺名 → 内建表回退」一路（src/interp.py:2248），链面 导入绑定
+     的回退只认 env 中的内建形态值，故此处把别名表并入模块 ns，
+     使 use 标准库 { len | read_file } 在链面同样可达。 *)
+  func 并内建(ns: Value) -> Value = (ns) =>
+    type_of(ns) = "Dict" ?
+      (标准库.dict_has(ns, "内建") ? 标准库.dict_update(ns, ns["内建"]) : ns) :
+      ns
+
+  (* ===== 链基础环境 ===== *)
+
+  func 链名对们() -> List = () =>
+    [["词法器", 词法器], ["标准库", 标准库], ["语法器", 语法器],
+     ["运行时引擎", 运行时引擎], ["解释器", 解释器], ["装载器", 装载器]]
+
+  func 绑链名(env: List, 对们: List) -> List = (env, 对们) =>
+    对们 = [] ? env :
+      绑链名(解释器.绑定环境(env, 对们[0][0], 对们[0][1]), 对们[1:])
+
+  func 链环境(忽略: Value) -> List = (忽略) =>
+    绑链名(解释器.注册内建(解释器.空环境()), 链名对们())
+
+  (* ===== 装载 ===== *)
+
+  (* 依赖随装随并：已绑定的模块名不重装（宿主 self.modules 命中同义）。
+     宿主 load_matha_module 把模块函数全体摊平进共享全局 env/funcs，裸
+     `use 桌面` 在宿主面即靠此生效（ImportDecl.import_list=None → 逐名循环
+     空转）——链面同样先摊平再按模块名绑定，使 终端执行器 体内 演示桌面/
+     主循环 这类跨模块裸名可达；链模块（标准库 等）已由 链环境 绑定故跳过。 *)
+  func 装依赖(依赖们: List, env: List) -> List = (依赖们, env) =>
+    依赖们 = [] ? env :
+      装依赖(依赖们[1:],
+             解释器.环境包含(env, 依赖们[0]) ?
+               env :
+               摊平(env, 依赖们[0], 装载进(env, 依赖们[0])))
+
+  func 摊平(env: List, 名: String, ns: Value) -> List = (env, 名, ns) =>
+    type_of(ns) = "Dict" ?
+      并项(解释器.绑定环境(env, 名, ns), 标准库.dict_to_list(ns)) :
+      解释器.绑定环境(env, 名, ns)
+
+  func 并项(env: List, 对们: List) -> List = (env, 对们) =>
+    对们 = [] ? env : 并项(解释器.绑定环境(env, 对们[0][0], 对们[0][1]), 对们[1:])
+
+  func 装载(名: String) -> Value = (名) => 装载进(链环境(null), 名)
+
+  func 装载进(基env: List, 名: String) -> Value = (基env, 名) =>
+    let 路 = 路径(名) in
+    路 = "" ?
+      错误("找不到 Matha 模块: " + 名 +
+           "（已查 matha/、.matha_packages/ 扩展包、matha/library/ 资源库）") :
+      let 源 = read_file(路) in
+      let toks = 词法器.扫描(源)(0)(1)(1)([]) in
+      let prog = 语法器.parse(toks) in
+      let 依赖 = 收集使用名(内声明(prog["声明"]), []) in
+      let env1 = 装依赖(依赖, 基env) in
+      let 纯 = 去机械(prog["声明"], []) in
+      let 结果 = 解释器.执行语句({"类型": "程序", "声明": 纯}, env1) in
+      并内建(取名(名, 结果[1]))
+}

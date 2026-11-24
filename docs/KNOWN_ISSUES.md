@@ -2187,6 +2187,85 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 42 收官（纯 Matha 装载器 + 载体原语链面臂 + 终端链面默认后端，
+  「终端与装载全由 Python 代劳」缺陷收口）**：方向拍板走推荐项「A：只做纯 Matha
+  装载器」（自修复/生长面不在本阶段），载体接缝拍板「逐名补 16 条 Matha 臂」（非
+  全表面注入），终端后端拍板「链面直接设为默认」；验证三面 = 宿主解释 hi / 编译
+  VM vm / boot 链调用面 boot。
+  **42a 纯 Matha 装载器**（新增 `matha/loader.matha` 188 行）：`名表` 22 条逐条
+  镜像宿主 `src/interp.py` 的 `_CN2FILE`（宿主侧同步 +1 条 `"装载器": "loader.matha"`）、
+  三级解析序 `主路径`（`matha/`）→ `包路径`（`.matha_packages/<名>/manifest.json`
+  的 `entry`/`enabled` 语义）→ `库路径`（`matha/library/` 递归）、`内声明`+
+  `收集使用名`+`去机械`（模块节点降一层、`use` 依赖递归装载、`机械单元` 自测块不随
+  装载执行）、`摊平`（模块函数并入 env 使跨模块裸名可达）+`并内建`（`内建` 别名表
+  并入 ns，镜像宿主「ns 缺名 → 内建表回退」一路）、缺模块报错文案与宿主
+  `load_matha_module` 逐字同判——装载这件事本身由 Matha 完成，宿主 Python 仅作 OS
+  能力载体。装配壳新增 `src/matha_chain.py`（131 行，只做装配与调用、零业务逻辑）：
+  `BOOT_FILES` 五→六（装载器入链），boot 链编为 level-1 M3V 由宿主 VM 执行，被装载
+  模块体经 `解释器.执行语句` 以 level-2 数据闭包执行；`装载根` 注入仓库根绝对路径
+  使终端 `换目录` 之后装载仍命中同一批源。
+  **42b 载体原语链面臂**：`matha/interp_matha.matha`（+53 −1）/ `matha/interp.matha`
+  （+51 −1）双镜像在 `应用内建实` 补 16 条逐名臂（执行命令/执行命令输入/管道输入/
+  管道结束/输入行/列目录/建目录/删除路径/复制文件/改名/换目录/路径存在/执行Matha/
+  调试Matha/升级包/检查包更新）+ 语言级 `错误` 名，`注册内建` 固定面 47→**59 名**
+  （实测 `注册内建` 绑定名 59 且唯一）；`内建元数` 表补二元名（复制文件/改名/
+  执行命令输入 = 2），故首参调用产 `["__内建部分__", 名, args]` 偏应用而**不触达宿主
+  实现**（探测期零副作用）；注册无臂名如实「未知内建函数: X」，不静默回落宿主；
+  `错误` 臂委托宿主 raise（异常类 `MathaRuntimeError` 与文案同判——此前 level-2 显式
+  拒绝路径全被「未定义变量 '错误'」掩盖真实拒绝文案，本批真修）。
+  **42c 终端链面默认后端**（`src/matha_term.py` +55 −7）：`MATHA_TERM_BACKEND` 默认
+  `chain`、`host` 保留为对拍/排障入口、未知取值诚实拒绝「未知终端后端: …（可用值:
+  chain | host）」，两面无静默回落；后端装配在 `_startup()` 单点收口为「错误: …」+
+  退出码 1（此前装配异常逃逸出薄壳成 traceback，与终端「错误如实打印」口径不符——
+  **本批真修的诚实性缺陷**）；`调试` 在链面显式拒绝（VM 编译链无逐节点轨迹与环境
+  快照能力），`src/mbc/vm.py` 拒绝文案尾句改指宿主后端（+2 −1，本体量 33,480→
+  **33,481**，口径内唯一改动——`src/interp.py` `_CN2FILE` 与新增 `src/matha_chain.py`
+  不属内核五件、不在口径）。链面成本实测：boot 装配 ~1.8s、装载 `终端执行器` ~20s、
+  逐行 0.1–1.2s（诚实标价，非缺陷）。
+  **A 轨新档** `tests/test_selfhost_language_phase42.py`（382 行）33 项 = 42a 名表/
+  主路径绝对性/三级解析六形态/chdir 无关性/缺模块文案/清单语义/AST helper/摊平与
+  内建合并/装载产命名空间 对宿主逐条同判 + 42b 注册面 59 名与逐名臂双镜像静态锁/
+  level-2 真达宿主/二元偏应用零副作用/无臂名如实拒绝/`错误` 同文案 + 42c 后端默认值/
+  host 显式/未知拒绝/无静默回落/`BOOT_FILES` 与 Track B 名表镜像差异锁/9 行终端命令
+  双面逐字同判/拒绝文案同源/链面 `调试` 拒绝端到端/真 subprocess 默认后端取证。
+  **改锁一处** `tests/test_matha_term_12d.py`（+9 −4）：`test_e2e_c_mode_debug_host_backend`
+  定向 `MATHA_TERM_BACKEND=host`（默认后端已是链面，链面 `调试` 走拒绝路径），拒绝
+  路径改由 phase42 锁覆盖；`tests/test_resource_algorithm_true_phase41.py` 文档串
+  链面注册表口径 47→59 随本阶段刷新（零语义改动）。
+  **门禁**：tests lane 8180 过 + 1 平台 skip（6140.38s 独立跑——`check.py` 每子进程
+  3600s 上限截停 tests lane，承继既往单跑口径，非产品缺陷）+ kernel_purity 14 +
+  ast_vm_gap 11 + golden 39/39 + dep_audit 39 内核文件 189 import 边 0 违规 +
+  native_parity 38/39（0 失败，native 已知未实现 1 例不计分母）+ doc_facts 18；
+  Track B `--write` 225→**226** = 双面一致 216 / differ 0 / both_err_equal 10 /
+  both_err 0 / boot_err 0 / host_err 0 / timeout 0（唯一变动为新语料
+  `matha/loader.matha` 双面同判 both_ok_equal，其余 225 语料分类零漂移——boot 链
+  补臂不改判定面）+ `--check` 复现一致；判定面驱动器 `scripts/selfhost_matrix.py`
+  仅同步 `_CN2FILE` 镜像 +1 行，判据零放宽。ast_vm_gap 快照重生成（+54 −54：
+  `generated_at`、`corpus_files` 230→231 随装载器入语料、21 节点 `used_in` 各 +1、
+  两行排序位移；节点 78 / 发射 59 / 无码 19 / 不认识 0 / 阻塞缺口 0 / 指令码 36
+  **结构不变**——装载器全用既有 AST 节点，零新节点零新 opcode）。
+  算术闭合：8284 条件 = 8283 过（tests 8180 + purity 14 + ast_vm_gap 11 + golden 39 +
+  native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 8250（41 条件）+ 34。34 = 33
+  （test_selfhost_language_phase42）+ 1（`test_compiler_parity_phase28` 的语料字节码
+  对拍锁按 `matha/**` 扫描入新语料，即 `test_corpus_bytecode_parity[matha/loader.matha]`
+  ——既有动态参数化锁自然覆盖新源，非新增测试）。
+  doc 同步：README（阶段 42 段 + 终端执行体段改链面默认口径 + `.matha` 语料 183→184
+  ×2 + 测试文件 191→192）；ARCHITECTURE（本体量 33,480→33,481 + 口径归属说明 +
+  阶段 42 节 + 测试文件 192）；CHANGELOG 阶段 42 条目；KNOWN_ISSUES 本条。
+  登记不修四条：①`装载根` 只在 level-1 由装配方注入（src/matha_chain.py:65 写 boot
+  VM 全局；链面无 `当前目录` 类内建臂，纯 level-2 代码无从自行发现仓库根——
+  matha/loader.matha:55 注释同口径，test_42c_loading_root_injected 锁 level-1 可见）
+  ②扩展包解析未镜像宿主 cwd 根序（宿主扫 (cwd, 仓库根)，链面 `包路径` 只扫仓库根
+  绝对路径——取 cwd 需 `当前目录` 臂，属 16 名之外，matha/loader.matha:72 注释登记）
+  ③`调试` 在链面显式拒绝（VM 编译链无逐节点轨迹/环境快照，非静默降级，宿主后端为
+  排障入口——test_42c_debug_is_explicit_refusal_on_chain + 子进程取证锁在档）
+  ④终端 `运行/调试/扩展命令` 的嵌套程序执行仍经 `执行Matha`/`调试Matha` 臂落宿主
+  引擎（matha/interp_matha.matha:773-774 直接委托宿主内建——装载与命令逻辑已 Matha
+  化，被装载程序的求值引擎本体仍是宿主 Python，彻底脱宿主属后续阶段）；承继 33-⑤ +
+  32-⑧⑫ + 29-①⑥⑦ + 37-①②③ + 38-①② + 39-①②③ + 40-①②③④ + 41-①②③ 维持原
+  登记不修。边界维持：pyproject dependencies=[] 不变（装载器纯 Matha、
+  `src/matha_chain.py` 零第三方 import）。
+
 - **2026-11 阶段 41 收官（资源库假成功清算批：危险桩真化 + 合法近似补口径注，
   28-⑧ 退役）**：方向拍板走推荐项「A：资源库假成功清算批」——本阶段只动纯
   Matha 资源库 `matha/resource/**`（37 文件 +2611 −767 行），`src/` 零改动、

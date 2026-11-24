@@ -15,8 +15,8 @@
   "matha/interp_matha.matha"
  ],
  "summary": {
-  "files": 225,
-  "both_ok_equal": 215,
+  "files": 226,
+  "both_ok_equal": 216,
   "both_ok_differ": 0,
   "boot_err_host_ok": 0,
   "boot_ok_host_err": 0,
@@ -649,6 +649,12 @@
   },
   {
    "path": "matha/library/structural/column.matha",
+   "boot": "ok",
+   "host": "ok",
+   "equal": true
+  },
+  {
+   "path": "matha/loader.matha",
    "boot": "ok",
    "host": "ok",
    "equal": true
@@ -1457,5 +1463,5 @@
    "n_outs": 2
   }
  ],
- "enumerated": 225
+ "enumerated": 226
 }
