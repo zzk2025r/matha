@@ -1,5 +1,11 @@
 (* 资源库：游戏应用数学
    覆盖：2D物理引擎、碰撞检测、AI寻路、粒子系统、分数计算
+   ============================================================
+   口径（阶段 41 真化批）：
+   - 指数一律写成 2.718281828459045 ^ x（自举链注册内建无 exp；^ 为三面同判的幂运算）
+   - 角度制入参在函数内转弧度（π 取全精度常量，与宿主 math 常量同值）
+   - 顶点表约定 [[x, y], ...]；颜色约定 "#rrggbb" 十六进制文本
+   - 非法/越界入参诚实返回 None，不假成功
    ============================================================ *)
 
 module 游戏数学 {
@@ -7,21 +13,29 @@ module 游戏数学 {
   (* ===== 2D物理引擎 ===== *)
   func 重力速度(t: Float) -> Float = (t) => 9.80665 * t
   func 重力位移(t: Float) -> Float = (t) => 0.5 * 9.80665 * t * t
+  (* 抛射体轨迹：θ 为角度制；vx = v0·cos(θ) 恰为 0（垂直发射）时该式对 x 无定义，
+     诚实返回起点高度而非除零。 *)
   func 抛射体轨迹(x: Float, y: Float, v0: Float, θ: Float) -> (Float, Float) =
     (x, y, v0, θ) =>
-    let rad = θ * 3.14159 / 180 in
+    let rad = θ * 3.141592653589793 / 180 in
     let vx = v0 * cos(rad) in
     let vy = v0 * sin(rad) in
+    let 结果 = if vx = 0 then (x, y) else 落点(x, y, vx, vy) in
+    结果
+
+  func 落点(x: Float, y: Float, vx: Float, vy: Float) -> (Float, Float) =
+    (x, y, vx, vy) =>
     let t = x / vx in
-    (x, y + vy * t - 0.5 * 9.80665 * t * t)
+    let 高 = y + vy * t - 0.5 * 9.80665 * t * t in
+    (x, 高)
 
   func 抛射体最大射程(v0: Float, θ: Float) -> Float =
     (v0, θ) =>
-    v0 * v0 * sin(2 * θ * 3.14159 / 180) / 9.80665
+    v0 * v0 * sin(2 * θ * 3.141592653589793 / 180) / 9.80665
 
   func 抛射体最大高度(v0: Float, θ: Float) -> Float =
     (v0, θ) =>
-    v0 * v0 * sin(θ * 3.14159 / 180) * sin(θ * 3.14159 / 180) / (2 * 9.80665)
+    v0 * v0 * sin(θ * 3.141592653589793 / 180) * sin(θ * 3.141592653589793 / 180) / (2 * 9.80665)
 
   func 弹力恢复(v: Float, restitution: Float) -> Float =
     (v, restitution) => -v * restitution
@@ -29,8 +43,11 @@ module 游戏数学 {
   func 摩擦力减速度(μ: Float, g: Float) -> Float =
     (μ, g) => μ * g
 
-  func 空气阻力速度(v: Float, k: Float, m: Float) -> Float =
-    (v, k, m) => v * exp(-k * v / m)
+  (* 线性空气阻力下的速度 v(t) = v0 · e^(-k·t/m)。
+     入参序 = 初速/阻尼系数/质量/时间（旧式 v·e^(-k·v/m) 量纲不符，已改）。 *)
+  func 空气阻力速度(v0: Float, k: Float, m: Float, t: Float) -> Float =
+    (v0, k, m, t) =>
+    if m <= 0 then None else v0 * (2.718281828459045 ^ (-k * t / m))
 
   (* ===== 碰撞检测 ===== *)
   func AABB碰撞(x1: Float, y1: Float, w1: Float, h1: Float,
@@ -40,18 +57,71 @@ module 游戏数学 {
 
   func 圆形碰撞(cx1: Float, cy1: Float, r1: Float, cx2: Float, cy2: Float, r2: Float) -> Bool =
     (cx1, cy1, r1, cx2, cy2, r2) =>
-    开方((cx2-cx1)^2 + (cy2-cy1)^2) < r1 + r2
+    sqrt((cx2-cx1)^2 + (cy2-cy1)^2) < r1 + r2
 
   func 圆与矩形碰撞(cx: Float, cy: Float, r: Float,
                      rx: Float, ry: Float, rw: Float, rh: Float) -> Bool =
     (cx, cy, r, rx, ry, rw, rh) =>
-    let closest_x = max(rx, min(cx, rx + rw)) in
-    let closest_y = max(ry, min(cy, ry + rh)) in
-    开方((cx-closest_x)^2 + (cy-closest_y)^2) < r
+    let closest_x = max([rx, min([cx, rx + rw])]) in
+    let closest_y = max([ry, min([cy, ry + rh])]) in
+    sqrt((cx-closest_x)^2 + (cy-closest_y)^2) < r
 
+  (* 分离轴定理（SAT）：凸多边形顶点表 [[x, y], ...]。
+     任一法轴上两投影区间分离 → 无碰撞；全部重叠 → 有碰撞。
+     边界相切（区间端点相等）记为碰撞；顶点数 < 3 的退化输入记为无碰撞。 *)
   func 分离轴定理碰撞(vertices1: List, vertices2: List) -> Bool =
-    (* 简化：返回true表示可能碰撞 *)
-    (vertices1, vertices2) => 真
+    (vertices1, vertices2) =>
+    if len(vertices1) < 3 then 假
+    else if len(vertices2) < 3 then 假
+    else if 边轴全通过(vertices1, vertices2) then 边轴全通过(vertices2, vertices1)
+    else 假
+
+  func 顶点(顶点表: List, 序号: Int) -> List =
+    (顶点表, 序号) => 顶点表[序号 % len(顶点表)]
+
+  func 边轴全通过(自身: List, 对方: List) -> Bool =
+    (自身, 对方) => 边轴查(0, 自身, 对方)
+
+  func 边轴查(i: Int, 自身: List, 对方: List) -> Bool =
+    (i, 自身, 对方) =>
+    if i >= len(自身) then 真 else 边轴步(i, 自身, 对方)
+
+  func 边轴步(i: Int, 自身: List, 对方: List) -> Bool =
+    (i, 自身, 对方) =>
+    let 甲 = 顶点(自身, i) in
+    let 乙 = 顶点(自身, i + 1) in
+    let 轴x = 甲[1] - 乙[1] in
+    let 轴y = 乙[0] - 甲[0] in
+    let 退化 = 轴x * 轴x + 轴y * 轴y = 0 in
+    let 通过 = if 退化 then 边轴查(i + 1, 自身, 对方)
+               else if 该轴分离(轴x, 轴y, 自身, 对方) then 假
+               else 边轴查(i + 1, 自身, 对方) in
+    通过
+
+  func 该轴分离(轴x: Float, 轴y: Float, 自身: List, 对方: List) -> Bool =
+    (轴x, 轴y, 自身, 对方) =>
+    let 甲段 = 投影区间(轴x, 轴y, 自身) in
+    let 乙段 = 投影区间(轴x, 轴y, 对方) in
+    let 分离 = 甲段[1] < 乙段[0] or 乙段[1] < 甲段[0] in
+    分离
+
+  func 投影区间(轴x: Float, 轴y: Float, 顶点表: List) -> List =
+    (轴x, 轴y, 顶点表) =>
+    let 首点 = 顶点(顶点表, 0) in
+    let 首值 = 轴x * 首点[0] + 轴y * 首点[1] in
+    let 区间 = 区间扫(1, 首值, 首值, 轴x, 轴y, 顶点表) in
+    区间
+
+  func 区间扫(i: Int, 最小: Float, 最大: Float, 轴x: Float, 轴y: Float, 顶点表: List) -> List =
+    (i, 最小, 最大, 轴x, 轴y, 顶点表) =>
+    if i >= len(顶点表) then [最小, 最大] else 区间步(i, 最小, 最大, 轴x, 轴y, 顶点表)
+
+  func 区间步(i: Int, 最小: Float, 最大: Float, 轴x: Float, 轴y: Float, 顶点表: List) -> List =
+    (i, 最小, 最大, 轴x, 轴y, 顶点表) =>
+    let p = 顶点(顶点表, i) in
+    let 值 = 轴x * p[0] + 轴y * p[1] in
+    let 区间 = 区间扫(i + 1, min([最小, 值]), max([最大, 值]), 轴x, 轴y, 顶点表) in
+    区间
 
   func 空间分割四叉树区域(x: Float, y: Float,
                            bx: Float, by: Float, bw: Float, bh: Float) -> Bool =
@@ -60,14 +130,77 @@ module 游戏数学 {
 
   (* ===== AI寻路 ===== *)
   func A星曼哈顿距离(x1: Int, y1: Int, x2: Int, y2: Int) -> Int =
-    (x1, y1, x2, y2) => 绝对值(x2-x1) + 绝对值(y2-y1)
+    (x1, y1, x2, y2) => abs(x2-x1) + abs(y2-y1)
 
   func A星欧氏距离(x1: Float, y1: Float, x2: Float, y2: Float) -> Float =
-    (x1, y1, x2, y2) => 开方((x2-x1)^2 + (y2-y1)^2)
+    (x1, y1, x2, y2) => sqrt((x2-x1)^2 + (y2-y1)^2)
 
-  func 贪心best_first(起点: Int, 终点: Int, 启发式: List) -> Int =
-    (* 简化：返回启发式值 *)
-    (起点, 终点, 启发式) => 启发式[终点]
+  (* 贪心 Best-First 搜索：邻接表 = 节点号 → 邻居号列表；启发值 = 节点号 → 估计代价。
+     返回探索顺序（节点首次取出即定型），命中终点即停止扩展。
+     约定：邻接表为空或起点/终点越出邻接表范围返回 []；
+     启发值表须覆盖被访问的节点号，否则按下标越界诚实报错。 *)
+  func 贪心best_first(邻接表: List, 启发值: List, 起点: Int, 终点: Int) -> List =
+    (邻接表, 启发值, 起点, 终点) =>
+    if len(邻接表) = 0 then []
+    else if 起点 < 0 or 起点 >= len(邻接表) then []
+    else if 终点 < 0 or 终点 >= len(邻接表) then []
+    else 贪心轮([起点], [], 邻接表, 启发值, 终点, [])
+
+  func 贪心轮(前沿: List, 已访: List, 邻接表: List, 启发值: List, 终点: Int, 顺序: List) -> List =
+    (前沿, 已访, 邻接表, 启发值, 终点, 顺序) =>
+    if len(前沿) = 0 then 顺序 else 贪心步(前沿, 已访, 邻接表, 启发值, 终点, 顺序)
+
+  func 贪心步(前沿: List, 已访: List, 邻接表: List, 启发值: List, 终点: Int, 顺序: List) -> List =
+    (前沿, 已访, 邻接表, 启发值, 终点, 顺序) =>
+    let 择 = 位置与值(前沿, 启发值, 0, 0, 0) in
+    let 最佳位置 = 择[0] in
+    let 节点 = 前沿[最佳位置] in
+    let 其余 = 去掉第(前沿, 最佳位置) in
+    let 定访 = 已访 + [节点] in
+    let 新序 = 顺序 + [节点] in
+    let 结果 = if 节点 = 终点 then 新序
+               else 贪心轮(其余 + 未访邻居(节点, 邻接表, 定访), 定访, 邻接表, 启发值, 终点, 新序) in
+    结果
+
+  func 位置与值(前沿: List, 启发值: List, i: Int, 最佳: Int, 最佳值) -> List =
+    (前沿, 启发值, i, 最佳, 最佳值) =>
+    if i >= len(前沿) then [最佳, 最佳值] else 启发步(前沿, 启发值, i, 最佳, 最佳值)
+
+  func 启发步(前沿: List, 启发值: List, i: Int, 最佳: Int, 最佳值) -> List =
+    (前沿, 启发值, i, 最佳, 最佳值) =>
+    let 节点 = 前沿[i] in
+    let 估 = 启发值[节点] in
+    let 更优 = if i = 0 then 真 else 估 < 最佳值 in
+    let 新最佳 = 更优 ? i : 最佳 in
+    let 新值 = 更优 ? 估 : 最佳值 in
+    let 结果 = 位置与值(前沿, 启发值, i + 1, 新最佳, 新值) in
+    结果
+
+  func 去掉第(列表: List, 位置: Int) -> List =
+    (列表, 位置) => 剔除步(0, 位置, 列表, [])
+
+  func 剔除步(i: Int, 位置: Int, 列表: List, 已收: List) -> List =
+    (i, 位置, 列表, 已收) =>
+    if i >= len(列表) then 已收 else 剔除步(i + 1, 位置, 列表, 保留一(i, 位置, 列表, 已收))
+
+  func 保留一(i: Int, 位置: Int, 列表: List, 已收: List) -> List =
+    (i, 位置, 列表, 已收) => i = 位置 ? 已收 : 已收 + [列表[i]]
+
+  func 未访邻居(节点: Int, 邻接表: List, 已访: List) -> List =
+    (节点, 邻接表, 已访) => 邻居步(0, 邻接表[节点], 已访, [])
+
+  func 邻居步(i: Int, 邻居: List, 已访: List, 已收: List) -> List =
+    (i, 邻居, 已访, 已收) =>
+    if i >= len(邻居) then 已收 else 邻居步(i + 1, 邻居, 已访, 收未访(邻居[i], 已访, 已收))
+
+  func 收未访(候选, 已访: List, 已收: List) -> List =
+    (候选, 已访, 已收) => 表含(候选, 已访, 0) ? 已收 : 已收 + [候选]
+
+  func 表含(值, 列表: List, i: Int) -> Bool =
+    (值, 列表, i) => if i >= len(列表) then 假 else 表含步(值, 列表, i)
+
+  func 表含步(值, 列表: List, i: Int) -> Bool =
+    (值, 列表, i) => 列表[i] = 值 ? 真 : 表含(值, 列表, i + 1)
 
   func 状态机转换(当前: String, 事件: String) -> String =
     (当前, 事件) =>
@@ -79,9 +212,25 @@ module 游戏数学 {
       | "paused:resume" => "playing"
       | _ => 当前
     }
-  func 行为树评估(node: String, context: List) -> String =
-    (* 简化：返回动作 *)
-    (node, context) => "action_" + node
+  (* 行为树条件节点求值：规则表 = [[上下文键, 期望值, 动作], ...]，
+     按表序取首个命中（优先级选择器）；无命中返回 "idle"。
+     上下文缺键视为不命中（字典缺键读 None，不抛错）。 *)
+  func 行为树评估(规则表: List, 上下文) -> String =
+    (规则表, 上下文) => 行为查(0, 规则表, 上下文)
+
+  func 行为查(i: Int, 规则表: List, 上下文) -> String =
+    (i, 规则表, 上下文) =>
+    if i >= len(规则表) then "idle" else 行为步(i, 规则表, 上下文)
+
+  func 行为步(i: Int, 规则表: List, 上下文) -> String =
+    (i, 规则表, 上下文) =>
+    let 规则 = 规则表[i] in
+    let 键 = 规则[0] in
+    let 现状值 = 上下文[键] in
+    let 期望 = 规则[1] in
+    let 动作 = 规则[2] in
+    let 结果 = 现状值 = 期望 ? 动作 : 行为查(i + 1, 规则表, 上下文) in
+    结果
 
   (* ===== 粒子系统 ===== *)
   func 粒子位置(t: Float, px: Float, py: Float, vx: Float, vy: Float) -> (Float, Float) =
@@ -90,12 +239,56 @@ module 游戏数学 {
   func 粒子速度(t: Float, vy0: Float) -> Float =
     (t, vy0) => vy0 - 9.80665 * t
 
+  (* 剩余寿命比例 ∈ [0, 1]；寿命 <= 0 视为已消亡（0），避免除零。 *)
   func 粒子寿命消耗(已存在时间: Float, 寿命: Float) -> Float =
-    (已存在时间, 寿命) => max(0, 1 - 已存在时间 / 寿命)
+    (已存在时间, 寿命) =>
+    if 寿命 <= 0 then 0 else max([0, 1 - 已存在时间 / 寿命])
 
+  (* 十六进制颜色 alpha 混合：c = c1·(1 - a) + c2·a，a 截断到 [0, 1]，逐通道四舍五入。
+     输入须为 "#rrggbb" 7 字符十六进制文本，否则诚实返回 None。 *)
   func 粒子颜色混合(c1: String, c2: String, alpha: Float) -> String =
-    (* 简化：返回主色 *)
-    (c1, c2, alpha) => c1
+    (c1, c2, alpha) =>
+    let 甲 = 颜色分量(c1) in
+    let 乙 = 颜色分量(c2) in
+    let 有效 = if 甲 = None then 假 else if 乙 = None then 假 else 真 in
+    let a = min([1.0, max([0.0, alpha])]) in
+    let 结果 = if not 有效 then None else 混色(甲[0], 甲[1], 甲[2], 乙[0], 乙[1], 乙[2], a) in
+    结果
+
+  func 混色(r1: Int, g1: Int, b1: Int, r2: Int, g2: Int, b2: Int, a: Float) -> String =
+    (r1, g1, b1, r2, g2, b2, a) =>
+    let 红 = 混一(r1, r2, a) in
+    let 绿 = 混一(g1, g2, a) in
+    let 蓝 = 混一(b1, b2, a) in
+    let 文本 = "#" + 双十六(红) + 双十六(绿) + 双十六(蓝) in
+    文本
+
+  func 混一(c1: Int, c2: Int, a: Float) -> Int =
+    (c1, c2, a) => floor(c1 * (1 - a) + c2 * a + 0.5)
+
+  func 颜色分量(颜色: String) -> List =
+    (颜色) =>
+    if len(颜色) = 7 then 分量检查(十六段(颜色, 1), 十六段(颜色, 3), 十六段(颜色, 5)) else None
+
+  func 十六段(颜色: String, 起: Int) -> Int =
+    (颜色, 起) => 十六位值(颜色[起]) * 16 + 十六位值(颜色[起 + 1])
+
+  func 分量检查(r: Int, g: Int, b: Int) -> List =
+    (r, g, b) =>
+    if r < 0 or g < 0 or b < 0 then None else [r, g, b]
+
+  func 十六位值(字符: String) -> Int =
+    (字符) => 十六查("0123456789abcdef", 字符, 0)
+
+  func 十六查(表: String, 字符: String, i: Int) -> Int =
+    (表, 字符, i) =>
+    if i >= len(表) then -1 else if 表[i] = 字符 then i else 十六查(表, 字符, i + 1)
+
+  func 单十六(值: Int) -> String =
+    (值) => "0123456789abcdef"[值]
+
+  func 双十六(值: Int) -> String =
+    (值) => 单十六(值 // 16) + 单十六(值 % 16)
 
   (* ===== 分数与难度 ===== *)
   func 分数计算(基础分: Int, 连击数: Int, 倍数: Int) -> Int =
@@ -106,13 +299,13 @@ module 游戏数学 {
 
   func 生命值计算(最大HP: Int, 伤害: Int, 护甲: Float) -> Int =
     (最大HP, 伤害, 护甲) =>
-    max(0, 最大HP - int(伤害 * (1 -护甲)))
+    max([0, 最大HP - floor(伤害 * (1 -护甲))])
 
-  func 经验值计算(击杀数: Int, 等级: Int) -> Int =
+  func 经验值计算(击杀数: Int, 等级: Int) -> Float =
     (击杀数, 等级) => 击杀数 * 100 * (1 + 等级 * 0.5)
 
   func 掉落率计算(基础率: Float, 幸运值: Int) -> Float =
-    (基础率, 幸运值) => min(1.0, 基础率 + 幸运值 * 0.01)
+    (基础率, 幸运值) => min([1.0, 基础率 + 幸运值 * 0.01])
 
   (* ===== 音频频率 ===== *)
   func 音符频率(音符: Int) -> Float =
@@ -120,9 +313,20 @@ module 游戏数学 {
     (音符) => 440.0 * pow(2.0, (音符 - 69.0) / 12.0)
 
   func 音频波形(t: Float, freq: Float, amp: Float) -> Float =
-    (t, freq, amp) => amp * sin(2 * 3.14159 * freq * t)
+    (t, freq, amp) => amp * sin(2 * 3.141592653589793 * freq * t)
 
+  (* 双轨线性插值混音：out[i] = a[i]·(1 - k) + b[i]·k，长度取两轨较短者。 *)
   func 音频混音(samples1: List, samples2: List, mix_ratio: Float) -> List =
-    (* 简化：返回samples1 *)
-    (samples1, samples2, mix_ratio) => samples1
+    (samples1, samples2, mix_ratio) =>
+    混音步(0, samples1, samples2, min([len(samples1), len(samples2)]), mix_ratio, [])
+
+  func 混音步(i: Int, 甲: List, 乙: List, 限: Int, k: Float, 已混: List) -> List =
+    (i, 甲, 乙, 限, k, 已混) =>
+    if i >= 限 then 已混 else 混音进(i, 甲, 乙, 限, k, 已混)
+
+  func 混音进(i: Int, 甲: List, 乙: List, 限: Int, k: Float, 已混: List) -> List =
+    (i, 甲, 乙, 限, k, 已混) =>
+    let 值 = 甲[i] * (1 - k) + 乙[i] * k in
+    let 混 = 混音步(i + 1, 甲, 乙, 限, k, 已混 + [值]) in
+    混
 }

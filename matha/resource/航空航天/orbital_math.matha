@@ -1,24 +1,51 @@
 (* 航空航天知识：轨道力学、气动、推进、导航
+   ============================================================
+   口径（阶段 41 真化批）：
+   1. 无定义读数 → None，不再伪造 0：旧体 升阻比(Cd=0)、马赫数(a=0)、
+      火箭方程(mf≤0)、轨道倾角(v_total=0) 一律返回 0，与真实读数 0 不可区分。
+   2. 链面（boot 编译器 + 解释器）注册内建不含 π / atan2 / asin / ln：
+      旧体 大圆距离、轨道倾角、轨道周期、火箭方程 在链面恒「未定义变量」，
+      函数从不可调用（hi/VM 可调用而链面不可，属三面假失败）。
+      现改为：π → 3.141592653589793 字面量；ln → log；
+      atan2/asin → 本地 sin 二分求根 helper（三面同判）。
+   3. 平方根一律用 sqrt(x) 而非 √x 前缀：√ 一元前缀在宿主/VM 面对整值平方根
+      返回整数、链面返回浮点（渲染 '3' vs '3.0' 三面分歧，见 KNOWN_ISSUES 登记），
+      sqrt(x) 三面渲染一致。
+   4. 定义域守卫：轨道量式为几何量，半径/半长轴/质量/GM ≤ 0 无物理意义 → None
+      （旧体对 R = 0 直接抛除零、对负 GM 抛 sqrt 域错误）。
    ============================================================ *)
 
 module 航空航天知识 {
 
   (* ===== 轨道力学 ===== *)
-  (* 第一宇宙速度 v = √(GM/R) *)
+  (* 第一宇宙速度 v = √(GM/R)：R 与 GM 须为正，否则无定义 → None。 *)
   func 第一宇宙速度(G: Float, M: Float, R: Float) -> Float =
-    (G, M, R) => √(G * M / R)
+    (G, M, R) =>
+    if R <= 0 then None
+    else if G * M <= 0 then None
+    else sqrt(G * M / R)
 
-  (* 第二宇宙速度 v = √(2GM/R) *)
+  (* 第二宇宙速度 v = √(2GM/R)：同上定义域守卫。 *)
   func 第二宇宙速度(G: Float, M: Float, R: Float) -> Float =
-    (G, M, R) => √(2 * G * M / R)
+    (G, M, R) =>
+    if R <= 0 then None
+    else if G * M <= 0 then None
+    else sqrt(2 * G * M / R)
 
-  (* 开普勒第三定律：T² = 4π²a³/(GM) *)
+  (* 开普勒第三定律：T² = 4π²a³/(GM) → T = 2π√(a³/(GM))。
+     半长轴 a 与 GM 须为正；π 用全精度字面量（链面无 π 常量）。 *)
   func 轨道周期(a: Float, M: Float, G: Float) -> Float =
-    (a, M, G) => 2 * π * √(a^3 / (G * M))
+    (a, M, G) =>
+    if a <= 0 then None
+    else if G * M <= 0 then None
+    else 2 * 3.141592653589793 * sqrt(a ^ 3 / (G * M))
 
-  (* 逃逸速度 v = √(2GM/R) *)
+  (* 逃逸速度 v = √(2GM/R)：同上定义域守卫。 *)
   func 逃逸速度(M: Float, R: Float, G: Float) -> Float =
-    (M, R, G) => √(2 * G * M / R)
+    (M, R, G) =>
+    if R <= 0 then None
+    else if G * M <= 0 then None
+    else sqrt(2 * G * M / R)
 
   (* ===== 气动 ===== *)
   (* 升力 L = ½ρv²S·Cl *)
@@ -29,38 +56,80 @@ module 航空航天知识 {
   func 阻力(ρ: Float, v: Float, S: Float, Cd: Float) -> Float =
     (ρ, v, S, Cd) => 0.5 * ρ * v^2 * S * Cd
 
-  (* 升阻比 *)
+  (* 升阻比：Cd = 0 时比值无定义 → None（旧体返回 0，与「Cl = 0 零升阻比」的真实读数 0 混淆）。 *)
   func 升阻比(Cl: Float, Cd: Float) -> Float =
     (Cl, Cd) =>
-    if Cd = 0 then 0 else Cl / Cd
+    if Cd = 0 then None else Cl / Cd
 
-  (* 马赫数 M = v/a *)
+  (* 马赫数 M = v/a：声速 a ≤ 0 无物理意义 → None（旧体返回 0）。 *)
   func 马赫数(v: Float, a: Float) -> Float =
     (v, a) =>
-    if a = 0 then 0 else v / a
+    if a <= 0 then None else v / a
 
   (* ===== 推进 ===== *)
-  (* 火箭方程 Δv = Isp·g₀·ln(m0/mf) *)
+  (* 火箭方程 Δv = Isp·g₀·ln(m0/mf)，g₀ = 9.81。
+     口径注：ln 为宿主/VM 面内建别名、链面未注册 → 一律用 log（自然对数，三面同名）。
+     质量须严格为正且干重 mf > 0，否则无定义 → None（旧体 mf ≤ 0 返回 0）。 *)
   func 火箭方程(Isp: Float, m0: Float, mf: Float) -> Float =
     (Isp, m0, mf) =>
-    if mf <= 0 then 0 else Isp * 9.81 * ln(m0 / mf)
+    if mf <= 0 then None
+    else if m0 <= 0 then None
+    else Isp * 9.81 * log(m0 / mf)
 
   (* 比冲 * 推力 *)
   func 推力(Isp: Float, 流量: Float) -> Float =
     (Isp, 流量) => Isp * 流量 * 9.81
 
   (* ===== 导航 ===== *)
-  (* 大圆距离（Haversine 公式简化） *)
+  (* 大圆距离（Haversine）：d = 2R·asin(√a)。
+     口径注：入参经纬度按**角度制**传入（本函数内部折算弧度，与 geography/生活服务 两处的
+     弧度制约定不同，跨文件调用勿混用）；a 因浮点舍入可越出 [0,1]，先钳单位再开方；
+     R ≤ 0 无定义 → None。旧体用 atan2/√ 前缀，链面不可调用。 *)
   func 大圆距离(lat1: Float, lon1: Float,
                  lat2: Float, lon2: Float, R: Float) -> Float =
     (lat1, lon1, lat2, lon2, R) =>
-    let dlat = (lat2 - lat1) * π / 180 in
-    let dlon = (lon2 - lon1) * π / 180 in
-    let a = sin(dlat/2)^2 + cos(lat1*π/180) * cos(lat2*π/180) * sin(dlon/2)^2 in
-    R * 2 * atan2(√a, √(1-a))
+    if R <= 0 then None
+    else 大圆按弧度(lat1, lon1, lat2, lon2, R)
 
-  (* 轨道倾角计算 *)
+  func 大圆按弧度(lat1, lon1, lat2, lon2, R) -> Float =
+    (lat1, lon1, lat2, lon2, R) =>
+    let dlat = (lat2 - lat1) * 3.141592653589793 / 180 in
+    let dlon = (lon2 - lon1) * 3.141592653589793 / 180 in
+    let a = sin(dlat/2)^2 + cos(lat1*3.141592653589793/180) * cos(lat2*3.141592653589793/180) * sin(dlon/2)^2 in
+    R * 2 * 反正弦(sqrt(钳单位(a)))
+
+  func 钳单位(x: Float) -> Float =
+    (x) => if x > 1 then 1.0 else if x < 0 then 0.0 else x
+
+  (* 轨道倾角：i = asin(v_perp / v_total) 折算角度制。
+     口径注：v_total ≤ 0 无定义 → None（旧体返回 0）；比值须落在 [-1, 1]，
+     超出（浮点输入的非法分量比）同样 → None。 *)
   func 轨道倾角(v_perp: Float, v_total: Float) -> Float =
     (v_perp, v_total) =>
-    if v_total = 0 then 0 else asin(v_perp / v_total) * 180 / π
+    if v_total <= 0 then None else 倾角按比值(v_perp / v_total)
+
+  func 倾角按比值(比值: Float) -> Float =
+    (比值) =>
+    if 比值 > 1 then None
+    else if 比值 < -1 then None
+    else 反正弦(比值) * 180 / 3.141592653589793
+
+  (* 反正弦：sin 在 [-π/2, π/2] 单调递增，50 轮二分把区间压到 ~3e-15。
+     链面注册内建无 asin，故用三面同判的 sin + 算术二分实现；调用方须保证 |x| ≤ 1。 *)
+  func 反正弦(x: Float) -> Float =
+    (x) => if x = 0 then 0.0 else 正弦二分(-1.5707963267948966, 1.5707963267948966, x, 0)
+
+  func 正弦二分(lo, hi, x, k: Int) -> Float =
+    (lo, hi, x, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 角 = if k >= 50 then 中 else 正弦半区(lo, hi, 中, x, k)
+    角
+    }
+
+  func 正弦半区(lo, hi, 中, x, k: Int) -> Float =
+    (lo, hi, 中, x, k) =>
+    let 值 = sin(中) in
+    let 半区 = 值 < x ? [中, hi] : [lo, 中] in
+    let 角 = 正弦二分(半区[0], 半区[1], x, k + 1) in
+    角
 }

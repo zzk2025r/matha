@@ -64,7 +64,7 @@ module 代数进阶 {
   func 解二次方程(a: Float, b: Float, c: Float) -> Float =
     (a, b, c) =>
     let delta = b*b - 4*a*c in
-    (delta >= 0) ? (-b + 开方(delta)) / (2*a) : 0
+    (delta >= 0) ? (-b + sqrt(delta)) / (2*a) : 0
 
   func 解线性方程组2x2(a1: Float, b1: Float, c1: Float,
                        a2: Float, b2: Float, c2: Float) -> (Float, Float) =

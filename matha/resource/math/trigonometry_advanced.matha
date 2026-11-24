@@ -1,22 +1,86 @@
 (* 资源库：三角学进阶
    覆盖：反三角函数、三角恒等式、解三角形
+   ============================================================
+   口径（阶段 41 真化批）：
+   - 链面注册内建无 asin/acos/atan，旧式在链面恒「未定义变量」，函数从不可调用；
+     现走 sin/cos/tan 的 50 轮二分求根（区间长压到 ~3e-15），三面同判
+   - 定义域：反正弦 / 反余弦 的 |x| > 1 无实角 → None；反正切 定义域为全体实数
+   - π 取双精度常量 3.141592653589793（旧式 3.14159 只有 6 位有效数字）
    ============================================================ *)
 
 module 三角学进阶 {
 
-  func 度转弧度(deg: Float) -> Float = (deg) => deg * 3.14159 / 180
-  func 弧度转度(rad: Float) -> Float = (rad) => rad * 180 / 3.14159
+  func 度转弧度(deg: Float) -> Float = (deg) => deg * 3.141592653589793 / 180
+  func 弧度转度(rad: Float) -> Float = (rad) => rad * 180 / 3.141592653589793
 
   func 正弦(x: Float) -> Float = (x) => sin(x)
   func 余弦(x: Float) -> Float = (x) => cos(x)
   func 正切(x: Float) -> Float = (x) => tan(x)
 
-  func 反正弦(x: Float) -> Float = (x) => asin(x)
-  func 反余弦(x: Float) -> Float = (x) => acos(x)
-  func 反正切(x: Float) -> Float = (x) => atan(x)
+  (* sin 在 [-π/2, π/2] 单调递增 → 该区间即 反正弦 的主值区间。 *)
+  func 反正弦(x: Float) -> Float =
+    (x) =>
+    if x < 0 - 1 or x > 1 then None
+    else 正弦二分(0 - 1.5707963267948966, 1.5707963267948966, x, 0)
 
+  (* cos 在 [0, π] 单调递减 → 该区间即 反余弦 的主值区间。 *)
+  func 反余弦(x: Float) -> Float =
+    (x) =>
+    if x < 0 - 1 or x > 1 then None
+    else 余弦二分(0.0, 3.141592653589793, x, 0)
+
+  (* tan 在 (-π/2, π/2) 单调递增；端点 tan 发散，二分只在中段取值故安全。 *)
+  func 反正切(x: Float) -> Float =
+    (x) =>
+    if x = 0 then 0.0
+    else 正切二分(0 - 1.5707963267948966, 1.5707963267948966, x, 0)
+
+  func 正弦二分(lo, hi, x, k: Int) -> Float =
+    (lo, hi, x, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 角 = if k >= 50 then 中 else 正弦半区(lo, hi, 中, x, k)
+    角
+    }
+
+  func 正弦半区(lo, hi, 中, x, k: Int) -> Float =
+    (lo, hi, 中, x, k) =>
+    let 值 = sin(中) in
+    let 半区 = 值 < x ? [中, hi] : [lo, 中] in
+    let 角 = 正弦二分(半区[0], 半区[1], x, k + 1) in
+    角
+
+  func 余弦二分(lo, hi, x, k: Int) -> Float =
+    (lo, hi, x, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 角 = if k >= 50 then 中 else 余弦半区(lo, hi, 中, x, k)
+    角
+    }
+
+  func 余弦半区(lo, hi, 中, x, k: Int) -> Float =
+    (lo, hi, 中, x, k) =>
+    let 值 = cos(中) in
+    let 半区 = 值 > x ? [中, hi] : [lo, 中] in
+    let 角 = 余弦二分(半区[0], 半区[1], x, k + 1) in
+    角
+
+  func 正切二分(lo, hi, x, k: Int) -> Float =
+    (lo, hi, x, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 角 = if k >= 50 then 中 else 正切半区(lo, hi, 中, x, k)
+    角
+    }
+
+  func 正切半区(lo, hi, 中, x, k: Int) -> Float =
+    (lo, hi, 中, x, k) =>
+    let 值 = tan(中) in
+    let 半区 = 值 < x ? [中, hi] : [lo, 中] in
+    let 角 = 正切二分(半区[0], 半区[1], x, k + 1) in
+    角
+
+  (* sin(a+b) = sin a·cos b + cos a·sin b。
+     旧式末项误写 sin(a)，故 a≠b 时恒给错值（2sin a cos b），按公式真化。 *)
   func 正弦加法公式(a: Float, b: Float) -> Float =
-    (a, b) => sin(a)*cos(b) + cos(a)*sin(a)
+    (a, b) => sin(a)*cos(b) + cos(a)*sin(b)
 
   func 余弦加法公式(a: Float, b: Float) -> Float =
     (a, b) => cos(a)*cos(b) - sin(a)*sin(b)
@@ -24,14 +88,17 @@ module 三角学进阶 {
   func 二倍角正弦(a: Float) -> Float = (a) => 2*sin(a)*cos(a)
   func 二倍角余弦(a: Float) -> Float = (a) => cos(a)*cos(a) - sin(a)*sin(a)
 
+  (* 余弦定理：第三边 c = √(a² + b² − 2ab·cos C)，C 为 a、b 夹角（弧度）。 *)
   func 余弦定理(a: Float, b: Float, C: Float) -> Float =
-    (a, b, C) => 开方(a*a + b*b - 2*a*b*cos(C))
+    (a, b, C) => sqrt(a*a + b*b - 2*a*b*cos(C))
 
+  (* 正弦定理：a/sin A = b/sin B → b = a·sin B/sin A；sin A = 0 无解三角形口径。 *)
   func 正弦定理(a: Float, A: Float, B: Float) -> Float =
     (a, A, B) => a * sin(B) / sin(A)
 
+  (* 海伦公式：S = √(s(s−a)(s−b)(s−c))，s 为半周长。 *)
   func 三角形面积海伦(a: Float, b: Float, c: Float) -> Float =
     (a, b, c) =>
     let s = (a + b + c) / 2 in
-    开方(s * (s - a) * (s - b) * (s - c))
+    sqrt(s * (s - a) * (s - b) * (s - c))
 }

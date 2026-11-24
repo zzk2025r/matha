@@ -2,72 +2,187 @@
    覆盖：FCFS/SJF/RR/优先级调度、响应比高优先、调度开销
    ============================================================ *)
 
+(* 三面共口径：
+   1) 到达时间表按到达先后（非降）给出，到达表与服务表须等长——越界入参不静默补零，
+      由三面各自的下标守卫诚实报错。
+   2) 周转时间表按作业下标回填（结果[i] 即第 i 个作业），不是执行先后次序。
+   3) 服务时间为 0 的作业按瞬时完成计入；轮转量子 < 1 无轮转口径，按 1 归一。 *)
+
 module 调度算法 {
 
-  (* ===== FCFS 先来先服务 ===== *)
-  func FCFS周转时间(到达时间: List,  Burst时间: List) -> List =
-    (到达时间, Burst时间) => {
-    let n = len(到达时间) in
-    let rec calc(i: Int, 当前时间: Float, result: List) -> List =
-    (i, 当前时间, result) =>
-        if if i >= n then result else None
-        else:
-          let start = if 当前时间 < 到达时间[i] then 到达时间[i] else 当前时间 in
-          let 完成 = start + Burst时间[i] in
-          calc(i + 1, 完成, result + [完成 - 到达时间[i]])
-    calc(0, 0, [])
+  (* ===== 共用辅助 ===== *)
+  (* 零表：长度 n 的全 0 表，用作「已完成」标志表与周转时间回填表。 *)
+  func 零表(n: Int) -> List =
+    (n) => {
+    let rec 走(i: Int, acc: List) -> List =
+    (i, acc) => if i >= n then acc else 走(i + 1, acc + [0])
+    走(0, [])
     }
+
+  (* 置位：把第 位置 项换成 值，其余原样，返回新表（纯函数，不改入参）。 *)
+  func 置位(lst: List, 位置: Int, 值) -> List =
+    (lst, 位置, 值) => {
+    let rec 走(i: Int, acc: List) -> List =
+    (i, acc) =>
+      if i >= len(lst) then acc
+      else if i = 位置 then 走(i + 1, acc + [值])
+      else 走(i + 1, acc + [lst[i]])
+    走(0, [])
+    }
+
+  (* ===== FCFS 先来先服务 ===== *)
+  (* 单道 CPU 按到达顺序依次执行：开始 = max(上一作业完成时间, 本作业到达时间)。
+     旧体首行 `if if i >= n then result else None` 是残形——外层 if 测的是内层 if 的
+     值而非守卫条件，i >= n 后仍落 else 继续递归，越过末尾下标由三面各报各错，故真化。 *)
+  func FCFS周转时间(到达时间: List, Burst时间: List) -> List =
+    (到达时间, Burst时间) => {
+    let rec 走(i: Int, t: Float, 结果: List) -> List =
+    (i, t, 结果) => if i >= len(到达时间) then 结果 else 步(i, t, 结果)
+    let rec 步(i: Int, t: Float, 结果: List) -> List =
+    (i, t, 结果) => {
+    let 开始 = if t > 到达时间[i] then t else 到达时间[i]
+    let 完成 = 开始 + Burst时间[i]
+    走(i + 1, 完成, 结果 + [完成 - 到达时间[i]])
+    }
+    let r = if len(到达时间) = 0 then [] else 走(0, 0, [])
+    r
+    }
+
+  (* ===== 非抢占调度内核 ===== *)
+  (* 每次从「已到达且未完成」的作业中按 模式 选一个整段执行完；CPU 空转时时间跳到
+     最早到达的未完成作业。模式 1 = 服务时间短者先（SJF）；模式 2 = 优先表数值大者先
+     （优先级调度）；模式 3 = 响应比高者先（HRRN）。同键并列取到达（下标）靠前者。
+     优先表 仅模式 2 参与选优，模式 1/3 传入即忽略。
+     无记忆化，每轮重扫作业表——教材面作业数小，够用。 *)
+  func 非抢占周转(到达时间: List, 服务时间: List, 优先表: List, 模式: Int) -> List =
+    (到达时间, 服务时间, 优先表, 模式) => {
+    let n = len(到达时间)
+    let rec 挑(i: Int, t: Float, 已做: List, 最佳: Int) -> Int =
+    (i, t, 已做, 最佳) =>
+      if i >= n then 最佳
+      else if 已做[i] = 1 then 挑(i + 1, t, 已做, 最佳)
+      else if 到达时间[i] > t then 挑(i + 1, t, 已做, 最佳)
+      else if 更优(模式, i, 最佳, t, 到达时间, 服务时间, 优先表) then 挑(i + 1, t, 已做, i)
+      else 挑(i + 1, t, 已做, 最佳)
+    let rec 下一(i: Int, 已做: List, 最佳: Int) -> Int =
+    (i, 已做, 最佳) =>
+      if i >= n then 最佳
+      else if 已做[i] = 1 then 下一(i + 1, 已做, 最佳)
+      else if 最佳 = -1 then 下一(i + 1, 已做, i)
+      else if 到达时间[i] < 到达时间[最佳] then 下一(i + 1, 已做, i)
+      else 下一(i + 1, 已做, 最佳)
+    let rec 走(t: Float, 已做: List, 结果: List, 剩: Int) -> List =
+    (t, 已做, 结果, 剩) => if 剩 = 0 then 结果 else 步(t, 已做, 结果, 剩)
+    let rec 步(t: Float, 已做: List, 结果: List, 剩: Int) -> List =
+    (t, 已做, 结果, 剩) => {
+    let 最佳 = 挑(0, t, 已做, -1)
+    if 最佳 >= 0 then 执行(t, 已做, 结果, 剩, 最佳) else 走(到达时间[下一(0, 已做, -1)], 已做, 结果, 剩)
+    }
+    let rec 执行(t: Float, 已做: List, 结果: List, 剩: Int, 最佳: Int) -> List =
+    (t, 已做, 结果, 剩, 最佳) =>
+      走(t + 服务时间[最佳], 置位(已做, 最佳, 1), 置位(结果, 最佳, t + 服务时间[最佳] - 到达时间[最佳]), 剩 - 1)
+    let r = if n = 0 then [] else 走(0, 零表(n), 零表(n), n)
+    r
+    }
+
+  (* 判优：先判 最佳 = -1（无候选直接取新作业）再比值——本语言 and/or 两侧同求值，
+     写成 最佳 >= 0 and 服务时间[最佳] … 会用 -1 反向下标取到表尾元素。 *)
+  func 更优(模式: Int, i: Int, 最佳: Int, t: Float, 到达时间: List, 服务时间: List, 优先表: List) -> Bool =
+    (模式, i, 最佳, t, 到达时间, 服务时间, 优先表) =>
+      if 最佳 = -1 then 真 else 择优(模式, i, 最佳, t, 到达时间, 服务时间, 优先表)
+
+  func 择优(模式: Int, i: Int, 最佳: Int, t: Float, 到达时间: List, 服务时间: List, 优先表: List) -> Bool =
+    (模式, i, 最佳, t, 到达时间, 服务时间, 优先表) =>
+      if 模式 = 1 then 服务时间[i] < 服务时间[最佳]
+      else if 模式 = 2 then 优先表[i] > 优先表[最佳]
+      else 响应比(t - 到达时间[i], 服务时间[i]) > 响应比(t - 到达时间[最佳], 服务时间[最佳])
 
   (* ===== SJF 短作业优先（非抢占）===== *)
+  (* 旧体把 Burst时间 升序排序后与原 到达时间 逐位配对——排序只动了服务时间没动到达时间，
+     作业与到达时刻的对应被打乱，结果还按排序位而非作业位回填；另同受 `if if` 残形之害。 *)
   func SJF周转时间(到达时间: List, Burst时间: List) -> List =
-    (到达时间, Burst时间) => {
-    let n = len(Burst时间) in
-    let sorted_burst = 升序排序(Burst时间) in
-    let rec calc_sjf(i: Int, 当前时间: Float, result: List) -> List =
-    (i, 当前时间, result) =>
-        if if i >= n then result else None
-        else:
-          let start = if 当前时间 < 到达时间[i] then 到达时间[i] else 当前时间 in
-          let 完成 = start + sorted_burst[i] in
-          calc_sjf(i + 1, 完成, result + [完成 - 到达时间[i]])
-    calc_sjf(0, 0, [])
-    }
+    (到达时间, Burst时间) => 非抢占周转(到达时间, Burst时间, Burst时间, 1)
+
+  (* ===== 优先级调度（非抢占）===== *)
+  (* 旧体直接 `FCFS周转时间(到达时间, Burst时间)`——优先级参数完全不起作用，
+     任何优先级表都算出来先来的结果，属假成功。现按优先表数值大者优先。 *)
+  func 优先级调度周转时间(到达时间: List, Burst时间: List, 优先级: List) -> List =
+    (到达时间, Burst时间, 优先级) => 非抢占周转(到达时间, Burst时间, 优先级, 2)
 
   (* ===== RR 轮转调度 ===== *)
-  func RR周转时间(到达时间: List, Burst时间: List, quantum: Int) -> List =
-    (到达时间, Burst时间, quantum) =>
-    (* 简化：总时间估算 *)
-    let n = len(Burst时间) in
-    let total_burst = 求和(Burst时间) in
-    let 轮次 = (total_burst + quantum - 1) / quantum in
-    let 上下文切换开销 = 轮次 * n * 0.01 in
-    total_burst + 上下文切换开销
+  (* 真模拟：队首执行 min(剩余, 片长)；片末先接纳 到达时刻 <= 新时刻 的新作业，
+     未完成的原队首再排队尾（同刻到达者排在被抢占者之前）。
+     旧体声明 `-> List` 却返回 total_burst + 轮次*作业数*0.01 的单个标量——
+     类型、量纲、逐作业结果三项全不符，且 0.01 切换常数无来源，故真化。 *)
+  func RR周转时间(到达时间: List, Burst时间: List, 量子: Int) -> List =
+    (到达时间, Burst时间, 量子) => {
+    let n = len(到达时间)
+    let 片长 = if 量子 < 1 then 1 else 量子
+    let rec 准入(i: Int, 队: List, t: Float) -> List =
+    (i, 队, t) =>
+      if i >= n then [队, i]
+      else if 到达时间[i] <= t then 准入(i + 1, 队 + [i], t)
+      else [队, i]
+    let rec 走(t: Float, p: Int, 队: List, 剩余: List, 结果: List, 剩: Int) -> List =
+    (t, p, 队, 剩余, 结果, 剩) =>
+      if 剩 = 0 then 结果 else 步(t, p, 队, 剩余, 结果, 剩)
+    let rec 步(t: Float, p: Int, 队: List, 剩余: List, 结果: List, 剩: Int) -> List =
+    (t, p, 队, 剩余, 结果, 剩) => {
+    let a = 准入(p, 队, t)
+    if len(a[0]) = 0 then 走(到达时间[a[1]], a[1], a[0], 剩余, 结果, 剩) else 服务(t, a[1], a[0], 剩余, 结果, 剩)
+    }
+    let rec 服务(t: Float, p: Int, 队: List, 剩余: List, 结果: List, 剩: Int) -> List =
+    (t, p, 队, 剩余, 结果, 剩) => {
+    let 首 = 队[0]
+    let 片 = if 剩余[首] <= 片长 then 剩余[首] else 片长
+    let 完成 = t + 片
+    let 余 = 剩余[首] - 片
+    let 尾 = 排后(p, 去头(队), 首, 余, 完成)
+    let 新结果 = if 余 = 0 then 置位(结果, 首, 完成 - 到达时间[首]) else 结果
+    let 新剩 = if 余 = 0 then 剩 - 1 else 剩
+    走(完成, 尾[1], 尾[0], 置位(剩余, 首, 余), 新结果, 新剩)
+    }
+    (* 排后：片末继续接纳新到达，返回 [队列, 准入指针]；未完成的原队首最后排队尾。 *)
+    let rec 排后(i: Int, 队: List, 首: Int, 余: Int, t: Float) -> List =
+    (i, 队, 首, 余, t) =>
+      if i >= n then [并尾(队, 首, 余), i]
+      else if 到达时间[i] <= t then 排后(i + 1, 队 + [i], 首, 余, t)
+      else [并尾(队, 首, 余), i]
+    let rec 并尾(队: List, 首: Int, 余: Int) -> List =
+    (队, 首, 余) => if 余 = 0 then 队 else 队 + [首]
+    let r = if n = 0 then [] else 走(0, 0, [], Burst时间, 零表(n), n)
+    r
+    }
 
-  (* ===== 优先级调度 ===== *)
-  func 优先级调度周转时间(到达时间: List, Burst时间: List, 优先级: List) -> List =
-    (到达时间, Burst时间, 优先级) =>
-    FCFS周转时间(到达时间, Burst时间)
+  func 去头(lst: List) -> List =
+    (lst) => lst[1:]
 
   (* ===== 响应比高优先 (HRRN) ===== *)
+  (* 旧体亦直接委派 FCFS周转时间——响应比从不参与选择，属假成功。现按模式 3 选作业。 *)
+  func HRRN周转时间(到达时间: List, Burst时间: List) -> List =
+    (到达时间, Burst时间) => 非抢占周转(到达时间, Burst时间, Burst时间, 3)
+
+  (* 响应比 = 1 + 等待时间 / 服务时间。
+     口径：服务时间 0 的作业无响应比定义，按「已就绪即取」记 1.0，不与等待者比高低。 *)
   func 响应比(等待时间: Float, Burst时间: Float) -> Float =
     (等待时间, Burst时间) =>
     (Burst时间 = 0) ? 1.0 : 1.0 + 等待时间 / Burst时间
 
-  func HRRN周转时间(到达时间: List, Burst时间: List) -> List =
-    (到达时间, Burst时间) =>
-    FCFS周转时间(到达时间, Burst时间)
-
   (* ===== 调度性能指标 ===== *)
+  (* 平均周转时间 = Σ周转 / 作业数；空表无统计量取 0.0（旧体 0 / 0 直接除零）。 *)
   func 平均周转时间(周转时间列表: List) -> Float =
-    (周转时间列表) => 求和(周转时间列表) / len(周转时间列表)
+    (周转时间列表) =>
+    if len(周转时间列表) = 0 then 0.0 else 求和(周转时间列表) / len(周转时间列表)
 
+  (* 平均等待时间 = Σ(周转 − 服务) / 作业数。
+     旧体首行 `if if i >= len then acc else None` 残形（测值不测条件）且空表除零，故真化。 *)
   func 平均等待时间(周转时间列表: List, Burst时间列表: List) -> Float =
     (周转时间列表, Burst时间列表) => {
-    let rec wait_sum(i: Int, acc: Float) -> Float =
-    (i, acc) =>
-        if if i >= len(周转时间列表) then acc else None
-        else: wait_sum(i + 1, acc + 周转时间列表[i] - Burst时间列表[i])
-    wait_sum(0, 0) / len(周转时间列表)
+    let n = len(周转时间列表)
+    let rec 走(i: Int, acc: Float) -> Float =
+    (i, acc) => if i >= n then acc else 走(i + 1, acc + 周转时间列表[i] - Burst时间列表[i])
+    let r = if n = 0 then 0.0 else 走(0, 0) / n
+    r
     }
 
   func 调度开销(上下文切换次数: Int, 每次切换时间: Float) -> Float =
@@ -75,7 +190,7 @@ module 调度算法 {
 
   func 调度效率(总执行时间: Float, 有效工作时间: Float) -> Float =
     (总执行时间, 有效工作时间) =>
-    (总执行时间 = 0) ? 0 : 有效工作时间 / 总执行时间
+    (总执行时间 = 0) ? 0.0 : 有效工作时间 / 总执行时间
 
   func 求和(lst: List) -> Float =
     (lst) => {
@@ -84,42 +199,43 @@ module 调度算法 {
     s(0, 0)
     }
 
-  (* ===== 辅助：升序排序（selection sort）===== *)
+  (* ===== 辅助：升序排序（选择排序）===== *)
+  (* 旧体首行 `if if k >= n then arr else None` 亦测值不测条件；SJF 真化后已不再借它
+     排序（把服务时间表排序后与原到达表配对正是缺陷本身），本组只作表面对外可用的排序工具。 *)
   func 升序排序(lst: List) -> List =
     (lst) => {
-    let n = len(lst) in
-    let rec sort_helper(k: Int, arr: List) -> List =
-    (k, arr) =>
-        if if k >= n then arr else None
-        else:
-          let min_idx = 找最小索引(k, n, arr) in
-          let swapped = 交换元素(k, min_idx, arr) in
-          sort_helper(k + 1, swapped)
-    sort_helper(0, lst)
+    let n = len(lst)
+    let rec 走(k: Int, arr: List) -> List =
+    (k, arr) => if k >= n then arr else 步(k, arr)
+    let rec 步(k: Int, arr: List) -> List =
+    (k, arr) => {
+    let 小 = 找最小索引(k, n, arr)
+    走(k + 1, 交换元素(k, 小, arr))
+    }
+    走(0, lst)
     }
 
-  (* ===== 辅助：找最小元素的索引 ===== *)
+  (* 找最小索引：在 [start, end_val) 内返回最小元素下标（等值取靠前者），空区间取 -1。 *)
   func 找最小索引(start: Int, end_val: Int, arr: List) -> Int =
     (start, end_val, arr) => {
-    let rec find_min(k: Int, best: Int) -> Int =
-    (k, best) =>
-        if if k >= end_val then best else None
-        else:
-          let candidate = if arr[k] < arr[best] then k else best in
-          find_min(k + 1, candidate)
-    find_min(start + 1, start)
+    let rec 走(k: Int, 最佳: Int) -> Int =
+    (k, 最佳) =>
+      if k >= end_val then 最佳
+      else if arr[k] < arr[最佳] then 走(k + 1, k)
+      else 走(k + 1, 最佳)
+    let r = if start >= end_val then -1 else 走(start + 1, start)
+    r
     }
 
-  (* ===== 辅助：交换列表位置 i 和 j 的元素 ===== *)
+  (* 交换元素：下标 i 与 j 互换（i = j 时等值复制），返回新表。 *)
   func 交换元素(i: Int, j: Int, lst: List) -> List =
     (i, j, lst) => {
-    let temp = lst[i] in
-    let rec set_at(k: Int, result: List) -> List =
-    (k, result) =>
-        if if k >= len(lst) then result else None
-        else:
-          let val = if k == i then lst[j] else if k == j then temp else lst[k] in
-          set_at(k + 1, result + [val])
-    set_at(0, [])
+    let rec 走(k: Int, acc: List) -> List =
+    (k, acc) =>
+      if k >= len(lst) then acc
+      else if k = i then 走(k + 1, acc + [lst[j]])
+      else if k = j then 走(k + 1, acc + [lst[i]])
+      else 走(k + 1, acc + [lst[k]])
+    走(0, [])
     }
 }

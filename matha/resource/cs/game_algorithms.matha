@@ -6,10 +6,10 @@ module 游戏算法 {
 
   (* ===== A* 寻路 ===== *)
   func A星距离(x1: Float, y1: Float, x2: Float, y2: Float) -> Float =
-    (x1, y1, x2, y2) => 开方((x2-x1)^2 + (y2-y1)^2)
+    (x1, y1, x2, y2) => sqrt((x2-x1)^2 + (y2-y1)^2)
 
   func A星曼哈顿距离(x1: Int, y1: Int, x2: Int, y2: Int) -> Int =
-    (x1, y1, x2, y2) => 绝对值(x2-x1) + 绝对值(y2-y1)
+    (x1, y1, x2, y2) => abs(x2-x1) + abs(y2-y1)
 
   (* ===== AABB 碰撞检测 ===== *)
   func AABB碰撞(x1: Float, y1: Float, w1: Float, h1: Float,
@@ -19,7 +19,7 @@ module 游戏算法 {
 
   func 圆形碰撞(cx1: Float, cy1: Float, r1: Float, cx2: Float, cy2: Float, r2: Float) -> Bool =
     (cx1, cy1, r1, cx2, cy2, r2) =>
-    开方((cx2-cx1)^2 + (cy2-cy1)^2) < r1 + r2
+    sqrt((cx2-cx1)^2 + (cy2-cy1)^2) < r1 + r2
 
   func 点内矩形(px: Float, py: Float, rx: Float, ry: Float, rw: Float, rh: Float) -> Bool =
     (px, py, rx, ry, rw, rh) =>

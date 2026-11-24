@@ -1,5 +1,13 @@
 (* 资源库：几何进阶
    覆盖：圆锥曲线、多边形面积、坐标几何、向量运算
+   ============================================================
+   口径（阶段 41 真化批）：
+   - 本文件圆周率一律取 3.14159（6 位有效数字的既有近似口径，面积/周长误差 ~1e-6
+     相对量级），不随双精度 π 改动语义
+   - 反余弦 走 cos 在 [0, π] 的 50 轮二分求根——链面注册内建无 acos，
+     旧式在链面恒「未定义变量」，向量夹角 从不可调用
+   - 夹角余弦先钳进 [-1, 1]（浮点点积能把比值顶出定义域），任一模长为 0
+     则夹角无定义 → None（旧式直接落到除零崩溃）
    ============================================================ *)
 
 module 几何进阶 {
@@ -8,7 +16,7 @@ module 几何进阶 {
   func 椭圆面积(a: Float, b: Float) -> Float =
     (a, b) => 3.14159 * a * b
   func 椭圆周长近似(a: Float, b: Float) -> Float =
-    (a, b) => 2 * 3.14159 * 开方((a*a + b*b) / 2)
+    (a, b) => 2 * 3.14159 * sqrt((a*a + b*b) / 2)
 
   (* ===== 抛物线 ===== *)
   func 抛物线焦点(p: Float) -> Float = (p) => p / 4
@@ -28,16 +36,43 @@ module 几何进阶 {
 
   (* ===== 向量运算 ===== *)
   func 向量长度(vx: Float, vy: Float) -> Float =
-    (vx, vy) => 开方(vx * vx + vy * vy)
+    (vx, vy) => sqrt(vx * vx + vy * vy)
   func 向量点积(vx1: Float, vy1: Float, vx2: Float, vy2: Float) -> Float =
     (vx1, vy1, vx2, vy2) => vx1 * vx2 + vy1 * vy2
+  (* 向量夹角（弧度）：cosθ = (u·v)/(|u||v|)，θ ∈ [0, π]。
+     任一模长为 0 → 夹角无定义 None；比值先钳进 [-1, 1] 再开根。 *)
   func 向量夹角(vx1: Float, vy1: Float, vx2: Float, vy2: Float) -> Float =
     (vx1, vy1, vx2, vy2) =>
-    acos((vx1*vx2 + vy1*vy2) / (向量长度(vx1, vy1) * 向量长度(vx2, vy2)))
+    let 模 = 向量长度(vx1, vy1) * 向量长度(vx2, vy2) in
+    let 角 = if 模 = 0 then None
+             else 反余弦(钳单位((vx1*vx2 + vy1*vy2) / 模)) in
+    角
+
+  func 钳单位(x: Float) -> Float =
+    (x) => if x > 1 then 1.0 else if x < 0 - 1 then 0 - 1.0 else x
+
+  func 反余弦(x: Float) -> Float =
+    (x) => 余弦二分(0.0, 3.141592653589793, x, 0)
+
+  (* cos 在 [0, π] 单调递减，50 轮二分把区间压到 ~3e-15。
+     主值区间用双精度 π（二分终止值），与文件内公式近似的 3.14159 口径分开。 *)
+  func 余弦二分(lo, hi, x, k: Int) -> Float =
+    (lo, hi, x, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 角 = if k >= 50 then 中 else 余弦半区(lo, hi, 中, x, k)
+    角
+    }
+
+  func 余弦半区(lo, hi, 中, x, k: Int) -> Float =
+    (lo, hi, 中, x, k) =>
+    let 值 = cos(中) in
+    let 半区 = 值 > x ? [中, hi] : [lo, 中] in
+    let 角 = 余弦二分(半区[0], 半区[1], x, k + 1) in
+    角
 
   (* ===== 坐标几何 ===== *)
   func 两点距离(x1: Float, y1: Float, x2: Float, y2: Float) -> Float =
-    (x1, y1, x2, y2) => 开方((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
+    (x1, y1, x2, y2) => sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
   func 中点(x1: Float, y1: Float, x2: Float, y2: Float) -> (Float, Float) =
     (x1, y1, x2, y2) => ((x1+x2)/2, (y1+y2)/2)
 }

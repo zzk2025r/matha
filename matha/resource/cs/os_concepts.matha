@@ -19,7 +19,7 @@ module 操作系统 {
 
   func 进程数量上限(内存: Int, 每进程: Int) -> Int =
     (内存, 每进程) =>
-    (每进程 == 0) ? 0 : 内存 / 每进程
+    (每进程 == 0) ? 0 : 内存 // 每进程
 
   (* ===== 内存管理 ===== *)
   func 首次适配分配(可用块: List, 大小: Int) -> Int =
@@ -31,6 +31,8 @@ module 操作系统 {
     find(0)
     }
 
+  (* 口径注：best == -1 臂在判据里先赢，故 最佳块长 初值不参与选择（旧写死 999999
+     只是「未选中」哨兵，块长大于 999999 也不会绕开判据）——改传 -1 与其语义一致。 *)
   func 最佳适配分配(可用块: List, 大小: Int) -> Int =
     (可用块, 大小) => {
     let rec find(i: Int, best: Int, best_size: Int) -> Int =
@@ -38,7 +40,7 @@ module 操作系统 {
         (i >= len(可用块)) ? best :
         (可用块[i] >= 大小 and (best == -1 or 可用块[i] < best_size)) ?
           find(i + 1, i, 可用块[i]) : find(i + 1, best, best_size)
-    find(0, -1, 999999)
+    find(0, -1, -1)
     }
 
   func 内存碎片率(总空闲: Int, 最大连续: Int) -> Float =
@@ -46,38 +48,86 @@ module 操作系统 {
     (总空闲 == 0) ? 0.0 : 1.0 - 最大连续 / 总空闲
 
   (* ===== 文件系统 ===== *)
-  func 目录深度(path: String) -> Int =
-    (path) => len(path.split("/")) - 1
-
-  func 文件名(path: String) -> String =
-    (path) => path.split("/")[len(path.split("/")) - 1]
-
-  func 文件路径合法(path: String) -> Bool =
-    (path) => len(path) > 0 and path[0] != ""
-
-  (* ===== 调度算法 ===== *)
-  func 先来先服务等待时间(到达时间: List, burst时间: List) -> List =
-    (到达时间, burst时间) => {
-      let n = len(到达时间)
-      let 完成时间 = []
-      let 当前时间 = 0
-      let i = 0
-      while i < n {
-        if 当前时间 < 到达时间[i] {
-          当前时间 = 到达时间[i]
-        }
-        当前时间 = 当前时间 + burst时间[i]
-        完成时间 = 完成时间 + [当前时间]
-        i = i + 1
-      }
-      完成时间
+  (* 纯 Matha 切分（单字符分隔符）：旧式 s.split(sep) 只有宿主面可跑，
+     VM 面报「string indices must be integers」、链面报「属性访问失败: String.split」。
+     口径同宿主 split：空串得 [""]，尾部分隔符产生空尾段。 *)
+  func 按分隔切分(s: String, sep: String) -> List =
+    (s, sep) => {
+    let n = len(s)
+    let rec 段(i: Int, acc: String, out: List) -> List =
+    (i, acc, out) =>
+      if i >= n then out + [acc]
+      else if s[i:i+1] = sep then 段(i + 1, "", out + [acc])
+      else 段(i + 1, acc + s[i:i+1], out)
+    段(0, "", [])
     }
 
+  func 目录深度(path: String) -> Int =
+    (path) => len(按分隔切分(path, "/")) - 1
+
+  func 文件名(path: String) -> String =
+    (path) => {
+    let parts = 按分隔切分(path, "/")
+    parts[len(parts) - 1]
+    }
+
+  (* 合法 = 非空串（旧式 `path[0] != ""` 对任何非空串恒真，且 and 在链面不短路，
+     空串会先取 [0] 而崩——改为三元短路形；口径仍为「非空」近似）。 *)
+  func 文件路径合法(path: String) -> Bool =
+    (path) => if len(path) > 0 then path[0] != "" else 假
+
+  (* ===== 调度算法 ===== *)
+  (* FCFS 等待时间：单通道按到达序推进，开始 = max(当前时间, 到达时间)，等待 = 开始 − 到达。
+     旧体把「完成时间」列表原样返回——函数名承诺等待时间而值恒 ≥ burst，量纲不符，故真化。 *)
+  func 先来先服务等待时间(到达时间: List, burst时间: List) -> List =
+    (到达时间, burst时间) => {
+    let n = len(到达时间)
+    let rec 走(i: Int, 当前: Int, acc: List) -> List =
+    (i, 当前, acc) =>
+      if i >= n then acc
+      else 走(i + 1, max([当前, 到达时间[i]]) + burst时间[i], acc + [max([当前, 到达时间[i]]) - 到达时间[i]])
+    走(0, 0, [])
+    }
+
+  (* SJF：按 burst 升序稳定重排（等长保持原相对序）。
+     旧体原样透传入参＝没有排序，「最短作业优先」名不副实，故真化为插入排序。 *)
   func 最短作业优先burst(任务列表: List) -> List =
-    (任务列表) => 任务列表  (* 简化：返回原列表 *)
+    (任务列表) => {
+    let rec 插(已排: List, x, i: Int) -> List =
+    (已排, x, i) =>
+      if i >= len(已排) then 已排[0:len(已排)] + [x]
+      else if x <= 已排[i] then 已排[0:i] + [x] + 已排[i:len(已排)]
+      else 插(已排, x, i + 1)
+    let rec 排(i: Int, 已排: List) -> List =
+    (i, 已排) =>
+      if i >= len(任务列表) then 已排 else 排(i + 1, 插(已排, 任务列表[i], 0))
+    排(0, [])
+    }
 
   (* ===== 死锁检测 ===== *)
-  func 死锁检测(进程数: Int, 资源数: Int, 分配矩阵: List) -> Bool =
-    (进程数, 资源数, 分配矩阵) =>
-    false  (* 简化：假设无死锁 *)
+  (* 死锁定理：由 分配/需求 导出等待图（P_i 需 R_j 且 R_j 由 P_k 占有 ⇒ 边 i→k），
+     图中有环即死锁；资源按单实例口径，列界取 资源数。
+     旧桩恒返 false——任意死锁态皆判无死锁；且原三元入参面没有「需求」，
+     等待边无从导出，故补 需求矩阵 第 4 参（全仓无调用方，签名变更面为零）。 *)
+  func 死锁检测(进程数: Int, 资源数: Int, 分配矩阵: List, 需求矩阵: List) -> Bool =
+    (进程数, 资源数, 分配矩阵, 需求矩阵) => {
+    let rec 含(xs: List, x, i: Int) -> Bool =
+    (xs, x, i) =>
+      if i >= len(xs) then 假 else if xs[i] = x then 真 else 含(xs, x, i + 1)
+    let rec 边(i: Int, k: Int, j: Int) -> Bool =
+    (i, k, j) =>
+      if j >= 资源数 then 假
+      else if 需求矩阵[i][j] > 0 and 分配矩阵[k][j] > 0 then 真
+      else 边(i, k, j + 1)
+    let rec 环(i: Int, 路径: List) -> Bool =
+    (i, 路径) => if 含(路径, i, 0) then 真 else 扫(i, 路径, 0)
+    let rec 扫(i: Int, 路径: List, k: Int) -> Bool =
+    (i, 路径, k) =>
+      if k >= 进程数 then 假
+      else if 边(i, k, 0) and 环(k, 路径 + [i]) then 真
+      else 扫(i, 路径, k + 1)
+    let rec 根(i: Int) -> Bool =
+    (i) => if i >= 进程数 then 假 else if 环(i, []) then 真 else 根(i + 1)
+    根(0)
+    }
 }

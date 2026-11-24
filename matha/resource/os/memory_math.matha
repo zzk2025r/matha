@@ -4,49 +4,92 @@
 
 module 内存管理 {
 
-  (* ===== 页式管理 ===== *)
-  func 页表项数(内存大小: Int, 页大小: Int) -> Int =
-    (内存大小, 页大小) => 内存大小 / 页大小
+  (* 列表含：三面同判的存在性判定（不依赖仅宿主面可用的 in 内建）。 *)
+  func 列表含(lst: List, item) -> Bool =
+    (lst, item) => {
+    let rec check(i: Int) -> Bool =
+    (i) => if i >= len(lst) then 假 else if lst[i] = item then 真 else check(i + 1)
+    check(0)
+    }
 
+  (* ===== 页式管理 ===== *)
+  (* 页数 = 内存大小 // 页大小（整除：不足一页不单独成页）。
+     旧用 `/` 得浮点页数（4097/4096 = 1.0002…），页表项数非整数无物理意义，故改整除。
+     页大小 0 无口径，三面同报「整除除零错误」——诚实失败，不编造页数。 *)
+  func 页表项数(内存大小: Int, 页大小: Int) -> Int =
+    (内存大小, 页大小) => 内存大小 // 页大小
+
+  (* 页表自身开销 = 页表项数 × 每项字节数。 *)
   func 页表开销(页表项数: Int, 项大小: Int) -> Int =
     (页表项数, 项大小) => 页表项数 * 项大小
 
-  func 有效访问开销(EAO) -> Float =
-    (* EAO = hit_rate × T_hit + (1 - hit_rate) × T_pagefault *)
-    () => 0.0  (* 需传入参数 *)
+  (* 有效访问开销 EAO = 命中率 × 命中耗时 + (1 − 命中率) × 缺页耗时。
+     旧形参数写成单个占位名 EAO、体恒返 0.0——任何命中率都算出零开销，
+     且与下条 EAO_计算 同义而异值（一真一假），故真化并令 EAO_计算 委派本条。 *)
+  func 有效访问开销(命中率: Float, 命中耗时: Float, 缺页耗时: Float) -> Float =
+    (命中率, 命中耗时, 缺页耗时) =>
+    命中率 * 命中耗时 + (1 - 命中率) * 缺页耗时
 
   func EAO_计算(hit_rate: Float, T_hit: Float, T_pagefault: Float) -> Float =
     (hit_rate, T_hit, T_pagefault) =>
-    hit_rate * T_hit + (1 - hit_rate) * T_pagefault
+    有效访问开销(hit_rate, T_hit, T_pagefault)
 
+  (* 缺页率 = 缺页次数 / 总访问次数；无访问时无分母取 0.0（旧返整数 0 与 Float 声明不符）。
+     口径：不约束 缺页次数 <= 总访问次数，越界入参按实相除，故可比 1 大。 *)
   func 缺页率(缺页次数: Int, 总访问次数: Int) -> Float =
     (缺页次数, 总访问次数) =>
-    (总访问次数 = 0) ? 0 : 缺页次数 / 总访问次数
+    (总访问次数 = 0) ? 0.0 : 缺页次数 / 总访问次数
 
+  (* 驻留集（工作集）大小 = 访问序列末 窗口 条中的不同页数；窗口 >= 序列长度即全长。
+     旧体为 `if if n <= 窗口 then n else None` 残形——外层测的是内层 if 的值而非条件，
+     分支错位后恒落「返回整个序列长度」，窗口参数完全不起作用，故真化。 *)
   func 驻留集大小(访问序列: List, 窗口: Int) -> Int =
-    (* working set: 最近窗口内访问的不同页数 *)
-    (访问序列, 窗口) =>
-    let n = len(访问序列) in
-    if if n <= 窗口 then n else None
-    else: n  (* 简化：返回序列长度 *)
+    (访问序列, 窗口) => {
+    let n = len(访问序列)
+    let k = if 窗口 < n then 窗口 else n
+    let rec 数(i: Int, 已见: List, acc: Int) -> Int =
+    (i, 已见, acc) =>
+      if i >= k then acc
+      else if 列表含(已见, 访问序列[n - k + i]) then 数(i + 1, 已见, acc)
+      else 数(i + 1, 已见 + [访问序列[n - k + i]], acc + 1)
+    let r = if k <= 0 then 0 else 数(0, [], 0)
+    r
+    }
 
   func 逐页置换率(缺页次数: Int, 时间单位: Int) -> Float =
     (缺页次数, 时间单位) =>
-    (时间单位 = 0) ? 0 : 缺页次数 / 时间单位
+    (时间单位 = 0) ? 0.0 : 缺页次数 / 时间单位
 
   (* ===== 碎片计算 ===== *)
+  (* 外部碎片率 = 1 − 最大连续空闲 / 总空闲（0 即无碎片，越大越碎）。 *)
   func 外部碎片率(总空闲: Int, 最大连续块: Int) -> Float =
     (总空闲, 最大连续块) =>
-    (总空闲 = 0) ? 0 : 1.0 - 最大连续块 / 总空闲
+    (总空闲 = 0) ? 0.0 : 1.0 - 最大连续块 / 总空闲
 
-  func 内部碎片率(分配大小: Int, 请求大小: Int, 页大小: Int) -> Float =
-    (分配大小, 请求大小, 页大小) =>
-    (分配大小 = 0) ? 0 : (分配大小 - 请求大小) / 分配大小
+  (* 分配浪费率 = (分配大小 − 请求大小) / 分配大小。
+     旧签名的 页大小 参数从未参与计算，留着会被误读为「已按页对齐算内部碎片」，故删参；
+     真正按页对齐的口径另立 页对齐浪费率 一条。 *)
+  func 内部碎片率(分配大小: Int, 请求大小: Int) -> Float =
+    (分配大小, 请求大小) =>
+    (分配大小 = 0) ? 0.0 : (分配大小 - 请求大小) / 分配大小
+
+  (* 页对齐内部碎片率 = (向上取整到页边界的分配量 − 请求量) / 分配量。 *)
+  func 页对齐浪费率(请求大小: Int, 页大小: Int) -> Float =
+    (请求大小, 页大小) => {
+    let 取整 = 页向上取整(请求大小, 页大小)
+    let r = if 取整 = 0 then 0.0 else (取整 - 请求大小) / 取整
+    r
+    }
+
+  func 页向上取整(请求大小: Int, 页大小: Int) -> Int =
+    (请求大小, 页大小) =>
+    if 请求大小 % 页大小 = 0 then 请求大小 else (请求大小 // 页大小 + 1) * 页大小
 
   (* ===== 地址合成 ===== *)
+  (* (页号, 页内偏移)：页号须整除 //（旧 `/` 得浮点页号，非合法页号）。 *)
   func 逻辑地址转物理(逻辑地址: Int, 页大小: Int) -> (Int, Int) =
     (逻辑地址, 页大小) =>
-    (逻辑地址 / 页大小, 逻辑地址 % 页大小)
+    (逻辑地址 // 页大小, 逻辑地址 % 页大小)
 
   func 分段地址合成(段基址: Int, 段内偏移: Int) -> Int =
     (段基址, 段内偏移) => 段基址 + 段内偏移
@@ -55,60 +98,89 @@ module 内存管理 {
     (偏移, 段长度) => 偏移 >= 0 and 偏移 < 段长度
 
   (* ===== 内存分配算法 ===== *)
+  (* 首次适配：按空闲表顺序返回第一个足够大的块下标，无则 -1。
+     旧体为 `if if i >= len then -1 else None` 残形——外层测的是内层 if 的值而非条件，
+     递归越过末尾下标后由宿主透传 Python IndexError、链面另报，故真化。 *)
   func 首次适配(可用块: List, 大小: Int) -> Int =
     (可用块, 大小) => {
     let rec find(i: Int) -> Int =
     (i) =>
-        if if i >= len(可用块) then -1 else None
-        elif 可用块[i] >= 大小: i
-        else: find(i + 1)
+      if i >= len(可用块) then -1
+      else if 可用块[i] >= 大小 then i
+      else find(i + 1)
     find(0)
     }
 
+  (* 最佳适配：返回足够大的块中最小者的下标（等大小取靠前者），无则 -1。
+     旧体同为 测值不测条件 残形；且哨兵取 999999 会把「块大于哨兵」的比较判歪，
+     故改为 最佳 = -1 分支判定。 *)
   func 最佳适配(可用块: List, 大小: Int) -> Int =
     (可用块, 大小) => {
-    let rec find(i: Int, best: Int, best_size: Int) -> Int =
-    (i, best, best_size) =>
-        if if i >= len(可用块) then best else None
-        elif 可用块[i] >= 大小 and (best = -1 or 可用块[i] < best_size):
-          find(i + 1, i, 可用块[i])
-        else: find(i + 1, best, best_size)
-    find(0, -1, 999999)
+    let rec find(i: Int, 最佳: Int, 最佳大小: Int) -> Int =
+    (i, 最佳, 最佳大小) =>
+      if i >= len(可用块) then 最佳
+      else if 可用块[i] >= 大小 and (最佳 = -1 or 可用块[i] < 最佳大小) then
+        find(i + 1, i, 可用块[i])
+      else find(i + 1, 最佳, 最佳大小)
+    find(0, -1, 0)
     }
 
+  (* 循环首次适配：自 上次位置 起环形扫一轮（下标取模），返回首个足够大的块，无则 -1。
+     旧体的 start 形参从未被使用，起点写死成顺序扫——与「循环」定义不符且 上次位置 无效，故真化。 *)
   func 循环首次适配(可用块: List, 大小: Int, 上次位置: Int) -> Int =
     (可用块, 大小, 上次位置) => {
-    let n = len(可用块) in
-    let rec find(i: Int, start: Int) -> Int =
-    (i, start) =>
-        if if i >= n then -1 else None
-        elif 可用块[i] >= 大小: i
-        else: find(i + 1, start)
-    find(上次位置 % n, 上次位置 % n)
+    let n = len(可用块)
+    let 起 = if n = 0 then 0 else 环起点(上次位置, n)
+    let rec find(i: Int) -> Int =
+    (i) =>
+      if i >= n then -1
+      else if 可用块[(起 + i) % n] >= 大小 then (起 + i) % n
+      else find(i + 1)
+    let r = if n = 0 then -1 else find(0)
+    r
     }
 
+  (* 环起点：把 上次位置 归一到 [0, n) 内（负数按 Python 取模再回卷），n = 0 时取模诚实报错。 *)
+  func 环起点(上次位置: Int, n: Int) -> Int =
+    (上次位置, n) =>
+    if 上次位置 < 0 then (上次位置 % n + n) % n else 上次位置 % n
+
   (* ===== 淘汰算法 ===== *)
+  (* FIFO 缺页次数：帧表按装入先后排列，命中不动，满则淘汰队首（帧表[1:]）。
+     旧体调用 帧列表包含 时少传一参（把双参函数当单参判定调用），三面各报各错，故补参真跑。 *)
   func FIFO缺页次数(页面序列: List, 帧数: Int) -> Int =
     (页面序列, 帧数) => {
-    let n = len(页面序列) in
-    let rec count(i: Int, 帧列表: List, 缺页数: Int) -> Int =
+    let rec 走(i: Int, 帧列表: List, 缺页数: Int) -> Int =
     (i, 帧列表, 缺页数) =>
-        if i >= n: 缺页数
-        else
-        if 帧列表包含(页面序列[i]): count(i + 1, 帧列表, 缺页数)
-        else
-        if len(帧列表) < 帧数: count(i + 1, 帧列表 + [页面序列[i]], 缺页数 + 1)
-        else count(i + 1, 帧列表[1:] + [页面序列[i]], 缺页数 + 1)
-    count(0, [], 0)
+      if i >= len(页面序列) then 缺页数
+      else if 帧列表包含(帧列表, 页面序列[i]) then 走(i + 1, 帧列表, 缺页数)
+      else if len(帧列表) < 帧数 then 走(i + 1, 帧列表 + [页面序列[i]], 缺页数 + 1)
+      else 走(i + 1, 帧列表[1:] + [页面序列[i]], 缺页数 + 1)
+    let r = if 帧数 <= 0 then len(页面序列) else 走(0, [], 0)
+    r
+    }
+
+  (* LRU 缺页次数：帧表按 旧→新 排列，命中移到队尾，满则淘汰队首。 *)
+  func LRU缺页次数(页面序列: List, 帧数: Int) -> Int =
+    (页面序列, 帧数) => {
+    let rec 位置(帧: List, p, i: Int) -> Int =
+    (帧, p, i) => if i >= len(帧) then -1 else if 帧[i] = p then i else 位置(帧, p, i + 1)
+    let rec 去第(帧: List, 删: Int, i: Int) -> List =
+    (帧, 删, i) =>
+      if i >= len(帧) then []
+      else if i = 删 then 去第(帧, 删, i + 1)
+      else [帧[i]] + 去第(帧, 删, i + 1)
+    let rec 走(i: Int, 帧: List, 缺: Int) -> Int =
+    (i, 帧, 缺) =>
+      if i >= len(页面序列) then 缺
+      else if 位置(帧, 页面序列[i], 0) >= 0 then
+        走(i + 1, 去第(帧, 位置(帧, 页面序列[i], 0), 0) + [页面序列[i]], 缺)
+      else if len(帧) < 帧数 then 走(i + 1, 帧 + [页面序列[i]], 缺 + 1)
+      else 走(i + 1, 去第(帧, 0, 0) + [页面序列[i]], 缺 + 1)
+    let r = if 帧数 <= 0 then len(页面序列) else 走(0, [], 0)
+    r
     }
 
   func 帧列表包含(帧列表: List, 页面: Int) -> Bool =
-    (帧列表, 页面) => {
-    let rec check(i: Int) -> Bool =
-    (i) =>
-        if if i >= len(帧列表) then 假 else None
-        elif 帧列表[i] = 页面: 真
-        else: check(i + 1)
-    check(0)
-    }
+    (帧列表, 页面) => 列表含(帧列表, 页面)
 }

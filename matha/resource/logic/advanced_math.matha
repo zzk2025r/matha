@@ -1,114 +1,181 @@
 (* 资源库：离散数学进阶
    覆盖：图算法(DFS/BFS/最短路径)、动态规划、贪心算法
+
+   三面共口径（宿主解释 / 编译 VM / 链面自举解释）：
+   1) 邻接表 = 下标即节点号的列表表，每格是该节点的邻居节点号列表；
+      节点号越界由下标守卫诚实报错，不静默补零、不夹取。
+   2) 遍历的已访问集合沿递归自身累加回传（不可变表），环与菱形依赖皆不重访、不死循环。
    ============================================================ *)
 
 module 离散进阶 {
 
+  (* 列表含：判定元素是否出现（三面同判，不依赖宿主内建 in）。 *)
+  func 列表含(lst: List, item) -> Bool =
+    (lst, item) => {
+    let rec 查(i: Int) -> Bool =
+    (i) => if i >= len(lst) then 假 else if lst[i] = item then 真 else 查(i + 1)
+    查(0)
+    }
+
+  (* 置位：把 位置 处替换为 值 后返回新表（不可变语义——旧 dist[起点] = 0 形态是
+     语句位裸赋值，三面皆无绑定效果，静默不生效，故距离表一律走置位重建）。 *)
+  func 置位(lst: List, 位置: Int, 值) -> List =
+    (lst, 位置, 值) => {
+    let rec 走(i: Int, acc: List) -> List =
+    (i, acc) => if i >= len(lst) then acc
+                else if i = 位置 then 走(i + 1, acc + [值])
+                else 走(i + 1, acc + [lst[i]])
+    走(0, [])
+    }
+
   (* ===== 图遍历 ===== *)
+  (* DFS 深度优先（前序）。旧实现把已访问集合写死成入参闭包里的 visited：
+     递归内累加的 new_visited 从未回传，有环图（0→1→0）无限递归，
+     菱形依赖（0→1,3 与 0→2,3）重复入结果，故真化为显式栈模拟递归。
+     visited 入参是预先屏蔽的节点集（起点若在其中则结果为空表）。 *)
   func DFS深度(邻接表: List, 起点: Int, visited: List) -> List =
     (邻接表, 起点, visited) => {
-    let rec visit(node: Int, result: List) -> List =
-      (node, result) => {
-        if 节点已访问(node, visited) { result } else {
-          let new_result = result + [node]
-          let new_visited = visited + [node]
-          let rec visit_neighbors(i: Int, acc: List) -> List =
-            (i, acc) => {
-              if i >= len(邻接表[node]) { acc } else { visit_neighbors(i + 1, visit(邻接表[node][i], acc)) }
-            }
-          visit_neighbors(0, new_result)
-        }
-      }
-    visit(起点, [])
+    let rec 走(栈: List, 已访: List, 结果: List) -> List =
+    (栈, 已访, 结果) =>
+      if len(栈) == 0 then 结果
+      else if 节点已访问(栈[0], 已访) then 走(栈[1:], 已访, 结果)
+      else 走(邻接表[栈[0]] + 栈[1:], 已访 + [栈[0]], 结果 + [栈[0]])
+    走([起点], visited, [])
     }
 
-  func 节点已访问(node: Int, visited: List) -> Bool =
-    (node, visited) => {
-    let rec check(i: Int) -> Bool =
-      (i) => {
-        if i >= len(visited) { false } else {
-          if visited[i] == node { true } else { check(i + 1) }
-        }
-      }
-    check(0)
-    }
+  func 节点已访问(node, visited: List) -> Bool =
+    (node, visited) => 列表含(visited, node)
 
+  (* BFS 宽度优先（队列尾进头出，出队时标记；未访问邻居一次性入队尾）。 *)
   func BFS宽度(邻接表: List, 起点: Int) -> List =
     (邻接表, 起点) => {
-    let rec explore(queue: List, visited: List, result: List) -> List =
-      (queue, visited, result) => {
-        if len(queue) == 0 { result } else {
-          let node = queue[0]
-          let rest = queue[1:]
-          if 节点已访问(node, visited) {
-            explore(rest, visited, result)
-          } else {
-            let new_visited = visited + [node]
-            let new_result = result + [node]
-            let new_queue = rest + 未访问邻居(node, 邻接表, new_visited)
-            explore(new_queue, new_visited, new_result)
-          }
-        }
-      }
-    explore([起点], [], [])
+    let rec 走(队: List, 已访: List, 结果: List) -> List =
+    (队, 已访, 结果) =>
+      if len(队) == 0 then 结果
+      else if 节点已访问(队[0], 已访) then 走(队[1:], 已访, 结果)
+      else 走(队[1:] + 未访问邻居(队[0], 邻接表, 已访 + [队[0]]), 已访 + [队[0]], 结果 + [队[0]])
+    走([起点], [], [])
     }
 
   func 未访问邻居(node: Int, 邻接表: List, visited: List) -> List =
     (node, 邻接表, visited) => {
-    let rec filter(i: Int, result: List) -> List =
-      (i, result) => {
-        if i >= len(邻接表[node]) { result } else {
-          if 节点已访问(邻接表[node][i], visited) { filter(i + 1, result) } else { filter(i + 1, result + [邻接表[node][i]]) }
-        }
-      }
-    filter(0, [])
+    let rec 走(i: Int, acc: List) -> List =
+    (i, acc) => if i >= len(邻接表[node]) then acc
+                else if 节点已访问(邻接表[node][i], visited) then 走(i + 1, acc)
+                else 走(i + 1, acc + [邻接表[node][i]])
+    走(0, [])
     }
 
-  (* ===== 最短路径 (Dijkstra简化) ===== *)
+  (* ===== 最短路径（Dijkstra） ===== *)
+  (* 口径：边列表 = 有向边 [起点号, 终点号, 权重] 三元组表，权重须非负
+     （负权非 Dijkstra 适用域，不静默近似）；返回按节点下标对齐的距离表，
+     不可达记 -1；起点号越界时无节点可达 → 全表 -1。
+     无穷大取「全部权重和 + 1」而非写死 999999——任一简单路径长度 ≤ 权重和，
+     故该值恒大于可达距离，且不引入与量纲无关的魔数。
+     旧桩恒返 [999999…]（把「未实现」写成「除起点外全部无穷远」），
+     且 dist[起点] = 0 是语句位裸赋值、三面皆无绑定语义，静默不生效，故真化。
+     实现：O(V²) 顺序扫描取未定距最小者，逐轮松弛其出边，无可定节点即停。 *)
   func Dijkstra距离(节点数: Int, 边列表: List, 起点: Int) -> List =
     (节点数, 边列表, 起点) => {
-      let dist = [999999] * 节点数
-      dist[起点] = 0
-      dist
+    let INF = 权重和(边列表, 0) + 1
+    let 初表 = 建距离表(0, 节点数, INF, 起点)
+    let 终表 = 松弛轮(初表, [], 边列表)
+    收口(终表, INF, 0)
+    }
+
+  func 权重和(边列表: List, i: Int) =
+    (边列表, i) =>
+      if i >= len(边列表) then 0 else 边列表[i][2] + 权重和(边列表, i + 1)
+
+  func 建距离表(i: Int, n: Int, INF, 起点: Int) -> List =
+    (i, n, INF, 起点) =>
+      if i >= n then []
+      else if i = 起点 then [0] + 建距离表(i + 1, n, INF, 起点)
+      else [INF] + 建距离表(i + 1, n, INF, 起点)
+
+  func 收口(dist: List, INF, i: Int) -> List =
+    (dist, INF, i) =>
+      if i >= len(dist) then []
+      else if dist[i] >= INF then [-1] + 收口(dist, INF, i + 1)
+      else [dist[i]] + 收口(dist, INF, i + 1)
+
+  (* 定距轮：每轮把未定集中当前距离最小者定下来（该距离已最优，非负权前提）。 *)
+  func 松弛轮(dist: List, 已定: List, 边列表: List) -> List =
+    (dist, 已定, 边列表) => {
+    let u = 最近未定(dist, 已定, 0, -1)
+    let r = if u = -1 then dist else 松弛轮(松弛出边(dist, 边列表, u, 0), 已定 + [u], 边列表)
+    r
+    }
+
+  func 最近未定(dist: List, 已定: List, i: Int, 最佳: Int) -> Int =
+    (dist, 已定, i, 最佳) =>
+      if i >= len(dist) then 最佳
+      else if 列表含(已定, i) then 最近未定(dist, 已定, i + 1, 最佳)
+      else if 更近(dist, i, 最佳) then 最近未定(dist, 已定, i + 1, i)
+      else 最近未定(dist, 已定, i + 1, 最佳)
+
+  (* 最佳 = -1 表示尚未有候选（不能用 and 短路：最佳 < 0 时 dist[最佳] 会命中 Python 负下标）。 *)
+  func 更近(dist: List, i: Int, 最佳: Int) -> Bool =
+    (dist, i, 最佳) => if 最佳 = -1 then 真 else dist[i] < dist[最佳]
+
+  func 松弛出边(dist: List, 边列表: List, u: Int, i: Int) -> List =
+    (dist, 边列表, u, i) =>
+      if i >= len(边列表) then dist
+      else if not (边列表[i][0] = u) then 松弛出边(dist, 边列表, u, i + 1)
+      else 试更(dist, 边列表, u, i)
+
+  func 试更(dist: List, 边列表: List, u: Int, i: Int) -> List =
+    (dist, 边列表, u, i) => {
+    let 边 = 边列表[i]
+    let 候选 = dist[u] + 边[2]
+    let 新表 = if 候选 < dist[边[1]] then 置位(dist, 边[1], 候选) else dist
+    松弛出边(新表, 边列表, u, i + 1)
     }
 
   (* ===== 动态规划：0/1背包 ===== *)
+  (* 口径：重量表与价值表等长按序配对（价值表越界由下标守卫诚实报错，不补零）；
+     容量 <= 0 无可装 → 0。无记忆化，复杂度 O(2^n)，仅适合小规模样本。 *)
   func 零一背包(物品重量: List, 物品价值: List, 背包容量: Int) -> Int =
     (物品重量, 物品价值, 背包容量) => {
-      let n = len(物品重量)
-      let rec knapsack(i: Int, remaining: Int) -> Int =
-        (i, remaining) => {
-          if i >= n or remaining <= 0 { 0 } else {
-            let 不选 = knapsack(i + 1, remaining)
-            let 选 = (物品重量[i] <= remaining) ? (物品价值[i] + knapsack(i + 1, remaining - 物品重量[i])) : 0
-            max([不选, 选])
-          }
-        }
-      knapsack(0, 背包容量)
+    let n = len(物品重量)
+    let rec 装(i: Int, 余量: Int) -> Int =
+    (i, 余量) =>
+      if i >= n then 0
+      else if 余量 <= 0 then 0
+      else if 物品重量[i] > 余量 then 装(i + 1, 余量)
+      else max([装(i + 1, 余量), 物品价值[i] + 装(i + 1, 余量 - 物品重量[i])])
+    装(0, 背包容量)
     }
 
-  (* ===== 动态规划：斐波那契优化 ===== *)
+  (* ===== 递推：斐波那契 ===== *)
+  (* 口径：F(0)=0、F(1)=1 起线性递推；n <= 1 时按入参原样返回（负下标无定义，不报错）。 *)
   func 斐波那契优化(n: Int) -> Int =
     (n) => {
     let rec fib(a: Int, b: Int, count: Int) -> Int =
-      (a, b, count) => (count <= 0) ? a : fib(b, a + b, count - 1)
+    (a, b, count) => (count <= 0) ? a : fib(b, a + b, count - 1)
     (n <= 1) ? n : fib(0, 1, n)
     }
 
   (* ===== 贪心算法：硬币找零 ===== *)
+  (* 贪心而非最优：每层把当前最大面额取到不能再取，余数不再回溯该层。
+     非正则币系（如 [3, 4] 凑 6）给 -1 而非最优 2 枚——要最少枚数须用动态规划。
+     负金额无找零含义 → -1；面额 <= 0 直接跳过（旧实现 0 面额触发除零）。
+     三面同判依赖排序降序（模块自备不可变插入排序，不用宿主内建 排序）。 *)
   func 硬币找零(硬币面额: List, 目标金额: Int) -> Int =
-    (硬币面额, 目标金额) => {
-      let sorted = 排序降序(硬币面额)
-      let rec count(金额: Int, i: Int, 硬币数: Int) -> Int =
-        (金额, i, 硬币数) => {
-          if 金额 == 0 { 硬币数 } else {
-            if i >= len(sorted) or 金额 < 0 { -1 } else {
-              let 可取 = floor(金额 / sorted[i])
-              count(金额 - 可取 * sorted[i], i + 1, 硬币数 + 可取)
-            }
-          }
-        }
-      count(目标金额, 0, 0)
+    (硬币面额, 目标金额) =>
+      if 目标金额 < 0 then -1 else 找零(排序降序(硬币面额), 目标金额, 0, 0)
+
+  func 找零(面额表: List, 金额: Int, i: Int, 枚数: Int) -> Int =
+    (面额表, 金额, i, 枚数) =>
+      if 金额 == 0 then 枚数
+      else if i >= len(面额表) then -1
+      else if 面额表[i] <= 0 then 找零(面额表, 金额, i + 1, 枚数)
+      else 推进(面额表, 金额, i, 枚数)
+
+  func 推进(面额表: List, 金额: Int, i: Int, 枚数: Int) -> Int =
+    (面额表, 金额, i, 枚数) => {
+    let 可取 = floor(金额 / 面额表[i])
+    找零(面额表, 金额 - 可取 * 面额表[i], i + 1, 枚数 + 可取)
     }
 
   func 排序降序(lst: List) -> List =

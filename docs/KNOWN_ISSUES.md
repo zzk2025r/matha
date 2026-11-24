@@ -2187,6 +2187,81 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 41 收官（资源库假成功清算批：危险桩真化 + 合法近似补口径注，
+  28-⑧ 退役）**：方向拍板走推荐项「A：资源库假成功清算批」——本阶段只动纯
+  Matha 资源库 `matha/resource/**`（37 文件 +2611 −767 行），`src/` 零改动、
+  本体量 33,480 与指令码 36 不变；范围口径拍板「分层：危险桩真化 + 合法近似
+  补口径注」；验证深度拍板「三面：宿主解释 hi / 编译 VM vm / 五文件 boot 链
+  调用面 boot」。
+  **41a/41b/41c 假通过真化**（「算不出也给数」改可判定真实现或诚实 None）：
+  `HMAC哈希` 旧体直接返回消息本身（假摘要）→ 两轮 131 进制滚动散列、密钥入
+  内外两轮；`死锁充分条件`/`资源分配图含环`（旧恒返 假）→ 等待图 DFS；
+  `银行家安全性`（旧恒返 真）→ 经典安全性算法逐轮扫 Need，维度不齐/畸形声明
+  fail-closed 取保守 假（`需要至多` 在 `j >= len(已分配[i])` 或 `j >= len(工作)`
+  时返 假、`加向量` 停在短表——不以 Python IndexError 冒充判定结果）；
+  `活锁检测`/`SSTF·SCAN·C_SCAN 总移动`/`LRU 缺页`/`FCFS·RR·HRRN 周转时间`
+  测值不测条件残形改真判定；`Dijkstra距离` 旧桩恒返 `[999999…]`（28-⑧ 退役）
+  → 权重和+1 作无穷 + O(V²) 顺序松弛，不可达记 -1（`[0, 4, 5]` / `[0, 1, 3, 4]`
+  / `[-1, -1, -1]` / `[0, 4, -1]` 三面同判，值为 Int 渲染）；`内部收益率近似`
+  恒返 0.1 → 二分求根；`二阶极点`/`音频混音`/`直方图均衡化映射`/`sepia滤镜`
+  同批改真；顺手真修 `中位数`（偶数长度走 `//`——`/` 恒浮除使旧式落「索引操作
+  不支持: list[1.5]」）、`复制列表`·`排序`（真不改入参）、`时间戳转日期`
+  （`(时间戳) => 1970 + 时间戳 // (365 * 24 * 3600)`——旧小数年违 `-> Int`
+  声明口径，实测 1700000000 → 2023、0 → 1970）。
+  **41d-1 链面缺失内建家族**：boot `注册内建(空环境)` 只 47 名（宿主
+  Interpreter 3020 名），`exp/log10/log2/ln/π/组合数/asin/acos/atan/atan2`
+  在链面直接「未定义变量」——即整个函数在链面不可调用（三面皆假失败）。逐
+  文件改走三面同判路径而非扩表：指数 `2.718281828459045 ^ x`、对数换底
+  `log(x)/log(10.0)`·`log(x)/log(2.0)`、反三角走 `余弦二分`/`正弦二分`/
+  `反正切` 迭代、`atan2` 走 `象限角`、`组合数` 走本地 `组合数按连乘`。
+  **41d-2 无定义读数 → None**：分母为 0、空表、越界、负方差等 15 形态不再
+  伪造 `999.0`/`999999` 哨兵或 `0` 读数（`产率` 旧以 0 冒充「无基准」，现
+  None），三面同判。**41d-3 合法近似补口径注（零语义改动）**：长度比文本
+  相似度、固定 365 天日历差、非 softmax 的分类置信度、Zeller 同族周几相位等
+  注释如实写明近似口径与适用域，不改返回值。
+  A 轨新档 test_resource_algorithm_true_phase41 247 项 = 223 三面同判正典读数
+  （`test_41_resource_three_face_values` 参数化）+ 10（链面缺失内建零调用位
+  静态锁 ×`_CHAIN_MISSING_BUILTINS`）+ 3（哨兵常量模式静态锁）+ 52 资源文件
+  在位锁 + 替换习语链面真跑锁 + 无定义读数 None 锁 + 5 条语义结构锁（HMAC
+  真带密钥 / Dijkstra 真最短路 / 复制排序不别名 / 中位数整除 / 银行家与含环
+  判定）+ 2 条登记锁 + 1 条零依赖边界锁。
+  **门禁**：Track B `--write` 快照逐字节零扰动（git diff 空）+ `--check` 一致
+  ——225 = 双面一致 215 / differ 0 / both_err_equal 10 / both_err 0 / timeout 0，
+  52 个 `matha/resource/**` 语料全 both_ok_equal（三面判据与判定面同向）；
+  ast_vm_gap 快照重生成（`scripts/ast_vm_matrix.py --write` +39 −39——节点 78 /
+  发射 59 / 无码 19 / 不认识 0 / 阻塞缺口 0 / 指令码 36 结构不变，13 节点
+  `used_in` 随资源语料构造变动：ListLiteral 79→92、IndexExpr 77→85、SliceExpr
+  25→31、CodeBlock 104→110、IfExpr 96→101、BoolLit 45→49、FloatLit 88→90、
+  LetBinding 103→105、StringLit 128→129，UnaryOp 65→63、PathExpr 15→13、
+  IfStmt 12→10、WhileStmt 10→9——资源批改写表达式形状的真实反映，非新增节点
+  或 opcode）；tests lane 8146 过 + 1 平台 skip（首跑 5322.09s 呈 8145 过 +
+  1 红 + 1 skip，红为 `tests/test_native.py::test_floor_division_and_modulo`
+  固定临时 `test_native.exe` Windows 文件占用 PermissionError——按 flake 协议
+  定向复跑参数化 20/20（2.18s）与全档 628/628（48.11s）全绿，环境伪影非产品
+  缺陷，不计入登记）+ kernel_purity 14 + ast_vm_gap 11（重生成后 25 绿）+
+  golden 39/39 + dep_audit 39 内核文件 189 import 边 0 违规 + native_parity
+  38/39（0 失败，native 已知未实现 1 例不计分母）+ doc_facts 18。算术闭合：
+  8250 条件 = 8249 过（tests 8146 + purity 14 + ast_vm_gap 11 + golden 39 +
+  native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 8003（40 条件）+ 247
+  （test_resource_algorithm_true_phase41）。doc 同步：README（阶段 41 段 +
+  测试文件 191 ×2）；ARCHITECTURE（本体量 33,480 不变——37 片全在
+  `matha/resource/**` 纯 Matha 资源库，`src/` 零改动 + 阶段 41 节 + 测试文件
+  191）；CHANGELOG 阶段 41 条目；KNOWN_ISSUES 本条。
+  登记不修三条：①链面注册内建表差本身（47-vs-3020）——本批按文件绕开而非
+  扩 `matha/stdlib.matha`：扩表会改变 boot 链可用名集，扰动 Track B 225 语料
+  快照与 stage2↔stage3 定点口径（属语言层改动，另片评估；本档 41d1 静态锁只
+  锁「资源库零缺失内建调用位」，不锁表差已消）②完全平方数 `√(9)` 渲染分歧
+  ——hi/vm 出 `3`（Python `math.sqrt` 后整值化）vs boot 链出 `3.0`（纯 Matha
+  牛顿迭代恒浮点），非完全平方 `√(2)` 三面逐位同判（既有边界，非本批引入；
+  test_41x_sqrt_perfect_square_rendering_registration 防漂移）③None 参与算术
+  的异常载体类名分歧——本批把「无定义」表达为 None 值后，只有调用方误用 None
+  才落到这一族：hi `MathaRuntimeError: 类型错误: …` vs boot/vm `TypeError: …`，
+  消息尾巴三面同判而类型载体异判（38-①/40-③ 同族；test_41x_carrier_exception_-
+  class_registration 断前缀 + 尾文本同源防漂移）。退役一条：28-⑧（Dijkstra
+  距离桩恒返哨兵）；承继 33-⑤ + 32-⑧⑫ + 29-①⑥⑦ + 37-①②③ + 38-①② +
+  39-①②③ + 40-①②③④ 维持原登记不修。边界维持：pyproject dependencies=[]
+  不变（零依赖边界锁 test_41x_zero_dependency_boundary 在档）。
+
 - **2026-11 阶段 40 收官（真缺陷批：三引号多行字符串双端词法器真化——39-①
   退役 + differ 3 语料收口——31-⑨ 退役，Track B both_ok_differ 3 → 0）**：
   方向拍板走推荐项「A：真缺陷批——三引号 + differ 3」；40b 形态拍板走推荐项

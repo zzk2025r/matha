@@ -13,8 +13,13 @@ module 离散数学 {
   func 真值表_蕴含() -> List =
     [(真, 真, 真), (真, 假, 假), (假, 真, 真), (假, 假, 真)]
 
+  (* 蕴含 旧为未定义名（Matha 无自定义中缀算子注册），等价 三面皆「未定义变量 '蕴含'」。
+     补定义并与 真值表_蕴含 四行同源（p→q ≡ ¬p ∨ q），等价 改前缀调用。 *)
+  func 蕴含(p: Bool, q: Bool) -> Bool =
+    (p, q) => (not p) or q
+
   func 等价(p: Bool, q: Bool) -> Bool =
-    (p, q) => (p 蕴含 q) and (q 蕴含 p)
+    (p, q) => 蕴含(p, q) and 蕴含(q, p)
 
   func 并集基数(cardA: Int, cardB: Int, cardIntersect: Int) -> Int =
     (cardA, cardB, cardIntersect) => cardA + cardB - cardIntersect

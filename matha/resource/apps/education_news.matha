@@ -14,69 +14,83 @@ module 教育新闻 {
 
   func 知识掌握度(答题正确率: Float, 复习次数: Int) -> Float =
     (答题正确率, 复习次数) =>
-    min(1.0, 答题正确率 * (1 + 复习次数 * 0.1))
+    min([1.0, 答题正确率 * (1 + 复习次数 * 0.1)])
 
+  (* S型学习曲线：掌握率 / (1 + e^(−学习速率·时间))。
+     口径：指数一律写成 2.718281828459045 ^ x——链面注册内建不含 exp，
+     旧体在链面恒「未定义变量 'exp'」，函数从不可调用（三面皆假失败）。 *)
   func 学习曲线(时间: Float, 掌握率: Float, 学习速率: Float) -> Float =
-    (* S型曲线: 掌握率 / (1 + exp(-学习速率 * (时间 - 中点))) *)
     (时间, 掌握率, 学习速率) =>
-    掌握率 / (1 + exp(-学习速率 * 时间))
+    掌握率 / (1 + 2.718281828459045 ^ (0 - 学习速率 * 时间))
 
+  (* Ebbinghaus 遗忘曲线：R = R0·e^(−t/5)，保留时间常数 5（单位与 时间 同纲）。 *)
   func 遗忘曲线(时间: Float, 初始记忆: Float) -> Float =
-    (* Ebbinghaus遗忘曲线 *)
     (时间, 初始记忆) =>
-    初始记忆 * exp(-时间 / 5.0)
+    初始记忆 * (2.718281828459045 ^ (0 - 时间 / 5.0))
 
   (* ===== 考试与评分 ===== *)
+  (* 加权平均分：Σ(分数·权重) / Σ权重，截断到两表公共长度。
+     口径：Σ权重为 0 如实返 0。旧体两处缺陷同修——
+       ① 首臂写作 `if if i >= n then … else None`，外层判的是内层返回值而非
+          越界条件，故终止臂恒不落，越界后读 分数列表[i] 报错；
+       ② `let n = … in` 后接语句形 `let rec`，链面把 in 体只吃到该声明为止，
+          兄弟语句取不到 calc（未定义变量 'calc'），故块内统一语句形 let。 *)
   func 加权平均分(分数列表: List, 权重列表: List) -> Float =
     (分数列表, 权重列表) => {
-    let n = min(len(分数列表), len(权重列表)) in
+    let n = min([len(分数列表), len(权重列表)])
     let rec calc(i: Int, num: Float, den: Float) -> Float =
     (i, num, den) =>
-        if if i >= n then if den = 0 then 0 else num / den else None
-        else: calc(i+1, num + 分数列表[i]*权重列表[i], den + 权重列表[i])
+      if i >= n then (if den = 0 then 0 else num / den)
+      else calc(i+1, num + 分数列表[i]*权重列表[i], den + 权重列表[i])
     calc(0, 0, 0)
     }
 
   func 百分等级(分数: Float, 平均分: Float, 标准差: Float) -> Int =
-    (* 简化：基于Z分数 *)
+    (* Z 分数线性映射到 1..99（floor 三面同判，int 在链面只解析整数串） *)
     (分数, 平均分, 标准差) =>
     if 标准差 = 0 then 50
-    else min(99, max(1, int(50 + 34 * (分数 - 平均分) / 标准差)))
+    else min([99, max([1, floor(50 + 34 * (分数 - 平均分) / 标准差)])])
 
   func GPA计算(等级列表: List, 学分列表: List) -> Float =
     (等级列表, 学分列表) => {
-    let n = min(len(等级列表), len(学分列表)) in
+    let n = min([len(等级列表), len(学分列表)])
     let rec calc(i: Int, num: Float, den: Float) -> Float =
     (i, num, den) =>
-        if if i >= n then if den = 0 then 0 else num / den else None
-        else: calc(i+1, num + 等级列表[i]*学分列表[i], den + 学分列表[i])
+      if i >= n then (if den = 0 then 0 else num / den)
+      else calc(i+1, num + 等级列表[i]*学分列表[i], den + 学分列表[i])
     calc(0, 0, 0)
     }
 
   (* ===== 推荐系统 ===== *)
+  (* 协同过滤推荐得分：余弦相似度 dot/(norm_u*norm_i)，截断到公共长度。
+     旧体模长只算 itemVector 前两个分量（n>2 即失真）且块内 in-链 + 语句形
+     let rec 使链面丢名，两处同修。 *)
   func 协同过滤推荐得分(userVector: List, itemVector: List) -> Float =
-    (* 余弦相似度 *)
     (userVector, itemVector) => {
-    let n = min(len(userVector), len(itemVector)) in
-    let rec dot(i: Int) -> Float =
-    (i) => if i >= n: 0 else userVector[i]*itemVector[i] + dot(i+1)
-    let rec mag(i: Int) -> Float =
-    (i) => if i >= n: 0 else userVector[i]^2 + mag(i+1)
-    let d = dot(0) in
-    let m1 = 开方(mag(0)) in
-    let m2 = 开方(itemVector[0]^2 + (if n > 1 then itemVector[1]^2 else 0)) in
+    let n = min([len(userVector), len(itemVector)])
+    let rec dot(i: Int, acc: Float) -> Float =
+    (i, acc) => if i >= n then acc else dot(i + 1, acc + userVector[i]*itemVector[i])
+    let rec 模长平方(向量: List, i: Int, acc: Float) -> Float =
+    (向量, i, acc) => if i >= n then acc else 模长平方(向量, i + 1, acc + 向量[i]^2)
+    let d = dot(0, 0)
+    let m1 = sqrt(模长平方(userVector, 0, 0))
+    let m2 = sqrt(模长平方(itemVector, 0, 0))
     (m1 = 0 or m2 = 0) ? 0 : d / (m1 * m2)
     }
 
   func 内容相关性(text1: String, text2: String) -> Float =
-    (* 简化：基于字符重叠 *)
+    (* 口径注：实现为长度比近似 min(|a|,|b|)/max(|a|,|b|)（旧注「基于字符重叠」与实现不符，
+       此处如实标注而不改语义）——只度量长度相近程度，与内容无关，等长即得 1。
+       两串皆空时分母为 0 无定义 → None。 *)
     (text1, text2) =>
-    let common = min(len(text1), len(text2)) in
-    common / max(len(text1), len(text2))
+    let 较长 = max([len(text1), len(text2)]) in
+    if 较长 = 0 then None else min([len(text1), len(text2)]) / 较长
 
   func 热度排序得分(点击数: Int, 评论数: Int, 分享数: Int, 时间衰减: Float) -> Float =
+    (* 旧体末项写作 time衰减（拉丁+中文混排名），形参名为 时间衰减——
+       三面皆「未定义变量」，函数从不可调用，故按形参名修正。 *)
     (点击数, 评论数, 分享数, 时间衰减) =>
-    (点击数 * 1 + 评论数 * 3 + 分享数 * 5) * time衰减
+    (点击数 * 1 + 评论数 * 3 + 分享数 * 5) * 时间衰减
 
   (* ===== 阅读与新闻 ===== *)
   func 阅读进度(已读字数: Int, 总字数: Int) -> Float =
@@ -88,20 +102,23 @@ module 教育新闻 {
     (阅读速度 = 0) ? 0 : 字数 / 阅读速度 / 60  (* 分钟 *)
 
   func 新闻分类置信度(featureVector: List, classWeights: List) -> Float =
-    (* 简化：加权求和 *)
+    (* 口径注：加权求和（截断到两表公共长度，多余特征忽略）——非 softmax、
+       不做归一化，量纲随权重而变，只可用于同类表之间的序比较；空表 → 0。
+       块内语句形 let（in-链 + 语句形 let rec 在链面丢名，见 加权平均分 注）。 *)
     (featureVector, classWeights) => {
-    let n = min(len(featureVector), len(classWeights)) in
+    let n = min([len(featureVector), len(classWeights)])
     let rec sum(i: Int, acc: Float) -> Float =
-    (i, acc) => if i >= n: acc else sum(i+1, acc + featureVector[i]*classWeights[i])
+    (i, acc) => if i >= n then acc else sum(i+1, acc + featureVector[i]*classWeights[i])
     sum(0, 0)
     }
 
   func 关键词提取(text: String, 词频列表: List) -> List =
-    (* 简化：返回前5个 *)
+    (* 口径注：不分词、不排序、不筛选——原样取 词频列表 前 5 项（截断到 len），
+       调用方须自行按频次降序传入；text 不参与计算，保留形参只为维持调用约定。 *)
     (text, 词频列表) => {
-    let n = min(5, len(词频列表)) in
+    let n = min([5, len(词频列表)])
     let rec top(i: Int, result: List) -> List =
-    (i, result) => if i >= n: result else top(i+1, result + [词频列表[i]])
+    (i, result) => if i >= n then result else top(i+1, result + [词频列表[i]])
     top(0, [])
     }
 
@@ -113,9 +130,24 @@ module 教育新闻 {
     sum(0, 0) / len(成绩列表)
     }
 
+  (* 成绩分布统计：返回 [优秀, 良好, 中等, 及格, 不及格] 五档计数
+     阈值口径：>=90 / >=80 / >=70 / >=60 / 其余（含负分与满分以上如实归档）
+     旧桩恒返 [0, 0, 0, 0, 0]——任意成绩列表下五档皆空，统计口径全失，故退役。 *)
   func 成绩分布统计(成绩列表: List) -> List =
-    (* 简化：返回 [优秀, 良好, 中等, 及格, 不及格] 计数 *)
-    (成绩列表) => [0, 0, 0, 0, 0]
+    (成绩列表) => {
+    let rec 走(i: Int, 优秀: Int, 良好: Int, 中等: Int, 及格: Int, 不及格: Int) -> List =
+    (i, 优秀, 良好, 中等, 及格, 不及格) =>
+      if i >= len(成绩列表) then [优秀, 良好, 中等, 及格, 不及格]
+      else {
+      let 分 = 成绩列表[i]
+      if 分 >= 90 then 走(i+1, 优秀+1, 良好, 中等, 及格, 不及格)
+      else if 分 >= 80 then 走(i+1, 优秀, 良好+1, 中等, 及格, 不及格)
+      else if 分 >= 70 then 走(i+1, 优秀, 良好, 中等+1, 及格, 不及格)
+      else if 分 >= 60 then 走(i+1, 优秀, 良好, 中等, 及格+1, 不及格)
+      else 走(i+1, 优秀, 良好, 中等, 及格, 不及格+1)
+      }
+    走(0, 0, 0, 0, 0, 0)
+    }
 
   func 出勤率(出勤天数: Int, 总天数: Int) -> Float =
     (出勤天数, 总天数) =>

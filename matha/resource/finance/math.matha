@@ -1,5 +1,11 @@
 (* 资源库：金融数学
-   覆盖：利息计算、年金、债券估值、投资决策
+   覆盖：利息计算、年金、债券估值、投资决策、内部收益率
+
+   三面共口径（宿主解释 / 编译 VM / 链面自举解释）：
+   1) 指数一律写成 2.718281828459045 ^ x 与 (1 + r) ^ n 形态——^ 三面同为幂运算
+      （负指数、分数指数、0 ^ 0 皆同判），不使用链面缺失的 exp 内建。
+   2) 年金/贷款/债券的分母（r、复利次数）为 0 时按退化口径给确定值，不落「除零错误」；
+      折现率 r = -1（(1 + r) = 0）无现值含义，由除零守卫诚实报错，不静默近似。
    ============================================================ *)
 
 module 金融数学 {
@@ -10,29 +16,38 @@ module 金融数学 {
   func 单利本息(P: Float, r: Float, t: Float) -> Float =
     (P, r, t) => P * (1 + r * t)
 
+  (* 复利本息：期数 n 为 0 无复利口径 → 除零错误诚实报错（不夹取为 1 期）。 *)
   func 复利本息(P: Float, r: Float, t: Float, n: Int) -> Float =
     (P, r, t, n) => P * (1 + r/n) ^ (n * t)
 
+  (* 连续复利本息：P·e^(rt)，e 取常数底数走 ^ 运算，与宿主 math.exp 同值。 *)
   func 连续复利本息(P: Float, r: Float, t: Float) -> Float =
-    (P, r, t) => P * exp(r * t)
+    (P, r, t) => P * (2.718281828459045 ^ (r * t))
 
   func 现值(FV: Float, r: Float, t: Float) -> Float =
     (FV, r, t) => FV / (1 + r) ^ t
 
+  (* 年金现值：普通年金（期末支付）。r = 0 退化为 PMT × n。 *)
   func 年金现值(PMT: Float, r: Float, n: Int) -> Float =
     (PMT, r, n) =>
     (r = 0) ? PMT * n :
     PMT * (1 - (1 + r) ^ (-n)) / r
 
+  (* 年金终值：普通年金（期末支付）。r = 0 退化为 PMT × n。 *)
   func 年金终值(PMT: Float, r: Float, n: Int) -> Float =
     (PMT, r, n) =>
     (r = 0) ? PMT * n :
     PMT * ((1 + r) ^ n - 1) / r
 
+  (* 贷款月供（等额本息）：r = 0 时无利息成本，退化为本金均摊 P / n；
+     期数 n 使 (1 + r)^n = 1 时分母为 0（即 r = 0 或 n = 0），已由前一分支接管 r = 0，
+     n = 0 属无还款期口径 → 除零错误诚实报错。 *)
   func 贷款月供(P: Float, r: Float, n: Int) -> Float =
     (P, r, n) =>
-    P * r * (1 + r) ^ n / ((1 + r) ^ n - 1)
+    if r = 0 then P / n
+    else P * r * (1 + r) ^ n / ((1 + r) ^ n - 1)
 
+  (* 净现值：cashflows[i] 折现 i 期后求和（cashflows[0] 为 0 期现金流，不折现）。 *)
   func 净现值(cashflows: List, r: Float) -> Float =
     (cashflows, r) => {
     let rec npv(i: Int, acc: Float) -> Float =
@@ -42,10 +57,40 @@ module 金融数学 {
     npv(0, 0)
     }
 
+  (* 内部收益率：使净现值为 0 的折现率，二分求根。
+     旧桩恒返 0.1——把「未实现」写成「任何现金流都返回默认折现率」，
+     对 [-100, 110] 这类教科书现金流（真值恰为 0.1）看似正确、其余全错，故真化。
+     口径：搜索区间 [-0.9999, 10]（即折现率 -99.99% ~ 1000%），
+     区间端点净现值同号时无实根 → 返回 None（不臆造数值）；
+     60 轮二分把区间压到双精度极限，结果按浮点精度成立；
+     多根现金流（符号交替多次，如 [-100, 230, -132]）只返回区间内找到的那一个根。 *)
   func 内部收益率近似(cashflows: List) -> Float =
-    (cashflows) => 0.1  (* 简化：返回默认折现率 *)
+    (cashflows) => {
+    let 有表 = len(cashflows) > 0
+    let 低值 = 净现值(cashflows, -0.9999)
+    let 高值 = 净现值(cashflows, 10.0)
+    let r = if not 有表 then None
+            else if 同号(低值, 高值) then None
+            else 二分(cashflows, -0.9999, 10.0, 0)
+    r
+    }
 
+  func 同号(a, b) -> Bool =
+    (a, b) => if a > 0 then b > 0 else b < 0
+
+  (* 二分：保留与端点异号的半区间（NPV 对折现率单调时无损；多根时取左根优先）。 *)
+  func 二分(现金流: List, lo, hi, k: Int) -> Float =
+    (现金流, lo, hi, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 半区 = if 同号(净现值(现金流, lo), 净现值(现金流, 中)) then [中, hi] else [lo, 中]
+    let r = if k >= 60 then (lo + hi) / 2.0 else 二分(现金流, 半区[0], 半区[1], k + 1)
+    r
+    }
+
+  (* 债券价格：C 为每期票息、F 为面值、n 为期数、r 为每期到期收益率。
+     r = 0 时本金与票息均不折现 → 退化口径 C × n + F。 *)
   func 债券价格(C: Float, r: Float, n: Int, F: Float) -> Float =
     (C, r, n, F) =>
-    C * (1 - (1 + r) ^ (-n)) / r + F / (1 + r) ^ n
+    if r = 0 then C * n + F
+    else C * (1 - (1 + r) ^ (-n)) / r + F / (1 + r) ^ n
 }

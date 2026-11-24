@@ -45,16 +45,32 @@ module Web数学 {
   func URI解码后长度(encoded: String) -> Int =
     (encoded) => len(encoded) / 3
 
+  (* URI 单字符百分号转义（RFC 3986 §2.1 + UTF-8 编码）：Matha 面无位运算，
+     移位/掩码以整除、取模等价实现——
+       码点 < 128        → 1 字节 cp
+       码点 < 2048       → 192 + cp/64, 128 + cp%64
+       码点 < 65536      → 224 + cp/4096, 128 + (cp/64)%64, 128 + cp%64
+       其余（<= 0x10FFFF）→ 240 + cp/262144, 128 + (cp/4096)%64, 128 + (cp/64)%64, 128 + cp%64
+     旧体 "%" + hex(ord(ch[0])) 恒单字节输出（非 ASCII 即非法），且 hex 用真除法
+     得浮点下标（chars[2.0]）——任意输入皆崩，故两处同修。
+     注：跨面无一致的抛错原语（错误/assert 三面不不齐），故本函数取全定义形态。 *)
   func URI编码字符(ch: String) -> String =
-    (ch) => "%" + hex(ord(ch[0]))
+    (ch) => {
+    let 码 = ord(ch[0])
+    if 码 < 128 then "%" + hex(码)
+    else if 码 < 2048 then "%" + hex(192 + 码 // 64) + "%" + hex(128 + 码 % 64)
+    else if 码 < 65536 then "%" + hex(224 + 码 // 4096) + "%" + hex(128 + (码 // 64) % 64) + "%" + hex(128 + 码 % 64)
+    else "%" + hex(240 + 码 // 262144) + "%" + hex(128 + (码 // 4096) % 64) + "%" + hex(128 + (码 // 64) % 64) + "%" + hex(128 + 码 % 64)
+    }
 
+  (* 双十六进制位：整除取高位、取模取低位（旧体 "/" 真除法产浮点下标）。 *)
   func hex(n: Int) -> String =
     (n) =>
     let chars = "0123456789ABCDEF" in
-    str(chars[n / 16]) + str(chars[n % 16])
+    str(chars[n // 16]) + str(chars[n % 16])
 
-  func ord(ch: String) -> Int =
-    (ch) => 0  (* 简化 *)
+  (* ord 走宿主/VM/自举链同名内建（真码点值）——旧本地桩恒返 0 会把
+     URI编码字符 静默降级为 "%00"，故桩退役、不再自定义同名函数。 *)
 
   (* ===== 分页计算 ===== *)
   func 总页数(总数: Int, 每页: Int) -> Int =
@@ -65,33 +81,44 @@ module Web数学 {
 
   func 页内结束索引(页码: Int, 每页: Int, 总数: Int) -> Int =
     (页码, 每页, 总数) =>
-    min(页码 * 每页, 总数)
+    min([页码 * 每页, 总数])
 
+  (* 分页窗口：当前页 ±2，左右各截断到 [1, 总页数]，返回 [start..end]。
+     旧形 `if if i > end_ then result else None` 外层测的是内层 if 表达式的「值」而非条件——
+     总页数 = 0 时 result 恒为空列表（假值），守卫永不命中、递归无终止；
+     `let … in` 链紧跟语句形 let rec 在链面丢 rec 名——两处一并改为语句形 let + then 形守卫。 *)
   func 分页导航页码(当前页: Int, 总页数: Int) -> List =
     (当前页, 总页数) => {
-    let start = max(1, 当前页 - 2) in
-    let end_ = min(总页数, 当前页 + 2) in
+    let start = max([1, 当前页 - 2])
+    let end_ = min([总页数, 当前页 + 2])
     let rec pages(i: Int, result: List) -> List =
     (i, result) =>
-        if if i > end_ then result else None
-        else: pages(i + 1, result + [i])
+        if i > end_ then result
+        else pages(i + 1, result + [i])
     pages(start, [])
     }
 
   (* ===== 速率限制 ===== *)
+  (* 令牌桶剩余 = 容量 − 已用 + 期间回填，双向截断到 [0, 容量]。
+     旧式 `min(容量, 已用 − 新增)` 把回填量当成消耗（符号反了），且以「已用」为基数
+     随时间递减，桶会在空闲期归零——与令牌桶语义相反，故真化。 *)
   func 令牌桶剩余(容量: Int, 填充速率: Float, 已用: Int, 上次时间: Float, 当前时间: Float) -> Int =
-    (容量, 填充速率, 已用, 上次时间, 当前时间) =>
-    let elapsed = 当前时间 - 上次时间 in
-    let 新增 = 填充速率 * elapsed in
-    min(容量, 已用 - int(新增))
+    (容量, 填充速率, 已用, 上次时间, 当前时间) => {
+    let elapsed = 当前时间 - 上次时间
+    let 新增 = floor(填充速率 * elapsed)
+    max([0, min([容量, 容量 - 已用 + 新增])])
+    }
 
+  (* 窗口内请求计数：统计 当前时间 − 时间戳 ≤ 窗口大小 的条目。
+     旧形 `if if i >= len then acc else None` 外层测值不测条件——acc = 0（假值）时
+     守卫永不命中，递归越过末尾读 请求时间戳[len] 而非返回 0。 *)
   func 滑动窗口计数(请求时间戳: List, 窗口大小: Float, 当前时间: Float) -> Int =
     (请求时间戳, 窗口大小, 当前时间) => {
     let rec count(i: Int, acc: Int) -> Int =
     (i, acc) =>
-        if if i >= len(请求时间戳) then acc else None
-        elif 当前时间 - 请求时间戳[i] <= 窗口大小: count(i + 1, acc + 1)
-        else: count(i + 1, acc)
+        if i >= len(请求时间戳) then acc
+        else if 当前时间 - 请求时间戳[i] <= 窗口大小 then count(i + 1, acc + 1)
+        else count(i + 1, acc)
     count(0, 0)
     }
 
@@ -110,13 +137,16 @@ module Web数学 {
     (exp, now) => exp > now
 
   (* ===== CORS ===== *)
+  (* 允许列表逐位比对，命中或通配 "*" 为真，扫尽为假。
+     旧形 `if if i >= len then 假 else None` 外层测值：假 恒为假值，
+     越界守卫永不命中 → 递归越过末尾读 允许列表[i]。 *)
   func CORS允许源(请求源: String, 允许列表: List) -> Bool =
     (请求源, 允许列表) => {
     let rec check(i: Int) -> Bool =
     (i) =>
-        if if i >= len(允许列表) then 假 else None
-        elif 允许列表[i] = 请求源 or 允许列表[i] = "*": 真
-        else: check(i + 1)
+        if i >= len(允许列表) then 假
+        else if 允许列表[i] = 请求源 or 允许列表[i] = "*" then 真
+        else check(i + 1)
     check(0)
     }
 
@@ -125,8 +155,9 @@ module Web数学 {
     (最后修改时间, 缓存时间, 当前时间) =>
     当前时间 - 最后修改时间 < 缓存时间
 
+  (* 旧体引用未定义的英文 `method`（三面皆「未定义变量」），改为形参 方法。 *)
   func 缓存键(方法: String, URL: String) -> String =
-    (方法, URL) => method + ":" + URL
+    (方法, URL) => 方法 + ":" + URL
 
   (* ===== 文件大小估算 ===== *)
   func HTML文件大小(元素数: Int, 平均标签长度: Int) -> Int =

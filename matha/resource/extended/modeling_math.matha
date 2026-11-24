@@ -1,82 +1,110 @@
 (* 扩展建模知识：结构力学、流体力学、热力学、电力系统、控制理论
+   ============================================================
+   口径（阶段 41 真化批）：
+   1. π 常量在链面（boot 编译器 + 解释器）未注册——旧体 轴扭转应力、管道沿程损失
+      在链面恒「未定义变量 'π'」，函数从不可调用（hi/VM 可调用，属三面假失败）。
+      现一律写全精度字面量 3.141592653589793；e 常量三面皆已注册，维持原写法。
+   2. 除数为 0 时返回 None（不再让载体抛除零中断整段调用），且守卫必须落在
+      真正的除数上：梁弯曲应力守 I、轴扭转应力守 d、雷诺数守 ν……
+   3. 近似公式（疲劳寿命、一阶响应）在函数注释里写明近似口径与不做的事。
    ============================================================ *)
 
 module 扩展建模 {
 
   (* ===== 结构力学 ===== *)
-  (* 梁弯曲正应力 σ = My/I *)
+  (* 梁弯曲正应力 σ = My/I：惯性矩 I = 0 时截面无定义 → None。 *)
   func 梁弯曲应力(M: Float, y: Float, I: Float) -> Float =
-    (M, y, I) => M * y / I
+    (M, y, I) =>
+    if I = 0 then None else M * y / I
 
-  (* 梁挠度（简支梁均布载荷） *)
+  (* 梁挠度（简支梁均布载荷）δ = 5qL⁴/(384EI)：抗弯刚度 EI = 0 无定义 → None。 *)
   func 梁挠度(q: Float, L: Float, E: Float, I: Float) -> Float =
-    (q, L, E, I) => 5 * q * L^4 / (384 * E * I)
+    (q, L, E, I) =>
+    if E * I = 0 then None else 5 * q * L^4 / (384 * E * I)
 
-  (* 圆轴扭转剪应力 τ = 16T/(πd³) *)
+  (* 圆轴扭转剪应力 τ = 16T/(πd³)：直径 d = 0 无定义 → None；π 用全精度字面量。 *)
   func 轴扭转应力(T: Float, d: Float) -> Float =
-    (T, d) => 16 * T / (π * d^3)
+    (T, d) =>
+    if d = 0 then None else 16 * T / (3.141592653589793 * d^3)
 
   (* ===== 流体力学 ===== *)
-  (* 达西-魏斯巴赫沿程损失 hf = f·L/D·v²/2g *)
+  (* 达西-魏斯巴赫沿程损失 hf = f·L/D·v²/2g，v = Q/(πD²/4) 为满管平均流速。
+     口径注：Q 为体积流量、D 为管内径；D = 0 时流速与 D 比均无定义 → None。 *)
   func 管道沿程损失(Q: Float, L: Float, D: Float, f: Float) -> Float =
     (Q, L, D, f) =>
-    let v = Q / (π * D^2 / 4) in
-    f * L / D * v^2 / (2 * 9.81)
+    if D = 0 then None
+    else
+      let v = Q / (3.141592653589793 * D^2 / 4) in
+      f * L / D * v^2 / (2 * 9.81)
 
-  (* 雷诺数 Re = vD/ν *)
+  (* 雷诺数 Re = vD/ν：运动粘度 ν = 0 时无定义 → None。 *)
   func 雷诺数(v: Float, D: Float, ν: Float) -> Float =
-    (v, D, ν) => v * D / ν
+    (v, D, ν) =>
+    if ν = 0 then None else v * D / ν
 
-  (* 伯努利方程：p2 = p1 + ρg(z1-z2) + ½ρ(v1²-v2²) *)
+  (* 伯努利方程：p2 = p1 + ρg(z1-z2) + ½ρ(v1²-v2²)；g 取 9.81。 *)
   func 伯努利(p1: Float, z1: Float, v1: Float,
               z2: Float, v2: Float, ρ: Float) -> Float =
     (p1, z1, v1, z2, v2, ρ) =>
     p1 + ρ * 9.81 * (z1 - z2) + 0.5 * ρ * (v1^2 - v2^2)
 
   (* ===== 热力学 ===== *)
-  (* 傅里叶热传导 Q = kA·dT/L → k = QL/(A·dT) *)
+  (* 傅里叶热传导 Q = kA·dT/L → k = QL/(A·dT)：A·dT = 0 时无定义 → None。 *)
   func 热传导系数(Q: Float, L: Float, A: Float, dT: Float) -> Float =
-    (Q, L, A, dT) => Q * L / (A * dT)
+    (Q, L, A, dT) =>
+    if A * dT = 0 then None else Q * L / (A * dT)
 
   (* 牛顿冷却定律 Q = hA(Tw-Tf) *)
   func 对流换热(h: Float, A: Float, Tw: Float, Tf: Float) -> Float =
     (h, A, Tw, Tf) => h * A * (Tw - Tf)
 
-  (* 斯蒂芬-玻尔兹曼辐射 Q = εσA(T1⁴-T2⁴) *)
+  (* 斯蒂芬-玻尔兹曼辐射 Q = εσA(T1⁴-T2⁴)，σ = 5.67e-8 W/(m²·K⁴) *)
   func 辐射换热(ε: Float, A: Float, T1: Float, T2: Float) -> Float =
     (ε, A, T1, T2) => ε * 5.67e-8 * A * (T1^4 - T2^4)
 
   (* ===== 电力系统 ===== *)
-  (* 三相功率 P = √3·VL·IL·pf *)
+  (* 三相功率 P = √3·VL·IL·pf（对称三相、pf 为功率因数） *)
   func 三相功率(VL: Float, IL: Float, pf: Float) -> Float =
     (VL, IL, pf) => √3 * VL * IL * pf
 
-  (* 变压器变比 k = N1/N2 *)
+  (* 变压器变比 k = N1/N2：副边匝数 N2 = 0 无定义 → None。 *)
   func 变压器变比(N1: Int, N2: Int) -> Float =
-    (N1, N2) => N1 / N2
+    (N1, N2) =>
+    if N2 = 0 then None else N1 / N2
 
-  (* 电机扭矩 T = 9550·P/n *)
+  (* 电机扭矩 T = 9550·P/n（P 单位 kW、n 单位 r/min 时的工程换算系数）：
+     转速 n = 0 时无定义 → None。 *)
   func 电机扭矩(P: Float, n: Float) -> Float =
-    (P, n) => 9550 * P / n
+    (P, n) =>
+    if n = 0 then None else 9550 * P / n
 
   (* ===== 控制理论 ===== *)
-  (* PID 控制器输出 u = Kp·e + Ki·∫e + Kd·de/dt *)
+  (* PID 控制器输出 u = Kp·e + Ki·∫e + Kd·de/dt（比例/积分/微分三项直接加权，
+     积分与微分由调用方提供——本函数不做时间累积）。 *)
   func PID输出(Kp: Float, Ki: Float, Kd: Float,
                误差: Float, 积分: Float, 微分: Float) -> Float =
     (Kp, Ki, Kd, 误差, 积分, 微分) =>
     Kp * 误差 + Ki * 积分 + Kd * 微分
 
-  (* 一阶惯性环节响应 1-e^(-t/T) *)
+  (* 一阶惯性环节单位阶跃响应 y(t) = 1 - e^(-t/T)：时间常数 T = 0 时无定义 → None。 *)
   func 一阶响应(T: Float, t: Float) -> Float =
-    (T, t) => 1 - e^(-t / T)
+    (T, t) =>
+    if T = 0 then None else 1 - e^(-t / T)
 
   (* ===== 材料科学 ===== *)
-  (* 胡克定律 ε = σ/E *)
+  (* 胡克定律 ε = σ/E：弹性模量 E = 0 无定义 → None。 *)
   func 胡克定律(σ: Float, E: Float) -> Float =
-    (σ, E) => σ / E
+    (σ, E) =>
+    if E = 0 then None else σ / E
 
-  (* 疲劳寿命估算（简化） *)
+  (* 疲劳寿命估算（口径注：非规范 S-N 曲线，仅为量级近似）
+     - S ≤ Sn（名义疲劳极限以下）：取 N·10 的「无限寿命区」放大值；
+     - S > Sn：按高周疲劳指数 3 的幂律 N·(Sn/S)³ 衰减。
+     指数 3 是经验取值（钢材常见 2~4），真实寿命须用实测 S-N 曲线与 Miner 累积损伤；
+     S = 0（零应力幅）与负载荷谱本模型不覆盖 → None。 *)
   func 疲劳寿命(S: Float, Sn: Float, N: Int) -> Int =
     (S, Sn, N) =>
-    if S <= Sn then N * 10 else N * (Sn / S)^3
+    if S = 0 then None
+    else if S <= Sn then N * 10
+    else N * (Sn / S)^3
 }

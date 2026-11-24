@@ -3,67 +3,123 @@
 
 module 操作系统知识 {
 
-  (* ===== 进程调度 ===== *)
-  (* 平均周转时间 = Σ(完成时间 - 到达时间) / n *)
-  func 平均周转时间(完成时间: List, 到达时间: List) -> Float =
-    (完成时间, 到达时间) => {
-    let n = len(完成时间) in
+  (* 求和：宿主面 BUILTINS 有同名内建，VM/链面未注册（实测「未定义变量 '求和'」），
+     故模块自备一份，三面同源。空表取 0。 *)
+  func 求和(lst: List) -> Float =
+    (lst) => {
     let rec s(i: Int, acc: Float) -> Float =
-    (i, acc) => (i >= n) ? acc : s(i+1, acc + 完成时间[i] - 到达时间[i])
-    s(0, 0) / n
+    (i, acc) => if i >= len(lst) then acc else s(i + 1, acc + lst[i])
+    s(0, 0)
     }
 
-  (* 平均等待时间 = 平均周转时间 - 平均服务时间 *)
+  (* 列表含：判定元素是否出现（三面同判，不依赖宿主内建 in）。 *)
+  func 列表含(lst: List, item) -> Bool =
+    (lst, item) => {
+    let rec check(i: Int) -> Bool =
+    (i) => if i >= len(lst) then 假 else if lst[i] = item then 真 else check(i + 1)
+    check(0)
+    }
+
+  (* ===== 进程调度 ===== *)
+  (* 平均周转时间 = Σ(完成时间 − 到达时间) / n；两表等长按序号配对。
+     旧体 `let n = len(...) in let rec s(...)` 把 in 子句混在 { } 块里，链面块内作用域丢名；
+     且 n = 0 时直接除零，故改写为块内 let + 空样本取 0.0。 *)
+  func 平均周转时间(完成时间: List, 到达时间: List) -> Float =
+    (完成时间, 到达时间) => {
+    let n = len(完成时间)
+    let rec s(i: Int, acc: Float) -> Float =
+    (i, acc) => if i >= n then acc else s(i + 1, acc + 完成时间[i] - 到达时间[i])
+    let 和 = s(0, 0)
+    let r = if n = 0 then 0.0 else 和 / n
+    r
+    }
+
+  (* 平均等待时间 = 平均周转时间 − 平均服务时间（服务时间即 Burst）。
+     旧体同样混 in 子句，且 n = 0 除零。任一样本表为空时无统计量，取 0.0。 *)
   func 平均等待时间(完成时间: List, 到达时间: List, 服务时间: List) -> Float =
-    (完成时间, 到达时间, 服务时间) =>
-    let n = len(完成时间) in
-    let 周转 = 平均周转时间(完成时间, 到达时间) in
-    let 服务 = 求和(服务时间) / n in
-    周转 - 服务
+    (完成时间, 到达时间, 服务时间) => {
+    let n = len(完成时间)
+    let m = len(服务时间)
+    let 周转 = 平均周转时间(完成时间, 到达时间)
+    let 服务 = 求和(服务时间)
+    let r = if n = 0 or m = 0 then 0.0 else 周转 - 服务 / m
+    r
+    }
 
   (* ===== 内存管理 ===== *)
-  (* 页表开销估算 *)
+  (* 页表自身开销 = 页表项数 × 每项字节数。 *)
   func 页表开销(页表项数: Int, 每页项大小: Int) -> Int =
     (页表项数, 每页项大小) => 页表项数 * 每页项大小
 
-  (* FIFO 页面置换缺页次数（简化） *)
+  (* FIFO 页面置换缺页次数：帧表按装入先后排列，命中不动，满则淘汰队首。
+     帧数 <= 0 表示一帧都装不下，每次访问皆缺页。
+     旧桩恒返 len(页串)——把「最坏情况」写死成实现，对 1,2,1,2,1 这类 2 帧高命中串
+     也报 5 次缺页（真值 2），命中率面全失，故真化。 *)
   func FIFO缺页(页串: List, 帧数: Int) -> Int =
-    (页串, 帧数) =>
-    let n = len(页串) in
-    let 帧 = [] in
-    let 缺页 = 0 in
-    (* 简化实现 *)
-    n  (* 最坏情况：全部缺页 *)
+    (页串, 帧数) => {
+    let rec 走(i: Int, 帧: List, 缺: Int) -> Int =
+    (i, 帧, 缺) =>
+      if i >= len(页串) then 缺
+      else if 列表含(帧, 页串[i]) then 走(i + 1, 帧, 缺)
+      else if len(帧) < 帧数 then 走(i + 1, 帧 + [页串[i]], 缺 + 1)
+      else 走(i + 1, 帧[1:] + [页串[i]], 缺 + 1)
+    let r = if 帧数 <= 0 then len(页串) else 走(0, [], 0)
+    r
+    }
 
-  (* LRU 页面置换估算 *)
-  func LRU缺页估算(页串: List, 帧数: Int) -> Int =
-    (页串, 帧数) =>
-    let n = len(页串) in
-    if 帧数 >= n then 0 else n - 帧数
+  (* LRU 页面置换缺页次数：帧表按 旧→新 排列，命中即把该页移到队尾，满则淘汰队首。
+     旧体 `if 帧数 >= n then 0 else n - 帧数` 给的是「不同页数 − 帧数」这一 Belady 下界，
+     既不是 LRU 也不是任何算法的真实计数（1,2,3,4,1,2,5,1,2,3,4,5 用 3 帧 LRU 缺 9 次而它返 2）；
+     名实相符起见去「估算」义，函数名改为 LRU缺页。 *)
+  func LRU缺页(页串: List, 帧数: Int) -> Int =
+    (页串, 帧数) => {
+    let rec 位置(帧: List, p, i: Int) -> Int =
+    (帧, p, i) => if i >= len(帧) then -1 else if 帧[i] = p then i else 位置(帧, p, i + 1)
+    let rec 去第(帧: List, 删: Int, i: Int) -> List =
+    (帧, 删, i) =>
+      if i >= len(帧) then []
+      else if i = 删 then 去第(帧, 删, i + 1)
+      else [帧[i]] + 去第(帧, 删, i + 1)
+    let rec 走(i: Int, 帧: List, 缺: Int) -> Int =
+    (i, 帧, 缺) =>
+      if i >= len(页串) then 缺
+      else if 列表含(帧, 页串[i]) then 走(i + 1, 去第(帧, 位置(帧, 页串[i], 0), 0) + [页串[i]], 缺)
+      else if len(帧) < 帧数 then 走(i + 1, 帧 + [页串[i]], 缺 + 1)
+      else 走(i + 1, 去第(帧, 0, 0) + [页串[i]], 缺 + 1)
+    let r = if 帧数 <= 0 then len(页串) else 走(0, [], 0)
+    r
+    }
 
   (* ===== 文件系统 ===== *)
-  (* 文件系统容量估算 *)
+  (* 卷容量 = 块大小 × 块数（同量纲相乘，无近似）。 *)
   func 文件系统容量(块大小: Int, 块数: Int) -> Int =
     (块大小, 块数) => 块大小 * 块数
 
-  (* inode 利用率估算 *)
+  (* inode 使用率（百分比）。总 inode 为 0 时无分母，取 0.0（旧返整数 0 与声明的 Float 不符）。 *)
   func inode利用率(已用inode: Int, 总inode: Int) -> Float =
     (已用inode, 总inode) =>
-    if 总inode = 0 then 0 else 已用inode / 总inode * 100
+    if 总inode = 0 then 0.0 else 已用inode / 总inode * 100
 
   (* ===== 死锁检测 ===== *)
-  (* 死锁必要条件检查 *)
-  func 死锁必要条件(互斥: Bool,  hold_wait: Bool,
+  (* 死锁四个必要条件是否同时成立。
+     口径：成立仅意味死锁「可能」发生——四条件是必要条件而非充分条件，
+     判定「已发生」须看等待图是否成环（见 死锁同步.资源分配图含环）。
+     参数名 hold_wait 改中文 持有等待 与同族文案一致（位置传参，调用面不变）。 *)
+  func 死锁必要条件(互斥: Bool, 持有等待: Bool,
                     不剥夺: Bool, 循环等待: Bool) -> Bool =
-    (互斥, hold_wait, 不剥夺, 循环等待) =>
-    互斥 and hold_wait and 不剥夺 and 循环等待
+    (互斥, 持有等待, 不剥夺, 循环等待) =>
+    互斥 and 持有等待 and 不剥夺 and 循环等待
 
   (* ===== 网络调度 ===== *)
-  (* TCP 拥塞窗口估算（慢启动） *)
-  func TCP慢启动(cwnd: Int, RTT: Int, 包数: Int) -> Int =
-    (cwnd, RTT, 包数) => cwnd * 2^包数
+  (* TCP 慢启动：每个往返轮拥塞窗口翻倍，n 轮后 cwnd × 2^n。
+     旧签名第 2 参 RTT 全程未参与计算（RTT 只决定一轮的时长，不改变轮数），
+     留着会让人误以为已计入时延，故删参并把 包数 更名为 轮次；
+     轮次 <= 0 时窗口不增长（避免 2^负数 落到浮点分数窗口）。 *)
+  func TCP慢启动(cwnd: Int, 轮次: Int) -> Int =
+    (cwnd, 轮次) =>
+    if 轮次 <= 0 then cwnd else cwnd * 2 ^ 轮次
 
-  (* 带宽时延积 *)
+  (* 带宽时延积 = 带宽(bit/s) × RTT(s) ÷ 8（换算字节）。链路容量口径，无近似。 *)
   func 带宽时延积(带宽: Float, RTT: Float) -> Float =
-    (带宽, RTT) => 带宽 * RTT / 8  (* 转换为字节 *)
+    (带宽, RTT) => 带宽 * RTT / 8
 }

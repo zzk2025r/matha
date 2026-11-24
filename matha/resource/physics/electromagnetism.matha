@@ -26,7 +26,7 @@ module 电磁学 {
   func 感抗(ω: Float, L: Float) -> Float = (ω, L) => ω * L
   func 容抗(ω: Float, C: Float) -> Float = (ω, C) => 1 / (ω * C)
   func 阻抗(R: Float, XL: Float, XC: Float) -> Float =
-    (R, XL, XC) => 开方(R*R + (XL - XC)*(XL - XC))
+    (R, XL, XC) => sqrt(R*R + (XL - XC)*(XL - XC))
 
   func 洛伦兹力(q: Float, v: Float, B: Float) -> Float =
     (q, v, B) => q * v * B
@@ -38,5 +38,5 @@ module 电磁学 {
     (L, dI, dt) => L * dI / dt
 
   func 谐振频率(L: Float, C: Float) -> Float =
-    (L, C) => 1 / (2 * 3.14159 * 开方(L * C))
+    (L, C) => 1 / (2 * 3.14159 * sqrt(L * C))
 }

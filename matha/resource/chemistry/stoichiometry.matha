@@ -1,5 +1,12 @@
 (* 资源库：化学计量
    覆盖：摩尔计算、溶液浓度、化学方程式、pH
+   ============================================================
+   口径（阶段 41 真化批）：
+   - 常用对数写成 log(x)/log(10)、指数写成底数 ^ 幂——链面注册内建无 log10/exp
+   - 对数定义域：浓度 ≤ 0 时 pH/pOH 无定义 → None（旧式 log10(0) 直接把
+     定义域外的读数交给对数内建去崩）
+   - 分母为 0 的比值（摩尔数 / 摩尔浓度 / 理想气体体积）不预设哨兵，
+     由除零守卫三面同文案诚实报错；仅 产率 保留 0 约定（见注）
    ============================================================ *)
 
 module 化学计量 {
@@ -10,26 +17,42 @@ module 化学计量 {
   func 质量(摩尔数: Float, 摩尔质量: Float) -> Float =
     (摩尔数, 摩尔质量) => 摩尔数 * 摩尔质量
 
+  (* 粒子数 = n·N_A，N_A = 6.02214076e23 mol⁻¹（2019 SI 定义值）。 *)
   func 粒子数(摩尔数: Float) -> Float =
-    (摩尔数) => 摩尔数 * 6.022e23
+    (摩尔数) => 摩尔数 * 6.02214076e23
 
   func 摩尔浓度(溶质摩尔: Float, 溶液体积: Float) -> Float =
     (溶质摩尔, 溶液体积) => 溶质摩尔 / 溶液体积
 
+  (* 稀释公式 C1·V1 = C2·V2，此处求 V2 = C1·V1/C2（柯里化：先定 C1 V1，再给 C2）。 *)
   func 稀释公式(C1: Float, V1: Float) -> Float =
     (C1, V1) =>
     (C2) => C1 * V1 / C2
 
-  func pH值(H_conc: Float) -> Float = (H_conc) => -log10(H_conc)
-  func pOH值(OH_conc: Float) -> Float = (OH_conc) => -log10(OH_conc)
-  func pKa到Ka(pKa: Float) -> Float = (pKa) => 10 ^ (-pKa)
+  (* pH = −log₁₀[H⁺]；浓度 ≤ 0 无 pH 口径 → None。 *)
+  func pH值(H_conc: Float) -> Float =
+    (H_conc) =>
+    if H_conc <= 0 then None else 0 - log(H_conc) / log(10.0)
 
+  (* pOH = −log₁₀[OH⁻]；浓度 ≤ 0 无 pOH 口径 → None。 *)
+  func pOH值(OH_conc: Float) -> Float =
+    (OH_conc) =>
+    if OH_conc <= 0 then None else 0 - log(OH_conc) / log(10.0)
+
+  (* Ka = 10^(−pKa)。 *)
+  func pKa到Ka(pKa: Float) -> Float = (pKa) => 10 ^ (0 - pKa)
+
+  (* PV = nRT，R = 8.314 J·mol⁻¹·K⁻¹，返回 V = nRT/P。 *)
   func 理想气体体积(n: Float, T: Float, P: Float) -> Float =
     (n, T, P) => n * 8.314 * T / P
 
+  (* 标准状态（0 °C、1 atm）下理想气体摩尔体积 22.414 L/mol。 *)
   func 标准状态体积(n: Float) -> Float = (n) => n * 22.414
 
+  (* 产率百分数 = 实际 / 理论 × 100；理论产量 = 0 时比值无定义 → None。
+     旧体返 0 会把「无基准可比」伪装成「产率为 0%」（0% 是有确定含义的读数：
+     实际产量为 0），两者语义不同，故改 None，与本文件 pH值(0.0) → None 同口径。 *)
   func 产率(实际产量: Float, 理论产量: Float) -> Float =
     (实际产量, 理论产量) =>
-    (理论产量 = 0) ? 0 : 实际产量 / 理论产量 * 100
+    (理论产量 = 0) ? None : 实际产量 / 理论产量 * 100
 }

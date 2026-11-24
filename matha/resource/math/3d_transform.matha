@@ -6,7 +6,7 @@ module D3变换 {
 
   (* ===== 向量运算 ===== *)
   func 向量长度(x: Float, y: Float, z: Float) -> Float =
-    (x, y, z) => 开方(x*x + y*y + z*z)
+    (x, y, z) => sqrt(x*x + y*y + z*z)
 
   func 向量归一化(x: Float, y: Float, z: Float) -> (Float, Float, Float) =
     (x, y, z) =>

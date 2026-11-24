@@ -1,33 +1,76 @@
 (* 资源库：波动光学
    覆盖：干涉、衍射、偏振、光谱
+   ============================================================
+   口径（阶段 41 真化批）：
+   - 链面注册内建无 asin，旧式在链面恒「未定义变量」，衍射角 / 折射角 / 临界角
+     从不可调用；现走 sin 在 [-π/2, π/2] 的 50 轮二分求根，三面同判
+   - 定义域诚实化：sin 比值落在 [-1, 1] 之外即无实角解（全反射、缝宽小于波长等），
+     一律返 None 而非把越界读数交给对数级近似；除数 ≤ 0 同记 None
+   - 角度制：本文件 θ 一律为弧度
    ============================================================ *)
 
 module 光学 {
 
+  (* 双缝干涉：相邻明纹间距 Δy = λD/d（远场小角近似，d ≪ D）。 *)
   func 双缝干涉条纹间距(λ: Float, D: Float, d: Float) -> Float =
     (λ, D, d) => λ * D / d
 
+  (* 单缝衍射第一极小：sin θ = λ/a → θ = asin(λ/a)；a ≤ 0 无口径，λ > a 无解 → None。 *)
   func 单缝衍射第一极小角(a: Float, λ: Float) -> Float =
-    (a, λ) => asin(λ / a)
+    (a, λ) =>
+    if a <= 0 then None else 反正弦(λ / a)
 
+  (* 马吕斯定律：I = I0·cos²θ，θ 为偏振片透光轴与入射偏振方向的夹角。 *)
   func 马吕斯定律(I0: Float, θ: Float) -> Float =
     (I0, θ) => I0 * cos(θ) * cos(θ)
 
+  (* 光子能量 E = hc/λ（h = 6.626e-34 J·s，c = 299792458 m/s）。
+     口径：λ 为唯一自变量，首形参 E 保留仅为维持既有调用约定，不参与计算。 *)
   func 光子能量(E: Float, λ: Float) -> Float =
     (E, λ) => 6.626e-34 * 299792458 / λ
 
+  (* f = c/λ。 *)
   func 波长转频率(c: Float, λ: Float) -> Float =
     (c, λ) => c / λ
 
+  (* 斯涅尔定律 n1·sinθ1 = n2·sinθ2 → θ2 = asin(n1 sinθ1 / n2)。
+     n2 ≤ 0 无折射面口径；比值 > 1 即全反射，无透射角 → None。 *)
   func 斯涅尔折射角(n1: Float, θ1: Float) -> Float =
     (n1, θ1) =>
-    (n2) => asin(n1 * sin(θ1) / n2)
+    (n2) =>
+    if n2 <= 0 then None else 反正弦(n1 * sin(θ1) / n2)
 
+  (* 全反射临界角：sin θc = n2/n1（需 n1 > n2）；n1 ≤ 0 无介质口径 → None。 *)
   func 临界角(n1: Float, n2: Float) -> Float =
-    (n1, n2) => asin(n2 / n1)
+    (n1, n2) =>
+    if n1 <= 0 then None else 反正弦(n2 / n1)
 
+  (* 薄透镜 1/f = 1/u + 1/v → f = uv/(u+v)；u + v = 0（平行出射）无焦距口径 → None。 *)
   func 薄透镜焦距(u: Float, v: Float) -> Float =
-    (u, v) => u * v / (u + v)
+    (u, v) =>
+    if u + v = 0 then None else u * v / (u + v)
 
-  func 放大率(u: Float, v: Float) -> Float = (u, v) => -v / u
+  (* 横向放大率 m = −v/u（负号为实像倒立的符号约定）；u = 0 → 由除零守卫诚实报错。 *)
+  func 放大率(u: Float, v: Float) -> Float = (u, v) => 0 - v / u
+
+  (* 反正弦：sin 在 [-π/2, π/2] 单调递增，50 轮二分取主值；
+     |x| > 1 无实角 → None。 *)
+  func 反正弦(x: Float) -> Float =
+    (x) =>
+    if x < 0 - 1 or x > 1 then None
+    else 正弦二分(0 - 1.5707963267948966, 1.5707963267948966, x, 0)
+
+  func 正弦二分(lo, hi, x, k: Int) -> Float =
+    (lo, hi, x, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 角 = if k >= 50 then 中 else 正弦半区(lo, hi, 中, x, k)
+    角
+    }
+
+  func 正弦半区(lo, hi, 中, x, k: Int) -> Float =
+    (lo, hi, 中, x, k) =>
+    let 值 = sin(中) in
+    let 半区 = 值 < x ? [中, hi] : [lo, 中] in
+    let 角 = 正弦二分(半区[0], 半区[1], x, k + 1) in
+    角
 }

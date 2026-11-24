@@ -36,7 +36,7 @@ module 数据结构 {
   func 树高度(node: Any) -> Int =
     (node) =>
     if if node = None then 0 else None
-    else: 1 + max(树高度(node.左), 树高度(node.右))
+    else: 1 + max([树高度(node.左), 树高度(node.右)])
 
   func 树节点数(node: Any) -> Int =
     (node) =>

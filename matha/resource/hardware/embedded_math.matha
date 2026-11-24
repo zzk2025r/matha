@@ -91,9 +91,11 @@ module 嵌入式系统 {
     (items) => 0 (* 调用内置函数 功耗预算 *)
 
   (* ===== 典型应用：Arduino LED 控制 ===== *)
+  (* 口径：整数渲染走 str（三面同名内建）——旧体用 字符串（标准库名，本模块
+     无 use 面），三面皆「未定义变量」，函数从不可调用。 *)
   func LED控制(pin: Int, state: Int) -> String =
     (pin, state) =>
-    "LED控制: GPIO引脚" + 字符串(pin) + " " + if state = 1 then "点亮" else "熄灭"
+    "LED控制: GPIO引脚" + str(pin) + " " + if state = 1 then "点亮" else "熄灭"
 
   (* ===== 典型应用：PID 温度控制 ===== *)
   func PID控制(Kp: Float, Ki: Float, Kd: Float, 设定值: Float, 当前值: Float) -> Float =

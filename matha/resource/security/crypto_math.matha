@@ -74,9 +74,15 @@ module 安全密码 {
     }
 
   (* ===== 认证与授权 ===== *)
+  (* 键混合摘要：两轮 131 进制滚动散列（mod 1e9+7 / 1e9+9），密钥同时进入内外两轮。
+     口径：结构上是「密钥 + 盐 + 消息 → 内摘要 → 外摘要」，可判定密钥与消息的任一
+     改动；因 Matha 无位运算原语，未采用 RFC 2104 的 ipad/opad 块填充，散列原语也非
+     SHA 族，故不背书 HMAC 互操作性与密码学强度。 *)
   func HMAC哈希(密钥: String, 消息: String) -> String =
-    (* 简化：返回消息 *)
-    (密钥, 消息) => 消息
+    (密钥, 消息) => {
+      let 内 = 摘要(密钥 + "[inner]" + 消息 + 密钥, 1000000007)
+      str(摘要(密钥 + "[outer]" + str(内), 1000000009))
+    }
 
   func OAuth令牌有效期(创建时间: Int, 过期时间: Int, 当前时间: Int) -> Bool =
     (创建时间, 过期时间, 当前时间) =>
@@ -122,6 +128,38 @@ module 安全密码 {
     当前时间 >= 创建时间 and 当前时间 <= 过期时间
 
   (* ===== 密码强度 ===== *)
+  (* 字符扫描原语：按 ASCII 码区间判定字符类（ord + 单字符切片，三面同源） *)
+  func 码在区间(text: String, 低: Int, 高: Int) -> Bool =
+    (text, 低, 高) => {
+    let rec 走(i: Int) -> Bool =
+      (i) => if i >= len(text) then 假 else {
+        let c = ord(text[i:i+1])
+        if c >= 低 and c <= 高 then 真 else 走(i + 1)
+      }
+    走(0)
+  }
+
+  (* 存在既非字母数字也非空格的字符（特殊字符类 = 可打印杂类） *)
+  func 有杂类字符(text: String) -> Bool =
+    (text) => {
+    let rec 走(i: Int) -> Bool =
+      (i) => if i >= len(text) then 假 else {
+        let c = ord(text[i:i+1])
+        let 是字母数字 = (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122)
+        if 是字母数字 or c = 32 then 走(i + 1) else 真
+      }
+    走(0)
+  }
+
+  (* 滚动散列：acc = (acc * 131 + ord(c)) mod 模数，种子 7；纯整数路径，三面同值 *)
+  func 摘要(串: String, 模数: Int) -> Int =
+    (串, 模数) => {
+    let rec 走(i: Int, acc: Int) -> Int =
+      (i, acc) => if i >= len(串) then acc
+      else 走(i + 1, (acc * 131 + ord(串[i:i+1])) % 模数)
+    走(0, 7)
+  }
+
   func 密码强度评分(密码: String) -> Int =
     (* 基于长度、字符种类 *)
     (密码) => {
@@ -134,16 +172,16 @@ module 安全密码 {
     }
 
   func 密码包含大写字母(text: String) -> Bool =
-    (text) => false  (* 简化 *)
+    (text) => 码在区间(text, 65, 90)
 
   func 密码包含小写字母(text: String) -> Bool =
-    (text) => false  (* 简化 *)
+    (text) => 码在区间(text, 97, 122)
 
   func 密码包含数字(text: String) -> Bool =
-    (text) => false  (* 简化 *)
+    (text) => 码在区间(text, 48, 57)
 
   func 密码包含特殊字符(text: String) -> Bool =
-    (text) => false  (* 简化 *)
+    (text) => 有杂类字符(text)
 
   func 浮点(n: Int) -> Float = (n) => n * 1.0
 }

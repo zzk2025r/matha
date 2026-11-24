@@ -1,11 +1,30 @@
 (* 资源库：统计分析
    覆盖：描述统计、概率分布、回归分析、假设检验
-   ============================================================ *)
+   ============================================================
+
+   阶段 41d 口径（三面同判：宿主解释面 / VM 面 / 纯 Matha 自举链面）：
+   1. 无定义读数一律 None，不再伪造 0 读数，也不再让载体异常裸奔——
+      空表均值·方差·极差·中位数、负方差开方、协方差空表、相关系数零方差、
+      回归零分母、二项分布越界参数（n ≤ 0 / k ∉ [0,n] / p ∉ [0,1]）。
+   2. 中位数旧式写作 sorted[n/2]——Matha 的 / 恒为浮点除（3 / 2 = 1.5），
+      列表下标只吃整数，故三面皆「索引操作不支持: list[1.5]」，该函数从不可用
+      （恒失败，非近似）。现改整除 //，并补空表 None。
+   3. 组合数写成局部连乘 ∏(n−k+i)/i——链面注册内建无 组合数（宿主/VM 面由
+      Python 域内建注入），旧体在链面恒「未定义变量 '组合数'」。
+   4. 复制列表 旧式直接回传同一列表（名为复制、实无复制），使 排序 的冒泡原地
+      交换泄漏到调用方；现改为逐元素重建。
+   5. 块内形态约束：`let … in` 链与语句形 let rec 混写时链面 in 体只吃到该声明
+      为止，兄弟语句丢名并把整数当列表传下去（协方差旧体即此形，链面报
+      「object of type 'int' has no len()」）——块内统一语句形 let。
+   6. 指数一律写成 2.718281828459045 ^ x（链面注册内建无 exp）；本文件 π 取
+      3.14159 近似口径（正态密度归一化系数相对误差 ~1e-6）。
+   7. 两表长度不等时按 min(len) 截断（求和乘积·协方差·相关系数·回归同口径），
+      分母亦按截断长度，避免下标越界与量纲不符。 *)
 
 module 统计分析 {
 
   func 平均值(数据: List) -> Float = (数据) =>
-    求和(数据) / len(数据)
+    if len(数据) = 0 then None else 求和(数据) / len(数据)
 
   func 求和(数据: List) -> Float = (数据) => {
     let rec s(i: Int, acc: Float) -> Float =
@@ -13,35 +32,57 @@ module 统计分析 {
     s(0, 0)
     }
 
-  func 中位数(数据: List) -> Float = (数据) =>
-    let sorted = 排序(数据) in
-    let n = len(sorted) in
-    (n % 2 = 0) ? (sorted[n/2-1] + sorted[n/2]) / 2 : sorted[n/2]
-
-  func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) => {
-    let rec s(i: Int, acc: Float) -> Float =
-    (i, acc) => (i >= len(数据)) ? acc :
-        s(i+1, acc + (数据[i] - 均值)^2)
-    s(0, 0) / len(数据)
+  func 中位数(数据: List) -> Float = (数据) => {
+    let sorted = 排序(数据)
+    let n = len(sorted)
+    let 中 = n // 2
+    let 结果 =
+      if n = 0 then None
+      else if n % 2 = 0 then (sorted[中 - 1] + sorted[中]) / 2
+      else sorted[中]
+    结果
     }
 
-  func 标准差(方差: Float) -> Float = (方差) => 开方(方差)
+  func 方差(均值: Float, 数据: List) -> Float = (均值, 数据) =>
+    let n = len(数据) in
+    if n = 0 then None else 离均平方和(均值, 数据, n) / n
+
+  (* 离均平方和 Σ(数据[i] − 均值)²，只累加前 n 项（截断口径见文件头 7）。 *)
+  func 离均平方和(均值: Float, 数据: List, n: Int) -> Float = (均值, 数据, n) => {
+    let rec s(i: Int, acc: Float) -> Float =
+    (i, acc) => (i >= n) ? acc : s(i+1, acc + (数据[i] - 均值)^2)
+    s(0, 0)
+    }
+
+  (* 标准差 √方差：方差为负无实数口径 → None（旧式落进 math domain error）。
+     非数值入参不提前拦下比较，而是透传给 sqrt 落「must be real number」——
+     直接对入参写 方差 < 0 会让 List/String 撞上三面异类的比较异常（载体差异），
+     故先按 type_of 分派，非数值恒判「非负」。 *)
+  func 标准差(方差: Float) -> Float = (方差) =>
+    if 是负数(方差) then None else sqrt(方差)
+
+  func 是负数(v) -> Bool = (v) =>
+    if type_of(v) == "Int" then v < 0
+    else if type_of(v) == "Float" then v < 0
+    else 假
 
   func 极差(数据: List) -> Float = (数据) =>
-    最大值(数据) - 最小值(数据)
+    if len(数据) = 0 then None else 最大值(数据) - 最小值(数据)
 
   func 最大值(数据: List) -> Float = (数据) => {
     let rec max(i: Int, acc: Float) -> Float =
     (i, acc) => (i >= len(数据)) ? acc :
         max(i+1, if 数据[i] > acc then 数据[i] else acc)
-    max(0, 数据[0])
+    let 结果 = if len(数据) = 0 then None else max(0, 数据[0])
+    结果
     }
 
   func 最小值(数据: List) -> Float = (数据) => {
     let rec min(i: Int, acc: Float) -> Float =
     (i, acc) => (i >= len(数据)) ? acc :
         min(i+1, if 数据[i] < acc then 数据[i] else acc)
-    min(0, 数据[0])
+    let 结果 = if len(数据) = 0 then None else min(0, 数据[0])
+    结果
     }
 
   func 排序(数据: List) -> List = (数据) => {
@@ -63,41 +104,71 @@ module 统计分析 {
     result
   }
 
-  func 复制列表(lst: List) -> List = (lst) => lst
-
-  func 协方差(x: List, y: List) -> Float =
-    (x, y) => {
-    let nx = len(x) in
-    let mx = 平均值(x) in
-    let my = 平均值(y) in
-    let rec sum(i: Int, acc: Float) -> Float =
-    (i, acc) =>
-        (i >= nx) ? acc :
-        sum(i+1, acc + (x[i] - mx) * (y[i] - my))
-    sum(0, 0) / nx
+  (* 逐元素重建的真复制（旧式 (lst) => lst 回传同一列表——排序 的原地交换
+     会写坏调用方的表）。 *)
+  func 复制列表(lst: List) -> List =
+    (lst) => {
+    let rec 拷(i: Int, acc: List) -> List =
+    (i, acc) => (i >= len(lst)) ? acc : 拷(i + 1, acc + [lst[i]])
+    拷(0, [])
     }
 
+  func 协方差(x: List, y: List) -> Float =
+    (x, y) =>
+    let n = min([len(x), len(y)]) in
+    if n = 0 then None else 协方差按均值(x, y, n, 平均值(x), 平均值(y))
+
+  (* Σ(xᵢ−x̄)(yᵢ−ȳ)/n，累加前 n 项；空表 → None（旧式按 len(x) 单侧，
+     y 短即下标越界，且块内 in-链 + 语句形 let rec 在链面串参）。 *)
+  func 协方差按均值(x: List, y: List, n: Int, mx: Float, my: Float) -> Float =
+    (x, y, n, mx, my) => {
+    let rec s(i: Int, acc: Float) -> Float =
+    (i, acc) =>
+        (i >= n) ? acc : s(i+1, acc + (x[i] - mx) * (y[i] - my))
+    s(0, 0) / n
+    }
+
+  (* Pearson 相关系数：零方差（常量表）无定义 → None（旧式伪造 0 读数）。 *)
   func 相关系数(x: List, y: List) -> Float =
     (x, y) =>
-    let cx = 协方差(x, y) in
-    let sx = 标准差(方差(平均值(x), x)) in
-    let sy = 标准差(方差(平均值(y), y)) in
-    (sx = 0 or sy = 0) ? 0 : cx / (sx * sy)
+    let n = min([len(x), len(y)]) in
+    if n = 0 then None else 相关系数按均值(x, y, n, 平均值(x), 平均值(y))
 
+  func 相关系数按均值(x: List, y: List, n: Int, mx: Float, my: Float) -> Float =
+    (x, y, n, mx, my) =>
+    let sx = sqrt(离均平方和(mx, x, n) / n) in
+    let sy = sqrt(离均平方和(my, y, n) / n) in
+    if sx = 0 then None
+    else if sy = 0 then None
+    else 协方差按均值(x, y, n, mx, my) / (sx * sy)
+
+  (* 最小二乘斜率 (n·Σxy − Σx·Σy)/(n·Σx² − (Σx)²)，前 n 项同口径截断。
+     分母为 0（x 全相同）无唯一直线 → None；旧式先算后除，恒落除零崩溃。 *)
   func 线性回归斜率(x: List, y: List) -> Float =
     (x, y) =>
-    let n = len(x) in
-    let sx = 求和(x) in
-    let sy = 求和(y) in
-    let sxy = 求和乘积(x, y) in
-    let sxx = 求和(各元素平方(x)) in
-    (n * sxy - sx * sy) / (n * sxx - sx * sx)
+    let n = min([len(x), len(y)]) in
+    if n = 0 then None else 斜率按长(x, y, n)
+
+  func 斜率按长(x: List, y: List, n: Int) -> Float =
+    (x, y, n) => {
+    let rec 累(i: Int, sx: Float, sy: Float, sxy: Float, sxx: Float) -> Float =
+    (i, sx, sy, sxy, sxx) =>
+      if i >= n then 斜率收尾(n, sx, sy, sxy, sxx)
+      else 累(i + 1, sx + x[i], sy + y[i], sxy + x[i] * y[i], sxx + x[i]^2)
+    累(0, 0.0, 0.0, 0.0, 0.0)
+    }
+
+  func 斜率收尾(n: Int, sx: Float, sy: Float, sxy: Float, sxx: Float) -> Float =
+    (n, sx, sy, sxy, sxx) =>
+    let 分母 = n * sxx - sx * sx in
+    if 分母 = 0 then None else (n * sxy - sx * sy) / 分母
 
   func 求和乘积(a: List, b: List) -> Float =
     (a, b) => {
-    let rec sum(i: Int, acc: Float) -> Float =
-    (i, acc) => (i >= len(a)) ? acc : sum(i+1, acc + a[i] * b[i])
-    sum(0, 0)
+    let n = min([len(a), len(b)])
+    let rec s(i: Int, acc: Float) -> Float =
+    (i, acc) => (i >= n) ? acc : s(i+1, acc + a[i] * b[i])
+    s(0, 0)
     }
 
   func 各元素平方(data: List) -> List =
@@ -108,11 +179,32 @@ module 统计分析 {
     sq(0, [])
     }
 
+  (* 二项分布 P(X=k) = C(n,k)·p^k·(1−p)^(n−k)。
+     组合数 局部连乘 ∏_{i=1..k}(n−k+i)/i（链面注册内建无 组合数，旧体恒
+     「未定义变量 '组合数'」）；n ≤ 0、k ∉ [0,n]、p ∉ [0,1] 无分布口径 → None。 *)
   func 二项分布概率(k: Int, n: Int, p: Float) -> Float =
     (k, n, p) =>
-    组合数(n)(k) * p ^ k * (1 - p) ^ (n - k)
+    if n <= 0 then None
+    else if k < 0 then None
+    else if k > n then None
+    else if p < 0 then None
+    else if p > 1 then None
+    else 组合数按连乘(n, k) * p ^ k * (1 - p) ^ (n - k)
 
+  func 组合数按连乘(n: Int, k: Int) -> Float =
+    (n, k) => {
+    let rec 累乘(i: Int, acc: Float) -> Float =
+    (i, acc) => if i > k then acc else 累乘(i + 1, acc * (n - k + i) / i)
+    累乘(1, 1.0)
+    }
+
+  (* 正态概率密度 f(x) = (1/(σ√(2π)))·e^(−(x−μ)²/(2σ²))，μ 为均值、σ 为标准差。
+     口径：σ ≤ 0 无分布口径 → None（旧式先做 σ² 除法，σ=0 直接落进除零崩溃）；
+     指数写成 2.718281828459045 ^ e——链面注册内建无 exp，旧式在链面从不可调用；
+     归一化系数里的 π 沿用本文件 3.14159 近似口径（密度相对误差 ~1e-6）。 *)
   func 正态概率密度(x: Float, μ: Float, σ: Float) -> Float =
     (x, μ, σ) =>
-    (1 / (σ * 开方(2 * 3.14159))) * exp(-(x - μ)^2 / (2 * σ * σ))
+    if σ <= 0 then None
+    else (1 / (σ * sqrt(2 * 3.14159))) *
+         (2.718281828459045 ^ ((0 - (x - μ) ^ 2) / (2 * σ * σ)))
 }

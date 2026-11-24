@@ -1,5 +1,9 @@
 (* 资源库：指数与对数
    覆盖：指数运算、对数性质、复利
+   ============================================================
+   口径（阶段 41 真化批）：链面注册内建只给自然对数 log——log10 / log2 旧式在
+   链面恒「未定义变量」，函数从不可调用，现统一换底为 log(x)/log(底)。
+   定义域：x ≤ 0 对数无定义，由对数内建三面同文案诚实报错，不预设哨兵。
    ============================================================ *)
 
 module 指数对数 {
@@ -8,8 +12,9 @@ module 指数对数 {
     (base, exp) => base ^ exp
 
   func 自然对数(x: Float) -> Float = (x) => log(x)
-  func 常用对数(x: Float) -> Float = (x) => log10(x)
-  func 二进制对数(x: Float) -> Float = (x) => log2(x)
+  (* 换底：log₁₀x = ln x / ln 10，log₂x = ln x / ln 2。 *)
+  func 常用对数(x: Float) -> Float = (x) => log(x) / log(10.0)
+  func 二进制对数(x: Float) -> Float = (x) => log(x) / log(2.0)
 
   func 对数乘法(log_a: Float, log_b: Float) -> Float =
     (log_a, log_b) => log_a + log_b

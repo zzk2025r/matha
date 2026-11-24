@@ -19,33 +19,112 @@ module 文件系统 {
     (传输速率 = 0) ? 0 : 数据量 / 传输速率
 
   (* ===== 磁盘调度 ===== *)
+  (* 三口径共用范围：低 = 请求最小柱面，高 = 请求最大柱面（磁盘最大柱面未列入参，
+     故以请求范围为可达范围）；平均寻道 = 总移动量 / 请求条数，空序列取 0.0。
+     旧桩恒返 浮点(len(请求序列))——把请求条数当磁道移动量，量纲与数值皆错，故真化。 *)
+
+  (* SSTF：每步取距当前头位置最近者（等距取序列靠前者），累加移动量。 *)
   func SSTF平均寻道(请求序列: List, 起始柱面: Int) -> Float =
     (请求序列, 起始柱面) =>
-    (* 简化：返回序列长度 *)
-    浮点(len(请求序列))
+    if len(请求序列) = 0 then 0.0 else SSTF总移动(请求序列, 起始柱面) / len(请求序列)
 
+  func SSTF总移动(请求序列: List, 起始柱面: Int) -> Int =
+    (请求序列, 起始柱面) => {
+    let rec 最近(剩: List, 头: Int, i: Int, 最佳i: Int, 最佳距: Int) -> List =
+    (剩, 头, i, 最佳i, 最佳距) =>
+      if i >= len(剩) then [最佳i, 最佳距]
+      else if abs(剩[i] - 头) < 最佳距 then 最近(剩, 头, i + 1, i, abs(剩[i] - 头))
+      else 最近(剩, 头, i + 1, 最佳i, 最佳距)
+    let rec 去第(剩: List, 删: Int, k: Int) -> List =
+    (剩, 删, k) =>
+      if k >= len(剩) then []
+      else if k = 删 then 去第(剩, 删, k + 1)
+      else [剩[k]] + 去第(剩, 删, k + 1)
+    let rec 步(头: Int, 剩: List, 累计: Int) -> Int =
+    (头, 剩, 累计) =>
+      if len(剩) = 0 then 累计
+      else 落(剩, 最近(剩, 头, 0, 0, abs(剩[0] - 头)), 累计)
+    let rec 落(剩: List, m: List, 累计: Int) -> Int =
+    (剩, m, 累计) => 步(剩[m[0]], 去第(剩, m[0], 0), 累计 + m[1])
+    步(起始柱面, 请求序列, 0)
+    }
+
+  (* SCAN（电梯）：先沿 方向 服务到该侧末端，再折返服务另一侧；
+     方向 = "down" 时向下优先，其余值按向上。 *)
   func SCAN平均寻道(请求序列: List, 起始柱面: Int, 方向: String) -> Float =
     (请求序列, 起始柱面, 方向) =>
-    (* 简化实现 *)
-    浮点(len(请求序列))
+    if len(请求序列) = 0 then 0.0 else SCAN总移动(请求序列, 起始柱面, 方向) / len(请求序列)
 
+  func SCAN总移动(请求序列: List, 起始柱面: Int, 方向: String) -> Int =
+    (请求序列, 起始柱面, 方向) => {
+    let 低 = 柱面最小(请求序列)
+    let 高 = 柱面最大(请求序列)
+    let 上侧 = 高 >= 起始柱面
+    let 下侧 = 低 < 起始柱面
+    let 先降 = 方向 = "down"
+    let 段1 = if 先降 then (if 下侧 then 起始柱面 - 低 else 0) else (if 上侧 then 高 - 起始柱面 else 0)
+    let 段2 = if 先降 then (if 上侧 then 高 - (if 下侧 then 低 else 起始柱面) else 0) else (if 下侧 then (if 上侧 then 高 else 起始柱面) - 低 else 0)
+    段1 + 段2
+    }
+
+  (* C-SCAN：单向服务 + 回绕。上侧腿 高 − 起始（上侧非空）；
+     下侧存在时另计回绕腿（上侧非空取 高 − 低，否则取 起始 − 低）与下侧腿 下侧最大 − 低。 *)
   func C_SCAN平均寻道(请求序列: List, 起始柱面: Int) -> Float =
     (请求序列, 起始柱面) =>
-    (* 简化实现 *)
-    浮点(len(请求序列))
+    if len(请求序列) = 0 then 0.0 else C_SCAN总移动(请求序列, 起始柱面) / len(请求序列)
+
+  func C_SCAN总移动(请求序列: List, 起始柱面: Int) -> Int =
+    (请求序列, 起始柱面) => {
+    let 低 = 柱面最小(请求序列)
+    let 高 = 柱面最大(请求序列)
+    let 上侧 = 高 >= 起始柱面
+    let 下侧 = 低 < 起始柱面
+    let 上侧腿 = if 上侧 then 高 - 起始柱面 else 0
+    let 回绕腿 = if 下侧 then (if 上侧 then 高 - 低 else 起始柱面 - 低) else 0
+    let 下侧腿 = if 下侧 then 下侧最大(请求序列, 起始柱面) - 低 else 0
+    上侧腿 + 回绕腿 + 下侧腿
+    }
+
+  (* 请求柱面范围（调用方保证非空）：空序列取 [0] 会越界，故只在非空分支下调用。 *)
+  func 柱面最小(请求序列: List) -> Int =
+    (请求序列) => {
+    let rec 走(i: Int, 最佳: Int) -> Int =
+    (i, 最佳) =>
+      if i >= len(请求序列) then 最佳 else 走(i + 1, min([最佳, 请求序列[i]]))
+    走(0, 请求序列[0])
+    }
+
+  func 柱面最大(请求序列: List) -> Int =
+    (请求序列) => {
+    let rec 走(i: Int, 最佳: Int) -> Int =
+    (i, 最佳) =>
+      if i >= len(请求序列) then 最佳 else 走(i + 1, max([最佳, 请求序列[i]]))
+    走(0, 请求序列[0])
+    }
+
+  (* 小于 起始柱面 的请求中的最大者；无上侧候选时以全局最小起算（调用方保证下侧非空）。 *)
+  func 下侧最大(请求序列: List, 起始柱面: Int) -> Int =
+    (请求序列, 起始柱面) => {
+    let rec 走(i: Int, 最佳: Int) -> Int =
+    (i, 最佳) =>
+      if i >= len(请求序列) then 最佳
+      else 走(i + 1, if 请求序列[i] < 起始柱面 then max([最佳, 请求序列[i]]) else 最佳)
+    走(0, 柱面最小(请求序列))
+    }
 
   (* ===== inode 索引 ===== *)
+  (* 块数为整数计数，旧式 "/" 真除法产出浮点（Int 声明名不副实）——改整除 "//"。 *)
   func inode直接块数() -> Int =
     () => 12
 
   func inode一级间接块数(块大小: Int) -> Int =
-    (块大小) => 块大小 / 4
+    (块大小) => 块大小 // 4
 
   func inode二级间接块数(块大小: Int) -> Int =
-    (块大小) => (块大小 / 4) * (块大小 / 4)
+    (块大小) => (块大小 // 4) * (块大小 // 4)
 
   func inode三级间接块数(块大小: Int) -> Int =
-    (块大小) => (块大小 / 4) * (块大小 / 4) * (块大小 / 4)
+    (块大小) => (块大小 // 4) * (块大小 // 4) * (块大小 // 4)
 
   func inode最大文件尺寸(块大小: Int) -> Int =
     (块大小) =>
@@ -59,62 +138,91 @@ module 文件系统 {
     (块偏移, 块大小) => 块偏移 * 块大小
 
   (* ===== FAT 文件系统 ===== *)
+  (* 表项数为整数计数（改整除）；簇大小 0 时旧式真除法崩，跨面无一致抛错原语，记 0。 *)
   func FAT表项数(磁盘大小: Int, 簇大小: Int) -> Int =
-    (磁盘大小, 簇大小) => 磁盘大小 / 簇大小
+    (磁盘大小, 簇大小) => (簇大小 = 0) ? 0 : 磁盘大小 // 簇大小
 
   func FAT链长度(最大链长: Int) -> Int =
     (最大链长) => 最大链长
 
   (* ===== 目录树 ===== *)
+  (* 纯 Matha 切分（单字符分隔符）：旧式 s.split(sep) 只有宿主面可跑，
+     VM 面报「string indices must be integers」、链面报「属性访问失败: String.split」——
+     故改为切片 + 拼接自实现。口径同宿主 split：空串得 [""]，尾部分隔符产生空尾段。 *)
+  func 按分隔切分(s: String, sep: String) -> List =
+    (s, sep) => {
+    let n = len(s)
+    let rec 段(i: Int, acc: String, out: List) -> List =
+    (i, acc, out) =>
+      if i >= n then out + [acc]
+      else if s[i:i+1] = sep then 段(i + 1, "", out + [acc])
+      else 段(i + 1, acc + s[i:i+1], out)
+    段(0, "", [])
+    }
+
+  (* 简化路径模型：以 "/" 分隔，深度 = 段数 − 1（绝对路径首空段计入）。 *)
   func 目录深度(path: String) -> Int =
-    (path) =>
-    let parts = path.split("/") in
+    (path) => {
+    let parts = 按分隔切分(path, "/")
     len(parts) - 1
+    }
 
   func 文件名(path: String) -> String =
-    (path) =>
-    let parts = path.split("/") in
+    (path) => {
+    let parts = 按分隔切分(path, "/")
     parts[len(parts) - 1]
+    }
 
+  (* 父目录：单段路径按 "/"；多段但父段全为空段（如 "/a"）亦归 "/"。
+     旧形 `if if len(parts) <= 1 then "/" else None` 外层测值不测条件，
+     恒落 join 分支并越过末尾取段。 *)
   func 目录名(path: String) -> String =
-    (path) =>
-    let parts = path.split("/") in
-    if if len(parts) <= 1 then "/" else None
-    else: join(parts[0:len(parts)-1], "/")
+    (path) => {
+    let parts = 按分隔切分(path, "/")
+    let 前缀 = join(parts[0:len(parts) - 1], "/")
+    if len(parts) <= 1 then "/" else if 前缀 = "" then "/" else 前缀
+    }
 
+  (* 合法 = 非空串（旧式 `path[0] != ""` 对任何非空串恒真，且 and 在链面不短路，
+     空串会先取 [0] 而崩——改为三元短路形；口径仍为「非空」近似）。 *)
   func 路径合法(path: String) -> Bool =
-    (path) => len(path) > 0 and path[0] != ""
+    (path) => if len(path) > 0 then path[0] != "" else 假
 
   (* ===== 软链接 ===== *)
   func 软链接跳数(link_chain: List) -> Int =
     (link_chain) => len(link_chain)
 
+  (* 链上出现重复结点 ⇒ 环形链接。旧体调用未注册的中缀名 `visited包含`（三面未定义变量）。 *)
   func 软链接循环检测(link_chain: List) -> Bool =
     (link_chain) => {
     let rec has_cycle(i: Int, visited: List) -> Bool =
     (i, visited) =>
-        if if i >= len(link_chain) then 假 else None
-        elif visited包含(link_chain[i]): 真
-        else: has_cycle(i + 1, visited + [link_chain[i]])
+        if i >= len(link_chain) then 假
+        else if 列表包含(visited, link_chain[i]) then 真
+        else has_cycle(i + 1, visited + [link_chain[i]])
     has_cycle(0, [])
     }
 
-  func 列表包含(lst: List, item: Int) -> Bool =
+  (* 旧签名把 item 标成 Int，而 软链接循环检测 传入字符串——去标注以如实接受任意同型元素；
+     守卫同为测值形，一并改为 then 形。 *)
+  func 列表包含(lst: List, item) -> Bool =
     (lst, item) => {
     let rec check(i: Int) -> Bool =
     (i) =>
-        if if i >= len(lst) then 假 else None
-        elif lst[i] = item: 真
-        else: check(i + 1)
+        if i >= len(lst) then 假
+        else if lst[i] = item then 真
+        else check(i + 1)
     check(0)
     }
 
+  (* 以 sep 连接列表元素（空列表 ⇒ 空串）。旧形测值不测条件：
+     result 初值 "" 为假值，守卫永不命中，递归越过末尾下标。 *)
   func join(lst: List, sep: String) -> String =
     (lst, sep) => {
     let rec build(i: Int, result: String) -> String =
     (i, result) =>
-        if if i >= len(lst) then result else None
-        else: build(i + 1, result + (if i > 0 then sep else "") + str(lst[i]))
+        if i >= len(lst) then result
+        else build(i + 1, result + (if i > 0 then sep else "") + str(lst[i]))
     build(0, "")
     }
 

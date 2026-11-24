@@ -1,123 +1,250 @@
 (* 资源库：金融数学进阶
-   覆盖：期权定价(Black-Scholes)、风险评估、投资组合
+   覆盖：期权定价(Black-Scholes)、风险评估、投资组合、连续复利与内部收益率
+
+   三面共口径（宿主解释 / 编译 VM / 链面自举解释）：
+   1) 指数一律写成 2.718281828459045 ^ x——链面注册内建不含 exp/asin/atan2，
+      旧体用 exp 在链面直接「未定义变量」，故改走三面同判的 ^ 幂运算。
+   2) 旧体多处 `if if 条件 then 值 else None` / `elif …:` 形态在无匹配分支时静默返回 None
+      （实测 投资组合收益、方差_投资组合、标准差、正态分位数 皆恒返 None），属假成功；
+      本批全部改为可判定分支的真实现，并纠正 Φ 与 erf 的关系。
+   3) 表参数（权重/收益/波动率/相关系数）按维度齐长，越界由下标守卫诚实报错，不补零。
    ============================================================ *)
 
 module 金融进阶 {
 
-  (* ===== Black-Scholes 期权定价 ===== *)
-  func 正态累积分布(x: Float) -> Float =
-    (x) =>
-    let a1 = 0.254829592 in
-    let a2 = -0.284496736 in
-    let a3 = 1.421413741 in
-    let a4 = -1.453152027 in
-    let a5 = 1.061405429 in
-    let p = 0.3275911 in
-    let sign = if x < 0 then -1.0 else 1.0 in
-    let ax = 绝对值(x) in
-    let t = 1.0 / (1.0 + p * ax) in
-    let y = 1.0 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * exp(-ax*ax) in
-    sign * y
-
-  func BlackScholes_看涨(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
-    (S, K, T, r, σ) =>
-    if if σ = 0 or T = 0 then max(S - K, 0) else None
-    else:
-      let d1 = (log(S/K) + (r + σ*σ/2) * T) / (σ * 开方(T)) in
-      let d2 = d1 - σ * 开方(T) in
-      S * 正态累积分布(d1) - K * exp(-r*T) * 正态累积分布(d2)
-
-  func BlackScholes_看跌(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
-    (S, K, T, r, σ) =>
-    BlackScholes_看涨(S, K, T, r, σ) - S + K * exp(-r*T)
-
-  (* ===== 风险评估 ===== *)
-  func 方差_投资组合(权重: List, 波动率: List, 相关系数: List) -> Float =
-    (权重, 波动率, 相关系数) => {
-    let n = len(权重) in
-    let rec sum(i: Int, j: Int, acc: Float) -> Float =
-    (i, j, acc) =>
-        if if i >= n then acc else None
-        elif j >= n: sum(i + 1, i + 1, acc)
-        else:
-          let cov = 波动率[i] * 波动率[j] * (if i = j then 1.0 else 相关系数[i*n+j]) in
-          sum(i, j + 1, acc + 权重[i] * 权重[j] * cov)
-    sum(0, 0, 0)
+  (* ===== 正态分布 ===== *)
+  (* 误差函数 erf(z)（Abramowitz & Stegun 7.1.26，|ε| ≤ 1.5e-7），z 须 ≥ 0；
+     奇延拓由调用方按符号处理。 *)
+  func 误差函数(z) -> Float =
+    (z) => {
+    let a1 = 0.254829592
+    let a2 = -0.284496736
+    let a3 = 1.421413741
+    let a4 = -1.453152027
+    let a5 = 1.061405429
+    let p = 0.3275911
+    let t = 1.0 / (1.0 + p * z)
+    let 多项 = ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t
+    let e项 = 2.718281828459045 ^ (-z * z)
+    1.0 - 多项 * e项
     }
 
-  func VaR_参数法(组合价值: Float, 置信水平: Float, 日波动率: Float) -> Float =
-    (组合价值, 置信水平, 日波动率) =>
-    let z = 正态分位数(置信水平) in
-    组合价值 * z * 日波动率
+  (* 标准正态累积分布 Φ(x) = 0.5 × (1 + erf(x / √2))。
+     旧体把 erf 直接当作 Φ 返回（实测 Φ(0) = 1e-9 而非 0.5），Black-Scholes 全链随之偏离，故纠正。 *)
+  func 正态累积分布(x: Float) -> Float =
+    (x) => {
+    let 符号 = if x < 0 then -1.0 else 1.0
+    let 幅 = abs(x) / 1.4142135623730951
+    let erf幅 = 误差函数(幅)
+    0.5 * (1.0 + 符号 * erf幅)
+    }
 
+  (* 上尾分位数 z_p（A&S 26.2.23，|ε| < 4.5e-4），定义域 p ∈ (0, 1)：
+     p < 0.5 借对称性取负、p = 0.5 → 0.0。
+     越界（p ≤ 0 或 p ≥ 1）时 1 − p ≤ 0 使 log 取非正、z 无有限值 → None。
+     旧体把越界透给 math 落 Python「ValueError: expected a positive input」，
+     属载体异常泄漏而非本层口径（与本文件 标准差 n ≤ 1 → 0.0 的显式边界不同族），
+     故改为先判域再算；守卫置于对称分支之前，p = 0 不会被递归绕到 p = 1。 *)
   func 正态分位数(p: Float) -> Float =
     (p) =>
-    if if p < 0.5 then -正态分位数(1.0 - p) else None
-    elif p = 0.5: 0.0
-    else:
-      let t = 开方(-2.0 * log(1.0 - p)) in
-      let c0 = 2.515517 in
-      let c1 = 0.802853 in
-      let c2 = 0.010328 in
-      let d1 = 1.432788 in
-      let d2 = 0.189269 in
-      let d3 = 0.001308 in
-      t - (c0 + c1*t + c2*t*t) / (1.0 + d1*t + d2*t*t + d3*t*t*t)
+      if p <= 0 then None
+      else if p >= 1 then None
+      else if p < 0.5 then (0.0 - 正态分位数(1.0 - p))
+      else if p = 0.5 then 0.0
+      else 上尾(p)
 
-  (* ===== 投资组合 ===== *)
-  func 投资组合收益(权重: List, 收益: List) -> Float =
-    (权重, 收益) => {
-    let rec sum(i: Int, acc: Float) -> Float =
-    (i, acc) =>
-        if if i >= len(权重) then acc else None
-        else: sum(i + 1, acc + 权重[i] * 收益[i])
-    sum(0, 0)
+  func 上尾(p: Float) -> Float =
+    (p) => {
+    let t = sqrt(-2.0 * log(1.0 - p))
+    let c0 = 2.515517
+    let c1 = 0.802853
+    let c2 = 0.010328
+    let d1 = 1.432788
+    let d2 = 0.189269
+    let d3 = 0.001308
+    t - (c0 + c1 * t + c2 * t * t) / (1.0 + d1 * t + d2 * t * t + d3 * t * t * t)
     }
 
+  (* ===== Black-Scholes 期权定价 ===== *)
+  (* 欧式看涨：S 标的价、K 执行价、T 年到期时间、r 无风险利率、σ 年化波动率。
+     退化口径：σ ≤ 0 或 T ≤ 0 时波动与时间价值皆不存在 → 内在价值 max(S − K, 0)。
+     S 或 K ≤ 0 使 log(S/K) 越定义域 → 诚实报错。 *)
+  func BlackScholes_看涨(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
+    (S, K, T, r, σ) => {
+    let 退化 = (σ <= 0) or (T <= 0)
+    let 保底 = max([S - K, 0])
+    let r1 = if 退化 then 保底 else BS定价(S, K, T, r, σ)
+    r1
+    }
+
+  (* BS 原始公式体，仅 T > 0 且 σ > 0 有定义（σ·√T 是分母）。
+     定义域守卫在其门面 BlackScholes_看涨 处完成（退化 → 内在价值），
+     直接以 T ≤ 0 或 σ ≤ 0 调用本助手属越界使用，落除零错误而非返回值。 *)
+  func BS定价(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
+    (S, K, T, r, σ) => {
+    let 根T = sqrt(T)
+    let d1 = (log(S / K) + (r + σ * σ / 2.0) * T) / (σ * 根T)
+    let d2 = d1 - σ * 根T
+    let 折现K = K * (2.718281828459045 ^ (-r * T))
+    S * 正态累积分布(d1) - 折现K * 正态累积分布(d2)
+    }
+
+  (* 欧式看跌：put-call parity C − P = S − K·e^(−rT) ⇒ P = C − S + K·e^(−rT)。 *)
+  func BlackScholes_看跌(S: Float, K: Float, T: Float, r: Float, σ: Float) -> Float =
+    (S, K, T, r, σ) => {
+    let 折现K = K * (2.718281828459045 ^ (-r * T))
+    BlackScholes_看涨(S, K, T, r, σ) - S + 折现K
+    }
+
+  (* ===== 风险评估 ===== *)
+  (* 组合方差 = Σᵢ Σⱼ wᵢ wⱼ σᵢ σⱼ ρᵢⱼ；相关系数 是 n×n 行主序展平表，对角恒取 1。 *)
+  func 方差_投资组合(权重: List, 波动率: List, 相关系数: List) -> Float =
+    (权重, 波动率, 相关系数) => 行累加(权重, 波动率, 相关系数, len(权重), 0)
+
+  func 行累加(权重: List, 波动率: List, 相关系数: List, n: Int, i: Int) -> Float =
+    (权重, 波动率, 相关系数, n, i) =>
+      if i >= n then 0.0 else 列累加(权重, 波动率, 相关系数, n, i, 0) + 行累加(权重, 波动率, 相关系数, n, i + 1)
+
+  func 列累加(权重: List, 波动率: List, 相关系数: List, n: Int, i: Int, j: Int) -> Float =
+    (权重, 波动率, 相关系数, n, i, j) =>
+      if j >= n then 0.0 else 协方差项(权重, 波动率, 相关系数, n, i, j) + 列累加(权重, 波动率, 相关系数, n, i, j + 1)
+
+  func 协方差项(权重: List, 波动率: List, 相关系数: List, n: Int, i: Int, j: Int) -> Float =
+    (权重, 波动率, 相关系数, n, i, j) => {
+    let ρ = if i = j then 1.0 else 相关系数[i * n + j]
+    let r = 权重[i] * 权重[j] * 波动率[i] * 波动率[j] * ρ
+    r
+    }
+
+  (* 参数法 VaR（单日、正态假设）：组合价值 × z(置信水平) × 日波动率。
+     置信水平 ∉ (0, 1) 时 z 无有限值 → None（在门面处拦下，不让 None 落进
+     乘法产生跨面异类的操作数类型错误）。 *)
+  func VaR_参数法(组合价值: Float, 置信水平: Float, 日波动率: Float) -> Float =
+    (组合价值, 置信水平, 日波动率) =>
+    if 置信水平 <= 0 then None
+    else if 置信水平 >= 1 then None
+    else 组合价值 * 正态分位数(置信水平) * 日波动率
+
+  (* ===== 投资组合 ===== *)
+  (* 组合收益 = Σ wᵢ rᵢ（权重与收益按序配对，越界诚实报错）。 *)
+  func 投资组合收益(权重: List, 收益: List) -> Float =
+    (权重, 收益) => {
+    let rec 走(i: Int, acc: Float) -> Float =
+    (i, acc) => if i >= len(权重) then acc else 走(i + 1, acc + 权重[i] * 收益[i])
+    走(0, 0)
+    }
+
+  (* 组合波动率（历史法）：由权重、各资产收益序列标准差与相关系数矩阵合成。 *)
   func 投资组合波动率(权重: List, 收益列表: List) -> Float =
     (权重, 收益列表) =>
-    开方(方差_投资组合(权重, 标准差列表(收益列表), 相关系数矩阵(收益列表)))
+    sqrt(方差_投资组合(权重, 标准差列表(收益列表), 相关系数矩阵(收益列表)))
 
   func 标准差列表(收益列表: List) -> List =
     (收益列表) => {
-    let n = len(收益列表) in
-    let rec calc(i: Int, result: List) -> List =
-    (i, result) =>
-        if if i >= n then result else None
-        else: result + [标准差(收益列表[i])]
-    calc(0, [])
+    let rec 走(i: Int, acc: List) -> List =
+    (i, acc) => if i >= len(收益列表) then acc else 走(i + 1, acc + [标准差(收益列表[i])])
+    走(0, [])
     }
 
+  (* 样本标准差（无偏，除 n − 1）；n ≤ 1 无离散度口径 → 0.0。 *)
   func 标准差(收益: List) -> Float =
-    (收益) =>
-    let n = len(收益) in
-    if if n <= 1 then 0.0 else None
-    else:
-      let mean = 求和(收益) / n in
-      开方(求和(各元素平方差(收益, mean)) / (n - 1))
+    (收益) => {
+    let n = len(收益)
+    let r = if n <= 1 then 0.0 else 平方差和(收益, 均值(收益), 0) / (n - 1)
+    sqrt(r)
+    }
+
+  func 均值(样本: List) -> Float =
+    (样本) => {
+    let n = len(样本)
+    let r = if n = 0 then 0.0 else 求和(样本) / n
+    r
+    }
+
+  func 平方差和(样本: List, m, i: Int) -> Float =
+    (样本, m, i) =>
+      if i >= len(样本) then 0.0 else (样本[i] - m) ^ 2 + 平方差和(样本, m, i + 1)
 
   func 求和(lst: List) -> Float =
     (lst) => {
     let rec s(i: Int, acc: Float) -> Float =
-    (i, acc) => if i >= len(lst): acc else s(i+1, acc + lst[i])
+    (i, acc) => if i >= len(lst) then acc else s(i + 1, acc + lst[i])
     s(0, 0)
     }
 
-  func 各元素平方差(lst: List, mean: Float) -> List =
-    (lst, mean) => {
-    let rec sq(i: Int, result: List) -> List =
-    (i, result) => if i >= len(lst): result else sq(i+1, result + [(lst[i]-mean)^2])
-    sq(0, [])
+  (* 样本协方差（无偏）；两表按序等长配对，越界诚实报错，n ≤ 1 → 0.0。 *)
+  func 协方差(a: List, b: List) -> Float =
+    (a, b) => {
+    let n = len(a)
+    let r = if n <= 1 then 0.0 else 积和(a, b, 均值(a), 均值(b), 0, n) / (n - 1)
+    r
     }
+
+  func 积和(a: List, b: List, ma, mb, i: Int, n: Int) -> Float =
+    (a, b, ma, mb, i, n) =>
+      if i >= n then 0.0 else (a[i] - ma) * (b[i] - mb) + 积和(a, b, ma, mb, i + 1, n)
+
+  (* 相关系数：任一序列为常数（标准差 0）时无相关性口径 → 记 0.0（不落到除零）。 *)
+  func 相关系数(a: List, b: List) -> Float =
+    (a, b) => {
+    let 分母 = 标准差(a) * 标准差(b)
+    let r = if 分母 = 0 then 0.0 else 协方差(a, b) / 分母
+    r
+    }
+
+  (* 相关系数矩阵（行主序展平 n×n；对角显式取 1.0，避免自相关的浮点偏差）。 *)
+  func 相关系数矩阵(收益列表: List) -> List =
+    (收益列表) => 矩阵步(收益列表, len(收益列表), 0, 0)
+
+  func 矩阵步(收益列表: List, n: Int, i: Int, j: Int) -> List =
+    (收益列表, n, i, j) =>
+      if i >= n then []
+      else if j >= n then 矩阵步(收益列表, n, i + 1, 0)
+      else if i = j then [1.0] + 矩阵步(收益列表, n, i, j + 1)
+      else [相关系数(收益列表[i], 收益列表[j])] + 矩阵步(收益列表, n, i, j + 1)
 
   (* ===== 高级复利 ===== *)
   func 连续复利终值(P: Float, r: Float, t: Float) -> Float =
-    (P, r, t) => P * exp(r * t)
+    (P, r, t) => P * (2.718281828459045 ^ (r * t))
 
+  (* 有效年利率 = (1 + r/m)^m − 1；年复利次数 ≤ 0 无复利口径 → 0.0（不落到除零）。 *)
   func 有效年利率(名义利率: Float, 年复利次数: Int) -> Float =
     (名义利率, 年复利次数) =>
-    (1 + 名义利率 / 年复利次数) ^ 年复利次数 - 1
+    if 年复利次数 <= 0 then 0.0
+    else (1 + 名义利率 / 年复利次数) ^ 年复利次数 - 1
 
+  (* ===== 内部收益率 ===== *)
+  (* cashflows 为投产后各期流入（首期折 1 期），初始投资 为 0 期流出。
+     旧桩恒返 0.1（任何入参都给默认折现率），故真化为二分求根：
+     搜索区间 [-0.9999, 10]，端点 NPV 同号 → 无实根 → None；60 轮二分压到浮点极限；
+     多根现金流只返回区间内找到的那一个根。 *)
   func 内部收益率近似(cashflows: List, 初始投资: Float) -> Float =
-    (cashflows, 初始投资) => 0.1  (* 简化：返回默认折现率 *)
+    (cashflows, 初始投资) => {
+    let 有表 = len(cashflows) > 0
+    let 低值 = 项目NPV(cashflows, 初始投资, -0.9999)
+    let 高值 = 项目NPV(cashflows, 初始投资, 10.0)
+    let r = if not 有表 then None
+            else if 同号(低值, 高值) then None
+            else 二分(cashflows, 初始投资, -0.9999, 10.0, 0)
+    r
+    }
+
+  func 项目NPV(现金流: List, 初始投资, r) -> Float =
+    (现金流, 初始投资, r) => 现值和(现金流, r, 0, 1) - 初始投资
+
+  func 现值和(现金流: List, r, i: Int, 期: Int) -> Float =
+    (现金流, r, i, 期) =>
+      if i >= len(现金流) then 0.0
+      else 现金流[i] / (1 + r) ^ 期 + 现值和(现金流, r, i + 1, 期 + 1)
+
+  func 同号(a, b) -> Bool =
+    (a, b) => if a > 0 then b > 0 else b < 0
+
+  func 二分(现金流: List, 初始投资, lo, hi, k: Int) -> Float =
+    (现金流, 初始投资, lo, hi, k) => {
+    let 中 = (lo + hi) / 2.0
+    let 半区 = if 同号(项目NPV(现金流, 初始投资, lo), 项目NPV(现金流, 初始投资, 中)) then [中, hi] else [lo, 中]
+    let r = if k >= 60 then (lo + hi) / 2.0 else 二分(现金流, 初始投资, 半区[0], 半区[1], k + 1)
+    r
+    }
 }

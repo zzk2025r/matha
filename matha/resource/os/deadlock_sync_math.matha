@@ -5,25 +5,82 @@
 module 死锁同步 {
 
   (* ===== 死锁检测 ===== *)
+  (* 资源分配图含环：由「进程 i 需要资源 j（需求 > 0）且资源 j 由进程 k 占有（分配 > 0）」
+     导出等待图边 i→k，再对等待图 DFS——路径上重现结点即成环。
+     口径：每种资源单实例（多实例需按占有计数展开，本函数入参面未提供实例数）；
+     无记忆化着色，最坏指数，进程数小（教材面）够用；退化输入（进程需自己已占有的资源）按自环计。
+     旧桩恒返 假：任何死锁系统都被判无环，检测面全失，故真化。 *)
   func 资源分配图含环(进程数: Int, 分配矩阵: List, 需求矩阵: List) -> Bool =
-    (* 简化：返回假，实际需图遍历 *)
-    (进程数, 分配矩阵, 需求矩阵) => 假
+    (进程数, 分配矩阵, 需求矩阵) => {
+    let rec 等待边(i: Int, k: Int, j: Int) -> Bool =
+    (i, k, j) =>
+      if j >= len(需求矩阵[i]) then 假
+      else if 需求矩阵[i][j] > 0 and 分配矩阵[k][j] > 0 then 真
+      else 等待边(i, k, j + 1)
+    let rec 有环(i: Int, 路径: List) -> Bool =
+    (i, 路径) =>
+      if 列表包含(路径, i) then 真 else 扫边(i, 路径, 0)
+    let rec 扫边(i: Int, 路径: List, k: Int) -> Bool =
+    (i, 路径, k) =>
+      if k >= 进程数 then 假
+      else if 等待边(i, k, 0) and 有环(k, 路径 + [i]) then 真
+      else 扫边(i, 路径, k + 1)
+    let rec 逐根(i: Int) -> Bool =
+    (i) =>
+      if i >= 进程数 then 假
+      else if 有环(i, []) then 真
+      else 逐根(i + 1)
+    逐根(0)
+    }
 
   func 死锁充分条件(互斥: Bool, 持有等待: Bool, 非抢占: Bool, 循环等待: Bool) -> Bool =
     (互斥, 持有等待, 非抢占, 循环等待) =>
     互斥 and 持有等待 and 非抢占 and 循环等待
 
   (* ===== 银行家算法 ===== *)
+  (* 银行家安全性：经典安全性算法。Work 初值 = 可用资源，Need = 最大需求 − 已分配（逐元素）；
+     每轮在未完成的进程中找 Need[i] ≤ Work 者，令 Work += 已分配[i] 并标记完成；
+     一轮无新增即收敛。全部进程可完成 ⇒ 存在安全序列 ⇒ 真。
+     旧桩恒返 真：任意不安全请求都被判安全，算法的保护意义全失，故真化。
+     口径：Need 比较逐元素读三张表，任一行比 Work 短（维度不齐 = 声明本身不合法）
+     即「该进程无法满足」而不是越过末尾下标落 Python IndexError——安全性算法遇非法
+     声明取保守答（假），与旧桩恒真相对，绝不给「判得出安全」的假成功。 *)
   func 银行家安全性(可用资源: List, 最大需求: List, 已分配: List) -> Bool =
-    (* 简化实现 *)
-    (可用资源, 最大需求, 已分配) => 真
+    (可用资源, 最大需求, 已分配) => {
+    let n = len(最大需求)
+    let rec 需要至多(i: Int, 工作: List, j: Int) -> Bool =
+    (i, 工作, j) =>
+      if j >= len(最大需求[i]) then 真
+      else if (j >= len(已分配[i])) or (j >= len(工作)) then 假
+      else if 最大需求[i][j] - 已分配[i][j] > 工作[j] then 假
+      else 需要至多(i, 工作, j + 1)
+    let rec 加向量(a: List, b: List, j: Int) -> List =
+    (a, b, j) =>
+      if (j >= len(a)) or (j >= len(b)) then [] else [a[j] + b[j]] + 加向量(a, b, j + 1)
+    let rec 扫轮(p: Int, 工作: List, 完成: List) -> List =
+    (p, 工作, 完成) =>
+      if p >= n then [工作, 完成]
+      else if 列表包含(完成, p) then 扫轮(p + 1, 工作, 完成)
+      else if 需要至多(p, 工作, 0) then 扫轮(p + 1, 加向量(工作, 已分配[p], 0), 完成 + [p])
+      else 扫轮(p + 1, 工作, 完成)
+    let rec 收敛(工作: List, 完成: List) -> List =
+    (工作, 完成) => {
+      let r = 扫轮(0, 工作, 完成)
+      if len(r[1]) = len(完成) then r else 收敛(r[0], r[1])
+    }
+    let 终 = 收敛(可用资源, [])
+    len(终[1]) = n
+    }
 
+  (* 需求行 = 最大需求[进程] − 已分配[进程] 逐元素。
+     旧形 `if if i >= len then result else None` 外层测的是内层 if 表达式的值而非条件：
+     result 为空列表（假值）时守卫永不命中，递归越过末尾下标。 *)
   func 银行家需求(最大需求: List, 已分配: List, 进程: Int) -> List =
     (最大需求, 已分配, 进程) => {
     let rec sub(i: Int, result: List) -> List =
     (i, result) =>
-        if if i >= len(最大需求[进程]) then result else None
-        else: sub(i + 1, result + [最大需求[进程][i] - 已分配[进程][i]])
+        if i >= len(最大需求[进程]) then result
+        else sub(i + 1, result + [最大需求[进程][i] - 已分配[进程][i]])
     sub(0, [])
     }
 
@@ -31,17 +88,17 @@ module 死锁同步 {
     (可用, 需求, 已分配, 进程) => {
     let rec check(i: Int) -> Bool =
     (i) =>
-        if if i >= len(需求[进程]) then 真 else None
-        elif 可用[i] < 需求[进程][i]: 假
-        else: check(i + 1)
+        if i >= len(需求[进程]) then 真
+        else if 可用[i] < 需求[进程][i] then 假
+        else check(i + 1)
     check(0)
     }
 
   (* ===== 信号量 ===== *)
+  (* S ≤ 0 时 wait 会阻塞，以 −1 表示阻塞态；否则计数减一（旧形同为测值不测条件）。 *)
   func 信号量wait(S: Int) -> Int =
     (S) =>
-    if if S <= 0 then -1  (* 阻塞 *) else None
-    else: S - 1
+    if S <= 0 then -1 else S - 1
 
   func 信号量signal(S: Int) -> Int =
     (S) => S + 1
@@ -52,30 +109,35 @@ module 死锁同步 {
   (* ===== 经典同步问题 ===== *)
   func 生产者吞吐量(生产速率: Float, 消费速率: Float, 缓冲区大小: Int) -> Float =
     (生产速率, 消费速率, 缓冲区大小) =>
-    min(生产速率, 消费速率)
+    min([生产速率, 消费速率])
 
+  (* 利用率 = min(1, 生产/消费)。旧守卫只挡 生产速率 = 0，消费速率 = 0 时真除法崩（三面皆除零）；
+     零消费 ⇒ 生产全积压 ⇒ 按饱和记 1.0，双零记 0。 *)
   func 消费者利用率(生产速率: Float, 消费速率: Float) -> Float =
     (生产速率, 消费速率) =>
-    (生产速率 = 0) ? 0 : min(1.0, 生产速率 / 消费速率)
+    (消费速率 = 0) ? (if 生产速率 = 0 then 0 else 1.0) : min([1.0, 生产速率 / 消费速率])
 
   func 读者写者公平性(读者数: Int, 写者数: Int) -> Float =
     (读者数, 写者数) =>
     (读者数 + 写者数 = 0) ? 0 : 写者数 / (读者数 + 写者数)
 
+  (* 朴素协议（同时取左叉再取右叉）下环路等待需至少两个哲学家互为左右，
+     故 n < 2 必无环、n >= 2 可成环。旧式 `哲学家数 <= 4` 把「3 人同样死锁」判成活、
+     把「5 人可用非对称策略全活」判为死，阈值无来源——改正为协议面判据。 *)
   func 哲学家进餐存活(哲学家数: Int) -> Bool =
     (哲学家数) =>
-    (* 简化：4个以上需要策略避免死锁 *)
-    哲学家数 <= 4
+    哲学家数 < 2
 
   (* ===== 活锁检测 ===== *)
+  (* 状态序列中出现重复状态 ⇒ 进程在原地打转（活锁嫌疑）。
+     旧体调用未注册的中缀名 `checked包含`（三面皆未定义变量）且守卫同为测值形。 *)
   func 活锁检测(进程状态序列: List) -> Bool =
-    (* 简化：检查是否有重复状态 *)
     (进程状态序列) => {
     let rec has_dup(i: Int, checked: List) -> Bool =
     (i, checked) =>
-        if if i >= len(进程状态序列) then 假 else None
-        elif checked包含(进程状态序列[i]): 真
-        else: has_dup(i + 1, checked + [进程状态序列[i]])
+        if i >= len(进程状态序列) then 假
+        else if 列表包含(checked, 进程状态序列[i]) then 真
+        else has_dup(i + 1, checked + [进程状态序列[i]])
     has_dup(0, [])
     }
 
@@ -83,9 +145,9 @@ module 死锁同步 {
     (lst, item) => {
     let rec check(i: Int) -> Bool =
     (i) =>
-        if if i >= len(lst) then 假 else None
-        elif lst[i] = item: 真
-        else: check(i + 1)
+        if i >= len(lst) then 假
+        else if lst[i] = item then 真
+        else check(i + 1)
     check(0)
     }
 }

@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 183（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 190（`tests/`）
+- **测试文件：** 191（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -459,6 +459,35 @@ phase21 bootstrap_test 边界）。新登记不修：`matha/interp.matha` 缺 �
 未闭合串载体类名分歧 / 裸解释器面深栈递归预算（限幅伪影）。新锁档
 test_selfhost_language_phase40 27 项；src/ 仅 lexer.py +28 行，指令码与
 ast_vm_gap 快照零扰动。
+
+资源库假成功清算批（阶段 41）：方向 A 拍板——只动纯 Matha 资源库
+`matha/resource/**`（37 文件 +2611 −767 行），`src/` 零改动、本体量 33,480
+与指令码 36 不变；判据为三面（宿主解释 hi / 编译 VM vm / 五文件 boot 链
+调用面）。41a/41b/41c 危险桩真化：`HMAC哈希`（旧体直接返回消息本身——假
+摘要，现两轮 131 进制滚动散列、密钥入内外两轮）/ `死锁充分条件` /
+`银行家安全性`（旧恒返 真，现经典安全性算法逐轮扫 Need；维度不齐声明
+fail-closed 取保守答，不越过末尾下标落 IndexError）/ `资源分配图含环`
+（旧恒返 假，现等待图 DFS）/ `活锁检测` / `SSTF·SCAN·C_SCAN 总移动` /
+`LRU 缺页` / `FCFS·RR·HRRN 周转时间` / `Dijkstra距离`（28-⑧ 退役——旧桩
+恒返 [999999…]，现权重和+1 作无穷 + O(V²) 顺序松弛，不可达记 -1）/
+`内部收益率近似`（恒返 0.1 → 二分求根）/ `二阶极点` / `音频混音` /
+`直方图均衡化映射` / `sepia滤镜` / `中位数`（偶数长度走 `//`——`/` 恒浮除
+旧式落「索引操作不支持: list[1.5]」）/ `复制列表`·`排序`（不改入参）/
+`时间戳转日期`（小数年 → 整除，合 `-> Int` 声明口径）。41d-1 链面缺失
+内建家族逐文件改走三面同判路径（`注册内建(空环境)` 只 47 名，
+`exp/log10/log2/ln/π/组合数/asin/acos/atan/atan2` 在链面恒「未定义变量」
+即整个函数不可调用）：指数写 `2.718281828459045 ^ x`、对数换底
+`log(x)/log(10.0)`、反三角走二分、`atan2` 走 `象限角`、`组合数` 走本地
+`组合数按连乘`。41d-2 无定义读数（分母为 0、空表、越界、负方差）不再伪造
+`999.0`/`999999` 哨兵或 `0`，改诚实 None（15 形态三面同判）。41d-3 合法
+近似只补口径注、零语义改动（长度比文本相似度、固定 365 天日历差、非
+softmax 分类置信度、Zeller 同族周几相位）。新锁档
+test_resource_algorithm_true_phase41 247 项（223 三面同判正典读数 + 52 资源
+文件零缺失内建/零哨兵静态锁 + 语义结构锁 + 登记锁）；Track B 225 快照
+--write/--check 逐字节零扰动（52 个资源语料全 both_ok_equal）；ast_vm_gap
+快照重生成（节点 78 / 指令码 36 结构不变，13 节点 `used_in` 随资源构造
+变动：ListLiteral 79→92、IndexExpr 77→85、SliceExpr 25→31、CodeBlock
+104→110、IfExpr 96→101 等）。新登记不修见 KNOWN_ISSUES 阶段 41。
 
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
