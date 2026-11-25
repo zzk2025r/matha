@@ -602,6 +602,30 @@ _TERMINAL_LAZY = lazy_section(_load_terminal_builtins, TERMINAL_BUILTIN_NAMES)
 
 
 # ============================================================
+# 进程映像族（阶段 44b）——原生后端独占能力
+# ============================================================
+
+#: 五名同属一个能力面：真实现只在 Matha 原生映像里（`src/mbc/native_process.py`
+#: 直调 kernel32 的 CreateProcessW / WaitForSingleObject / GetExitCodeProcess /
+#: TerminateProcess / CloseHandle）。宿主与 VM 面**同名注册但显式拒绝**，理由不是
+#: 「忘了实现」而是核心主线契约「必须单线程确定、且不驱动外部进程」（红线见
+#: tests/test_kernel_purity.py 的 CORE_FORBIDDEN_MODULES）——在此引入 subprocess
+#: 即把要退役的 Python 能力重新焊回内核，与阶段 44 的方向相反。
+PROCESS_IMAGE_BUILTINS = ("派生映像", "等候映像", "映像退出码", "终止映像", "关闭映像")
+
+
+def _process_image_refusal(name: str):
+    """构造映像族单个名字的拒绝体（VM 面同名同文案，见 src/mbc/vm.py）。"""
+    def _refusal(*_args):
+        raise MathaRuntimeError(
+            f"{name} 需原生后端：进程映像族由 Matha 原生映像经 kernel32 直接派生与"
+            "回收，宿主/VM 面属核心主线，按「核心必须单线程确定、且不驱动外部进程」"
+            "红线不提供该能力（显式拒绝，非静默降级）。请改用原生后端运行"
+            "（src.mbc.native.compile_to_exe 产物）。")
+    return _refusal
+
+
+# ============================================================
 # 文件 I/O
 # ============================================================
 def builtin_read_file(path: str) -> str:
@@ -1171,6 +1195,13 @@ BUILTINS: dict[str, object] = {
     # 柯里化形状保持宿主 _curry_module lambda 链不变）
     **_TERMINAL_LAZY,
     "调试Matha": builtin_debug_matha,
+    # 进程映像族（阶段 44b）：原生后端独占，本面同名注册并显式拒绝（非未定义变量、
+    # 非伪造读数）——拒绝文案与 VM 面逐字同判，真跑只在编译出的原生映像里。
+    "派生映像": _process_image_refusal("派生映像"),
+    "等候映像": _curry_module(2, _process_image_refusal("等候映像")),
+    "映像退出码": _process_image_refusal("映像退出码"),
+    "终止映像": _process_image_refusal("终止映像"),
+    "关闭映像": _process_image_refusal("关闭映像"),
     # 字符串操作
     "截取": builtin_字符串截取,
     "替换": builtin_字符串替换,

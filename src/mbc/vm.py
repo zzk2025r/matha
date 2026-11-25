@@ -572,6 +572,23 @@ def _debug_matha_unavailable(_source=None) -> None:
         "（matha 终端 MATHA_TERM_BACKEND=host）。")
 
 
+def _process_image_unavailable(name: str):
+    """进程映像族单个名字在 VM 后端的拒绝体（阶段 44b）。
+
+    真实现只在原生后端：`src/mbc/native_process.py` 直调 kernel32 派生/等候/取码/
+    终止/关闭。VM 面不得引入 subprocess——核心红线（tests/test_kernel_purity.py 的
+    CORE_FORBIDDEN_MODULES）要求核心主线单线程确定且不驱动外部进程。文案与宿主面
+    `src/interp.py:_process_image_refusal` 逐字同判。
+    """
+    def _refusal(*_args):
+        raise MathaRuntimeError(
+            f"{name} 需原生后端：进程映像族由 Matha 原生映像经 kernel32 直接派生与"
+            "回收，宿主/VM 面属核心主线，按「核心必须单线程确定、且不驱动外部进程」"
+            "红线不提供该能力（显式拒绝，非静默降级）。请改用原生后端运行"
+            "（src.mbc.native.compile_to_exe 产物）。")
+    return _refusal
+
+
 def _default_builtins() -> dict:
     """VM 内建：复用宿主 mathlib 注册的同一套数学/工具函数。
 
@@ -601,6 +618,13 @@ def _default_builtins() -> dict:
         return {"解析_JSON": parse_json}
     b.update(lazy_section(_load_json, JSON_BUILTIN_NAMES))
     b.setdefault("调试Matha", _debug_matha_unavailable)
+    # 进程映像族（阶段 44b）：原生后端独占，本面同名注册并显式拒绝（文案同宿主面）。
+    # 形状纪律：等候映像 在宿主侧走 _curry_module(2, ...)，本侧走 _curry2。
+    b.setdefault("派生映像", _process_image_unavailable("派生映像"))
+    b.setdefault("等候映像", _curry2(_process_image_unavailable("等候映像")))
+    b.setdefault("映像退出码", _process_image_unavailable("映像退出码"))
+    b.setdefault("终止映像", _process_image_unavailable("终止映像"))
+    b.setdefault("关闭映像", _process_image_unavailable("关闭映像"))
     # 正则内建 `匹配` 与引导文件 matha/parser.matha 的顶层 `func 匹配` 同名：二者
     # 合入同一模块时后者会遮蔽前者。故额外暴露一个不冲突的别名，供 matha/vm.matha
     # 委托正则匹配（其余内建名无此冲突，可直接按名委托）。

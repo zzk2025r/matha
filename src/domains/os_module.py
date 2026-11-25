@@ -47,7 +47,11 @@ class ProcessInfo:
 
 
 class ProcessManager:
-    """进程管理器。"""
+    """进程簿记模型（模拟）：pid 自 1000 起本地递增，不派生也不触碰任何 OS 进程。
+
+    真的进程映像族（派生/等候/退出码/终止/关闭）只在 Matha 原生后端为真实现，
+    见 `src/mbc/native_process.py`；宿主与 VM 面对那批名一律显式拒绝。
+    """
 
     def __init__(self):
         self._processes: dict[int, ProcessInfo] = {}

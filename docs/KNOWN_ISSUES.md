@@ -2196,6 +2196,105 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 44 收官（原生 OS 派生面：不经 Python 的 Matha 专属 PE64 映像 +
+  进程映像族五内建 + 宿主桥载体回收）**：方向拍板「退役标准：Matha 与 Python 共存，
+  不再调用 Python 任何模块，直接调用系统 API……生成 Matha 自身专属的自举 exe，
+  Matha 对标的是底层的 C 语言」，首批切片「原生 OS 派生面」，stage-0 口径「允许
+  Python 仅作种子，最终判定用无 Python 的 Matha 原生映像自证」。
+  **44b-1** 新档 `src/mbc/native_process.py`（578 行）把 `派生映像`/`等候映像`/
+  `映像退出码`/`终止映像`/`关闭映像` 发射成 x86-64 机器码：触达点只有 kernel32 六导出
+  （CreateProcessW / WaitForSingleObject / GetExitCodeProcess / TerminateProcess /
+  CloseHandle / MultiByteToWideChar），地址在引导期 `k32_base` 之上经 `api_GetProcAddress`
+  惰性解析并写回槽位，故产物 **PE64 无导入表**（`DataDirectory[1]` RVA=0 Size=0），
+  运行路径既不含 Python 模块也不含 CRT；「无定义读数」一律 null／−1 不用哨兵数冒充
+  （pid 不在表中、pid≤0、实参是堆对象、`GetExitCodeProcess` 报 STILL_ACTIVE(259)、
+  API 解析失败），槽表 32 槽 × 40 字节且满槽诚实返回 −1 不覆盖旧槽。**44b-2** 原生
+  独占面收口：宿主 `src/interp.py`（+31）与 VM `src/mbc/vm.py`（+24）同名注册但
+  **显式拒绝**（两文件各写同文案，非静默降级、不给假值），链面固定 60 名不扩。
+  同批 `src/domains/os_module.py`（+5−1）零语义改类注：`ProcessManager` 旧措辞「进程
+  管理器」→「进程簿记模型（模拟）：pid 自 1000 起本地递增，不派生也不触碰任何 OS
+  进程」并指向真实现位 `src/mbc/native_process.py`——清算「名字像真的、实现是模拟」
+  的文档假象面（该域只在宿主解释器面充当 os 语义演示，非映像族的替代入口）。
+  **44b-3** 构建面真化：`src/matha_main.py` 新增 `原生构建`（别名 `native-build`/`exe`）
+  走 `src.mbc.native` 唯一真实机器码路径（发射失败如实 rc 1 且不留产物），`build`
+  旧声称「构建独立可执行文件」清算为「M3V 字节码工件（MBC1，须 Matha 载体执行）」；
+  同批宿主桥 `src/os_runtime.py`（+57−13）补 `_终止载体`——内核的 `收旧进程`/`停止进程`
+  只改簿记，桥在内核判定**落地之后**才动 OS，被拒绝的 `停止`/`卸载` 不再杀掉仍在运行的
+  载体（旧行为把「拒绝」做成真伤害），回收同时交还句柄格。**44f** 进程树取证：CIM 快照
+  查得派生子映像的 `ParentProcessId` 就是原生映像自身 pid、父映像名是产物 `.exe` 而非
+  `python.exe`。新锁档 `tests/test_native_process_phase44.py` 37 项（44a 原生 e2e 10 /
+  44b CLI 6 / 44c 三面拒绝 9 / 44d 桥面回收 6 / 44e 静态结构 5 / 44f 进程树取证 1，
+  全用 `tmp_path` 唯一 exe 名以免阶段 41 那类固定名占用伪影）。本体量
+  33,481→**34,099**（+618 = 新档 578 + `native.py` 挂载 +16 + `vm.py` +24）、指令码 36
+  不变（映像族是内建名不是新 opcode）、ast_vm_gap 快照零扰动（25 项轻 lane 绿）、
+  `scripts/dep_audit.py` 的 `KERNEL_FILES` 补入新档（内核文件 39→**40**、import 边
+  189→**190**、违规 0）并顺手重生成守门报告 `docs/DEP_BASELINE.md`——该报告自
+  `082218c` 起未再刷新、写着 25 文件 / 68 边，属「报告与被它声称的现状无关」的文档
+  假象面而非代码缺陷，故按 `--write-report` 的「请勿手改」口径重生而非手改。
+  登记不修八条：①**映像族只在原生面为真**：boot 链固定注册面维持 60 名不扩，链上调用
+  五名即「未定义变量: 派生映像」（`test_44c_boot_face_reports_undefined_name`），且全仓
+  `.matha` 语料无一提及五名（`test_44c_no_matha_source_names_the_image_family` 静态防
+  漂移）——链面要有真的进程映像，前提是 boot 链自身跑在不经 Python 的载体里，即本阶段
+  产物继续往 stage-1+ 推进，不在本批；②**不建作业对象**：`终止映像` 终止的是
+  CreateProcessW 返回的那个映像本身，`cmd.exe /c ping …` 这类外壳的孙进程（`ping.exe`）
+  不受管、继续存活（口径注在 `src/mbc/native_process.py:24-27`），真收口须补
+  `CreateJobObjectW` + `AssignProcessToJobObject` + `TerminateJobObject` 三臂并同步
+  API 集锁 `test_44e_api_set_is_kernel32_only_with_documented_policy`（现锁六导出）；
+  ③**宿主桥回收粒度是「单元名一格」**：`OsRuntime._handles` 每名一格，同单元多条就绪
+  进程共用一格时无法按内核 pid 归属（早收会杀掉仍在跑的另一条），故只在最后一条就绪行
+  消失后才收（`test_44d_stop_process_reaps_only_when_last_ready_row_is_gone`）——改成
+  pid 键句柄表属桥面形状改动；④**数制编译四命令位的旧措辞**：行为已诚实（实测
+  `python -m src.matha_main compile-binary …` → rc **1** + 「Base-2 原生机器码生成
+  未实现（旧路径仅产出注释头+指令文本，非可执行代码）…」且不留产物，根因位
+  `src/bootstrap.py:73-77`），但 `src/bootstrap.py:42-45`/`:275-277`/`:331`/`:335`/
+  `:345-347` 与 `src/matha_main.py:323`/`:336` 的模块 docstring 与方法注仍留「x86/ARM →
+  二进制」「适用于x86/ARM处理器」「自动选择最优数制」——非用户可见面（argparse `help`
+  取显式串，四命令位也无中文别名，实测 `-h` 的 choices 列表为英文四名），真正的清算要么
+  实现 Base-N 原生码、要么删四命令位，属 bootstrap 子系统批；同条附带：该拒绝文案把
+  原生码指向 `target='c'`（MIR→C→clang，需外部工具链），阶段 44 后已存在不需外部编译器
+  的第二条路 `原生构建`，指向文案未更新；⑤**柯里化形状刻意不进编译器折叠表**：
+  `等候映像` 的元数只在 `src/mbc/native._BUILTIN_ARITY`，`src/compiler/
+  _CURRIED_BUILTIN_ARITY`（`get`/`append`/`slice`/`range` 四名）不扩——扩表扰动 boot
+  镜像 `_预扫元数` 的 stage2↔stage3 定点与 Track B 226 语料快照（41 阶段同族踩界），
+  故部分应用只以 hi/vm 面真跑 + 折叠表零映像名静态锁覆盖
+  （`test_44e_curried_shape_lands_outside_the_compiler_fold_table`）；⑥**原生子集不承载
+  领域插件符号**：原生发射器只挂 `NATIVE_BUILTINS` + 映像族，含领域符号的源能编译通过、
+  产物运行期诚实报「未定义变量」而非给假值（README 的该口径据此写明）——负向声称的近邻
+  正锁为 `test_44e_runtime_path_imports_no_python_os_modules` 与
+  `test_44e_built_image_carries_no_python_marker`；统一「领域符号在原生面也不可达 →
+  编译期即拒」属原生语言面扩面，不在本批；⑦`native_parity` 分母口径不变（38 过 + 1 例
+  不计分母 `18_domain_lazy_load`）；⑧**冻结映像未随本批重建**：盘上 `dist/matha.exe`
+  是 2026-11-25 13:27 的阶段 43 构建，不含本批 `src/{interp,matha_main,os_runtime}.py`
+  与 `src/mbc/{native,vm}.py` 改动，故 tests lane 里 4 项 `@_frozen_gate` 锁跑的是阶段 43
+  映像（它们只断 43 的行为、与本批改动无冲突，全跑绿），「冻结态 = 当前 HEAD」这一条
+  只有静态锁而无当日 e2e 取证——与承继的 43-②（`dist/matha-cc.exe` 停在 2026-11-06）
+  同族；重建须整套门禁重跑，且 `dist/` 本身就是活的测试依赖（构建期间不得跑门禁），
+  留后续批。承继 33-⑤ + 32-⑧⑫ + 29-①⑥⑦ + 37-①②③ + 38-①② +
+  39-①②③④ + 40-①②③④ + 41-①②③ + 42-③④ + 43-①②③⑤⑥ 维持原登记不修；**43-④
+  本批退役**——「内核 `_收旧进程` 只改簿记、不终止 OS 进程」现在由宿主桥 `_终止载体`
+  在判定落地后接上真 OS 终止（簿记判定 + OS 动作合起来才构成回收，回收粒度见 ③），
+  原生面另由 `终止映像` 直调 kernel32 承担。边界维持：pyproject `dependencies = []`
+  不变（原生映像的 OS 触达是直调 kernel32，不是新增依赖）。
+  **门禁与算术闭合（2026-11-25）**：新锁档独立跑 37/37 绿（45.42s，全 `tmp_path`
+  唯一 exe 名）；tests lane 独立跑 **8306 过 + 1 skip（5729.01s，1:35:29，rc 0）**；
+  轻 lane 复跑（`KERNEL_FILES` 改动之后）kernel_purity 14 + ast_vm_gap 11 = 25 绿、
+  golden 39/39、native_parity 38/39（0 失败，`18_domain_lazy_load` 不计分母）、
+  dep_audit 40 内核文件 / 190 import 边 / 0 违规；Track B `--check` **一致**且
+  `docs/selfhost_matrix.json` 的 `git diff` 为空（226 = 双面一致 216 / differ 0 /
+  both_err_equal 10 / both_err 0 / timeout 0——本批零 `.matha` 改动，故 42 那类
+  parametrize 自动 +1 扰动为零）；ast_vm_gap 归档快照 `docs/ast_vm_gap.json` 逐字节
+  零扰动（不在本批改动清单内，无需 `--write` 重生成——映像族是内建名不是新 opcode）。
+  冻结面（`dist/matha.exe` 为阶段 43 构建）里 4 项 `@_frozen_gate` 锁跑的是旧映像，
+  只断 43 行为、与本批改动无冲突，全跑绿——不计入本批原生面自证分母，本批的
+  「不经 Python」判定由 `原生构建` 现产 PE64 + `test_44e_built_image_carries_no_python_marker`
+  / `test_44f_derived_child_is_parented_by_the_native_image` 承担。**算术闭合：8410
+  条件 = 8409 过（tests 8306 + purity 14 + ast_vm_gap 11 + golden 39 + native 38 +
+  dep_audit 1）+ 1 skip（平台 skip 承继）= 8373（阶段 43）+ 37（阶段 44 新档）**。
+  工作区：8 改（`src/{interp,matha_main,os_runtime}.py`、`src/mbc/{native,vm}.py`、
+  `src/domains/os_module.py`、`scripts/dep_audit.py`）+ 2 新（`src/mbc/native_process.py`、
+  `tests/test_native_process_phase44.py`）+ 4 文档（README / ARCHITECTURE / CHANGELOG /
+  KNOWN_ISSUES）+ `docs/DEP_BASELINE.md` 重生成。
+
 - **2026-11 阶段 43 收官（冻结 exe 进程映像 + 常驻监管真化 + Windows 交付入口清算）**：
   方向拍板走「先从进程映像开始，必须冻结 exe 而且必须是 Matha 的 exe……监管者与解释器在
   冻结 exe 基础上完全由 Matha 内核主导与实现，并让 matha.exe 成为独立进程，非 python 的

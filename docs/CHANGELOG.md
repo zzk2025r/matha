@@ -823,6 +823,46 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   `HIDDEN`，不再正则扫字面量）与 `tests/test_selfhost_language_phase42.py`（注册面
   59→60 名 + 新载体名在位）。本体量口径内 `src/` 零改动（33,481 行不变、指令码 36 不变）。
   门禁与算术闭合见 KNOWN_ISSUES 阶段 43 收官条目。
+- 阶段 44 原生 OS 派生面（方向拍板：「Matha 与 Python 共存，不再调用 Python 任何模块，
+  直接调用系统 API……对标底层的 C 语言」，首批切片「原生 OS 派生面」，stage-0 允许
+  Python 仅作种子而最终判定用无 Python 的 Matha 原生映像自证）。**44b-1** 新档
+  `src/mbc/native_process.py`（578 行）：`派生映像`/`等候映像`/`映像退出码`/`终止映像`/
+  `关闭映像` 五内建的 x86-64 发射器。触达点只有 kernel32 六导出（CreateProcessW /
+  WaitForSingleObject / GetExitCodeProcess / TerminateProcess / CloseHandle /
+  MultiByteToWideChar），地址在引导期 `k32_base` 之上经 `api_GetProcAddress` 惰性解析
+  并写回槽位（每 API 只解析一次），故产物 **PE64 无导入表**（DataDirectory[1] RVA=0
+  Size=0）、运行路径零 Python 模块零 CRT。口径：槽表 32 槽 × 40 字节，满槽诚实返回 −1
+  且**不覆盖旧槽**；「无定义读数」一律 null／−1 不用哨兵数冒充（pid 不在表中、pid≤0、
+  实参是堆对象而非整数、`GetExitCodeProcess` 报 STILL_ACTIVE(259)、API 解析失败）；
+  `等候映像` 的 ms<0 映射 INFINITE；`终止映像` 用退出码 1（与 CPython
+  `Popen.terminate` 在 Windows 上的返回值同值）并等待至多 5000ms 收殓，使
+  `映像退出码` 立即可读；命令行 UTF-8→UTF-16 转换故中文路径与宽字符 CreateProcessW
+  同行为，上限 2048 UTF-8 字节超限诚实判失败；槽表只存内核句柄与整数读数不含 Matha
+  堆对象，故无需登记 GC 根。**44b-2** 原生独占面收口：宿主（`src/interp.py` +31）与
+  VM（`src/mbc/vm.py` +24）面对同一批名**显式拒绝**，两处在各自文件独立写同文案
+  （非静默降级、不返回假值），口径是核心主线红线「单线程确定、且不驱动外部进程」；
+  链面（boot）固定注册名集不扩，映像族在链上即「未定义变量」诚实失败并静态锁住
+  「无 `.matha` 语料提及五名」。**44b-3** 构建面真化：`src/matha_main.py` 新增
+  `原生构建`（别名 `native-build`/`exe`）走 `src.mbc.native` 唯一真实机器码路径，
+  发射失败如实非零退出且不留产物；`build` 旧文案声称「构建独立可执行文件」而
+  `matha_compile` 从未产出过可执行文件——改为产真实 `.mbc` 字节码工件（MBC1，须 Matha
+  载体执行）并把机器码指向 `原生构建`。同批宿主桥 `src/os_runtime.py`（+57−13）补
+  `_终止载体`：纯 Matha 内核的 `收旧进程`/`停止进程` 只改簿记（内核面没有进程映像
+  原语，也不该持有 OS 句柄），桥在内核判定**落地之后**才动 OS——被拒绝的 `停止`/`卸载`
+  不再杀掉仍在运行的载体（旧行为把「拒绝」做成真伤害：簿记说还在运行，OS 侧进程已没），
+  回收同时交还句柄格，否则再启动的主进程步会复用旧 Popen 句柄读到上一次运行的退出码。
+  **44f** 进程树取证：CIM 查得派生子的 `ParentProcessId` 即原生映像自身 pid、父映像名
+  是产物 `.exe` 而非 `python.exe`。新锁档 `tests/test_native_process_phase44.py` 37 项
+  （44a 原生 e2e 10 / 44b CLI 6 / 44c 三面拒绝 9 / 44d 桥面回收 6 / 44e 静态结构 5 /
+  44f 进程树取证 1，全用 `tmp_path` 唯一 exe 名避免阶段 41 的固定名占用伪影）。
+  本体量 33,481→**34,099**（+618 = 新档 578 + `src/mbc/native.py` 挂载 +16 +
+  `src/mbc/vm.py` 拒绝内建 +24；`src/interp.py`/`src/os_runtime.py`/`src/matha_main.py`
+  /`src/domains/os_module.py`（类注口径 +5−1，零语义）不属内核五件不在口径）；指令码 36 不变（映像族是内建名不是新 opcode）、ast_vm_gap
+  快照零扰动、Track B 快照零扰动（无 `.matha` 改动）、dep_audit 内核清单补入新档后
+  内核文件 39→**40** 个 / import 边 189→**190**（`native.py → native_process.py` 一条）
+  **0 违规**，并顺手重生成守门报告 `docs/DEP_BASELINE.md`（旧报告停在阶段早期的
+  25 文件 / 68 边，与被它声称的现状无关）。门禁与算术闭合见
+  KNOWN_ISSUES 阶段 44 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

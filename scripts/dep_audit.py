@@ -58,6 +58,7 @@ KERNEL_FILES: tuple[str, ...] = (
     "src/mbc/cli.py",
     "src/mbc/compiler.py",
     "src/mbc/native.py",
+    "src/mbc/native_process.py",
     "src/mbc/native_regex.py",
     "src/mbc/native_time.py",
     "src/mbc/opcodes.py",

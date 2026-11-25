@@ -548,12 +548,12 @@ def _cmd_debug(args) -> int:
 # ============================================================
 
 def _cmd_build(args) -> int:
-    """构建独立字节码工件（MBC1）。
+    """构建 M3V 字节码工件（MBC1）。
 
     历史上此命令声称"构建独立可执行文件"，但 matha_compile 从未产出过
     可执行文件（legacy 解析即炸，其后是无效 IR → 工具缺失）。现产出真实
     .mbc 字节码工件（src/mbc/serial MBC1 布局，read_mbc 可读回）；原生
-    机器码走 src.mbc.native 主链。
+    机器码走 `原生构建` 命令位（src.mbc.native 主链）。
     """
     try:
         from src.mbc.compiler import compile_program
@@ -570,6 +570,41 @@ def _cmd_build(args) -> int:
     except Exception as e:
         print(f"构建失败: {e}", file=sys.stderr)
         return 1
+
+
+def _cmd_native_build(args) -> int:
+    """原生构建（阶段 44b）：Matha 源 → Matha 专属 PE64 机器码映像。
+
+    与 `build` 的分工：`build` 产出 M3V 字节码工件（.mbc，仍须 Matha 载体
+    执行）；本命令走 `src.mbc.native` 唯一真实机器码路径，产物由 Windows
+    装载器直接执行——无导入表（运行期从 PEB 走表解析 kernel32 再
+    GetProcAddress），不依赖 Python，也不依赖本仓任何运行时模块。进程映像族
+    （派生映像/等候映像/映像退出码/终止映像/关闭映像）只在该面为真实现，
+    宿主与 VM 面同名显式拒绝（src/interp.py 与 src/mbc/vm.py 同文案）。
+
+    发射失败（源超出原生子集）如实非零退出且不留产物——不伪造「已构建」。
+    """
+    try:
+        with open(args.source, encoding="utf-8") as f:
+            source = f.read()
+    except OSError as e:
+        print(f"原生构建失败: 源不可读: {e}", file=sys.stderr)
+        return 2
+    out = args.output or str(Path(args.source).with_suffix(".exe"))
+    try:
+        from src.kernel.exec_api import build_exe
+        from src.mbc.native import NativeNotSupported
+        path = build_exe(source, out)
+    except NativeNotSupported as e:
+        print(f"原生构建失败: 语言面超出原生子集: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:  # noqa: BLE001
+        print(f"原生构建失败: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    size = os.path.getsize(path)
+    print(f"原生构建成功: {args.source} → {path}（PE64 机器码 {size} 字节，"
+          f"无导入表：运行期由 PEB 走表解析 kernel32）")
+    return 0
 
 
 # ============================================================
@@ -945,7 +980,8 @@ def _build_parser() -> argparse.ArgumentParser:
   matha info               工具链信息
   matha features           特性开关状态
   matha debug file         调试模式（显示 AST/MIR）
-  matha build file -o exe  构建独立可执行文件
+  matha build file -o out.mbc   构建 M3V 字节码工件（须 Matha 载体执行）
+  matha 原生构建 file -o app.exe 构建 Matha 专属原生 PE64 映像（机器码，不经 Python）
   matha --list-domains     枚举领域插件（不加载任何领域模块）
 
 开关:
@@ -1201,11 +1237,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p_debug.add_argument("file", help=".matha 源文件路径")
     p_debug.set_defaults(func=_cmd_debug)
 
-    # build
-    p_build = sub.add_parser("build", help="构建独立可执行文件")
+    # build — M3V 字节码工件（MBC1）；原生机器码见 原生构建
+    p_build = sub.add_parser("build", help="构建 M3V 字节码工件（MBC1，须 Matha 载体执行）")
     p_build.add_argument("source", help="输入 .matha 文件")
-    p_build.add_argument("-o", "--output", default="out", help="输出文件名")
+    p_build.add_argument("-o", "--output", default="out", help="输出工件路径（MBC1 布局）")
     p_build.set_defaults(func=_cmd_build)
+
+    # 原生构建 —— Matha 源 → PE64 机器码映像（阶段 44b，无 Python 依赖）
+    p_nat = sub.add_parser("原生构建", aliases=["native-build", "exe"],
+                           help="构建 Matha 专属原生 PE64 可执行映像（机器码，不经 Python）")
+    p_nat.add_argument("source", help="输入 .matha 文件")
+    p_nat.add_argument("-o", "--output", default=None,
+                       help="输出 .exe 路径（默认取源名换 .exe 后缀）")
+    p_nat.set_defaults(func=_cmd_native_build)
 
     # matha2c
     p_matha2c = sub.add_parser("matha2c", help="转译为 C 代码")

@@ -170,6 +170,7 @@ from pathlib import Path
 from src.mbc import opcodes as OP
 from src.mbc import native_regex as _regexlib
 from src.mbc import native_time as _timelib
+from src.mbc import native_process as _proclib
 
 # ---- 节区布局常量 ----
 TEXT_RVA = 0x1000             # .text 节 RVA（代码）
@@ -750,9 +751,10 @@ def _emit_epilogue(em: _Emitter):
     em.emit(b"\xC3")                                # ret
 
 
-# 向正则/时间发射模块注入序/尾声原语（它们无法反向 import 本模块）。
+# 向正则/时间/进程映像发射模块注入序/尾声原语（它们无法反向 import 本模块）。
 _regexlib.configure(_emit_prologue, _emit_epilogue)
 _timelib.configure(_emit_prologue, _emit_epilogue)
+_proclib.configure(_emit_prologue, _emit_epilogue)
 
 
 MAX_NATIVE_ARITY = 8
@@ -7656,6 +7658,8 @@ NATIVE_BUILTINS = (
     "创建计时器",
     # 砖块 21：定时调度（严格对齐 interp/VM 现状：回调从不触发、执行待办恒返回 []）
     "注册任务", "执行待办", "待办列表",
+    # 阶段 44：原生 OS 派生面（进程映像族，全 kernel32 导出，运行路径零 Python）
+    "派生映像", "等候映像", "映像退出码", "终止映像", "关闭映像",
 )
 
 # 需要按 arity 参与柯里化的内建。apply_rt 的 ar_plain 分支对纯文本地址直接
@@ -7715,6 +7719,8 @@ _BUILTIN_ARITY = {
     "创建计时器": 1,
     # 调度：注册任务 为 3 参柯里化；执行待办/待办列表 经 _ignore_unit 单参包装
     "注册任务": 3, "执行待办": 1, "待办列表": 1,
+    # 阶段 44：进程映像族（等候映像 二参柯里化，其余单参）
+    "派生映像": 1, "等候映像": 2, "映像退出码": 1, "终止映像": 1, "关闭映像": 1,
 }
 _CURRIED_BUILTINS = tuple(n for n, a in _BUILTIN_ARITY.items() if a > 1)
 
@@ -7836,6 +7842,12 @@ _BUILTIN_EMITTERS: dict = {
     "注册任务": _timelib._emit_builtin_register_task,
     "执行待办": _timelib._emit_builtin_run_pending,
     "待办列表": _timelib._emit_builtin_pending_list,
+    # 阶段 44：原生 OS 派生面（进程映像族）
+    "派生映像": _proclib._emit_builtin_spawn,
+    "等候映像": _proclib._emit_builtin_wait,
+    "映像退出码": _proclib._emit_builtin_exit_code,
+    "终止映像": _proclib._emit_builtin_kill,
+    "关闭映像": _proclib._emit_builtin_close,
 }
 # log 族定义域 x>0（其余一元数学函数定义域为全体实数/自带 NaN 语义）。
 _LOG_FLOAT_UNARY = frozenset({"log", "ln", "log10", "log2"})
@@ -9092,6 +9104,7 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     _emit_bigint_runtime(ec)                    # 大整数运行时
     _regexlib._emit_re_runtime(ec)              # 正则运行时（阶段 A：字面量）
     _timelib._emit_time_runtime(ec)             # 日期时间纯函数运行时
+    _proclib._emit_process_runtime(ec)          # 进程映像运行时（ps_api 惰性解析）
     return _emit_data_section(mod, labels, ec, user_names)
 
 
@@ -10756,6 +10769,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     eb.align(64)
     _regexlib.emit_regex_bss(eb)                    # 正则引擎 scratch（纯虚拟零填充）
     _timelib.emit_time_bss(eb)                      # 日期时间时钟 scratch（k32_base 等）
+    _proclib.emit_process_bss(eb)                   # 进程映像槽表/命令行缓冲/STARTUPINFO
 
     # ---- .data：标量 + 静态对象 + 末尾固定堆 ----
     data_rva = bss_rva + ((eb.total_len + 0xFFF) & ~0xFFF)
@@ -11012,6 +11026,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     _regexlib.emit_regex_data(ed)
     # 砖块 21：日期时间静态数据（时区名 + 中文星期名 STR 对象）。
     _timelib.emit_time_data(ed)
+    # 阶段 44：进程映像静态数据（kernel32 导出名 ANSI 串，非 Matha 对象）。
+    _proclib.emit_process_data(ed)
     # 砖块 16 阶段二：静态空字典对象（_empty_dict）。
     ed.align(8)
     ed.label_here("empty_dict")

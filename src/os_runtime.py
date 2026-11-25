@@ -24,6 +24,9 @@
   持久启停面（.matha/extensions.json）属 23d matha ext，不经本桥。
 - 外部单元 stdout 在退出步收集（communicate），运行中仅非阻塞轮询。
 - 服务形态单元由 register_service 登记（步闭包长驻，每调度轮恰一步）。
+- 载体进程回收由本桥 `_终止载体` 补上，粒度是「单元名一格」：句柄表每名一格，
+  同单元多条就绪进程共用一格时无法按内核 pid 归属（早收会杀掉仍在跑的另一条）。
+  内核只出簿记判定，OS 动作只在判定落地之后发生（被拒的 停止/卸载 不动进程）。
 
 常驻监督（阶段 43d）：描述符可带 常驻 / 重启预算 两键，策略判定与重启动作
 全在纯 Matha 内核（matha/os/kernel.matha 的 启动/_监督轮/调度）——本桥只提供
@@ -475,8 +478,11 @@ class OsRuntime:
         return self._call("装载", self._k, desc)
 
     def start(self, name: str) -> dict:
+        日志起 = len(self._k[5])
         result = self._call("启动", self._k, name)
         if result.get("结果") == "运行中":
+            if self._收旧发生(name, 日志起):
+                self._终止载体(name)
             self._toolchain_toggle(name, True)
         return result
 
@@ -484,14 +490,9 @@ class OsRuntime:
         return self._call("启动进程", self._k, name, 入口)
 
     def stop(self, name: str) -> dict:
-        cell = self._handles.get(name)
-        if cell and cell.get("proc") is not None:
-            try:
-                cell["proc"].terminate()
-            except OSError:
-                pass
         result = self._call("停止", self._k, name)
         if result.get("结果") == "已停止":
+            self._终止载体(name)
             from src.plugin_api import get_resolver
 
             resolver = get_resolver()
@@ -502,13 +503,49 @@ class OsRuntime:
         return result
 
     def unload(self, name: str, 强制: bool = False) -> dict:
+        result = self._call("卸载", self._k, name, bool(强制))
+        if result.get("结果") == "已卸载":
+            self._终止载体(name)
+        return result
+
+    # ---- 载体进程回收（44c）----
+    #
+    # 内核的 收旧进程/停止进程 只改簿记：它不持有 OS 句柄，也不该持有
+    # （纯 Matha 内核面没有进程映像原语，见 src/interp.py 映像族拒绝口径）。
+    # 簿记改判与 OS 回收分属两面，本桥在内核判定落地之后补那一步真终止；
+    # 判定被拒时也收（如 卸载 一个运行中单元）会把「拒绝」做成真伤害——
+    # 簿记说还在运行，OS 侧进程已经没了。回收同时交还句柄格，否则再启动的
+    # 主进程步会复用旧 Popen 句柄读到上一次运行的退出码。
+
+    def _终止载体(self, name: str) -> bool:
+        """终止该单元名的载体进程并交还槽位（幂等：无载体即 假）。
+
+        回收粒度是「单元」：句柄表每名一格，多条就绪进程共用一格时无法按
+        内核 pid 归属——这是宿主桥的既有形状（模块诚实边界注）。
+        """
         cell = self._handles.get(name)
-        if cell and cell.get("proc") is not None:
-            try:
-                cell["proc"].terminate()
-            except OSError:
-                pass
-        return self._call("卸载", self._k, name, bool(强制))
+        proc = cell.pop("proc", None) if cell is not None else None
+        if proc is None:
+            return False
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+        return True
+
+    def _收旧发生(self, name: str, 日志起: int) -> bool:
+        """本轮 启动 是否触发了内核 收旧进程 事件（日志条目 [事件, 名, pids]）。"""
+        return any(e[0] == "收旧进程" and e[1] == name for e in self._k[5][日志起:])
+
+    def _进程行of(self, pid: int):
+        for row in self.process_list():
+            if row[0] == pid:
+                return row
+        return None
+
+    def _就绪数(self, 单元名: str) -> int:
+        return sum(1 for row in self.process_list()
+                   if row[1] == 单元名 and row[3] == "就绪")
 
     def upgrade(self, name: str, desc: dict) -> dict:
         return self._call("升级", self._k, name, desc)
@@ -543,7 +580,14 @@ class OsRuntime:
         return rounds
 
     def stop_process(self, pid: int) -> dict:
-        return self._call("停止进程", self._k, int(pid))
+        pid = int(pid)
+        行 = self._进程行of(pid)
+        单元名 = 行[1] if 行 is not None else None
+        result = self._call("停止进程", self._k, pid)
+        if result.get("结果") == "已停止" and 单元名 is not None \
+                and self._就绪数(单元名) == 0:
+            self._终止载体(单元名)
+        return result
 
     # ============================================================
     # 查询

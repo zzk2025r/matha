@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 184（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 193（`tests/`）
+- **测试文件：** 194（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -570,6 +570,37 @@ both_err_equal 10 / both_err 0 / timeout 0（唯一变动是新语料 `loader.ma
 （33,481 不变、指令码 36 不变）——改动全在装配壳、CLI 薄壳、域胶水、桥面、被委托服务、
 内核语料与打包/安装脚本。新登记不修见 KNOWN_ISSUES 阶段 43。
 
+原生 OS 派生面（阶段 44）：方向拍板——「Matha 与 Python 共存，不再调用 Python 任何模块，
+直接调用系统 API……对标底层的 C 语言」，首批切片选「原生 OS 派生面」，stage-0 允许
+Python 仅作种子而最终判定用无 Python 的 Matha 原生映像自证。**44b-1** 新增
+`src/mbc/native_process.py`（578 行）：`派生映像` / `等候映像` / `映像退出码` /
+`终止映像` / `关闭映像` 五条内建的 x86-64 发射器，触达点只有 kernel32 六个导出
+（CreateProcessW / WaitForSingleObject / GetExitCodeProcess / TerminateProcess /
+CloseHandle / MultiByteToWideChar），地址在引导期 `k32_base` 之上经 `GetProcAddress`
+惰性解析并缓存回槽位——产物 **PE64 无导入表**（DataDirectory[1] RVA=0 Size=0），
+运行路径不含任何 Python 模块也不含 CRT。「无定义读数」一律 null／−1，不用哨兵数冒充
+（pid 不在表中、pid≤0、实参是堆对象、`GetExitCodeProcess` 报 STILL_ACTIVE(259)、
+API 解析失败）；槽表 32 槽 × 40 字节，满槽诚实返回 −1 且不覆盖旧槽；命令行 UTF-8 →
+UTF-16 转换，故中文路径与宽字符 CreateProcessW 同行为。**44b-2** 原生独占面收口：
+宿主/VM 面对同一批名**显式拒绝**（两面对独立写同文案，非静默降级、不返回假值）——
+核心主线红线是「单线程确定、不驱动外部进程」，要进程映像就得走原生后端；链面（boot）
+固定注册名集不扩，五名在链上即诚实「未定义变量」，`src/domains/os_module.py` 的
+`ProcessManager` 类注同步改口径为「进程簿记模型（模拟），不派生也不触碰任何 OS
+进程」。**44b-3**
+构建面真化：新增 `matha 原生构建`（别名 `native-build`/`exe`）产出真实 PE64 机器码，
+`matha build` 旧文案声称「构建独立可执行文件」而 `matha_compile` 从未产出过可执行
+文件，现改为产真实 `.mbc` 字节码工件并把机器码指向 `原生构建`；同批宿主桥
+`src/os_runtime.py` 补 `_终止载体`——纯 Matha 内核的 `收旧进程`/`停止进程` 只改簿记
+（内核面没有进程映像原语，也不该持有 OS 句柄），桥在内核判定**落地之后**才动 OS，
+被拒绝的 `停止`/`卸载` 不再杀掉仍在运行的载体（此前「拒绝」会被做成真伤害：簿记说
+还在运行，OS 侧进程已经没了）。**44f** 进程树取证：CIM 查得派生子的
+`ParentProcessId` 就是原生映像自身 pid、父映像名是产物 `.exe` 而非 `python.exe`。
+新锁档 `tests/test_native_process_phase44.py` 37 项（44a 原生 e2e 10 / 44b CLI 6 /
+44c 三面拒绝 9 / 44d 桥面回收 6 / 44e 静态结构 5 / 44f 进程树取证 1）；本体量
+33,481→**34,099**（+618 = 新档 578 + `src/mbc/native.py` 挂载 +16 + `src/mbc/vm.py`
+拒绝内建 +24），指令码 36 不变（映像族是内建名，不是新 opcode），Track B 快照零扰动
+（无 `.matha` 改动）。新登记不修见 KNOWN_ISSUES 阶段 44。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -669,9 +700,9 @@ make check-lite     # 同上，不跑需要 nasm/link 的机器码对拍
 python scripts/verify_offline.py
 ```
 
-**实测结果（最近一次 `make check`）：** 通过 8372 / 计入 8372，失败 0，**通过率 100.00%**
+**实测结果（最近一次全量门禁：tests lane 独立跑 + 五轻 lane 顺序跑 + Track B `--check`，2026-11-25）：** 通过 8409 / 计入 8409，失败 0，**通过率 100.00%**
 （另有 1 项平台 skip 不计入分母；含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 39 逐字节 /
-`dep_audit` 违规 0 条；
+`dep_audit` 40 内核文件 190 import 边 违规 0 条；
 `native_parity` 38 过 + 1 例不计入分母（`18_domain_lazy_load`：native 不承载领域插件符号）；
 原 2 个类型校验静默错值缺口 NI-001/NI-002 已修复（未定义名与字符串参与 `-` 均抛可捕获异常），
 详见 `docs/KNOWN_ISSUES.md`。代数数打印插件
@@ -705,6 +736,25 @@ python scripts/build_exe.py
 
 > 仓库不预构建发行版：`dist/` 在 `.gitignore` 内，历史快照中的 exe 不代表现状；
 > 构建链是否可用以本节命令当场实测为准（定位说明见 `docs/KNOWN_ISSUES.md`）。
+
+### 原生机器码映像（不经 Python，阶段 44）
+
+上面两个 `.exe` 是 **PyInstaller 装配壳**：进程仍是 Python 引导后跑 Matha，用于交付
+完整 CLI 与领域插件。要得到**不含 Python 的 Matha 专属映像**，走 `原生构建`——
+`src/mbc/native` 直接把 M3V 字节码发射成 x86-64 PE64 机器码：
+
+```bash
+# Matha 源码 → 原生 PE64（无导入表：运行期由 PEB 走表解析 kernel32）
+python -m src.matha_main 原生构建 demo.matha -o demo.exe
+# 等价别名：matha native-build / matha exe
+```
+
+产物可直接被 Windows 的 CMD/PowerShell 调用，并且**自己派生自己的子进程**：原生映像
+内的 `派生映像`/`等候映像`/`映像退出码`/`终止映像`/`关闭映像` 五内建经 kernel32 直接
+工作（进程树中父映像就是产物本身，无 `python.exe` 中转，实测取证见
+`tests/test_native_process_phase44.py`）。超出原生子集的语言构造（未支持的二元/一元
+运算符等）在编译期抛 `NativeNotSupported`、命令如实非零退出且**不留产物**；领域插件
+符号不被原生面承载，产物运行时诚实报「未定义变量」而不是给出假值。
 
 ---
 

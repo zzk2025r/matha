@@ -13,8 +13,8 @@
 
 ## 二、审计范围
 
-- 内核文件数：25
-- 内核 import 边数：68
+- 内核文件数：40
+- 内核 import 边数：190
 - 违规条目：**0**
 
 ## 三、违规清单（按类）
@@ -61,7 +61,7 @@
 ### `src/kernel/__init__.py`
 
 - 标准库/外部：`__future__`
-- src.*：`src.kernel`, `src.kernel.file_builtin`, `src.kernel.time_builtin`, `src.mathlib`, `src.regexlib`
+- src.*：`src.kernel`, `src.kernel.file_builtin`, `src.kernel.lazy_kernel`, `src.kernel.math_builtin`, `src.kernel.regex_builtin`, `src.kernel.time_builtin`
 
 ### `src/kernel/errors.py`
 
@@ -70,7 +70,7 @@
 
 ### `src/kernel/exec_api.py`
 
-- 标准库/外部：`__future__`, `pathlib`, `typing`
+- 标准库/外部：`__future__`, `dataclasses`, `pathlib`, `typing`
 - src.*：`src.kernel`, `src.mbc`, `src.mbc.compiler`, `src.mbc.native`, `src.mbc.vm`, `src.plugin_api`
 
 ### `src/kernel/file_builtin.py`
@@ -78,20 +78,95 @@
 - 标准库/外部：`__future__`
 - src.*：无
 
+### `src/kernel/json_builtin.py`
+
+- 标准库/外部：`__future__`, `json`, `logging`
+- src.*：`src.kernel`, `src.kernel.errors`
+
+### `src/kernel/lazy_kernel.py`
+
+- 标准库/外部：`__future__`
+- src.*：无
+
+### `src/kernel/math_builtin.py`
+
+- 标准库/外部：`__future__`, `math`, `random`
+- src.*：无
+
+### `src/kernel/regex_builtin.py`
+
+- 标准库/外部：`__future__`, `functools`
+- src.*：无
+
+### `src/kernel/symbolic/__init__.py`
+
+- 标准库/外部：`__future__`, `importlib`, `logging`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.integrate`, `src.kernel.symbolic.limit`
+
+### `src/kernel/symbolic/astnodes.py`
+
+- 标准库/外部：`__future__`, `dataclasses`, `enum`, `logging`, `typing`
+- src.*：无
+
+### `src/kernel/symbolic/diff.py`
+
+- 标准库/外部：`__future__`, `logging`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.expr`, `src.kernel.symbolic.simplify`
+
+### `src/kernel/symbolic/domain.py`
+
+- 标准库/外部：`__future__`, `logging`, `math`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.expr`, `src.kernel.symbolic.integrate`, `src.kernel.symbolic.limit`, `src.kernel.symbolic.simplify`
+
+### `src/kernel/symbolic/expr.py`
+
+- 标准库/外部：`__future__`, `dataclasses`, `functools`, `logging`, `math`, `re`, `typing`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.astnodes`
+
+### `src/kernel/symbolic/integrate.py`
+
+- 标准库/外部：`__future__`, `logging`, `math`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.diff`, `src.kernel.symbolic.expr`, `src.kernel.symbolic.simplify`
+
+### `src/kernel/symbolic/latex.py`
+
+- 标准库/外部：`__future__`, `logging`, `math`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.expr`, `src.kernel.symbolic.simplify`
+
+### `src/kernel/symbolic/limit.py`
+
+- 标准库/外部：`__future__`, `logging`, `math`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.diff`, `src.kernel.symbolic.expr`, `src.kernel.symbolic.simplify`
+
+### `src/kernel/symbolic/ode.py`
+
+- 标准库/外部：`__future__`, `logging`, `math`, `re`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.diff`, `src.kernel.symbolic.expr`, `src.kernel.symbolic.integrate`, `src.kernel.symbolic.latex`, `src.kernel.symbolic.simplify`
+
+### `src/kernel/symbolic/series.py`
+
+- 标准库/外部：`__future__`, `logging`, `math`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.diff`, `src.kernel.symbolic.expr`, `src.kernel.symbolic.integrate`, `src.kernel.symbolic.simplify`
+
+### `src/kernel/symbolic/simplify.py`
+
+- 标准库/外部：`__future__`, `dataclasses`, `logging`, `math`, `typing`
+- src.*：`src.kernel`, `src.kernel.symbolic`, `src.kernel.symbolic.expr`
+
+### `src/kernel/terminal_builtin.py`
+
+- 标准库/外部：`__future__`, `os`, `shutil`
+- src.*：`src.kernel`, `src.kernel.lazy_kernel`
+
 ### `src/kernel/time_builtin.py`
 
-- 标准库/外部：`__future__`, `calendar`, `datetime`, `time`
-- src.*：无
+- 标准库/外部：`__future__`, `calendar`, `datetime`, `sys`, `time`
+- src.*：`src.kernel`, `src.kernel.lazy_kernel`
 
 ### `src/lexer.py`
 
 - 标准库/外部：无
 - src.*：`src.tokens`
-
-### `src/mathlib.py`
-
-- 标准库/外部：`__future__`, `math`, `random`
-- src.*：无
 
 ### `src/mbc/__init__.py`
 
@@ -105,13 +180,18 @@
 
 ### `src/mbc/compiler.py`
 
-- 标准库/外部：`__future__`, `dataclasses`, `src`
+- 标准库/外部：`__future__`, `dataclasses`, `os`, `src`
 - src.*：`src.mbc`, `src.parser`
 
 ### `src/mbc/native.py`
 
 - 标准库/外部：`__future__`, `argparse`, `math`, `pathlib`, `struct`
-- src.*：`src.mathlib`, `src.mbc`, `src.mbc.compiler`
+- src.*：`src.kernel`, `src.kernel.math_builtin`, `src.mbc`, `src.mbc.compiler`
+
+### `src/mbc/native_process.py`
+
+- 标准库/外部：`__future__`, `struct`
+- src.*：无
 
 ### `src/mbc/native_regex.py`
 
@@ -130,23 +210,18 @@
 
 ### `src/mbc/serial.py`
 
-- 标准库/外部：`__future__`, `marshal`, `struct`
+- 标准库/外部：`__future__`, `io`, `marshal`, `struct`
 - src.*：`src.mbc`, `src.mbc.compiler`
 
 ### `src/mbc/vm.py`
 
 - 标准库/外部：`__future__`, `math`, `operator`, `src`
-- src.*：`src.kernel`, `src.kernel.errors`, `src.kernel.file_builtin`, `src.kernel.time_builtin`, `src.mathlib`, `src.mbc`, `src.mbc.compiler`, `src.regexlib`, `src.text_encoding`
+- src.*：`src.kernel`, `src.kernel.errors`, `src.kernel.file_builtin`, `src.kernel.json_builtin`, `src.kernel.lazy_kernel`, `src.kernel.math_builtin`, `src.kernel.regex_builtin`, `src.kernel.time_builtin`, `src.mbc`, `src.mbc.compiler`, `src.parser`, `src.text_encoding`
 
 ### `src/parser.py`
 
 - 标准库/外部：`__future__`, `enum`, `logging`, `re`, `src`, `typing`
 - src.*：`src.lexer`, `src.tokens`
-
-### `src/regexlib.py`
-
-- 标准库/外部：`__future__`, `functools`
-- src.*：无
 
 ### `src/text_encoding.py`
 
