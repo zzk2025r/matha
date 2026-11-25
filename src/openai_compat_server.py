@@ -13,7 +13,8 @@ tests/test_ai_servers_smoke.py 入门禁（阶段 3）；可选 Bearer 鉴权与
 使其可作为 Trae / OpenAI 客户端的自定义模型使用。
 
 启动：
-    python -m src.openai_compat_server --port 8787
+    matha server --port 8787                  # 统一 CLI（冻结 exe 同一路径）
+    python -m src.openai_compat_server --port 8787   # 模块 __main__，等价
 
 Trae 自定义模型配置：
     接口地址: http://localhost:8787/v1
@@ -338,16 +339,14 @@ def _is_port_in_use(port: int, host: str) -> bool:
             return True
 
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Matha OpenAI 兼容 API 服务")
-    parser.add_argument("--host", default="0.0.0.0", help="监听地址")
-    parser.add_argument("--port", type=int, default=8787, help="监听端口")
-    args = parser.parse_args()
+def serve(host: str = "0.0.0.0", port: int = 8787) -> int:
+    """启动 OpenAI 兼容服务并阻塞至中断，返回退出码（0 正常 / 1 端口全占用）。
 
-    port = args.port
-    host = args.host
-
+    阶段 43b：本函数是唯一启动面，`main()` 与 `matha server` 子命令都转发到此。
+    既往服务只能由模块 `__main__` 起（`python -m src.openai_compat_server`），
+    统一 CLI 入口没有命令位 ⇒ 冻结 exe 起不了服务，Windows 包装器于是指向了
+    早已删除的 `src.matha_daemon`。端口占用探测与注册表口径不变。
+    """
     # 端口冲突检测：如果被占用，尝试自动查找可用端口
     if _is_port_in_use(port, host):
         print(f"端口 {port} 已被占用，尝试查找可用端口...")
@@ -359,8 +358,9 @@ def main():
                 break
         else:
             print(f"错误：端口 {port}-{port+10} 均被占用，无法启动")
-            print("提示：请使用守护进程自动管理端口: python -m src.matha_daemon --port 8787")
-            sys.exit(1)
+            print("提示：本服务已自动试过该区间；请释放端口或显式换端口"
+                  "（matha server --port <端口>）")
+            return 1
 
     # 使用 daemon 线程，进程退出时自动清理
     ThreadingHTTPServer.daemon_threads = True
@@ -385,6 +385,16 @@ def main():
         server.shutdown()
     finally:
         _clear_port_registry()
+    return 0
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Matha OpenAI 兼容 API 服务")
+    parser.add_argument("--host", default="0.0.0.0", help="监听地址")
+    parser.add_argument("--port", type=int, default=8787, help="监听端口")
+    args = parser.parse_args()
+    sys.exit(serve(args.host, args.port))
 
 
 if __name__ == "__main__":

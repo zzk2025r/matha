@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul 2>nul
 REM Matha Flutter SDK 安装脚本 (Windows 版本)
 REM 自动检测系统并安装 Flutter SDK
 
@@ -88,8 +89,8 @@ echo   [信息] 请将以下内容添加到系统 PATH:
 echo.
 echo     %FLUTTER_PATH%
 echo.
-echo   或者运行以下命令永久添加:
-echo     setx PATH "%PATH%"
+echo   或者追加到当前用户 PATH（别用 setx "%%PATH%%"——它会把超 1024 字符的 PATH 截断）:
+echo     powershell -NoProfile -Command "$p=[Environment]::GetEnvironmentVariable('PATH','User'); if($p -notlike '*%FLUTTER_PATH%*'){[Environment]::SetEnvironmentVariable('PATH','%FLUTTER_PATH%;'+$p,'User')}"
 echo.
 
 :: ========== 运行 Flutter Doctor ==========

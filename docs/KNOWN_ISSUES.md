@@ -229,8 +229,17 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   `dist_build/`；已于 2026-11-06 在 `.gitignore` 的“发行/构建产物”段补上 `dist_build/` 一行
   消除该噪声（`git check-ignore dist_build/` 实测命中）。
 - 工作目录里残留的 `dist/*.exe` 为主线收官前的旧构建，`dist/` 本就在 `.gitignore` 内、
-  不受 git 跟踪，无定位效力（2026-11-06 已被上述 `build_exe.py` 清理逻辑重生成：
-  `dist/matha.exe` 与 `dist/matha-cc/matha-cc.exe` 均为当日新建）。
+  不受 git 跟踪，无定位效力（2026-11-25 阶段 43a-1 重建后重生成：`dist/matha.exe`
+  与 `dist/matha-cc.exe` 均为当场新建，产物口径改平铺，见下条）。
+- **阶段 43a-1 口径收口**：`matha.spec` 重写为「单一 Analysis + 单一 EXE + 入口
+  `src/matha_main.py` + 语料入包 + hiddenimports 由 `src/domains/manifest.json` 派生」，
+  产物一律平铺 `dist/<名>.exe`——`scripts/build_exe.py` 旧写法把 `--distpath` 设成
+  `dist/<name>`，本地产物落在 `dist/<name>/<name>.exe`，与 CI 断言的
+  `ls -la dist/matha.exe` 形状不一致（既往文档也按嵌套路径写，现已同步）。
+- **门禁面变化（阶段 43e/43f）**：`tests/test_frozen_entry_phase43.py` 的 spec 静态锁
+  恒跑（不需产物），冻结态 e2e 锁（exe 进程映像、被监管子进程映像、链面终端自包含、
+  `MATHA_HOME` 缺失诚实报错）在 `dist/matha.exe` 不在位时**如实 skip**，不记通过——
+  「构建链可复现但不进门禁」这句旧口径从此只对一半：无产物时仍不背书 exe 行为面。
 
 ### 7b. 其它交付端
 
@@ -2186,6 +2195,130 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   func 定义仍必须 `->`（parser.matha 期望箭头——语言形态，与 28-③ 同源未变）；
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
+
+- **2026-11 阶段 43 收官（冻结 exe 进程映像 + 常驻监管真化 + Windows 交付入口清算）**：
+  方向拍板走「先从进程映像开始，必须冻结 exe 而且必须是 Matha 的 exe……监管者与解释器在
+  冻结 exe 基础上完全由 Matha 内核主导与实现，并让 matha.exe 成为独立进程，非 python 的
+  脚本」，节奏走「先完成冻结可执行批，在此基础上再完成常驻监管真化批」，验证深度走
+  「全量门禁 + 真 CMD subprocess e2e」。
+  **43a-1 打包落点口径统一**：`matha.spec` 重写（单 `Analysis` + 单 `EXE(name='matha',
+  console=True)`、语料整树入包 `matha/**/*.matha` + 前端 `.c/.go/.js/.rs` +
+  `src/domains/manifest.json`、插件 hiddenimports 由清单推导、路径从 `SPECPATH` 推导、
+  入口统一 `src/matha_main.py`、三条装配口径写入头注）+ `scripts/build_exe.py` 产物落点
+  改平铺 `dist/<名>.exe`——此前它写 `--distpath dist/<名>/` 使产物落在
+  `dist/<名>/<名>.exe`，而 `.github/workflows/matha-ci.yml`（`ls -la dist/matha.exe` /
+  upload `dist/matha-cc.exe`）、`scripts/build.bat`、各安装脚本一律按平铺路径取件，
+  即「构建成功但取件必落空」。**43a-2 冻结态根口径**（`src/matha_chain.py`）：`_FROZEN` /
+  `_ASSET_ROOT`（onefile 解包根 `sys._MEIPASS`）/ `_EXE_DIR` 三态分列，`MATHA_HOME` 覆盖
+  优先且不静默回落，语料根序「覆盖 → 解包根 → cwd.parent → cwd」逐条镜像宿主
+  `_matha_dir()` 候选、扩展包根序「覆盖 → cwd → 解包根」镜像宿主 cwd 优先，缺源如实报
+  「装配源缺失: …（候选 …）」；`matha/loader.matha` 新增 `根`/`包路径` 的 cwd 根序改由
+  `当前目录` 载体自行发现（`matha/interp_matha.matha` + `matha/interp.matha` 双镜像补第
+  17 条载体原语臂 + `func_当前目录`/环境注册），链面 `注册内建(空环境)` 固定面 59→**60
+  名**——**42-①（`装载根` 只在 level-1 由装配方注入，纯 level-2 代码无从自行发现仓库根）
+  与 42-②（扩展包解析未镜像宿主 cwd 根序）两条登记由此退役**。
+  **43b Windows 入口死件清算**：`start_matha_server.bat` 旧版调用 `python -m
+  src.matha_daemon`——该模块阶段 11 已删除，脚本从删除那刻起从未启动过服务，且 echo
+  宣称的「守护模式/健康检查/自动重启/防火墙入站规则」四项能力全仓无实现；现指向统一 CLI
+  新命令位 `server`（`src/matha_main.py:_cmd_server` 委托 `src/openai_compat_server.serve`，
+  端口占用在 原端口+1..+10 内自动切换），有 `dist\matha.exe` 即用冻结进程映像启动，退出码
+  透传；`serve(host, port) -> int` 收口为唯一启动面（`main()` = `sys.exit(serve(...))`，
+  端口耗尽文案不再指向已删模块）。同批删除根目录死件 `Matha-Setup.spec`（727 B，入口指向
+  早已不存在的 `scripts/_setup_wrapper.py`，且硬编 `D:/trae/` 绝对路径；`src`/`scripts`/
+  `.github`/`tests`/`docs` 全仓零功能引用，唯一命中是一次性诊断脚本 `.trae/ci_buildexe_truth.py`
+  里的候选文件名遍历），删除后 spec 相关锁 145 项（`test_phase17_sweep` + `test_frozen_entry_phase43`）
+  全绿。**43c 被启动的解释器 = Matha 自己**：
+  `src/domains/os_module.py` 新增 `_self_launcher(sub)`（冻结态 `[sys.executable, sub]`——
+  onefile 下 `sys.executable` 就是 matha.exe 自身；开发态 `[宿主解释器, <仓库根>/matha_main.py,
+  sub]`，命令面不分叉），`运行脚本` 实现按后缀分派（`.matha`/`.msh` → 自身 `run` 命令，
+  其它 → 宿主解释器）并去掉 `shell=True`（脚本路径不再构成命令注入面）。
+  **43d 常驻监管真化**：重启策略入纯 Matha 内核 `matha/os/kernel.matha`（+102 行——
+  `启动` 显式拒绝「常驻单元须有主入口」、`_启动落地` 先 `_收旧进程` 再 `_派主进程`、
+  `_可重启` 五条件（运行 ∧ 常驻 ∧ 就绪数=0 ∧ 退出数>0 ∧ 退出数≤预算）、每 `_调度轮` 尾跑
+  `_监督轮`、`监督状态`/`_监督信息` 只读读数、重启不递增 `步数`）；宿主 `src/os_runtime.py`
+  只留 `self_launcher`、`register_external(name, argv, 版本, 常驻, 重启预算)`（描述符多带两键、
+  `_discover_external` 解包四元组）、`supervision(name)` → 内核 `监督状态`、`supervise(轮数,
+  间隔, 回报)` 墙钟薄壳（`轮数<=0` 不限轮、`KeyboardInterrupt` 原样上抛不吞）；
+  `src/matha_main.py` 新增 `监管`（别名 `supervise`）命令位（`--预算/--轮数/--间隔/--单元` +
+  REMAINDER 被监管命令，rc 0 跑过 / 1 内核拒绝 / 2 参数缺）。**冻结态实测**：
+  `matha.exe 监管 --预算 1 --轮数 120 --间隔 0.15 --单元 flaky -- eval 1+1` 在真 CIM 快照下
+  被监管子进程映像名集合 = **`{matha.exe}`、进程树内无 `python.exe`**，崩溃单元读数含
+  `['重启', 'flaky', 2]`；`matha.exe 终端 s.msh` 在无 `matha/` 的外来 cwd 下仍跑通（43a-2 +
+  42c 链面默认后端自足），`MATHA_HOME` 指向缺源树时非零退出并如实报装配源缺失。
+  **43g Windows 交付入口清算**（`scripts/` 下 15 文件，879 插入 / 378 删除）：安装/卸载/打包脚本一律对齐
+  平铺 `dist/<名>.exe`、仓库根由脚本自身位置推导（不再依赖 cwd）、版本取唯一版本源
+  `src/__version__.py`（旧 `setup_workspace.ps1` 硬编旧版本号与 `matha --version` 打架，且
+  `if (Test-Path $X -and -not $Force)` 把 `-and`/`-not` 交给 `Test-Path` 绑定 → Windows
+  PowerShell 5.1 上「A parameter cannot be found that matches parameter name 'and'」配合
+  `$ErrorActionPreference="Stop"` **一步都跑不动**，`??` 运算符同样为 5.1 不支持）、
+  `setx PATH "%PATH%"` 改按条目追加（`setx` 静默截断超 1024 字符）、缺产物守卫先于完成横幅、
+  `src` 拷贝一律递归、卸载改**交接式自删**（`start "" /b "!COPY!" … & exit /b 0`，目标经继承
+  环境变量 `MATHA_UNINST_TARGET` 传递——带空格路径作参数会被截断）、
+  `scripts/generate_release_notes.py` 版本改取唯一版本源（旧回退读 `pyproject.toml` 的
+  `dynamic = ["version"]` → `{attr = ...}` 表，取到的是 dict，标题渲染成
+  `v{'attr': …}`）、`install_flutter.bat` 补 `chcp 65001` 与 UTF-8 可解码口径。
+  **A 轨新档** `tests/test_frozen_entry_phase43.py` 89 项 = 43a 26（spec 静态锁 11 恒跑 +
+  根口径 15）/ 43b 6 / 43c 9（含 `src/` 裸 `python` shell 启动位零残留的反向控锁）/ 43d 15
+  （内核监督策略双链面同判 + 非常驻零扰动 + 预算语义 + 只读读数 + 桥面薄壳）/ 43f 10（CLI
+  帮助与 rc、开发态 e2e 重启、真 `cmd.exe` ASCII 别名与中文命令名码页取证、仓库 bat 可解码）
+  / 43g 23（含 cmd.exe 逐行读盘 vs PowerShell 先整体解析的**自删不对称实测锁**、内嵌模板按
+  目标语言校验、卸载流程四形态真跑）。其中 4 项标 `@_frozen_gate`：`dist/matha.exe` 不在位即
+  skip（不冒充通过），在位即真跑冻结 e2e——本批实测 4 项全跑绿。**改锁两处**：
+  `tests/test_phase17_sweep.py::test_spec_no_dead_hiddenimports` 由正则扫 spec 字面量改为
+  以桩类 exec spec 后断言推导出的 `HIDDEN`（判据落到真正生效的值上）；
+  `tests/test_selfhost_language_phase42.py` 注册面 59→60 名 + `当前目录` 在位锁 + `装包`
+  三元数同步（文档串标注 42-② 退役）。
+  **本体量口径内 `src/` 零改动**（33,481 行不变、指令码 36 不变、ast_vm_gap 快照仅
+  `generated_at` 时间戳漂移，行/合计/指令码逐字节一致）——改动全在装配壳
+  `src/matha_chain.py`、CLI 薄壳 `src/matha_main.py`、域胶水 `src/domains/os_module.py`、
+  桥面 `src/os_runtime.py`、被委托服务 `src/openai_compat_server.py`、内核语料
+  `matha/{loader,interp,interp_matha,os/kernel}.matha`、`matha.spec` 与打包/安装脚本。
+  登记不修六条：①onefile 一次调用 = 父子两个同名 `matha.exe` 映像（实测 `eval 1+1`
+  在 CIM 快照下出现引导父 + 载荷子两 pid），且冷启解包墙钟随机器负载漂移（独占 ~5.5s、
+  与门禁并发实测 12.1s；本批门禁全量跑时机器上另有一个与产品无关的历史会话孤儿
+  `python -` 常驻烧掉 1/4 核（取证确认它是 2026-11-24 19:50 一次**从未返回**的 shell
+  探针调用留下的：单线程 97% 一个核、累计 60,420 CPU-s、无子进程、`netstat` 零端点，
+  三代 bash 包装进程同秒创建且仍挂在原地；脚本正文只在该进程帧内，未做活体栈转储故
+  成因不复原，经用户点名后已终止），故本批所有墙钟数字须在 3 核可用口径下理解，
+  判定面不受影响）
+  ——「一个逻辑单元 = 一个 OS 进程」在 onefile 载体下不成立，
+  监管窗口与锁内预算须按最慢冷启计（43f 锁取 `--轮数 120 --间隔 0.15` 覆盖两次冷启）；
+  ②`matha-cc` 平铺产物本批未重建（盘上现存件为 2026-11-06 旧构建），43a-1 的平铺口径
+  对 `matha-cc.exe` 只有静态锁（`test_43b_build_entries_flat_distpath_matches_ci`）而无
+  当日 e2e 取证——只有 `dist/matha.exe` 是 2026-11-25 新建并四面验过的；③扩展包清单
+  JSON 损坏时双端结果不同（宿主 `src/interp.py:903`/`:999` 吞 `(OSError, ValueError)`
+  当空清单，链面 `matha/loader.matha:86` 的 `装包` 让解析异常如实上抛——口径注已写入
+  源注释，统一属宿主侧改动，登记不修）；④内核 `_收旧进程` 只把遗留「就绪」条目改判
+  「已停止」并记 `收旧进程` 事件，**不终止 OS 进程**（宿主桥 `_handles` 每名一格，
+  收口的是簿记覆写冲突而非进程泄漏——遗留进程由 OS 自行存活，`停止`/`unload` 才走
+  `proc.terminate()`）；⑤`src/os_runtime.py` 纯 Matha 内核桥在本批前 `src/` 内**零引用**
+  （只在测试与域侧可达），`src/matha_main.py:113` 的 `监管` 是它第一个产品调用方——
+  桥面其余方法仍无产品消费者，「内核主导」的覆盖面以此为准不外推；⑥`matha_files`
+  计数含 `matha/generated/*.matha` 6 个 gitignored 产物（`repo_facts` 与
+  `scripts/ast_vm_matrix.py` 均 `rglob("*.matha")`），故该数在 clean checkout 与本机
+  之间不稳定——登记为口径注记，改判定面（排除 generated）会同时改 ast_vm_gap 快照与
+  doc_facts 基线，本批不动。承继 33-⑤ + 32-⑧⑫ + 29-①⑥⑦ + 37-①②③ + 38-①② +
+  39-①②③④ + 40-①②③④ + 41-①②③ + 42-③④ 维持原登记不修（42-①② 本批退役）。
+  边界维持：pyproject `dependencies = []` 不变（PyInstaller 仅构建期），零依赖边界由
+  `test_43a1_zero_runtime_dependency_boundary_unchanged` 恒跑锁在档。
+  **门禁与算术闭合（2026-11-25）**：tests lane 独立跑 **8269 过 + 1 平台 skip**（6832.16s，
+  `scripts/check.py` 每子进程 3600s 上限会把 tests lane 截断，故 tests 必须独立跑——既有
+  口径而非本批缺陷）；lane 内首跑呈 `1 failed, 8268 passed, 1 skipped`，唯一红为
+  `test_doc_facts.py::test_readme_numbers_match_the_repo[test_files]`——该文件在**导入期**
+  读 README，而 README 的「测试文件 192→193」是在收集之后才落笔，属文档中途改读的过期
+  快照伪影（39 阶段同族），改读后单跑 **18/18 绿**，非产品缺陷。轻 lane：`kernel_purity`
+  14 / `ast_vm_gap` 11（快照 `--write` 重生成后 `git diff` 仅 `generated_at` 一行 +1 −1，
+  节点 78 / 发射 59 / 无码 19 / 指令码 36 / 各合计逐字节不变）/ `golden` 39/39 逐字节 /
+  `dep_audit` 39 内核文件 189 import 边 **0 违规** / `native_parity` 38 过 + 0 失败 + 1 例
+  不计分母（`18_domain_lazy_load`）。Track B `selfhost_matrix.py --check` **一致**——快照
+  226 语料零分类漂移（双面一致 216 / differ 0 / boot_err 0 / both_err_equal 10 / both_err
+  0 / timeout 0）：43a-2 的 `matha/{loader,interp,interp_matha}.matha` 补臂与
+  `matha/os/kernel.matha` 监督策略不触达 boot 链判定面（boot 链不含被监管单元语料），
+  且本批未新增 `.matha` 语料故 42 阶段那类「parametrize 扫描自动 +1」的闭合式扰动为零。
+  **冻结面取证不计入分母**：4 项 `@_frozen_gate` 锁因 `dist/matha.exe` 在位而**全跑非
+  skip**（真 CIM 快照断言进程树无 `python.exe`），真 `cmd.exe` subprocess e2e 亦实跑。
+  **算术闭合：8373 条件 = 8372 过（tests 8269 + purity 14 + ast_vm_gap 11 + golden 39 +
+  native 38 + dep_audit 1）+ 1 skip（平台 skip 承继）= 8284（阶段 42）+ 89（阶段 43 新档）**。
 
 - **2026-11 阶段 42 收官（纯 Matha 装载器 + 载体原语链面臂 + 终端链面默认后端，
   「终端与装载全由 Python 代劳」缺陷收口）**：方向拍板走推荐项「A：只做纯 Matha

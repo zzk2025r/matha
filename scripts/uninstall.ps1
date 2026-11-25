@@ -20,7 +20,23 @@ foreach ($d in $PossibleDirs) {
     if (Test-Path $d) { $InstallDir = $d; break }
 }
 if (-not $InstallDir) { $InstallDir = $PossibleDirs[0] }
-$Version = "4.4"
+# 目录靠猜测得到（%USERPROFILE%\Matha → Program Files），猜中的完全可能只是用户
+# 自己的同名文件夹：先确认里面有 Matha 产物，否则什么都删不了、也改不了 PATH。
+if (-not ((Test-Path (Join-Path $InstallDir "matha.exe")) -or
+          (Test-Path (Join-Path $InstallDir "src\matha_main.py")))) {
+    Write-Host "[中止] $InstallDir 内没有 Matha 产物，未做任何改动。" -ForegroundColor Red
+    Write-Host "真实安装目录请用 install.ps1 -Uninstall -InstallDir <路径> 指定。" -ForegroundColor Gray
+    exit 1
+}
+# 版本号取自唯一版本源（已安装树的 src\__version__.py，其次仓库检出），不再硬编
+$Version = "未知"
+foreach ($vf in @((Join-Path $InstallDir "src\__version__.py"),
+                  (Join-Path $PSScriptRoot "..\src\__version__.py"))) {
+    if (Test-Path $vf) {
+        $vm = Select-String -Path $vf -Pattern '^__version__\s*=\s*"([^"]+)"' | Select-Object -First 1
+        if ($vm) { $Version = $vm.Matches[0].Groups[1].Value; break }
+    }
+}
 
 Write-Host "==========================================" -ForegroundColor Yellow
 Write-Host "  Matha v$Version 卸载程序" -ForegroundColor Yellow
@@ -47,23 +63,33 @@ Write-Host "  ✓ 已删除桌面快捷方式" -ForegroundColor Green
 
 # 删除开始菜单
 Write-Host "删除开始菜单快捷方式..." -ForegroundColor Cyan
-$StartMenu = [Environment]::GetFolderPath("CommonPrograms")
-$MathaGroup = Join-Path $StartMenu "Matha"
-Remove-Item $MathaGroup -Recurse -Force -ErrorAction SilentlyContinue
+# 安装脚本写的是「当前用户」程序组（%APPDATA%\...\Programs\Matha），
+# 旧写法只清 CommonPrograms（所有用户），用户级程序组永远删不掉
+foreach ($menu in @((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Matha"),
+                   (Join-Path ([Environment]::GetFolderPath("CommonPrograms")) "Matha"))) {
+    Remove-Item $menu -Recurse -Force -ErrorAction SilentlyContinue
+}
 Write-Host "  ✓ 已删除开始菜单快捷方式" -ForegroundColor Green
 
-# 从 PATH 中移除
-Write-Host "从系统 PATH 中移除..." -ForegroundColor Cyan
-$currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
-if ($currentPath -like "*$InstallDir*") {
-    $newPath = $currentPath -replace [regex]::Escape(";$InstallDir"), ""
-    $newPath = $newPath -replace [regex]::Escape("$InstallDir;"), ""
-    $newPath = $newPath -replace [regex]::Escape($InstallDir), ""
-    [Environment]::SetEnvironmentVariable("PATH", $newPath, "Machine")
-    Write-Host "  ✓ 已从系统 PATH 中移除: $InstallDir" -ForegroundColor Green
-} else {
-    Write-Host "  [信息] $InstallDir 不在系统 PATH 中" -ForegroundColor Gray
+# 从 PATH 中移除（逐条目比对，两个作用域都走一遍）
+# 旧写法两处问题：只处理 Machine 作用域（用户级安装的 PATH 项永远留残），
+# 且非管理员下 SetEnvironmentVariable("PATH", …, "Machine") 直接抛异常打断脚本。
+Write-Host "从 PATH 中移除..." -ForegroundColor Cyan
+$removed = $false
+foreach ($scope in @("Machine", "User")) {
+    $currentPath = [Environment]::GetEnvironmentVariable("PATH", $scope)
+    if (-not $currentPath) { continue }
+    $newPath = ($currentPath -split ";" | Where-Object { $_ -and ($_ -ne $InstallDir) }) -join ";"
+    if ($currentPath -eq $newPath) { continue }
+    try {
+        [Environment]::SetEnvironmentVariable("PATH", $newPath, $scope)
+        Write-Host "  ✓ 已从 $scope PATH 中移除: $InstallDir" -ForegroundColor Green
+        $removed = $true
+    } catch {
+        Write-Host "  [提示] $scope PATH 写入失败（需管理员）：$($_.Exception.Message)" -ForegroundColor Yellow
+    }
 }
+if (-not $removed) { Write-Host "  [信息] $InstallDir 不在 PATH 中" -ForegroundColor Gray }
 
 # 删除安装目录
 Write-Host "删除安装目录..." -ForegroundColor Cyan

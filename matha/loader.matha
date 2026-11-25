@@ -52,10 +52,19 @@ module 装载器 {
 
   (* ===== 三级解析序（镜像 _load_matha_source / _matha_module_path） ===== *)
 
-  (* 装载根：装配方（src/matha_chain.py）注入 boot VM 全局的仓库根绝对路径——
-     宿主 _matha_dir() 的第一候选是 src/.. 而非 cwd，终端 换目录 之后装载仍须
-     命中同一批源；未注入时该名在链面未定义，如实报错不猜相对路径。 *)
-  func 根() -> String = 装载根
+  (* 装载根：装配方（src/matha_chain.py）注入 boot VM 全局的候选根序
+     装载根们（逐条镜像宿主 _matha_dir 的 _candidates：资产根 → cwd 上跳 →
+     cwd，前置 MATHA_HOME / exe 同级目录），本处由 **Matha 自己**挑首个真含
+     matha/ 的根——宿主同名函数的 exists 环在此而非在 Python 里预挑好。候选
+     尾再追一条链面现取的 当前目录()：装载根们 是**装配期**快照，终端 换目录
+     之后宿主面按新 cwd 重算、链面同样跟得上（43a-2 补 当前目录 载体臂）。
+     全不命中回落 装载根（装配方给的保底绝对路径），不猜相对路径：宿主 _matha_dir()
+     的首候选是 src/.. 而非 cwd，终端 换目录 之后装载仍须命中同一批源。 *)
+  func 根() -> String = 首个有语料(装载根们 + [当前目录()], 装载根)
+
+  func 首个有语料(根们: List, 保底: String) -> String = (根们, 保底) =>
+    根们 = [] ? 保底 :
+      (有(根们[0] + "/matha") ? 根们[0] : 首个有语料(根们[1:], 保底))
 
   func 路径(名: String) -> String = (名) =>
     首个([主路径(名), 包路径(名), 库路径(名)])
@@ -64,25 +73,45 @@ module 装载器 {
     名 = "运行时引擎" ? 根() + "/matha/runtime/matha_runtime.matha" :
       根() + "/matha/" + (查对(名表(), 名) = "" ? 名 + ".matha" : 查对(名表(), 名))
 
-  (* 扩展包：.matha_packages/<名>/manifest.json 的 entry/enabled 语义
-     与 _package_module_path 同口径（enabled 为假 → 整包跳过，不回落同名
-     源文件）；无清单时按 <名>.matha 入口。清单缺失/损坏由 解析_JSON
-     如实上抛，不静默当空清单。
-     根序分歧登记：宿主扫描序是 (cwd, 仓库根)，链面只有仓库根一根——
-     取 cwd 需 当前目录 内建臂（本批 16 名之外），故不镜像 cwd 候选。 *)
-  func 包路径(名: String) -> String = (名) =>
-    有(包目录(名)) ?
-      (有(包目录(名) + "/manifest.json") ?
-         装包(名, 解析_JSON(read_file(包目录(名) + "/manifest.json"))) :
-         首个([包目录(名) + "/" + 名 + ".matha"])) :
-      ""
+  (* 扩展包：逐根扫 .matha_packages/<名>，manifest.json 的 entry/enabled 语义
+     与 _package_module_path 同口径。43a-2 真化三点：
+     ① 根序镜像宿主 **(cwd, 仓库根)**——cwd 由链面 当前目录 载体臂现取且排在
+        装载包根们 之前（42-② 的「链面只有仓库根一根」分歧随此退役；冻结态
+        下仓库根位即解包/资产根，exe 同级与 MATHA_HOME 由装配方前置）；
+     ② 宿主对「清单 enabled: false」是 `return None`（整包跳过且**不再扫后续
+        根**），对「本根无此包 / 候选文件都不在」是 `continue`（续扫下一根）——
+        两态不可都用 "" 表达，故 包择 产 [终止?, 命中] 判定帧；
+     ③ 入口缺失（清单无 entry 或 entry = ""）时**不再**把 `<目录>/` 当模块路径
+        （宿主 `if cand:` 跳过空串，本处由 候选 只收非空入口名）。
+     清单缺失/损坏由 解析_JSON 如实上抛，不静默当空清单（宿主吞 ValueError
+     当空清单——面间分歧，登记不修）。 *)
+  func 包路径(名: String) -> String = (名) => 包扫([当前目录()] + 装载包根们, 名)
 
-  func 包目录(名: String) -> String = (名) => 根() + "/.matha_packages/" + 名
+  func 包扫(根们: List, 名: String) -> String = (根们, 名) =>
+    根们 = [] ? "" : 包断(包择(包目录(根们[0], 名), 名), 根们, 名)
 
-  func 装包(名: String, 清单: Value) -> String = (名, 清单) =>
-    启用(清单) ?
-      首个([包目录(名) + "/" + 入口(清单), 包目录(名) + "/" + 名 + ".matha"]) :
-      ""
+  func 包断(判: List, 根们: List, 名: String) -> String = (判, 根们, 名) =>
+    判[0] ? "" : (判[1] = "" ? 包扫(根们[1:], 名) : 判[1])
+
+  func 包择(目录: String, 名: String) -> List = (目录, 名) =>
+    有(目录) ?
+      (有(目录 + "/manifest.json") ?
+         包判(目录, 名, 解析_JSON(read_file(目录 + "/manifest.json"))) :
+         [假, 首个(候选(目录, 名, ""))]) :
+      [假, ""]
+
+  func 包判(目录: String, 名: String, 清单: Value) -> List = (目录, 名, 清单) =>
+    启用(清单) ? [假, 首个(候选(目录, 名, 入口(清单)))] : [真, ""]
+
+  func 候选(目录: String, 名: String, 入口名: String) -> List = (目录, 名, 入口名) =>
+    入口名 = "" ? [目录 + "/" + 名 + ".matha"] :
+      [目录 + "/" + 入口名, 目录 + "/" + 名 + ".matha"]
+
+  func 包目录(根: String, 名: String) -> String = (根, 名) =>
+    根 + "/.matha_packages/" + 名
+
+  func 装包(目录: String, 名: String, 清单: Value) -> String = (目录, 名, 清单) =>
+    启用(清单) ? 首个(候选(目录, 名, 入口(清单))) : ""
 
   func 启用(清单: Value) -> Bool = (清单) =>
     标准库.dict_has(清单, "enabled") ? 清单["enabled"] = 真 : 真

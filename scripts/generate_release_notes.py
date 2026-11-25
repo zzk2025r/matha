@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 生成发布说明脚本
-用法: python scripts/generate_release_notes.py > RELEASE_NOTES_v4.4.0.md
+用法: python scripts/generate_release_notes.py > RELEASE_NOTES.md
+（发布号取 src/__version__.py，标题里的 vX.Y.Z 由脚本自身渲染）
 """
 
 from __future__ import annotations
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -22,19 +24,24 @@ def run_cmd(cmd: list[str]) -> str:
 
 
 def get_version() -> str:
-    """获取版本号。"""
-    # 尝试从 git tag 获取
+    """获取版本号。
+
+    唯一版本源 = `src/__version__.py`。此前回退读 pyproject.toml 的
+    `project.version`，而该字段是 `dynamic = ["version"]` 的 `{attr = ...}`
+    表，取到的不是字符串而是 dict，发布说明标题会渲染成 `v{'attr': …}`。
+    """
+    root = Path(__file__).resolve().parents[1]
+    vf = root / "src" / "__version__.py"
+    if vf.is_file():
+        m = re.search(r'^__version__\s*=\s*"([^"]+)"',
+                      vf.read_text(encoding="utf-8", errors="replace"), re.M)
+        if m:
+            return m.group(1)
+    # 回退：git tag（外部状态，仅在本机无仓库源码时用）
     tag = run_cmd(["git", "describe", "--tags", "--abbrev=0"])
     if tag:
-        return tag.lstrip('v')
-    # 回退到 pyproject.toml
-    try:
-        import tomllib
-        with open("pyproject.toml", "rb") as f:
-            data = tomllib.load(f)
-        return data.get("project", {}).get("version", "0.0.0")
-    except Exception:
-        return "0.0.0"
+        return tag.lstrip("v")
+    return "未知"
 
 
 def get_commits_since_last_tag() -> list[str]:

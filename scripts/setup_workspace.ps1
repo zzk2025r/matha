@@ -13,10 +13,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "4.4.57"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoRoot = Split-Path -Parent $ScriptDir
 $RepoURL = "git@github.com:zzk2025r/matha.git"
 $RepoURLHTTPS = "https://github.com/zzk2025r/matha.git"
 $MathaHome = if ($env:MATHA_HOME) { $env:MATHA_HOME } else { "$env:USERPROFILE\.matha-home" }
+
+# 版本号单一来源 = src\__version__.py（旧写法硬编 4.4.57，与 matha --version 打架）
+$VersionFile = Join-Path $RepoRoot "src\__version__.py"
+$Version = "未知"
+if (Test-Path $VersionFile) {
+    $vm = Select-String -Path $VersionFile -Pattern '^__version__\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if ($vm) { $Version = $vm.Matches[0].Groups[1].Value }
+}
 
 function Log($msg) {
     if (-not $Quiet) { Write-Host $msg }
@@ -30,7 +39,10 @@ Log ""
 Log "目标目录: $MathaHome"
 
 # 检查已存在
-if (Test-Path $MathaHome -and -not $Force) {
+# （旧写法 if (Test-Path $MathaHome -and -not $Force) 把 -and/-not 当成 Test-Path
+#   的参数去绑定，Windows PowerShell 直接报「A parameter cannot be found that
+#   matches parameter name 'and'」——配合 ErrorActionPreference=Stop，脚本一步都跑不动）
+if ((Test-Path $MathaHome) -and (-not $Force)) {
     $existing = Get-ChildItem $MathaHome -ErrorAction SilentlyContinue
     if ($existing) {
         Log ""
@@ -81,21 +93,21 @@ $clientConfig = @{
     github_repo             = $RepoURL
     github_repo_https       = $RepoURLHTTPS
     branch                  = "main"
-    language                = $env:MATHA_LANG ?? "zh-CN"
+    language                = $(if ($env:MATHA_LANG) { $env:MATHA_LANG } else { "zh-CN" })
     ide_enabled             = $true
     ssl_backend             = "schannel"
     http_version            = "HTTP/1.1"
 }
 $clientConfig | ConvertTo-Json -Depth 3 | Out-File "$clientDir\config.json" -Encoding UTF8
 
-# update.py
+# update.py（生成物里的版本号取唯一版本源，不再硬编 4.4.57）
 $updateScript = @'
 """Matha 自举更新器 - 从 GitHub 或开发端更新使用端"""
 from __future__ import annotations
 import json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
-VERSION = "4.4.57"
+VERSION = "__MATHA_VERSION__"
 REPO_URL = "git@github.com:zzk2025r/matha.git"
 REPO_URL_HTTPS = "https://github.com/zzk2025r/matha.git"
 CLIENT_DIR = Path(__file__).parent
@@ -164,42 +176,44 @@ if __name__ == "__main__":
         print("  从 GitHub 更新...")
         update_from_github()
 '@
+$updateScript = $updateScript.Replace('__MATHA_VERSION__', $Version)
 $updateScript | Out-File "$clientDir\update.py" -Encoding UTF8
 
 # README
-$readme = @"
+$readme = @'
 # Matha 使用端
 
-**版本：** $Version
-**工作空间：** $clientDir
+**版本：** __MATHA_VERSION__
+**工作空间：** __MATHA_CLIENT_DIR__
 
 ## 快速开始
 
-\`\`\`powershell
+```powershell
 # 启动 REPL
 python -m src.matha_main
 
-# 或使用快捷命令
-matha
-\`\`\`
+# 或（已构建冻结版）用完整路径启动独立进程
+& "__MATHA_REPO_ROOT__\dist\matha.exe"
+```
 
 ## 目录结构
 
-- \`src/\` — 只读源码（随版本更新）
-- \`docs/\` — 离线文档
-- \`config.json\` — 使用端配置
-- \`update.py\` — 自举更新器
+- `src/` — 只读源码（随版本更新）
+- `docs/` — 离线文档
+- `config.json` — 使用端配置
+- `update.py` — 自举更新器
 
 ## 更新
 
-\`\`\`powershell
+```powershell
 # 检查更新
 python update.py --check
 
 # 手动更新
 python update.py
-\`\`\`
-"@
+```
+'@
+$readme = $readme.Replace('__MATHA_VERSION__', $Version).Replace('__MATHA_CLIENT_DIR__', $clientDir).Replace('__MATHA_REPO_ROOT__', $RepoRoot)
 $readme | Out-File "$clientDir\README.md" -Encoding UTF8
 
 # ── 创建 workspace（用户工作区）─────────────────────────────
@@ -239,7 +253,7 @@ if (-not $SkipDev) {
         if (-not $cloneSucceeded) {
             Log "  ! 克隆失败，创建空目录: $devDir"
             New-Item -ItemType Directory -Path $devDir -Force | Out-Null
-            "@# Matha 开发端`n`n请先克隆仓库：`n`` powershell`ngit clone $RepoURL`n```"@ | Out-File "$devDir\README.md" -Encoding UTF8
+            "# Matha 开发端`n`n请先克隆仓库：`n    git clone $RepoURL`n" | Out-File "$devDir\README.md" -Encoding UTF8
         } else {
             Log "  ✓ 已克隆到: $devDir"
         }
@@ -293,10 +307,10 @@ $pluginSchema = @{
 $pluginSchema | ConvertTo-Json -Depth 5 | Out-File "$ideDir\matha_ide\schemas\plugin.schema.json" -Encoding UTF8
 
 # IDE README
-$ideReadme = @"
+$ideReadme = @'
 # Matha IDE
 
-**版本：** $Version
+**版本：** __MATHA_VERSION__
 **基础：** Matha 自举开发环境
 
 ## 设计理念
@@ -315,7 +329,7 @@ $ideReadme = @"
 
 ## 文件结构
 
-\`\`\`
+```
 MathaIDE/
 ├── matha_ide.json          ← IDE 配置（JSON，任何系统可读）
 ├── matha_ide/
@@ -323,8 +337,9 @@ MathaIDE/
 │   ├── themes/             ← 语法高亮主题
 │   └── extensions/         ← 插件目录
 └── README.md
-\`\`\`
-"@
+```
+'@
+$ideReadme = $ideReadme.Replace('__MATHA_VERSION__', $Version)
 $ideReadme | Out-File "$ideDir\README.md" -Encoding UTF8
 
 # 更新根配置
@@ -358,7 +373,12 @@ Log "  python update.py           # 检查更新"
 Log ""
 Log "开发者:"
 Log "  git clone $RepoURL  # 克隆开发仓库"
-Log "  # 或将 $DevPath 符号链接到 $devDir"
+if ($DevPath) {
+    Log "  # 已将 $DevPath 接到 $devDir"
+} else {
+    # 旧写法无条件插值 $DevPath，未传参时打印出「或将  符号链接到」空槽
+    Log "  # 或把本地仓库检出目录符号链接到 $devDir（mklink /D）"
+}
 Log ""
 Log "环境变量:"
 Log "  MATHA_HOME=$MathaHome"

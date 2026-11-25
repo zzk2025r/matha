@@ -366,9 +366,47 @@ def shell_exec(command: str, timeout: float = 30.0) -> dict:
                 "error": str(e), "success": False}
 
 
+def _self_launcher(sub: str) -> list[str]:
+    """本实现自身的启动 argv（阶段 43c）。
+
+    冻结态（PyInstaller）`sys.executable` 即 matha.exe 本身——子进程是独立
+    的 Matha 进程映像；开发态退回「宿主解释器 + 统一 CLI 入口」，二者都经
+    同一个 `src/matha_main.py` 的 `run` 子命令，语义不分叉。
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, sub]
+    entry = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "matha_main.py")
+    return [sys.executable, entry, sub]
+
+
 def shell_run_script(path: str) -> dict:
-    """运行脚本。"""
-    return shell_exec(f"python {path}")
+    """运行脚本（阶段 43c 真化）。
+
+    旧写法 `shell_exec(f"python {path}")` 有两处真缺陷：① 被启动的解释器是
+    PATH 上的裸名 `python`（不存在即失败、存在即可能是另一套环境，Matha 自身
+    反而永不被启动）；② `shell=True` + 路径直插命令串使路径成为命令注入位
+    （`运行脚本("a & del /q *")` 会执行 `del`）。现在 argv 列表 + shell=False：
+    `.matha` 交回 Matha 自己的 `run` 子命令，其余后缀交 `sys.executable`
+    （Python 脚本本就归 Python），路径作为单个 argv 元素不再被 shell 切开。
+    """
+    argv = _self_launcher("run") + [path] if path.lower().endswith(".matha") \
+        else [sys.executable, path]
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=30.0)
+        return {
+            "command": " ".join(argv),
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "success": result.returncode == 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {"command": " ".join(argv), "returncode": -1,
+                "error": "超时", "success": False}
+    except Exception as e:
+        return {"command": " ".join(argv), "returncode": -1,
+                "error": str(e), "success": False}
 
 
 def shell_exec_with_input(command: str, input_text: str = "", timeout: float = 30.0) -> dict:

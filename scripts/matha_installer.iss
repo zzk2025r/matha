@@ -7,23 +7,38 @@
 # - 添加到系统 PATH
 # - 添加卸载程序
 #
-# 编译命令 (需要 Inno Setup 6.x):
-#   iscc matha_installer.iss /DOutputDir=dist /DVersion=4.4
+# 编译命令 (需要 Inno Setup 6.x，从仓库根运行):
+#   iscc scripts\matha_installer.iss /DVersion=4.6.0
+# 相对路径基准由 [Setup] SourceDir=.. 定为仓库根（本文件住在 scripts\ 下——
+# 旧写法没有 SourceDir，所有 Source 一律按 .iss 所在目录解析，指向
+# scripts\matha-offline\matha.exe 这类早就不存在的路径，iscc 直接编译失败）。
+
+; 版本号单一来源 = src\__version__.py 的内容，命令行 /DVersion= 传入；
+; 未传时回落到与 src\__version__.py 同步的字面值（不写死旧版号）。
+#ifndef Version
+  #define Version "4.6.0"
+#endif
 
 [Setup]
 AppName=Matha
-AppVersion=4.4
+AppVersion={#Version}
+AppVerName=Matha {#Version}
 DefaultDirName={commonpf}\Matha
 DefaultGroupName=Matha
-OutputDir=.\dist
-OutputBaseFilename=Matha-Setup-4.4-Windows-x64
-SetupIconFile=matha_icon.ico
+; dist\ 平铺产物（与 scripts\build.bat / .github\workflows\build.yml /
+; scripts\build_exe.py 同口径），不再是已退役的 matha-offline\ 嵌套布局
+SourceDir=..
+#ifdef OutputDir
+OutputDir={#OutputDir}
+#else
+OutputDir=dist
+#endif
+OutputBaseFilename=Matha-Setup-{#Version}-Windows-x64
 UninstallDisplayIcon={app}\matha.exe
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin
 WizardStyle=modern
-LicenseFile=
 ; 安装后启动
 ; ShowNotes=yes
 
@@ -34,15 +49,13 @@ Name: "startmenuicon"; Description: "创建开始菜单快捷方式"; GroupDescr
 Name: "addtopath"; Description: "添加到系统 PATH 环境变量"; GroupDescription: "高级选项:"
 
 [Files]
-Source: "matha-offline\matha.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "matha-cc-offline\matha-cc.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\matha.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\matha-cc.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs Excludes: "*.log,__pycache__\*"
 Source: "docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "src\*.py"; DestDir: "{app}\src"; Flags: ignoreversion
-Source: "src\compiler\*.py"; DestDir: "{app}\src\compiler"; Flags: ignoreversion
-Source: "src\domains\*.py"; DestDir: "{app}\src\domains"; Flags: ignoreversion
-Source: "src\offline\*.py"; DestDir: "{app}\src\offline"; Flags: ignoreversion
-Source: "src\stdlib\*.py"; DestDir: "{app}\src\stdlib"; Flags: ignoreversion
+; src 全子包递归（旧写法只列 compiler/domains/offline/stdlib 四片，
+; 装出来的树缺 src\kernel 与 src\mbc——解释器与 VM 根本 import 不起来）
+Source: "src\*.py"; DestDir: "{app}\src"; Flags: ignoreversion recursesubdirs Excludes: "*.pyc"
 Source: "tests\*.py"; DestDir: "{app}\tests"; Flags: ignoreversion
 Source: "pyproject.toml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "matha.spec"; DestDir: "{app}"; Flags: ignoreversion
@@ -120,7 +133,7 @@ begin
       AddToPath(InstallDir);
 
     // 显示完成消息
-    MsgBox('Matha v4.4 安装成功！'#13#13'桌面快捷方式已创建。'#13'双击 "Matha REPL" 启动交互式使用。', mbInformation, MB_OK);
+    MsgBox('Matha v{#Version} 安装成功！'#13#13'桌面快捷方式已创建。'#13'双击 "Matha REPL" 启动交互式使用。', mbInformation, MB_OK);
   end;
 end;
 

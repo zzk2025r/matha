@@ -101,17 +101,16 @@ matha-cc test
 
 ### 打包
 ```bash
-# 在有网络机器上构建
+# 在有网络机器上构建（与 .github/workflows/matha-ci.yml build-exe 同源命令）
 pip install pyinstaller
-pyinstaller --onefile --console matha.spec
-pyinstaller --onefile --console matha-cc.spec
+python -m PyInstaller --noconfirm matha.spec
+python -m PyInstaller --noconfirm matha-cc.spec
+# 或直接 python scripts/build_exe.py --all
 
-# 生成的文件
+# 生成的文件（平铺在 dist/ 下，两份产物按名分档进 build/<名>/ 中间目录）
 dist/
-├── matha/
-│   └── matha.exe      # 独立可执行文件
-└── matha-cc/
-    └── matha-cc.exe   # 独立编译器
+├── matha.exe          # 统一 CLI 入口（repl / 终端 / run / eval / server / 监管 …）
+└── matha-cc.exe       # 独立编译器
 ```
 
 ### 传输到离线机器
@@ -123,8 +122,8 @@ dist/
 
 | 文件 | 大小（估算） | 说明 |
 |------|-------------|------|
-| `dist/matha/matha.exe` | ~50 MB | Matha REPL 独立可执行文件 |
-| `dist/matha-cc/matha-cc.exe` | ~30 MB | Matha 编译器独立可执行文件 |
+| `dist/matha.exe` | ~50 MB | Matha 统一 CLI 独立可执行文件（onefile） |
+| `dist/matha-cc.exe` | ~30 MB | Matha 编译器独立可执行文件 |
 
 > **注意**：实际大小取决于包含的模块数量。使用 `--onefile` 模式时，首次启动会有解包延迟。
 

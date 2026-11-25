@@ -50,13 +50,19 @@ def run_cmd(cmd: list, cwd: Path = None) -> tuple:
 
 
 def build_one(name: str, spec: str, onefile: bool = False) -> bool:
-    """构建单个可执行文件。"""
+    """构建单个可执行文件——产物平铺在 `dist/` 下（`dist/<name>.exe`）。
+
+    平铺口径与 `.github/workflows/matha-ci.yml`（`ls -la dist/matha.exe` +
+    upload-artifact 路径）和 `scripts/build.bat` 同源；旧写法把 `--distpath`
+    设成 `dist/<name>`，本地产物落在 `dist/<name>/<name>.exe`，与 CI 断言的
+    形状不一致（中间目录仍按名分档，避免两次构建互撞）。
+    """
     log(f"构建 {name}...")
 
     cmd = [sys.executable, "-m", "PyInstaller", "--clean"]
     if onefile:
         cmd.append("--onefile")
-    cmd += ["--noconfirm", "--distpath", str(DIST_DIR / name),
+    cmd += ["--noconfirm", "--distpath", str(DIST_DIR),
             "--workpath", str(BUILD_DIR / name),
             spec]
 
@@ -67,11 +73,9 @@ def build_one(name: str, spec: str, onefile: bool = False) -> bool:
         log(f"  构建失败: {stderr[:300]}")
         return False
 
-    exe_dir = DIST_DIR / name
-    exe_files = list(exe_dir.glob("*.exe")) + list(exe_dir.glob(name))
-    if exe_files:
-        size = exe_files[0].stat().st_size
-        log(f"  ✓ {exe_files[0].name} ({size // 1024 // 1024} MB)")
+    exe_file = DIST_DIR / (f"{name}.exe" if sys.platform.startswith("win") else name)
+    if exe_file.is_file():
+        log(f"  ✓ {exe_file.name} ({exe_file.stat().st_size // 1024 // 1024} MB)")
     return True
 
 
@@ -141,10 +145,10 @@ def main():
     print("使用说明:")
     for name, ok in results:
         if name == "matha":
-            print(f"  {DIST_DIR / name}/matha.exe          # 启动 REPL")
-            print(f"  {DIST_DIR / name}/matha.exe eval 'sin(pi)'  # 计算表达式")
+            print(f"  {DIST_DIR}/matha.exe          # 启动 REPL")
+            print(f"  {DIST_DIR}/matha.exe eval 'sin(pi)'  # 计算表达式")
         elif name == "matha-cc":
-            print(f"  {DIST_DIR / name}/matha-cc.exe compile demo.matha -o c  # 编译到 C")
+            print(f"  {DIST_DIR}/matha-cc.exe compile demo.matha -o c  # 编译到 C")
 
 
 if __name__ == "__main__":

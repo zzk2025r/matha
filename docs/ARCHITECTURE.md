@@ -39,7 +39,16 @@ true_phase41.py 不在口径。阶段 42 纯 Matha 装载器 + 终端链面默�
 链镜像 `matha/interp_matha.matha` / `matha/interp.matha`（不在 core_py_lines
 口径），`src/matha_chain.py` 装配壳与 `src/interp.py` 宿主对位实现不属内核五
 件；口径内唯一改动是 `src/mbc/vm.py` 调试拒绝文案尾句改指宿主后端（+1），
-指令码与新锁档 test_selfhost_language_phase42 不在口径。
+指令码与新锁档 test_selfhost_language_phase42 不在口径。阶段 43 冻结 exe 与
+常驻监管批 +0 行——43 的改动全在装配面与外围：`matha.spec`（PyInstaller 装配
+脚本，非 src 五件）、`src/matha_chain.py` 冻结态根序（装配壳）、`src/os_runtime.py`
+桥面薄壳（`self_launcher`/`supervise`/`supervision`）、`src/domains/os_module.py`
+`运行脚本` 真化、`src/matha_main.py` 的 `server`/`监管` 命令位、
+`src/openai_compat_server.py` 的 `serve()` 单一启动面、监督策略所在的纯 Matha
+`matha/os/kernel.matha` 与镜像 `matha/{loader,interp,interp_matha}.matha`、
+Windows 安装/卸载家族 `scripts/*.{bat,ps1,iss,nsi}`——内核五件 `src/lexer.py`
++`src/parser.py`+`src/ast_nodes.py`+`src/kernel/**`+`src/mbc/**` **零改动**，
+本体量 **33,481 行不变**、指令码 36 不变；新锁档 test_frozen_entry_phase43 不在口径。
 
 ## 二、L1 纯净内核与 import 白名单
 
@@ -408,6 +417,36 @@ functools unicodedata textwrap heapq datetime importlib`。
   differ 0 / both_err_equal 10 / both_err 0 / timeout 0（唯一变动为新语料
   `matha/loader.matha` 双面同判，其余 225 语料分类零漂移）+ `--check` 复现一致；
   ast_vm_gap 快照语料 230→231、21 节点 `used_in` 各 +1、节点 78 / 指令码 36 结构不变。
+- **冻结 exe 进程映像与常驻监管（阶段 43）**：方向拍板——「先从进程映像开始，必须
+  冻结 exe 而且必须是 Matha 的 exe，代理身份正式从 Python 脱离；监管者与解释器在冻结
+  exe 基础上完全由 Matha 内核主导与实现，让 `matha.exe` 成为独立进程、非 python 脚本」，
+  节奏「先完成冻结可执行批，再在其上完成常驻监管真化批」，验证「全量门禁 + 真 CMD
+  subprocess e2e」。**43a-1** `matha.spec` 重写为单一 Analysis + 单一 EXE（旧两份同名
+  Analysis 首份以 `src/repl.py` 为入口且 `exclude_binaries=True` 无 COLLECT，半成品
+  必被第二份覆写），入口统一 CLI `src/matha_main.py`，语料 `matha/**/*.matha` +
+  多语言前端源 + `src/domains/manifest.json` 按**仓库同构相对路径**入解包根（冻结态
+  `Path(__file__).parent.parent` 即 `sys._MEIPASS`，目录形状必须等于仓库形状），域插件
+  hiddenimports 由 manifest 派生（手抄 57 名漏 32 个域）。**43a-2** 冻结态路径口径：
+  `src/matha_chain.py` 加 `_ASSET_ROOT`/`_EXE_DIR`、`_override_roots()`（`MATHA_HOME` →
+  exe 同级）、`_roots()`/`_package_roots()` 逐条镜像宿主 `_matha_dir`/`_package_module_path`
+  候选序并注入 boot 全局 `装载根们`/`装载包根们`，`_read` 六件一律同一语料根 + 缺失报
+  候选全集；`matha/loader.matha` 的 `根()` 改「Matha 自己挑首个真含 `matha/` 的根」并尾追
+  现取 `当前目录()`，`包路径` 改逐根扫且以 `包择` 产 `[终止?, 命中]` 判定帧区分宿主
+  `return None`（enabled 假 → 整包跳过不再扫后续根）与 `continue`（本根无此包 → 续扫）两态，
+  双镜像补第 17 条 `当前目录` 载体臂（链面固定面 59→**60** 名，42-② 退役）。**43b**
+  Windows 入口真化：死引用 `src.matha_daemon` 清算、`matha server` 命令位 +
+  `serve()` 单一启动面（`main()` 仅转发）、包装器优先冻结映像、构建入口产物平铺
+  `dist/<名>.exe` 与 CI 同形。**43c** 被启动解释器 = Matha 自己：`运行脚本` 旧写法
+  `shell_exec(f"python {path}")` 的两处真缺陷（PATH 裸名 `python` 而非 Matha 自身、
+  `shell=True` 使路径成命令注入位）改 `_self_launcher("run")` + argv/shell=False。**43d**
+  常驻监管真化：`常驻`/`重启预算` 两键入描述符，**策略全在纯 Matha 内核**
+  （`matha/os/kernel.matha` 的 `启动`→`_派主进程`、`_收旧进程`、`调度` 轮尾 `_监督轮`
+  重启判定〔运行中 ∧ 常驻 ∧ 就绪主进程数=0 ∧ 已退出数>0 ∧ ≤ 预算〕、`监督状态` 读数；
+  停止态与人工 `停止进程` 不重启、重启不增步数），宿主桥 `src/os_runtime.py` 只提供
+  `self_launcher()` argv 构造（冻结态 `argv[0]` 即 `matha.exe` 自身）与 `supervise()`
+  墙钟薄壳（数轮/睡眠/回报，`轮数<=0` 不限轮，KeyboardInterrupt 不吞）。**43g** Windows
+  安装/卸载家族产物落点口径收口。新锁档 `tests/test_frozen_entry_phase43.py` 89 项
+  （43a 26 / 43b 6 / 43c 9 / 43d 15 / 43f 冻结+真 CMD 取证 10 / 43g 安装入口面 23）。
 - **语言收敛与元组真化（阶段 32）**：五片语言收敛 + ② 元组真化受控切片
   （拍板「以维持登记为基础，以切片真化的方式推进，拆分可回滚受控切片逐个
   验证」）。32a VM 字典迭代四面归一（宿主编译器 for/推导三发射位统一经
@@ -451,7 +490,7 @@ functools unicodedata textwrap heapq datetime importlib`。
 
 | 门禁 | 判据 |
 |---|---|
-| `tests/` | 192 个测试文件（全量见最近一次 `make check`） |
+| `tests/` | 193 个测试文件（全量见最近一次 `make check`） |
 | `kernel_purity` | 白名单 + 核心无逃逸模块 + 插件不得碰 VM 私有面 |
 | `ast_vm_gap` | 78 个 AST 节点、59 发射 / 19 有意无码 / **0 不认识**（ListComp 已由 VM 编译为下标循环 + `append` 累加，不再静默返空）、**0 阻塞缺口**；指令码 36/36/36 |
 | `golden` | 39 例 vm ↔ interp 逐字节；`--native` 追加真 exe 对拍（已知未实现项列在 `golden_tests/manifest.json` 的 `native_known_gaps`，当前为 0） |

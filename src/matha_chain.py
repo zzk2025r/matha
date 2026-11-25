@@ -15,10 +15,18 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+
+#: 冻结态（PyInstaller）判别：`sys._MEIPASS` 是本次运行的解包根，`sys.executable`
+#: 是 matha.exe 自身。开发态两者皆无，资产根即仓库根。
+_FROZEN = bool(getattr(sys, "frozen", False))
+_ASSET_ROOT = (Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+               if _FROZEN else _REPO_ROOT)
+_EXE_DIR = Path(sys.executable).resolve().parent if _FROZEN else None
 
 #: boot 链五模块 + 纯 Matha 装载器（宿主编译面，level-1）
 BOOT_FILES: tuple[str, ...] = (
@@ -35,8 +43,58 @@ BOOT_FILES: tuple[str, ...] = (
 _RECURSION_FLOOR = 20000
 
 
+def _override_roots() -> list[Path]:
+    """用户显式指定的语料根（阶段 43a-2）——排在内置根之前。
+
+    `MATHA_HOME` 指向一棵 `matha/` 语料树：改过 `.matha` 又不必重打包时用。
+    同级目录（冻结态 `matha.exe` 旁的 `matha/`）排在它之后、包内快照之前，
+    只作「包内没有的模块」的补充位——包内语料是**构建期快照**，与 exe 的
+    解释器版本同源，优先级高于外部漂移副本；升级面（`.matha_packages/`）
+    另走 `装载包根们`，见 `_package_roots()`。
+    """
+    out: list[Path] = []
+    env = os.environ.get("MATHA_HOME", "").strip()
+    if env:
+        out.append(Path(env))
+    if _EXE_DIR is not None:
+        out.append(_EXE_DIR)
+    return out
+
+
+def _roots() -> list[Path]:
+    """主/库面装载根候选序——逐条镜像宿主 `src/interp.py:_matha_dir()` 的
+    `_candidates`（仓库根 → cwd 上跳 → cwd），前面插 `_override_roots()`。
+    """
+    return _override_roots() + [_ASSET_ROOT, Path.cwd().parent, Path.cwd()]
+
+
+def _package_roots() -> list[Path]:
+    """扩展包面根序——镜像宿主 `_package_module_path()` 的 `(cwd, 仓库根)`
+    **cwd 在前**（42-② 的根序分歧即此：链面此前只有仓库根一根）。
+    """
+    return _override_roots() + [Path.cwd(), _ASSET_ROOT]
+
+
+def _corpus_root() -> Path:
+    """首个真正含 `matha/` 语料的根（宿主 `_matha_dir()` 的 exists 环同判）；
+    全不命中时回落候选首位——与宿主「return candidates[0]」同一诚实落点。
+    """
+    for r in _roots():
+        if (r / "matha").is_dir():
+            return r
+    return _roots()[0]
+
+
 def _read(rel: str) -> str:
-    text = (_REPO_ROOT / rel).read_text(encoding="utf-8")
+    """boot 链装配源读取——六件一律取自**同一个**语料根，不逐件跨根混 pick：
+    词法器与解释器镜像不同源会让 boot 链自相矛盾（且难以后复现）。
+    """
+    p = _corpus_root() / rel
+    if not p.is_file():
+        raise FileNotFoundError(
+            f"装配源缺失: {rel}（语料根 {p.parent}，候选 "
+            f"{', '.join(str(r) for r in _roots())}）")
+    text = p.read_text(encoding="utf-8")
     return text.lstrip("﻿") if text and text[0] == "﻿" else text
 
 
@@ -62,7 +120,12 @@ def build_boot_vm():
     vm.globals["MathaRuntimeError"] = MathaRuntimeError
     # 装载根：matha/loader.matha 的 根() 读此名产绝对路径——宿主 _matha_dir()
     # 首候选即仓库根（非 cwd），终端 换目录 之后装载仍须命中同一批源。
-    vm.globals["装载根"] = str(_REPO_ROOT)
+    # 43a-2 起该名取「首个真含 matha/ 的根」（宿主 _matha_dir 的 exists 环同判），
+    # 并额外注入候选全集 装载根们 / 扩展包面 装载包根们，使链面解析序与宿主
+    # 逐条同构（42-② 的 cwd 根序分歧由此闭合）。
+    vm.globals["装载根"] = str(_corpus_root())
+    vm.globals["装载根们"] = [str(r) for r in _roots()]
+    vm.globals["装载包根们"] = [str(r) for r in _package_roots()]
     # os 域插件符号（执行命令 / 升级包 / 检查包更新 等）经此懒物化入全局；
     # 链面 应用内建实 的裸名委托正是要命中这些载体实现。
     from src.plugin_api import get_resolver

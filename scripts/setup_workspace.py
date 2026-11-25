@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,21 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-VERSION = "4.4.57"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _repo_version() -> str:
+    """版本单一来源 = src/__version__.py（安装脚本不各自硬编发行号）。"""
+    vf = _REPO_ROOT / "src" / "__version__.py"
+    if vf.exists():
+        m = re.search(r'^__version__\s*=\s*"([^"]+)"',
+                      vf.read_text(encoding="utf-8"), re.M)
+        if m:
+            return m.group(1)
+    return "未知"
+
+
+VERSION = _repo_version()
 REPO_URL = "git@github.com:zzk2025r/matha.git"
 REPO_URL_HTTPS = "https://github.com/zzk2025r/matha.git"
 
@@ -220,7 +235,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-VERSION = "4.4.57"
+VERSION = "__MATHA_VERSION__"
 REPO_URL = "git@github.com:zzk2025r/matha.git"
 REPO_URL_HTTPS = "https://github.com/zzk2025r/matha.git"
 
@@ -439,6 +454,7 @@ def main():
 if __name__ == "__main__":
     main()
 '''
+    script = script.replace("__MATHA_VERSION__", VERSION)
     path.write_text(script, encoding="utf-8")
 
 

@@ -768,6 +768,10 @@ module 解释器 {
     name = "删除路径" ? 删除路径(args[0]) :
     name = "复制文件" ? 复制文件(args[0])(args[1]) :
     name = "改名" ? 改名(args[0])(args[1]) :
+    (* 43a-2：装载根自现取位——宿主 _package_module_path 的扫描序是 (cwd, 仓库根)
+       且 per-call 读 cwd，链面 装载包根们 是装配期快照，缺此臂则终端 换目录 后
+       两面解析序分岔（42-② 的根序分歧由「本臂 + loader 现取」一并退役）。 *)
+    name = "当前目录" ? 当前目录() :
     name = "换目录" ? 换目录(args[0]) :
     name = "路径存在" ? 路径存在(args[0]) :
     name = "执行Matha" ? 执行Matha(args[0]) :
@@ -1501,7 +1505,11 @@ module 解释器 {
        level-2 环境查不到 → 「未定义变量 '错误'」掩盖了真实拒绝文案。臂体委托
        模块自有 错误（raise MathaRuntimeError(msg)），与宿主面异常类/文案同判。 *)
     let env56 = 绑定环境(env55, "错误", ("__builtin__", "错误")) in
-    env56
+    (* 43a-2：当前目录 入固定面——装载器 根()/包路径 现取 cwd，使终端 换目录 后
+       链面解析序随宿主面同动（宿主 _matha_dir/_package_module_path per-call 读
+       Path.cwd()；装配方注入的 装载根们/装载包根们 只是装配期快照）。 *)
+    let env57 = 绑定环境(env56, "当前目录", ("__builtin__", "当前目录")) in
+    env57
 
   (* ===== 顶层入口 ===== *)
 

@@ -15,16 +15,17 @@
 42b 载体原语链面臂：16 条 OS 载体名 + 语言级 ``错误`` 在 ``注册内建`` 固定面有名、
     在 ``应用内建实`` 有逐名臂（双镜像 ``interp_matha.matha`` / ``interp.matha``）；
     二元载体只给一参时按柯里化产偏应用，**不触达宿主实现**；注册无臂的名字如实
-    「未知内建函数」，不回落。
+    「未知内建函数」，不回落。阶段 43a-2 在本固定面追加第 17 条 ``当前目录``
+    （装载器现取 cwd 用），故面名数 59→**60**。
 
 42c 终端链面默认后端：``src/matha_term.py`` 默认后端 = chain（``MATHA_TERM_BACKEND``
     可显式切 host，未知值诚实拒绝，两面无静默回落）；``调试Matha`` 在链面是
     **显式拒绝**（VM 编译链无逐节点轨迹能力），宿主后端保留为对拍/排障入口。
 
 登记不修（KNOWN_ISSUES 阶段 42）：① ``装载根`` 只在 level-1 注入，level-2 装载器
-体未注入；② 扩展包扫描的 cwd 根序未镜像（宿主扫 (cwd, 仓库根)，链面只扫仓库根）；
-③ ``调试Matha`` 链面显式拒绝；④ 终端 运行/调试/扩展命令 经 执行Matha/调试Matha
-仍落宿主引擎。
+体未注入；③ ``调试Matha`` 链面显式拒绝；④ 终端 运行/调试/扩展命令 经
+执行Matha/调试Matha 仍落宿主引擎。② 扩展包扫描的 cwd 根序 —— **阶段 43a-2 退役**
+（``当前目录`` 臂 + ``装载包根们`` 逐根扫，双面同判见 phase43 锁）。
 """
 import os
 import re
@@ -47,6 +48,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 _CARRIERS = ["执行命令", "执行命令输入", "管道输入", "管道结束", "输入行",
              "列目录", "建目录", "删除路径", "复制文件", "改名", "换目录",
              "路径存在", "执行Matha", "调试Matha", "升级包", "检查包更新"]
+#: 阶段 43a-2 追加的第 17 条载体名——装载器 根()/包路径 现取 cwd，使终端
+#: 换目录 后链面解析序随宿主面同动（宿主 _package_module_path per-call 读 cwd）
+_CARRIERS_43 = ["当前目录"]
 #: 语言级 raise 名——终端/标准库 level-2 的显式拒绝路径全走它
 _RAISE_NAMES = ["错误"]
 
@@ -187,7 +191,9 @@ def test_42a_manifest_semantics(loader, vm):
     assert _call(vm, loader["启用"], {"enabled": False}) is False
     assert _call(vm, loader["入口"], {"entry": "main.matha"}) == "main.matha"
     assert _call(vm, loader["入口"], {}) == ""
-    assert _call(vm, loader["装包"], "某包", {"enabled": False, "entry": "main.matha"}) == ""
+    # 43a-2：装包 改带目录参（多根扫描后目录由调用方逐根给出）——禁用包整包跳过
+    assert _call(vm, loader["装包"], "/pkg/某包", "某包",
+                 {"enabled": False, "entry": "main.matha"}) == ""
     assert _call(vm, loader["包路径"], "不存在的包xyz") == ""
 
 
@@ -225,17 +231,17 @@ def test_42a_load_produces_namespace(loader, vm):
 # ============ 42b 载体原语链面臂 ============
 
 def test_42b_carriers_registered_in_chain_surface(chain):
-    """16 载体 + 错误 全在 注册内建 固定面上（level-2 可达的前提）。"""
+    """16 载体 + 错误 + 43a-2 当前目录 全在 注册内建 固定面上（level-2 可达的前提）。"""
     names = {pair[0] for pair in chain.env}
-    assert set(_CARRIERS) | set(_RAISE_NAMES) <= names
-    assert len(names) == 59, f"链面固定面名数变动需同步本锁与 KNOWN_ISSUES: {sorted(names)}"
+    assert set(_CARRIERS) | set(_CARRIERS_43) | set(_RAISE_NAMES) <= names
+    assert len(names) == 60, f"链面固定面名数变动需同步本锁与 KNOWN_ISSUES: {sorted(names)}"
 
 
 def test_42b_named_arms_exist_in_both_mirrors():
     """双镜像逐名臂齐全：interp_matha 有臂 + 元数表，interp 有 func_ 包装 + 注册。"""
     matha = (_ROOT / "matha" / "interp_matha.matha").read_text(encoding="utf-8")
     interp = (_ROOT / "matha" / "interp.matha").read_text(encoding="utf-8")
-    for name in _CARRIERS + _RAISE_NAMES:
+    for name in _CARRIERS + _CARRIERS_43 + _RAISE_NAMES:
         assert re.search(rf'name = "{name}" \?', matha), f"interp_matha 缺 {name} 臂"
         assert re.search(rf'绑定环境\(env\d+, "{name}"', interp), f"interp.matha 缺 {name} 注册"
         assert re.search(rf"func func_{name}\(", interp), f"interp.matha 缺 func_{name} 包装"

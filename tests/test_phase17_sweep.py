@@ -246,13 +246,40 @@ class TestDeadArtifactsPurged:
         assert "src.vm" not in text
 
     def test_spec_no_dead_hiddenimports(self):
+        """死条目清零 + 活条目非空洞。
+
+        阶段 43a-1 起 `matha.spec` 的域插件名改由 `src/domains/manifest.json`
+        派生（不再手抄字面量），字面 grep 因此失去判据力——本锁改按「真跑一遍
+        装配脚本，看派生出的 hiddenimports」判：manifest 读空即红。
+        `matha-cc.spec` 未改派，字面检照旧。
+        """
         ma = (ROOT / "matha.spec").read_text(encoding="utf-8")
         mcc = (ROOT / "matha-cc.spec").read_text(encoding="utf-8")
         assert "src.tree_sitter_backends" not in ma
         assert "src.domains.hal" not in ma
         assert "src.domains.hal" not in mcc
-        # 非空洞检查：spec 活条目仍在
-        assert "src.domains.hardware" in ma and "src.domains.hardware" in mcc
+        # 非空洞检查：cc spec 字面活条目仍在
+        assert "src.domains.hardware" in mcc
+
+        class _Art:
+            """PyInstaller 产物桩：只补足装配脚本后续读取的属性名。"""
+
+            scripts = pure = binaries = datas = ()
+
+        def _stub(*args, **kwargs):
+            return _Art()
+
+        # 单一命名空间：spec 自身 `import json` 与函数定义须共享 globals，
+        # 拆成 globals/locals 两本会 NameError（装配脚本按 PyInstaller 语义写）。
+        ns: dict = {
+            "SPECPATH": str(ROOT), "__file__": str(ROOT / "matha.spec"),
+            "Analysis": _stub, "PYZ": _stub, "EXE": _stub, "COLLECT": _stub,
+        }
+        exec(compile(ma, "matha.spec", "exec"), ns)
+        hidden = ns["HIDDEN"]
+        assert "src.domains.hardware" in hidden, hidden
+        assert "src.domains.registry" in hidden, hidden
+        assert "src.domains.hal" not in hidden, hidden
 
     def test_stdlib_symbols_registration_unchanged(self):
         """元数据注册面不动：≠/≤/≥ 仍注册为官方运算符（现由解析器归一化背书）。"""

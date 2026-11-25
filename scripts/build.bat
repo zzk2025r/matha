@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul 2>nul
 REM ============================================================
 REM Matha 一键打包脚本 (Windows)
 REM ============================================================
@@ -69,15 +70,19 @@ for %%T in (%TARGETS%) do (
     echo 构建: %%T
     echo ============================================================
 
+    REM 产物平铺在 dist\ 下（dist\%%T.exe）——与 .github/workflows/matha-ci.yml
+    REM 的 build-exe（`python -m PyInstaller --noconfirm %%T.spec` + `ls -la
+    REM dist/%%T.exe`）和 upload-artifact 路径同一口径。旧写法把 distpath 设成
+    REM dist\%%T 使本地产物落在 dist\%%T\%%T.exe，与 CI 断言的平铺形状不一致。
     if "%%T"=="matha" (
         %PYTHON% -m PyInstaller --clean --noconfirm ^
-            --distpath "%DIST_DIR%\matha" ^
+            --distpath "%DIST_DIR%" ^
             --workpath "%BUILD_DIR%\matha" ^
             --specpath "%PROJECT_ROOT%" ^
             "%PROJECT_ROOT%\matha.spec"
     ) else if "%%T"=="matha-cc" (
         %PYTHON% -m PyInstaller --clean --noconfirm ^
-            --distpath "%DIST_DIR%\matha-cc" ^
+            --distpath "%DIST_DIR%" ^
             --workpath "%BUILD_DIR%\matha-cc" ^
             --specpath "%PROJECT_ROOT%" ^
             "%PROJECT_ROOT%\matha-cc.spec"
@@ -87,7 +92,7 @@ for %%T in (%TARGETS%) do (
         echo [FAIL] %%T 构建失败
     ) else (
         echo [OK] %%T 构建成功
-        dir "%DIST_DIR%\%%T" 2>nul
+        dir "%DIST_DIR%\%%T.exe" 2>nul
     )
     echo.
 )

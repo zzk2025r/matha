@@ -780,6 +780,49 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   判定面）+ `--check` 复现一致；ast_vm_gap 快照重生成（节点 78 / 发射 59 / 无码 19 /
   指令码 36 结构不变，语料 230→231 随装载器入语料，21 节点 `used_in` 各 +1）。
   门禁与算术闭合见 KNOWN_ISSUES 阶段 42 收官条目。
+- 阶段 43 冻结 exe 进程映像 + 常驻监管真化（方向拍板：「先从进程映像开始，必须冻结
+  exe 而且必须是 Matha 的 exe」，先冻结可执行批、再在此之上做常驻监管批；验证深度
+  「全量门禁 + 真 CMD subprocess e2e」）。**43a-1** `matha.spec` 重写为单 `Analysis` +
+  单 `EXE(name='matha', console=True)`、语料整树入包（`matha/**/*.matha` + 前端
+  `.c/.go/.js/.rs` + `src/domains/manifest.json`）、插件 hiddenimports 由清单推导、
+  路径从 `SPECPATH` 推导、入口统一 `src/matha_main.py`、三条装配口径写入头注；
+  `scripts/build_exe.py` 产物落点改平铺 `dist/<名>.exe`，与 CI/`build.bat`/安装脚本
+  同口径（旧 `dist/<名>/<名>.exe` 使按平铺路径取件的一方必然落空）。**43a-2** 冻结态
+  根口径（`src/matha_chain.py`）：`_ASSET_ROOT`（`sys._MEIPASS`）与 `_EXE_DIR` 分列、
+  `MATHA_HOME` 覆盖优先不静默回落、语料根序镜像宿主 `_matha_dir()` 候选、扩展包根序
+  cwd 优先、缺源如实「装配源缺失: …（候选 …）」；`matha/loader.matha` 改由 `当前目录`
+  自行发现 cwd 根，链面注册面 59→60 名（第 17 条载体原语，`interp_matha`/`interp`
+  双镜像同步）——42-①（`装载根` 只在 level-1 注入）与 42-②（扩展包未镜像宿主 cwd
+  根序）两条登记退役。**43b** `start_matha_server.bat` 死件清算：旧版调用的
+  `src.matha_daemon` 阶段 11 已删除，脚本从此从未启动过服务，echo 宣称的守护/健康检查/
+  自动重启/防火墙入站四项能力全仓无实现——改指统一 CLI 新命令位 `server`（委托
+  `src/openai_compat_server.serve`，有 `dist\matha.exe` 即用冻结映像起），`serve()`
+  收口为唯一启动面（`main()` = `sys.exit(serve(...))`，端口占用文案不再指向已删模块）；
+  同批 `git rm` 根目录死件 `Matha-Setup.spec`（入口指向早已不存在的
+  `scripts/_setup_wrapper.py` 且硬编 `D:/trae/` 绝对路径，全仓零功能引用）。
+  **43c** `运行脚本` 真化：`src/domains/os_module.py` 新增 `_self_launcher`（冻结态
+  argv[0] 即 matha.exe / 开发态 宿主解释器 + `matha_main.py`），`.matha`/`.msh` 交
+  Matha 入口、其它后缀交宿主解释器，`shell=True` 去除（路径不再是命令注入面）。
+  **43d** 常驻监管：重启策略入纯 Matha 内核 `matha/os/kernel.matha`（+102 行——
+  `常驻单元须有主入口` 显式拒绝 / `_启动落地` 先 `_收旧进程` 再 `_派主进程` /
+  `_可重启` 五条件 / 每 `_调度轮` 尾 `_监督轮` / `监督状态` 只读 / 重启不记 `步数`），
+  宿主 `src/os_runtime.py` 只留 `self_launcher`、`register_external(常驻, 重启预算)`、
+  `supervision`、`supervise(轮数, 间隔, 回报)` 墙钟薄壳，`src/matha_main.py` 新增 `监管`
+  （别名 `supervise`）命令位。冻结态实测：`matha.exe 监管 … -- eval 1+1` 被监管子进程
+  映像名集合 = `{matha.exe}`、树内无 `python.exe`、崩溃单元读数 `['重启', 'flaky', 2]`；
+  onefile 每次冷启解包 ~5.5s，监管窗口须按 `轮数 × 间隔` 覆盖两次冷启。**43g** Windows
+  安装入口产物落点口径收口（15 脚本）：平铺产物路径、版本取唯一版本源
+  `src/__version__.py`（旧 `setup_workspace.ps1` 硬编旧版本号且 `if (Test-Path $X -and
+  -not $Force)` 触发参数绑定错误 + `??` 运算符，在 Windows PowerShell 5.1 上一步都跑不
+  动）、`setx PATH "%PATH%"` 改按条目追加（1024 字符截断）、卸载脚本改交接式自删
+  （cmd.exe 逐行读盘 vs PowerShell 先整体解析的实测不对称入锁）、仓库根由脚本自身位置
+  推导、内嵌模板按目标语言校验。新锁档 `tests/test_frozen_entry_phase43.py` 89 项
+  （43a 26 / 43b 6 / 43c 9 / 43d 15 / 43f 10 / 43g 23，其中 4 项 `@_frozen_gate` 在
+  `dist/matha.exe` 不在位时 skip、在位时真跑冻结 e2e + 真 CMD 子进程取证）；改锁
+  `tests/test_phase17_sweep.py`（spec 死 hiddenimports 判定改执行 spec 后断言推导出的
+  `HIDDEN`，不再正则扫字面量）与 `tests/test_selfhost_language_phase42.py`（注册面
+  59→60 名 + 新载体名在位）。本体量口径内 `src/` 零改动（33,481 行不变、指令码 36 不变）。
+  门禁与算术闭合见 KNOWN_ISSUES 阶段 43 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

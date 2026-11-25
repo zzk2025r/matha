@@ -84,6 +84,61 @@ def _cmd_term(args) -> int:
     return matha_term.repl()
 
 
+def _cmd_server(args) -> int:
+    """启动 OpenAI 兼容 API 服务（阻塞至 Ctrl-C）。
+
+    阶段 43b：既往该服务只有 `python -m src.openai_compat_server` 一条启动路，
+    统一 CLI 无命令位 ⇒ 冻结 exe 起不了服务，Windows 包装器因此指向了早已删除
+    的 `src.matha_daemon`。端口占用探测/自动切换与注册表口径都在被委托模块内。
+    """
+    from src.openai_compat_server import serve
+    return serve(args.host, args.port)
+
+
+def _监管回报(读数: dict) -> None:
+    """每轮调度读数原样打印——事件流由纯 Matha 内核产出，本处不加工不美化。"""
+    for 事件 in 读数.get("事件", []):
+        print(f"事件 {事件}", flush=True)
+
+
+def _cmd_supervise(args) -> int:
+    """常驻监管（阶段 43d）：被监管进程 = Matha 自己，监管者 = 纯 Matha 内核。
+
+    本命令是薄壳：argv 由 `self_launcher` 构造（冻结态 argv[0] 即 matha.exe
+    本身，独立 Matha 进程映像；开发态 宿主解释器 + 统一 CLI 入口，命令面
+    不分叉），常驻/重启预算/重启判定全在 matha/os/kernel.matha，宿主只提供
+    subprocess 载体与调度轮墙钟。Ctrl-C 与正常到轮都收口于 停止 单元
+    （桥面 terminate 真进程），退出码如实：0 监管跑过 / 1 内核拒绝 / 2 参数缺。
+    """
+    from src.os_runtime import OsRuntime, self_launcher
+
+    cmd = list(args.cmd)
+    if cmd[:1] == ["--"]:  # 习惯分隔符不参与 argv（REMAINDER 已足够定界）
+        cmd = cmd[1:]
+    argv = self_launcher(*cmd) if cmd else None
+    if argv is None:
+        print("错误: 缺少被监管命令（例：matha 监管 --预算 2 server --port 8787）")
+        return 2
+    rt = OsRuntime()
+    desc = rt.register_external(args.单元, argv, 常驻=True, 重启预算=args.预算)
+    装载 = rt.load_descriptor(desc)
+    if 装载.get("结果") != "已装载":
+        print(f"装载被拒: {装载}")
+        return 1
+    启动 = rt.start(args.单元)
+    print(f"监管单元 {args.单元}: {启动}", flush=True)
+    print(f"被监管 argv: {argv}", flush=True)
+    if 启动.get("结果") != "运行中":
+        return 1
+    try:
+        rt.supervise(args.轮数, args.间隔, _监管回报)
+    except KeyboardInterrupt:
+        print("中断：收口监管单元", flush=True)
+    print(f"监督读数: {rt.supervision(args.单元)}")
+    print(f"停止: {rt.stop(args.单元)}")
+    return 0
+
+
 # ============================================================
 # llm-config — LLM 密钥管理（阶段 4-2：统一走 llm_config 加密存储）
 # ============================================================
@@ -931,6 +986,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p_term.add_argument("script", nargs="?", default=None,
                         help=".msh 批处理脚本路径（与 -c 二选一）")
     p_term.set_defaults(func=_cmd_term)
+
+    # server — OpenAI 兼容 API 服务（活入口；替代已删除的 src.matha_daemon）
+    p_srv = sub.add_parser("server", help="启动 OpenAI 兼容 API 服务（阻塞至 Ctrl-C）")
+    p_srv.add_argument("--host", default="0.0.0.0", help="监听地址")
+    p_srv.add_argument("--port", type=int, default=8787, help="监听端口（占用时区间内自动切换）")
+    p_srv.set_defaults(func=_cmd_server)
+
+    # 监管 —— 纯 Matha 内核常驻监管 Matha 自身进程（阶段 43d）
+    p_sup = sub.add_parser("监管", aliases=["supervise"],
+                           help="常驻监管一个 Matha 进程（内核持有重启策略，崩溃有界重启）")
+    p_sup.add_argument("--预算", "--restarts", dest="预算", type=int, default=3,
+                       help="重启预算：内核在主进程自然退出后至多重启的次数（0 = 不重启）")
+    p_sup.add_argument("--轮数", "--ticks", dest="轮数", type=int, default=0,
+                       help="调度轮数（<=0 表示不限轮，Ctrl-C 收口）")
+    p_sup.add_argument("--间隔", "--interval", dest="间隔", type=float, default=1.0,
+                       help="每调度轮之间的墙钟秒")
+    p_sup.add_argument("--单元", "--unit", dest="单元", default="监管-self",
+                       help="内核单元名（默认 监管-self）")
+    p_sup.add_argument("cmd", nargs=argparse.REMAINDER,
+                       help="交给被监管 Matha 进程的命令行（如 server --port 8787）")
+    p_sup.set_defaults(func=_cmd_supervise)
 
     # llm-config — LLM 密钥管理（加密存储）
     p_llm = sub.add_parser("llm-config", help="LLM 密钥管理（加密存储于 ~/.matha）")

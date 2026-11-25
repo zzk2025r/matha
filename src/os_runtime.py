@@ -24,6 +24,13 @@
   持久启停面（.matha/extensions.json）属 23d matha ext，不经本桥。
 - 外部单元 stdout 在退出步收集（communicate），运行中仅非阻塞轮询。
 - 服务形态单元由 register_service 登记（步闭包长驻，每调度轮恰一步）。
+
+常驻监督（阶段 43d）：描述符可带 常驻 / 重启预算 两键，策略判定与重启动作
+全在纯 Matha 内核（matha/os/kernel.matha 的 启动/_监督轮/调度）——本桥只提供
+两件事：`register_external(..., 常驻=, 重启预算=)` 把参数写进描述符，
+`supervise()` 把内核调度轮接上墙钟。被监管的进程由 `self_launcher()` 构造
+argv：冻结态 argv[0] = matha.exe 自身（独立 Matha 进程映像，非 python 脚本），
+开发态 = 宿主解释器 + src/matha_main.py 统一 CLI（同一命令面，不分叉语义）。
 """
 
 from __future__ import annotations
@@ -32,6 +39,8 @@ import contextlib
 import io
 import json
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 from src import ast_nodes as ast
@@ -85,6 +94,19 @@ def _int_or_one(raw) -> int:
         return int(str(raw))
     except (TypeError, ValueError):
         return 1
+
+
+def self_launcher(*args: str) -> list[str]:
+    """Matha 自身启动 argv（阶段 43d）——被监管进程的身份口径单一来源。
+
+    冻结态（PyInstaller）`sys.executable` 就是 matha.exe 本身，进程映像名即
+    Matha；开发态退回「宿主解释器 + 统一 CLI 入口」。两态都进同一个
+    `src/matha_main.py` 命令面，被派生子进程不另找 PATH 上的裸名解释器。
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, *[str(a) for a in args]]
+    entry = str(_REPO_ROOT / "src" / "matha_main.py")
+    return [sys.executable, entry, *[str(a) for a in args]]
 
 
 class OsRuntime:
@@ -225,7 +247,8 @@ class OsRuntime:
 
     def _discover_external(self) -> list[dict]:
         units = []
-        for name, (argv, 版本) in sorted(self._external.items()):
+        for name, spec in sorted(self._external.items()):
+            argv, 版本, 常驻, 重启预算 = spec
             units.append({
                 "名": name,
                 "形态": "外部",
@@ -234,6 +257,8 @@ class OsRuntime:
                 "入口": [["主", self._make_external_step(name, list(argv))]],
                 "服务": [],
                 "argv": list(argv),
+                "常驻": 常驻,
+                "重启预算": 重启预算,
             })
         return units
 
@@ -242,16 +267,25 @@ class OsRuntime:
     # ============================================================
 
     def register_external(self, name: str, argv: list[str],
-                          版本: int = 1) -> dict:
-        self._external[name] = [list(argv), int(版本)]
+                          版本: int = 1, 常驻: bool = False,
+                          重启预算: int = 0) -> dict:
+        """登记外部可执行单元；`常驻=真` 交内核监督（阶段 43d）。
+
+        两参数只写进描述符，判定与重启全在 matha/os/kernel.matha：本方法
+        不 spawn、不数重启，`argv` 交给 `_make_external_step` 作进程载体。
+        """
+        self._external[name] = [list(argv), int(版本), bool(常驻),
+                                int(重启预算)]
         return self._find_descriptor(name)
 
     def register_service(self, name: str, step, 服务名s=(),
-                         版本: int = 1, requires=()) -> dict:
+                         版本: int = 1, requires=(), 常驻: bool = False,
+                         重启预算: int = 0) -> dict:
         desc = {
             "名": name, "形态": "服务", "版本": int(版本),
             "requires": list(requires),
             "入口": [["主", step]], "服务": list(服务名s),
+            "常驻": bool(常驻), "重启预算": int(重启预算),
         }
         self._call("装载", self._k, desc)
         return desc
@@ -484,6 +518,29 @@ class OsRuntime:
 
     def tick(self, 轮数: int = 1) -> dict:
         return self._call("调度", self._k, int(轮数))
+
+    def supervision(self, name: str):
+        """内核监督读数（常驻/预算/就绪主进程数/已退出次数）；未装载 → null。"""
+        return self._call("监督状态", self._k, name)
+
+    def supervise(self, 轮数: int = 1, 间隔: float = 0.0, 回报=None) -> list[dict]:
+        """把内核调度轮接上墙钟——每轮 `调度(1)`，重启判定在内核轮尾发生。
+
+        监督策略不在这里：本方法只数轮次、按 `间隔` 睡眠、把每轮读数交给
+        `回报`（默认 None 不打印）。`轮数 <= 0` 即不限轮（Ctrl-C 由调用方
+        收口——KeyboardInterrupt 原样上抛，本方法不吞中断）。
+        """
+        rounds: list[dict] = []
+        i = 0
+        while 轮数 <= 0 or i < int(轮数):
+            i += 1
+            r = self.tick(1)
+            rounds.append(r)
+            if 回报 is not None:
+                回报(r)
+            if 间隔 > 0:
+                time.sleep(float(间隔))
+        return rounds
 
     def stop_process(self, pid: int) -> dict:
         return self._call("停止进程", self._k, int(pid))

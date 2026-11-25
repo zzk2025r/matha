@@ -694,7 +694,10 @@ module 解释器 {
        ——终端/标准库 level-2 代码的显式拒绝全走 错误(...)，缺名即「未定义变量
        '错误'」掩盖真实拒绝文案。包装体裸名命中模块自有 错误（raise msg）。 *)
     let env41 = 绑定环境(env40, "错误", ["builtin", func_错误]) in
-    并插口(env41, 解释器插口[0])
+    (* 43a-2：当前目录 入固定面（镜像 interp_matha 注册内建 + 应用内建实 臂）——
+       装载器 根()/包路径 现取 cwd，终端 换目录 后链面解析序随宿主面同动。 *)
+    let env42 = 绑定环境(env41, "当前目录", ["builtin", func_当前目录]) in
+    并插口(env42, 解释器插口[0])
 
   (* 内建函数实现 ===== *)
   func func_ord(c) -> Int = ord_matha(c)
@@ -751,6 +754,8 @@ module 解释器 {
   func func_检查包更新(v) -> Value = 检查包更新()
   (* 42c：语言级 raise——模块自有 错误（raise msg）委托，异常文案与宿主面同判 *)
   func func_错误(c) -> Value = 错误(c)
+  (* 43a-2：零参 cwd 载体（宿主 terminal_builtin.get_cwd）——装载器现取 cwd 用 *)
+  func func_当前目录(v) -> Value = 当前目录()
 
   (* ===== 顶层入口 ===== *)
 

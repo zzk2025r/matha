@@ -12,7 +12,7 @@
 - **内核外工具插件：** 7（`src/plugins/`）
 - **黄金用例：** 39（`golden_tests/cases/`，vm ↔ interp ↔ native 逐字节）
 - **`.matha` 语料：** 184（历史遗留的旧写法已全部改写为合法 Matha，当前 0 个属语法层遗留，见 `docs/ast_vm_gap.md`）
-- **测试文件：** 192（`tests/`）
+- **测试文件：** 193（`tests/`）
 - **核心安装第三方依赖：** 0（`pyproject.toml` `dependencies = []`）
 - **通过率：** 见下一节「质量门禁」，唯一数字来自 `make check`
 - **已知未达成项：** 如实列在 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
@@ -31,20 +31,26 @@
 
 ```bash
 # 需要 Python 3.10+ 与 PyInstaller；产物输出到 dist/（不随仓库分发）
-python scripts/build_exe.py --matha       # 产出 dist/matha/matha.exe
-python scripts/build_exe.py --matha-cc    # 产出 dist/matha-cc/matha-cc.exe
+python scripts/build_exe.py --matha       # 产出 dist/matha.exe
+python scripts/build_exe.py --matha-cc    # 产出 dist/matha-cc.exe
 
 # 启动交互式 REPL
-dist/matha/matha.exe
+dist/matha.exe
 
 # 计算表达式
-dist/matha/matha.exe eval "sin(3.14)"
+dist/matha.exe eval "sin(3.14)"
 
 # 运行 Matha 源文件
-dist/matha/matha.exe run demo.matha
+dist/matha.exe run demo.matha
+
+# 启动链面终端（纯 Matha 装载器 + 纯 Matha 命令执行器）
+dist/matha.exe term
+
+# 常驻监管一个 Matha 进程（重启策略在纯 Matha 内核，阶段 43d）
+dist/matha.exe 监管 --预算 2 -- server --port 8787
 
 # 编译到 LLVM / 可执行文件
-dist/matha-cc/matha-cc.exe compile demo.matha
+dist/matha-cc.exe compile demo.matha
 ```
 
 ### 方式 2：Python 包安装
@@ -523,6 +529,47 @@ both_err_equal 10 / both_err 0 / timeout 0（唯一变动是新语料 `loader.ma
 33,481），新增装配壳 `src/matha_chain.py` 与 `src/interp.py` 的 `_CN2FILE` 装载器
 条目不属内核五件、不在口径。新登记不修见 KNOWN_ISSUES 阶段 42。
 
+冻结 exe 进程映像与常驻监管（阶段 43）：方向拍板「先从进程映像开始，必须冻结 exe
+而且必须是 Matha 的 exe」——先做冻结可执行批，再在其上做常驻监管真化批；验证深度
+走「全量门禁 + 真 CMD subprocess e2e」。**43a-1** `matha.spec` 重写：语料入包
+（`matha/**/*.matha` + 前端 `.c/.go/.js/.rs` + `src/domains/manifest.json`，动态导入
+面靠清单而非逐个 hiddenimport）、入口统一指向 `src/matha_main.py`、单 `Analysis` +
+单 `EXE(name='matha', console=True)`、路径全部从 `SPECPATH` 推导（不再有绝对字面量）、
+三条装配口径写进 spec 头注；`scripts/build_exe.py` 产物落点改平铺 `dist/<名>.exe`，
+与 `.github/workflows/matha-ci.yml`、`scripts/build.bat`、各安装脚本同一口径（旧写法
+落 `dist/<名>/<名>.exe`，按平铺路径取件的 CI/脚本必然落空）。**43a-2** 冻结态根口径
+（`src/matha_chain.py`）：区分 onefile 解包根 `sys._MEIPASS` 与 exe 所在目录，`MATHA_HOME`
+覆盖优先且不静默回落，语料根序「覆盖 → 解包根 → cwd.parent → cwd」逐条镜像宿主
+`_matha_dir()`，扩展包根序「覆盖 → cwd → 解包根」镜像宿主 cwd 优先，读不到源如实报
+「装配源缺失: …（候选 …）」；`matha/loader.matha` 改由 `当前目录` 自行发现 cwd 根，
+链面固定注册面 59→**60 名**（第 17 条载体原语 `当前目录`，双镜像同步），42-①② 两条
+登记随之退役。**43b** Windows 入口真化：`start_matha_server.bat` 旧版调用的
+`src.matha_daemon` 在阶段 11 已删除（脚本因此从未启动过服务，echo 宣称的守护/健康检查/
+自动重启/防火墙入站四项能力全仓无实现），现指向统一 CLI 新命令位 `server`（委托
+`src/openai_compat_server.serve`，端口占用在 +1..+10 内自动切换），有 `dist\matha.exe`
+即用冻结进程映像启动；`serve()` 成为唯一启动面。**43c** 被启动的解释器 = Matha 自己：
+`src/domains/os_module.py` 的 `运行脚本` 实现改走 `_self_launcher`（冻结态
+`sys.executable` 即 matha.exe，开发态宿主解释器 + 统一 CLI 入口，命令面不分叉），
+`.matha`/`.msh` 交 Matha 入口、其它后缀交宿主解释器，`shell=True` 去除——路径不再是
+命令注入面。**43d** 常驻监管真化：重启策略住在纯 Matha 内核 `matha/os/kernel.matha`
+（+102 行：`常驻单元须有主入口` 显式拒绝、`_启动落地` 先 `_收旧进程` 再 `_派主进程`、
+`_可重启` 五条件、每 `_调度轮` 尾跑 `_监督轮`、`监督状态` 只读、重启不记 `步数`），
+宿主 `src/os_runtime.py` 只留 `self_launcher` / `register_external(常驻, 重启预算)` /
+`supervision` / `supervise(轮数, 间隔, 回报)` 墙钟薄壳，CLI 新增 `监管`（别名
+`supervise`）命令位；冻结态实测被监管子进程映像名集合 = `{matha.exe}`、进程树内无
+`python.exe`，崩溃单元读数 `['重启', 'flaky', 2]`（onefile 每次冷启解包 ~5.5s，故监管
+窗口须按 `轮数 × 间隔` 覆盖两次冷启）。**43g** Windows 安装入口产物落点收口：15 个
+安装/卸载/打包脚本对齐平铺产物、版本改取唯一版本源 `src/__version__.py`（旧 `setup_workspace.ps1`
+硬编 4.4.57 与 `matha --version` 打架，且 `if (Test-Path $X -and -not $Force)` 被当成
+参数绑定错误使脚本在 WinPS 5.1 上一启动即停、`??` 运算符同为 5.1 不支持）、
+`setx PATH "%PATH%"` 改按条目追加（1024 字符截断）、卸载脚本改交接式自删（cmd.exe
+逐行读盘 vs PowerShell 先整体解析的不对称已实测入锁）。新锁档
+`tests/test_frozen_entry_phase43.py` 89 项 = 43a 26（spec 静态锁 11 恒跑 + 根口径 15）
+/ 43b 6 / 43c 9 / 43d 15 / 43f 10（其中 4 项 `@_frozen_gate`：`dist/matha.exe` 不在位
+即 skip，在位即真跑冻结 e2e 与真 CMD 取证）/ 43g 23。本体量口径内 `src/` 零改动
+（33,481 不变、指令码 36 不变）——改动全在装配壳、CLI 薄壳、域胶水、桥面、被委托服务、
+内核语料与打包/安装脚本。新登记不修见 KNOWN_ISSUES 阶段 43。
+
 编译器框架接入 MBC 主线（阶段 29e，opt-in 默认关）：`src/compiler/
 mbc_adapter.py` 两条 MBC 字节码遍（常量折叠调 VM 同一 `_BINOPS/_UNARYOPS`
 求值、报错诚实保留运行期；死代码消除可达性 BFS + 跳转重映射）。内核
@@ -622,8 +669,9 @@ make check-lite     # 同上，不跑需要 nasm/link 的机器码对拍
 python scripts/verify_offline.py
 ```
 
-**实测结果（最近一次 `make check`）：** 通过 6644 / 计入 6644，失败 0，**通过率 100.00%**
-（含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 39 逐字节 / `dep_audit` 违规 0 条；
+**实测结果（最近一次 `make check`）：** 通过 8372 / 计入 8372，失败 0，**通过率 100.00%**
+（另有 1 项平台 skip 不计入分母；含 `kernel_purity` 14 / `ast_vm_gap` 11 / `golden` 39 逐字节 /
+`dep_audit` 违规 0 条；
 `native_parity` 38 过 + 1 例不计入分母（`18_domain_lazy_load`：native 不承载领域插件符号）；
 原 2 个类型校验静默错值缺口 NI-001/NI-002 已修复（未定义名与字符串参与 `-` 均抛可捕获异常），
 详见 `docs/KNOWN_ISSUES.md`。代数数打印插件
@@ -650,9 +698,10 @@ python -m PyInstaller --noconfirm matha-cc.spec
 python scripts/build_exe.py
 ```
 
-生成的独立可执行文件：
-- `dist/matha/matha.exe` — Matha REPL
-- `dist/matha-cc/matha-cc.exe` — 编译器
+生成的独立可执行文件（平铺在 `dist/` 下，与 `scripts/build_exe.py` 和
+`.github/workflows/matha-ci.yml` 同一口径）：
+- `dist/matha.exe` — Matha 统一 CLI 入口（repl / 终端 / run / eval / server / 监管 …）
+- `dist/matha-cc.exe` — 编译器工具链
 
 > 仓库不预构建发行版：`dist/` 在 `.gitignore` 内，历史快照中的 exe 不代表现状；
 > 构建链是否可用以本节命令当场实测为准（定位说明见 `docs/KNOWN_ISSUES.md`）。
