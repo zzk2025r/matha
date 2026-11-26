@@ -1210,13 +1210,20 @@ def test_negative_shift_count_returns_zero():
 
 
 def test_arity_over_limit_rejected():
-    """超出 MAX_NATIVE_ARITY 的实参数显式报错。"""
-    sig = ", ".join(f"a{i}: Int" for i in range(9))
-    params = ", ".join(f"a{i}" for i in range(9))
-    args = ", ".join(str(i + 1) for i in range(9))
-    with pytest.raises(NativeNotSupported):
+    """超出 MAX_NATIVE_ARITY 的实参数显式报错。
+
+    用例随上限常量伸缩（不写死参数个数）：阶段 45a 把上限从 8 抬到
+    disp8 编码可达的 15 后，9 参已是合法输入，越界样本须重新取 MAX+1。
+    """
+    n = MAX_NATIVE_ARITY + 1
+    sig = ", ".join(f"a{i}: Int" for i in range(n))
+    params = ", ".join(f"a{i}" for i in range(n))
+    args = ", ".join(str(i + 1) for i in range(n))
+    with pytest.raises(NativeNotSupported) as excinfo:
         compile_to_exe(f"func f9({sig}) -> Int = ({params}) => a0\n"
                        f"#1：[f9({args})]")
+    assert str(MAX_NATIVE_ARITY) in str(excinfo.value), \
+        f"拒绝文案未与上限常量同源：{excinfo.value}"
 
 
 # ---------- 任意精度整数（BigInt 运行期） ----------

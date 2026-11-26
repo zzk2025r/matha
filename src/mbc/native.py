@@ -4,7 +4,7 @@
 → 本模块直接发射 x86-64 机器码 → 手写 PE64 链接为 .exe。
 
 运行时模型（Win64 Microsoft ABI）：
-  - R12 为操作数栈指针（栈体在数据段，向上增长；push: [r12]=v; add r12,8）
+  - R12 为操作数栈指针（栈体在 .bss 虚拟零区，向上增长；push: [r12]=v; add r12,8）
   - 局部变量在原生 RBP 帧上：local i ↔ [rbp - 8*(nlocals-i)]
   - 函数参数经操作数栈传递，callee 序言搬入局部槽
   - call 前 RSP 16 字节对齐，callee 至少保留 32 字节影子空间
@@ -21,7 +21,7 @@
     LOAD/STORE_GLOBAL（含全局函数地址）、CALL/RET（单参函数/递归）、
     JMP/JZ/JNZ、DUP、POP、OUTPUT（十进制整数+换行）、HALT。
   砖块 1 多参数：序言按 arity 搬移 N 个入参，CALL 栈帧平衡，上限
-    MAX_NATIVE_ARITY=8。
+    MAX_NATIVE_ARITY=15（disp8 编码可达上界，见该常量注释）。
   砖块 2 偏应用/柯里化：apply_rt 运行时按 TYPE_PARTIAL 记录累积实参。
   砖块 3 堆与字符串：bump alloc、str_concat/str_eq/print_repr、静态串对象。
   砖块 4 列表：BUILD_LIST、INDEX_GET、print_list、len。
@@ -142,9 +142,16 @@
    引用「VM 能解析、原生未实现」的全局（当前无此类可达名字，仅保留防御分支）；
      调用未注册内建会在
     apply_rt 走到 ar_plain 的空地址分支，见 _dispatch）
-  其余结构性限制：实参数上限 8；操作数栈固定 64KB（无溢出检查）；
-    堆总量固定 1GB 保留（页按需提交；保守式 mark-sweep，回收块可切分/相邻合并）；
-    仅生成 Windows PE64（无 ELF64/Mach-O）。
+  其余结构性限制：实参数上限 MAX_NATIVE_ARITY=15（disp8 编码可达上界，
+    且定义位与调用位同常量）；操作数栈 1MB（.bss 虚拟零区）+ 调用栈 8MB 预留，
+    两者均在每个**用户函数帧**的序言做一次守卫——本帧操作数峰值由字节码静态求出
+    （见 _operand_peak / _emit_stack_guard），越界抛可捕获的「原生栈溢出：…」，
+    故递归深度上限可判定而非「越界即静默改写内存」；手写的内建/运行期助手段
+    不经此守卫（它们在 r12 上只占 1–2 槽，由调用方帧的 VSTACK_GUARD_SLOTS 余量
+    覆盖，见该常量注释）；单帧峰值装不进操作数栈、或跳转图松弛不收敛（循环只压
+    不弹）者在链接期即 NativeNotSupported；堆总量固定 1GB 保留（页按需提交；
+    保守式 mark-sweep，回收块可切分/相邻合并）；仅生成 Windows PE64（无
+    ELF64/Mach-O）。
   列表/字符串索引越界与非字典属性访问均经 raise_rt 抛可捕获异常
     （消息同 VM：list/string index out of range / 属性访问失败）。
 
@@ -199,7 +206,29 @@ _CRT_FUNCS = ["_ecvt", "strtod", "sqrt", "pow", "floor", "fmod",
               # 砖块 21：日期时间非纯族（本地/UTC 分解、格式化与反向解析）
               "_time64", "_localtime64_s", "_gmtime64_s", "_mktime64", "strftime"]
 
-VSTACK_SIZE = 0x10000         # 64KB 操作数栈
+# 操作数栈（r12）容量：45c 起落在 .bss 纯虚拟零区，放大到 1MB 不花一个文件字节。
+# 每帧在序言里按「静态求出的本帧峰值」做上界守卫（见 _operand_peak /
+# _emit_stack_guard），故越界不再是静默改写相邻全局，而是可被 `调用捕获` 接住的
+# 异常。与 CPU 栈的关系：操作数栈按「每层占用」计、调用栈按「每层帧大小」计，
+# 两者都远超链面 `_RECURSION_FLOOR = 20000` 层预算——
+#   1MB / 16B（非尾递归实测每层 ≈2 槽）≈ 65536 层
+#   8MB / 256B（最胖帧上限）        ≈ 32768 层
+# 两个比值都按「薄帧」给：操作数栈是全进程共用的单条栈，帧的本帧峰值越大，可容
+# 纳的递归层数越小（131072 槽 ÷ 本帧峰值槽）——链面 189 语料实测最胖单帧 124 槽
+# （vm.matha）即最多约 1000 层该帧自递归；这正是「上限可判定」而非「越界即炸」。
+VSTACK_SIZE = 0x100000        # 1MB 操作数栈（.bss 虚拟零区）
+# 调用栈：PE OptionalHeader 的 StackReserve。启动期把 stack_floor 设为
+# 「入口 rsp −（预留 − 留白）」，每帧序言据此判溢出；留白给 raise_rt 通路
+# （value_to_str / print_uncaught / WriteFile 影子空间）用，保证报错本身不再炸栈。
+CPU_STACK_RESERVE = 0x800000  # 8MB 调用栈预留
+CPU_STACK_SLACK = 0x10000     # 栈底留白（守卫触发后报错通路可用字节数）
+# 每帧静态峰值之外再垫的运行期余量（槽）：apply_rt 的偏应用重建、被调内建
+# 的返回值压栈等「不在字节码里、但确实发生在 r12 上」的瞬时占用。
+VSTACK_GUARD_SLOTS = 32
+# 单帧峰值上限 = 操作数栈容量（槽）。超出即拒绝链接：一帧自己都装不下的栈，
+# 运行时守卫也救不了。松弛不收敛（循环里只压不弹）同样拒绝，宁可诚实失败，
+# 也不产出一枚「越界即静默改写内存、退出码还是 0」的 exe。
+VSTACK_SLOTS = VSTACK_SIZE // 8
 NUMBUF_SIZE = 64              # 整数输出缓冲
 HEAP_SIZE = 0x40000000        # 1GB 固定堆（data 段 BSS，bump 分配；页按需提交）
 # 砖块 20：固定堆之后的「动态竞技场」。启动期用 VirtualAlloc 于镜像末尾紧邻处
@@ -757,7 +786,11 @@ _timelib.configure(_emit_prologue, _emit_epilogue)
 _proclib.configure(_emit_prologue, _emit_epilogue)
 
 
-MAX_NATIVE_ARITY = 8
+# 编码可达上限，不是运行时上限：调用点取函数槽用 disp8 `-8*(argc+1)`
+# （argc=15 → -128 恰在 disp8 下界），序言搬形参用 disp8 `-8*(arity-i)`
+# （arity=16 → -128 仍可达，但同一次调用最多只能递 15 个实参，16 元函数
+# 永不完整应用）。`apply_rt` 本身按 rdx 动态走 rep movsq，无 arity 假设。
+MAX_NATIVE_ARITY = 15
 
 
 def _emit_call(em: _Emitter, argc: int, tag: str, idx: int):
@@ -783,6 +816,150 @@ def _emit_call(em: _Emitter, argc: int, tag: str, idx: int):
     em.call_rel32("apply_rt")
     em.emit(b"\x49\x89\x44\x24\xF0")                    # mov [r12-16],rax
     em.emit(b"\x49\x83\xEC\x08")                        # sub r12,8
+
+
+# ------------------------------------------------- 操作数栈峰值静态分析（45c）
+# 原生后端只有一条操作数栈（r12 跨帧复用：被调帧基 = 调用点函数槽 +1），所以
+# 「本帧最多在自身帧基之上占多少槽」可由字节码静态求出，无须在每次压栈上花
+# 一条 cmp。净增量表逐条对齐 src/mbc/vm.py 主循环对 st 的读写（同一条指令在
+# VM 里 push/pop 几个，在这里就几个）。
+
+
+def _stack_effect(ins: tuple) -> tuple[int, bool]:
+    """该指令的 (栈净增量, 是否终止——无顺序后继)。
+
+    未知操作码按「最坏情况」处理（+1 且继续），使分析只会高估而绝不低估。
+    """
+    op = ins[0]
+    if op in (OP.PUSH_CONST, OP.PUSH_TRUE, OP.PUSH_FALSE, OP.PUSH_NULL,
+              OP.LOAD_LOCAL, OP.LOAD_BOX, OP.LOAD_OUTER, OP.LOAD_OUTER_BOX,
+              OP.LOAD_GLOBAL, OP.MAKE_CLOSURE, OP.DUP):
+        return (1, False)
+    if op in (OP.UNARYOP, OP.GET_ATTR, OP.MAKE_BOX, OP.FORMULA_SCHEMA):
+        return (0, False)                      # 弹出后压回 / 完全不碰栈
+    if op in (OP.STORE_LOCAL, OP.STORE_BOX, OP.STORE_GLOBAL, OP.BINOP,
+              OP.INDEX_GET, OP.POP, OP.OUTPUT, OP.RAISE, OP.RAISE_MATCH):
+        return (-1, op in (OP.RAISE, OP.RAISE_MATCH))
+    if op == OP.CALL:
+        return (-int(ins[1]), False)           # 消费函数 + argc 实参，压回返回值
+    if op in (OP.BUILD_LIST, OP.BUILD_TUPLE):
+        return (1 - int(ins[1]), False)
+    if op == OP.BUILD_DICT:
+        return (1 - 2 * int(ins[1]), False)    # n 对 = 弹出 2n
+    if op == OP.BUILD_SLICE:
+        return (-2, False)                     # 弹出 end/start/container，压 1
+    if op == OP.UNPACK_SEQ:
+        return (int(ins[1]) - 1, False)
+    if op == OP.STORE_SUBSCRIPT:
+        return (-3, False)
+    if op in (OP.JMP, OP.JZ, OP.JNZ):
+        return (-1 if op != OP.JMP else 0, False)
+    if op in (OP.RET, OP.HALT):
+        return (-1 if op == OP.RET else 0, True)
+    return (1, False)                          # 未知指令：fail-closed 取上增
+
+
+def _operand_peak(label: str, code: list, arity: int) -> int:
+    """静态求函数体在自身帧基之上的操作数栈峰值（槽），含入栈时的形参槽。
+
+    跳转图上做迭代松弛：heights[i] = 取到第 i 条时的栈高（-1 = 未到达），汇合点
+    取最大值。两处 fail-closed 抛 NativeNotSupported：峰值加上运行期余量仍装不进
+    操作数栈、或松弛次数超预算（循环只压不弹 → 峰值无界）。弹出到帧基以下的不
+    平衡代码按 0 夹住——只会抬高峰值，不会压低。
+
+    `label` 只用于拒绝文案（「函数 foo」/「模块顶层」）：模块顶层在 `_start` 里
+    直接执行、没有序言守卫，故它的越界只在链接期暴露，与函数帧共用同一容量约束。
+    """
+    n = len(code)
+    peak = arity
+    if n == 0:
+        return peak
+    heights = [-1] * n
+    heights[0] = 0
+    queued = [False] * n
+    queued[0] = True
+    work = [0]
+    budget = 6 * n + 64
+    while work:
+        i = work.pop()
+        queued[i] = False
+        budget -= 1
+        if budget < 0:
+            raise NativeNotSupported(
+                f"原生后端无法静态确定 {label} 的操作数栈峰值（跳转图松弛不收敛）")
+        h = heights[i]
+        delta, term = _stack_effect(code[i])
+        after = h + delta
+        if after < 0:
+            after = 0
+        if after > peak:
+            peak = after
+        if peak + VSTACK_GUARD_SLOTS > VSTACK_SLOTS:
+            raise NativeNotSupported(
+                f"原生后端操作数栈容量 {VSTACK_SLOTS} 槽不足："
+                f"{label} 静态峰值已达 {peak} 槽")
+        if term:
+            continue
+        op = code[i][0]
+        if op == OP.JMP:
+            succ = [code[i][1]]
+        elif op in (OP.JZ, OP.JNZ):
+            succ = [code[i][1], i + 1]
+        else:
+            succ = [i + 1]
+        for s in succ:
+            if not 0 <= s < n or after <= heights[s]:
+                continue
+            heights[s] = after
+            if not queued[s]:
+                queued[s] = True
+                work.append(s)
+    return peak
+
+
+def _emit_stack_guard(em: _Emitter, need: int):
+    """序言末尾插两根守卫：操作数栈顶界 + 调用栈底界。
+
+    两根都是「先算界、再比一次」，各 4 条指令，代价与压栈同量级而非每压一次。
+    越界走 raise_rt（永不返回，且异常记录里存了 rsp/rbp/r12/r13），于是深度超限
+    从「静默改写相邻全局 + 退出码 0」/「0xC00000FD 且缓冲输出全丢」变成一条
+    可被 `调用捕获` 接住的诚实异常。
+    """
+    # 1) 本帧峰值不得越过操作数栈顶：r12 + 8*need > vstack_end → 抛
+    em.lea_rip(10, "vstack_end")
+    em.add_ri(10, -8 * need)                       # add r10, -8*need（imm32 符号扩展）
+    em.cmp_rr(12, 10)                              # cmp r12,r10
+    em.jcc_rel32(0x87, "gs_vstack")                # ja → 越界
+    # 2) 本帧（已分配）不得越过调用栈底：rsp < stack_floor → 抛
+    em.load_rip_to(10, "stack_floor")
+    em.cmp_rr(4, 10)                               # cmp rsp,r10
+    em.jcc_rel32(0x82, "gs_cpu")                   # jb → 越界
+
+
+def _emit_stack_guard_targets(em: _Emitter):
+    """两根守卫的公共落点：各抛一条可捕获的诚实异常（raise_rt 永不返回）。"""
+    em.label_here("gs_vstack")
+    em.lea_rip(0, "err_vstack")
+    em.call_rel32("raise_rt")
+    em.emit(b"\x0F\x0B")                            # ud2（不可达）
+    em.label_here("gs_cpu")
+    em.lea_rip(0, "err_cpu_stack")
+    em.call_rel32("raise_rt")
+    em.emit(b"\x0F\x0B")                            # ud2（不可达）
+
+
+def _stack_budget(mod) -> dict:
+    """求每帧的操作数栈峰值（{函数名: 槽}）；装不下的形状在链接期就拒绝。
+
+    模块顶层在 `_start` 里从 vstack 起点开始执行、没有序言守卫，故它的峰值是纯
+    静态判据（同一次 `_operand_peak` 调用负责拒绝，名字记作「模块顶层」）；函数帧
+    的峰值交序言守卫（r12 是绝对位置，逐层累加自然收敛）。两处用的是同一个容量
+    判据 `峰值 + VSTACK_GUARD_SLOTS ≤ VSTACK_SLOTS`，不重复设卡。
+    """
+    peaks = {name: _operand_peak(f"函数 {name}", fn.code, fn.arity)
+             for name, fn in mod.functions.items()}
+    _operand_peak("模块顶层", mod.main_code, 0)
+    return peaks
 
 
 def _closure_captures(functions: dict) -> dict[str, list]:
@@ -1984,6 +2161,161 @@ def _emit_heap_runtime(em: _Emitter):
     em.emit(b"\x31\xC0")                            # xor eax,eax
     em.label_here("ve_ret")
     em.emit(b"\x48\x83\xC4\x20")                    # add rsp,0x20
+    em.emit(b"\x5A")                                # pop rdx
+    em.emit(b"\x5B")                                # pop rbx
+    em.emit(b"\x5D")                                # pop rbp
+    em.emit(b"\xC3")                                # ret
+
+    # ---- val_cmp：结构序比较（deep）----
+    # val_cmp(rax=l, rcx=r) → rax = -1/0/1。对齐 VM/Python 的序语义：整数按值、
+    # 布尔视作 0/1 可与整数比、字符串按 UTF-8 逐字节（UTF-8 的字节序即码点序，
+    # 这是编码本身给的性质）、列表/元组逐元素递归后比长度。异型（字符串 vs 整数）、
+    # 字典与 None 一律经 raise_rt 诚实拒绝。此前序比较只有 `cmp rax,rcx`，堆对象
+    # 比的是 .data 里的**地址序**，给出与内容无关的假读数——matha/stdlib.matha:352
+    # 的 int() 逐位判定 `c >= "0"` 正落在这条路上，于是语法器片在原生面不可用。
+    # 寄存器纪律与 val_eq 一致：保存 rbx/rdx，只破坏 rax/rcx/rsi/rdi/r8/r9。
+    em.label_here("val_cmp")
+    em.emit(b"\x55\x48\x89\xE5")                    # push rbp; mov rbp,rsp
+    em.emit(b"\x53")                                # push rbx
+    em.emit(b"\x52")                                # push rdx
+    em.emit(b"\x48\x83\xEC\x30")                    # sub rsp,0x30（局部槽到 [rbp-48]）
+    em.mov_rr(3, 0)                                 # rbx = 左
+    em.mov_mem_r(5, -24, 1)                         # [rbp-24] = 右
+    em.lea_rip(8, "heap_base")                      # r8 = heap_base（全程不变）
+    em.mov_rr(2, 3)                                 # rdx = 左
+    em.sub_rr(2, 8)                                 # rdx = 左 - heap_base
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x82, "vc_lptr")                   # jb → 左是堆对象
+    # 左是裸整数
+    em.mov_rd_mem(1, 5, -24)                        # rcx = 右
+    em.mov_rr(2, 1)
+    em.sub_rr(2, 8)
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x82, "vc_i_ptr")                  # jb → 右是堆对象
+    em.mov_rr(0, 3)                                 # rax = 左
+    em.jcc_rel32(None, "vc_num")                    # 两侧裸整数
+    # ---- 左裸整数 vs 右对象：只有布尔可与整数比序 ----
+    em.label_here("vc_i_ptr")
+    em.emit(b"\x83\x39" + bytes([TYPE_BOOL]))        # cmp dword[rcx],TYPE_BOOL
+    em.jcc_rel32(0x85, "vc_raise")
+    em.lea_rip(9, "bool_true")
+    em.cmp_rr(1, 9)                                 # cmp rcx, bool_true
+    em.emit(b"\x0F\x94\xC1\x0F\xB6\xC9")            # sete cl; movzx ecx,cl
+    em.mov_rr(0, 3)                                 # rax = 左整数
+    em.jcc_rel32(None, "vc_num")
+    # ---- 左对象 vs 右裸整数 ----
+    em.label_here("vc_lptr")
+    em.mov_rd_mem(1, 5, -24)                        # rcx = 右
+    em.mov_rr(2, 1)
+    em.sub_rr(2, 8)
+    em.cmp_heap_used(2)
+    em.jcc_rel32(0x82, "vc_both_ptr")               # jb → 两侧都是对象
+    em.emit(b"\x83\x38" + bytes([TYPE_BOOL]))        # cmp dword[rbx],TYPE_BOOL
+    em.jcc_rel32(0x85, "vc_raise")
+    em.lea_rip(9, "bool_true")
+    em.cmp_rr(3, 9)                                 # cmp rbx, bool_true
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # sete al; movzx eax,al
+    em.jcc_rel32(None, "vc_num")
+    # ---- 两侧都是对象：同型才可比 ----
+    em.label_here("vc_both_ptr")
+    em.emit(b"\x8B\x03")                            # mov eax,[rbx]（左类型）
+    em.emit(b"\x3B\x01")                            # cmp eax,[rcx]（右类型）
+    em.jcc_rel32(0x85, "vc_raise")                  # jne → 异型
+    em.emit(b"\x83\xF8" + bytes([TYPE_STR]))         # cmp eax,TYPE_STR
+    em.jcc_rel32(0x84, "vc_str")
+    em.emit(b"\x83\xF8" + bytes([TYPE_LIST]))       # cmp eax,TYPE_LIST
+    em.jcc_rel32(0x84, "vc_seq")
+    em.emit(b"\x83\xF8" + bytes([TYPE_TUPLE]))      # 元组与列表同布局
+    em.jcc_rel32(0x84, "vc_seq")
+    em.emit(b"\x83\xF8" + bytes([TYPE_BOOL]))       # 其余（字典/None/…）拒绝
+    em.jcc_rel32(0x85, "vc_raise")
+    em.lea_rip(9, "bool_true")
+    em.cmp_rr(3, 9)
+    em.emit(b"\x0F\x94\xC0\x0F\xB6\xC0")            # eax = 左 0/1
+    em.mov_rd_mem(1, 5, -24)                        # rcx = 右
+    em.cmp_rr(1, 9)
+    em.emit(b"\x0F\x94\xC1\x0F\xB6\xC9")            # ecx = 右 0/1
+    em.jcc_rel32(None, "vc_num")
+    # ---- 整数序：rax=左、rcx=右 → rax=-1/0/1 ----
+    em.label_here("vc_num")
+    em.cmp_rr(0, 1)                                 # cmp rax,rcx
+    em.jcc_rel32(0x8C, "vc_lt")                     # jl
+    em.jcc_rel32(0x8F, "vc_gt")                     # jg
+    em.emit(b"\x31\xC0")                            # xor eax,eax（相等）
+    em.jcc_rel32(None, "vc_ret")
+    em.label_here("vc_lt")
+    em.emit(b"\x48\xC7\xC0\xFF\xFF\xFF\xFF")         # mov rax,-1（必须符号扩展：
+    em.jcc_rel32(None, "vc_ret")                     # 32 位形是 +4294967295，调用点
+    em.label_here("vc_gt")                           # 与 0 比序即反号）
+    em.emit(b"\xB8\x01\x00\x00\x00")                # mov eax,1
+    em.jcc_rel32(None, "vc_ret")
+    # ---- 字符串：min 长度内逐字节，失配即定序；全等则比长度 ----
+    em.label_here("vc_str")
+    em.mov_rd_mem(8, 3, 8)                          # r8 = len 左
+    em.mov_rd_mem(9, 1, 8)                          # r9 = len 右
+    em.mov_rr(2, 8)                                 # rdx = min
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x86, "vc_str_min")                # jbe → min 已是 len 左
+    em.mov_rr(2, 9)
+    em.label_here("vc_str_min")
+    em.mov_mem_r(5, -32, 2)                         # [rbp-32] = min
+    em.mov_rd_mem(1, 5, -24)                        # rcx = 右（rdi 的基址，勿先覆盖）
+    em.test_rr(2, 2)                                # test rdx,rdx（min）
+    em.jcc_rel32(0x84, "vc_str_bylen")              # jz 空串 → 直接比长度
+    em.lea_mem(6, 3, 16)                            # rsi = 左 payload
+    em.lea_mem(7, 1, 16)                            # rdi = 右 payload
+    em.mov_rr(1, 2)                                 # rcx = min（cmpsb 计数器）
+    em.emit(b"\xF3\xA6")                            # repe cmpsb
+    em.jcc_rel32(0x84, "vc_str_bylen")              # jz → min 字节全等
+    em.emit(b"\x0F\xB6\x46\xFF")                    # movzx eax,byte [rsi-1]
+    em.emit(b"\x0F\xB6\x4F\xFF")                    # movzx ecx,byte [rdi-1]
+    em.jcc_rel32(None, "vc_num")
+    em.label_here("vc_str_bylen")
+    em.mov_rd_mem(0, 3, 8)                          # rax = len 左
+    em.mov_rd_mem(1, 5, -24)                        # rcx = 右
+    em.mov_rd_mem(1, 1, 8)                          # rcx = len 右
+    em.jcc_rel32(None, "vc_num")
+    # ---- 列表/元组：逐元素递归定序，全等再比长度 ----
+    em.label_here("vc_seq")
+    em.mov_rd_mem(8, 3, 8)                          # r8 = n 左
+    em.mov_rd_mem(9, 1, 8)                          # r9 = n 右
+    em.mov_rr(2, 8)
+    em.cmp_rr(8, 9)
+    em.jcc_rel32(0x86, "vc_seq_min")
+    em.mov_rr(2, 9)
+    em.label_here("vc_seq_min")
+    em.mov_mem_r(5, -32, 2)                         # [rbp-32] = min
+    em.emit(b"\x48\xC7\x45\xD8\x00\x00\x00\x00")    # [rbp-40] = i = 0
+    em.label_here("vc_seq_loop")
+    em.mov_rd_mem(0, 5, -40)                        # rax = i
+    em.mov_rd_mem(1, 5, -32)                        # rcx = min
+    em.cmp_rr(0, 1)
+    em.jcc_rel32(0x83, "vc_seq_bylen")              # jae → 前 min 元素全等
+    em.mov_rd_mem(0, 5, -40)                        # rax = i
+    em.mov_rd_mem(0, 3, 16, index=0, scale=8)        # rax = 左[i]
+    em.mov_mem_r(5, -48, 0)                         # [rbp-48] = 左[i]
+    em.mov_rd_mem(9, 5, -24)                        # r9 = 右
+    em.mov_rd_mem(1, 5, -40)                        # rcx = i
+    em.mov_rd_mem(1, 9, 16, index=1, scale=8)        # rcx = 右[i]
+    em.mov_rd_mem(0, 5, -48)                        # rax = 左[i]
+    em.call_rel32("val_cmp")                        # rax = -1/0/1
+    em.emit(b"\x48\x85\xC0")                        # test rax,rax
+    em.jcc_rel32(0x85, "vc_ret")                    # jnz → 元素序即结论
+    em.mov_rd_mem(0, 5, -40)
+    em.inc_r(0)
+    em.mov_mem_r(5, -40, 0)                         # i++
+    em.jcc_rel32(None, "vc_seq_loop")
+    em.label_here("vc_seq_bylen")
+    em.mov_rd_mem(0, 3, 8)                          # rax = n 左
+    em.mov_rd_mem(1, 5, -24)                        # rcx = 右
+    em.mov_rd_mem(1, 1, 8)                          # rcx = n 右
+    em.jcc_rel32(None, "vc_num")
+    em.label_here("vc_raise")
+    em.lea_rip(0, "err_cmp_type")
+    em.call_rel32("raise_rt")                       # 不返回
+    em.emit(b"\x0F\x0B")                            # ud2
+    em.label_here("vc_ret")
+    em.emit(b"\x48\x83\xC4\x30")                    # add rsp,0x30
     em.emit(b"\x5A")                                # pop rdx
     em.emit(b"\x5B")                                # pop rbx
     em.emit(b"\x5D")                                # pop rbp
@@ -4096,7 +4428,7 @@ def _emit_unpack_seq(em: _Emitter, n: int, tag: str, idx: int):
     em.pop_to(0)                                    # rax = 序列
     em.emit(b"\x49\x89\xC5")                        # mov r13,rax（r13=序列）
     em.lea_rip(2, "heap_base")                      # lea rdx,[heap_base]
-    em.emit(b"\x4C\x89\xC5")                        # mov rax,r13
+    em.mov_rr(0, 13)                                # mov rax,r13
     em.emit(b"\x48\x29\xD0")                        # sub rax,rdx
     em.cmp_heap_used(0)
     em.jcc_rel32(0x83, f"unpk_scalar_{tag}_{idx}")  # jae：非堆标量 → 解构失败
@@ -8580,10 +8912,35 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
                 _emit_rax_to_bool(em, tag, f"{idx}s")
                 em.label_here(ldone)
             else:
-                em.emit(b"\x48\x39\xC8")            # cmp rax,rcx
+                # 序比较：< <= > >=。任一侧是堆对象（字符串/列表/元组/布尔）就必须
+                # 比**内容**——直接 `cmp rax,rcx` 比的是对象在 .data 里的地址序，同一段
+                # 程序给出与内容无关的假读数（且随字面量出现顺序而变）。两侧都是裸
+                # 整数才留在原地走整数序；浮点/大整数已由前面的 is_float2/is_bigint2
+                # 分流，走到这里的堆对象只可能是 str/list/tuple/bool/其他。
+                lobj = f"bo_or_obj_{tag}_{idx}"
+                ldone = f"bo_or_done_{tag}_{idx}"
+                em.mov_rr(2, 0)                     # rdx = 左
+                em.lea_rip(8, "heap_base")          # r8 = heap_base
+                em.sub_rr(2, 8)                     # rdx = 左 - heap_base
+                em.cmp_heap_used(2)
+                em.jcc_rel32(0x82, lobj)            # jb 左是堆对象 → val_cmp
+                em.mov_rr(2, 1)                     # rdx = 右
+                em.sub_rr(2, 8)
+                em.cmp_heap_used(2)
+                em.jcc_rel32(0x82, lobj)            # jb 右是堆对象 → val_cmp
+                em.emit(b"\x48\x39\xC8")            # cmp rax,rcx（都是整数）
                 em.emit(bytes([0x0F, _CC[sym], 0xC0]))  # setCC al
                 em.emit(b"\x0F\xB6\xC0")            # movzx eax,al
                 _emit_rax_to_bool(em, tag, idx)
+                em.jcc_rel32(None, ldone)
+                em.label_here(lobj)
+                em.call_rel32("val_cmp")            # rax = -1/0/1（不可比组合自此拒绝）
+                em.emit(b"\x31\xC9")                # xor ecx,ecx
+                em.emit(b"\x48\x39\xC8")            # cmp rax,rcx（结果与 0 比序）
+                em.emit(bytes([0x0F, _CC[sym], 0xC0]))  # setCC al
+                em.emit(b"\x0F\xB6\xC0")            # movzx eax,al
+                _emit_rax_to_bool(em, tag, f"{idx}o")
+                em.label_here(ldone)
         elif sym == "/":
             pass                                    # 恒浮点，已跳 fp
         else:
@@ -8620,6 +8977,10 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             em.emit(b"\x85\xC0")                    # test eax,eax
             em.jcc_rel32(0x85, lbig)                # 真 → 大整数
             em.emit(b"\x49\xF7\x5C\x24\xF8")        # neg qword [r12-8]（整数）
+            # is_bigint 的 0/1 判定值留在 rax 里，而 RET 的返回值取 rax：
+            # 尾位置一元负（`func f(x) -> Int = -x`）会把 0 当结果返回（栈槽本身
+            # 已正确取反，故 输出(-x)/-x+1 都对，只有返回位露馅）。就地回读栈顶。
+            em.read_top_to(0)
             em.jcc_rel32(None, ld)
             em.label_here(lbig)
             em.read_top_to(0)                       # rax=大整数对象
@@ -9031,11 +9392,18 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
         if fn.arity > MAX_NATIVE_ARITY:
             raise NativeNotSupported(
                 f"原生后端函数参数上限 {MAX_NATIVE_ARITY}：{name} 有 {fn.arity} 个参数")
+    # 45c：每帧操作数栈峰值静态可求 → 序言守卫；求不出即拒绝链接。
+    peaks = _stack_budget(mod)
 
     # ---- 代码：_start（模块初始化）----
     ec = _Emitter(TEXT_RVA, labels)    # 代码节
     ec.label_here("_start")
     ec.store_rip_from("stack_top", 4)               # mov [rip+stack_top],rsp（GC 根界）
+    # 45c：调用栈下界 = 入口 rsp −（预留 − 留白）。每帧序言比一次 rsp，越界即抛
+    # 可捕获异常，取代「OS 直接杀进程 0xC00000FD + 缓冲输出全丢」。
+    ec.load_rip_to(0, "stack_top")                   # mov rax,[rip+stack_top]
+    ec.add_ri(0, -(CPU_STACK_RESERVE - CPU_STACK_SLACK))
+    ec.store_rip_from("stack_floor", 0)              # mov [rip+stack_floor],rax
     ec.lea_rip(12, "vstack")                        # lea r12,[vstack]
     # 入口 RSP=16n+8；sub rsp,0x28 使 CALL 时 RSP 16 字节对齐并留影子空间
     ec.emit(b"\x48\x83\xEC\x28")
@@ -9074,11 +9442,14 @@ def _build_emitters(mod) -> tuple[_Emitter, _Emitter, dict]:
     for name, fn in mod.functions.items():
         ec.label_here(f"fn:{name}")
         _emit_prologue(ec, fn.arity, fn.nlocals)
+        _emit_stack_guard(ec, peaks[name] + VSTACK_GUARD_SLOTS)
         _emit_code(ec, fn.code, mod.constants, fn_names, f"fn:{name}",
                    fn.nlocals, capmap=capmap, arity=arities,
                    declared_globals=declared_globals, guard=guard,
                    func_closures=set(user_closures))
         ec.emit(b"\x0F\x0B")                        # 保险（RET 后不可达）
+
+    _emit_stack_guard_targets(ec)                   # 45c：两根栈守卫的抛错落点
 
     # ---- 代码：内建函数 ----
     for _bn in builtin_names:
@@ -10770,6 +11141,13 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     _regexlib.emit_regex_bss(eb)                    # 正则引擎 scratch（纯虚拟零填充）
     _timelib.emit_time_bss(eb)                      # 日期时间时钟 scratch（k32_base 等）
     _proclib.emit_process_bss(eb)                   # 进程映像槽表/命令行缓冲/STARTUPINFO
+    # 45c：操作数栈移入 .bss——它是纯零初始的运行时区，用 emit_virtual 记容量即可，
+    # 1MB 不占一个文件字节（原先落在 .data 被物化，放大容量就等于放大 exe）。
+    # vstack_end 供序言守卫取上界；GC 仍只扫 [vstack, r12)，与节区归属无关。
+    eb.align(16)
+    eb.label_here("vstack")
+    eb.emit_virtual(VSTACK_SIZE)
+    eb.label_here("vstack_end")
 
     # ---- .data：标量 + 静态对象 + 末尾固定堆 ----
     data_rva = bss_rva + ((eb.total_len + 0xFFF) & ~0xFFF)
@@ -10828,10 +11206,8 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
         ed.label_here(f"bclo:{nm}")
         ed.emit(b"\x00" * 8)
 
-    # ---- 数据：操作数栈 / 输出缓冲 / 写字数 ----
+    # ---- 数据：输出缓冲 / 写字数（操作数栈已移入 .bss，见 45c）----
     ed.align(16)
-    ed.label_here("vstack")
-    ed.emit(b"\x00" * VSTACK_SIZE)
     ed.label_here("numbuf")
     ed.emit(b"\x00" * NUMBUF_SIZE)
     ed.label_here("written")
@@ -10854,6 +11230,10 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
     ed.emit(b"\x00" * 8)
     # 砖块 18：GC 标量槽（零初始即正确：free_head/mark_top 空）。
     ed.label_here("stack_top")
+    ed.emit(b"\x00" * 8)
+    # 45c：调用栈下界（_start 填「入口 rsp −（StackReserve − 留白）」），每帧序言
+    # 拿 rsp 比一次；与 stack_top 同类，存的是栈地址而非堆指针，GC 保守扫描自跳过。
+    ed.label_here("stack_floor")
     ed.emit(b"\x00" * 8)
     ed.label_here("heap_limit")
     ed.emit(b"\x00" * 8)
@@ -10942,6 +11322,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                     ("err_bitor", "| 操作数需为整数"),
                     ("err_bitxor", "⊕ 操作数需为整数"),
                     ("err_bitnot", "~ 仅适用于整数"),
+                     ("err_cmp_type", "序比较不适用于该类型组合"),
                      ("err_incr", "++ 仅适用于数值"),
                      ("err_decr", "-- 仅适用于数值"),
                      ("err_angle", "<< 仅适用于整数或浮点数"),
@@ -10974,6 +11355,10 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                      ("err_bigintop", "大整数不支持该运算"),
                      ("err_attr", "属性访问失败: 非字典对象"),
                      ("err_not_callable", "不可调用的值"),
+                     # 45c：两根栈守卫的诚实文案（可被 `调用捕获` 接住，不再是
+                     # 静默改写内存 / 0xC00000FD 无输出退出）。
+                     ("err_vstack", "原生栈溢出：操作数栈耗尽（递归过深）"),
+                     ("err_cpu_stack", "原生栈溢出：调用栈耗尽（递归过深）"),
                      ("err_match_nomsg", "match 无匹配分支: ")):
         raw = s.encode("utf-8")
         ed.align(8)
@@ -11125,8 +11510,10 @@ def _build_pe(text: bytes, bss: bytes, bss_vsize: int,
     struct.pack_into("<I", opt, 64, 0)              # CheckSum
     struct.pack_into("<H", opt, 68, 3)              # Subsystem: WINDOWS_CUI
     struct.pack_into("<H", opt, 70, 0x0100)         # NX_COMPAT（无重定位表 → 禁用 ASLR）
-    struct.pack_into("<Q", opt, 72, 0x100000)       # StackReserve
-    struct.pack_into("<Q", opt, 80, 0x1000)         # StackCommit
+    # 45c：调用栈预留与 _start 的 stack_floor 定尺同源——守卫下界 = 入口 rsp −
+    # (StackReserve − 留白)，故此处改数值即改可递归深度（见 CPU_STACK_RESERVE）。
+    struct.pack_into("<Q", opt, 72, CPU_STACK_RESERVE)   # StackReserve
+    struct.pack_into("<Q", opt, 80, 0x1000)             # StackCommit
     struct.pack_into("<Q", opt, 88, 0x100000)       # HeapReserve
     struct.pack_into("<Q", opt, 96, 0x1000)         # HeapCommit
     struct.pack_into("<I", opt, 104, 0)             # LoaderFlags
@@ -11164,20 +11551,31 @@ def compile_to_exe(source: str) -> bytes:
     return emit_exe(compile_source(source))
 
 
+def compile_sources_to_exe(sources: list[str]) -> bytes:
+    """多源 → 单个 PE64（阶段 45b）。
+
+    链接单元是「一个 MModule」：各源顶层声明按给定次序并入同一程序，故跨文件
+    调用与单文件内调用同经一次全局解析，不存在两份产物互相找不到的问题。
+    与 `compile_to_exe([s])` 的差别只在解析序：单源是一次 parse，多源是 N 次
+    parse 后并 decls——两者对 `module`/`use` 的处理完全相同。
+    """
+    from src.mbc.compiler import compile_sources
+    return emit_exe(compile_sources(sources))
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="mbc-native",
                                      description="M3V → x86-64 PE64 原生编译器")
-    parser.add_argument("source", help=".matha 源文件")
+    parser.add_argument("source", nargs="+", help=".matha 源文件（多个即一次链接）")
     parser.add_argument("-o", "--output", help="输出 .exe 路径")
     args = parser.parse_args(argv)
 
-    from src.mbc.compiler import compile_source
-    src = Path(args.source).read_text(encoding="utf-8")
-    exe = emit_exe(compile_source(src))
-    out = args.output or str(Path(args.source).with_suffix(".exe"))
+    sources = [Path(s).read_text(encoding="utf-8") for s in args.source]
+    exe = compile_sources_to_exe(sources)
+    out = args.output or str(Path(args.source[0]).with_suffix(".exe"))
     Path(out).write_bytes(exe)
-    print(f"原生编译 {args.source} → {out}（{len(exe)} 字节）")
+    print(f"原生编译 {' + '.join(args.source)} → {out}（{len(exe)} 字节）")
     return 0
 
 

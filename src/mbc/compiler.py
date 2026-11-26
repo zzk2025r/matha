@@ -2153,3 +2153,25 @@ def compile_source(source: str, *,
         source = source.lstrip("\ufeff")
     return compile_program(parse(source), plugin_index=plugin_index,
                            domain_aliases=domain_aliases)
+
+
+def compile_sources(sources: list[str], *,
+                    plugin_index: dict[str, list[str]] | None = None,
+                    domain_aliases: dict[str, str] | None = None) -> MModule:
+    """多模块链接：逐源解析后**并成一个 Program** 编译为单个模块。
+
+    与 `src/matha_chain.build_boot_vm` 的装配形一致（那边由宿主 VM 跑，这里产
+    原生映像）——链接单元是「一个模块 + 一份顶层代码序」而非 N 份产物：`use`
+    导入在编译面被忽略（符号本就落全局），跨模块调用走全局名解析，故各源顶层
+    代码按给定次序执行，次序即语义。空列表不特殊拒绝（按无声明的程序编译）。
+    """
+    from src import ast_nodes as ast
+    from src.parser import parse
+    decls: list = []
+    for source in sources:
+        if source and source[0] == "\ufeff":  # 容忍 UTF-8 BOM
+            source = source.lstrip("\ufeff")
+        decls.extend(parse(source).decls)
+    return compile_program(ast.Program(decls=decls),
+                           plugin_index=plugin_index,
+                           domain_aliases=domain_aliases)

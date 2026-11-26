@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 __all__ = [
-    "run", "run_file", "run_expr", "compile_module", "build_exe", "run_checked",
+    "run", "run_file", "run_expr", "compile_module", "compile_modules",
+    "build_exe", "run_checked",
     "run_file_checked", "run_expr_checked",
     "make_vm", "register_backend", "unregister_backend", "set_backend_enabled",
     "backend_info", "available_modes", "runnable_modes",
@@ -232,14 +233,32 @@ def compile_module(source: str, *, plugins: str = "auto"):
     return _apply_compile_hook(compile_source(source, plugin_index=index, domain_aliases=aliases))
 
 
-def build_exe(source: str, out_path: str | Path) -> Path:
+def compile_modules(sources: list[str], *, plugins: str = "auto"):
+    """多源链接为**一个** mbc 模块（阶段 45b），诊断口径与 compile_module 同。
+
+    与逐个 compile_module 再拼接的差别是实质的：并入同一 Program 后全局名
+    解析只有一次，跨文件调用即同文件调用；N 份模块则互相看不见。
+    """
+    from src.mbc.compiler import compile_sources
+    index = aliases = None
+    if plugins == "strict":
+        index, aliases = plugin_wiring()
+    elif plugins not in ("auto", "off"):
+        raise ValueError(f"未知 plugins 模式 {plugins!r}（auto | strict | off）")
+    return _apply_compile_hook(compile_sources(sources, plugin_index=index,
+                                               domain_aliases=aliases))
+
+
+def build_exe(source: str | list[str], out_path: str | Path) -> Path:
     """走 `mbc.native` 发射机器码并写入可执行文件（唯一真实的机器码路径）。
 
     没有实现“模拟成功”：发射失败时直接抛出，不伪装成已编译。
     经 compile_module 编译（含编译后钩子，与执行面同一管线），发射面只吃模块。
+    `source` 给列表即多模块一次链接（阶段 45b），产物仍是一份 PE64。
     """
     from src.mbc.native import emit_exe
-    mod = compile_module(source)
+    mod = (compile_modules(list(source)) if isinstance(source, (list, tuple))
+           else compile_module(source))
     exe = emit_exe(mod)
     out = Path(out_path)
     out.write_bytes(exe)

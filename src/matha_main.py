@@ -583,18 +583,25 @@ def _cmd_native_build(args) -> int:
     宿主与 VM 面同名显式拒绝（src/interp.py 与 src/mbc/vm.py 同文案）。
 
     发射失败（源超出原生子集）如实非零退出且不留产物——不伪造「已构建」。
+
+    多源即一次链接（阶段 45b）：各 .matha 的顶层声明并入同一模块后再发射，
+    故跨文件调用与同文件调用同经一次全局解析，产物只有一份 exe。源序即顶层
+    代码执行序（与 boot 链装配 `src/matha_chain.build_boot_vm` 同口径）。
     """
-    try:
-        with open(args.source, encoding="utf-8") as f:
-            source = f.read()
-    except OSError as e:
-        print(f"原生构建失败: 源不可读: {e}", file=sys.stderr)
-        return 2
-    out = args.output or str(Path(args.source).with_suffix(".exe"))
+    sources = list(args.source)
+    texts: list[str] = []
+    for one in sources:
+        try:
+            with open(one, encoding="utf-8") as f:
+                texts.append(f.read())
+        except OSError as e:
+            print(f"原生构建失败: 源不可读: {e}", file=sys.stderr)
+            return 2
+    out = args.output or str(Path(sources[0]).with_suffix(".exe"))
     try:
         from src.kernel.exec_api import build_exe
         from src.mbc.native import NativeNotSupported
-        path = build_exe(source, out)
+        path = build_exe(texts, out)
     except NativeNotSupported as e:
         print(f"原生构建失败: 语言面超出原生子集: {e}", file=sys.stderr)
         return 1
@@ -602,7 +609,7 @@ def _cmd_native_build(args) -> int:
         print(f"原生构建失败: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
     size = os.path.getsize(path)
-    print(f"原生构建成功: {args.source} → {path}（PE64 机器码 {size} 字节，"
+    print(f"原生构建成功: {' + '.join(sources)} → {path}（PE64 机器码 {size} 字节，"
           f"无导入表：运行期由 PEB 走表解析 kernel32）")
     return 0
 
@@ -981,7 +988,7 @@ def _build_parser() -> argparse.ArgumentParser:
   matha features           特性开关状态
   matha debug file         调试模式（显示 AST/MIR）
   matha build file -o out.mbc   构建 M3V 字节码工件（须 Matha 载体执行）
-  matha 原生构建 file -o app.exe 构建 Matha 专属原生 PE64 映像（机器码，不经 Python）
+  matha 原生构建 file [file...] -o app.exe 构建 Matha 专属原生 PE64 映像（机器码，不经 Python；多源即一次链接）
   matha --list-domains     枚举领域插件（不加载任何领域模块）
 
 开关:
@@ -1246,7 +1253,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # 原生构建 —— Matha 源 → PE64 机器码映像（阶段 44b，无 Python 依赖）
     p_nat = sub.add_parser("原生构建", aliases=["native-build", "exe"],
                            help="构建 Matha 专属原生 PE64 可执行映像（机器码，不经 Python）")
-    p_nat.add_argument("source", help="输入 .matha 文件")
+    p_nat.add_argument("source", nargs="+",
+                       help="输入 .matha 文件（给多个即一次链接，产出一份 PE64）")
     p_nat.add_argument("-o", "--output", default=None,
                        help="输出 .exe 路径（默认取源名换 .exe 后缀）")
     p_nat.set_defaults(func=_cmd_native_build)

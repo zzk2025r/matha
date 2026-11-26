@@ -864,6 +864,8 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   参数化一例，单跑与整文件复跑 39/39 均过，判定为长跑偶发连接时序，与本轮改动面无关）。
 - **2026-11 阶段 10 补充（ffi_sdk compile 分派诚实化）**：修复阶段 10 登记的
   `src/plugins/ffi_sdk.py:221` 死分支，顺带清算该文件 compile 分派面：
+  【阶段 45 勘误：`src/plugins/ffi_sdk.py` 已于阶段 22b 孤儿清算删除（全仓零引用），本条与
+  上方阶段 10 条目里的该文件行号是**历史落点**读数，不对应当前工作树。】
   ① **llvm 死分支**（import 不存在的 `src.mir_codegen.MathaLLVMGenerator` → 恒 ImportError）→
   NotImplementedError 显式拒绝；② **python/c 改委托真生成器**：从 src/codegen 原型后端
   （PythonGenerator 等对常量指令 IndexError——MIRConstInstr 的 instr_type 误标 ADD 且 operands
@@ -2196,6 +2198,121 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 45 收官（原生映像承载 Matha 工具链首片：arity 上限真化 + 多模块链接 +
+  原生栈模型 + 词法/语法片原生自证 + 文档口径收口）**：拍板三条 = 首批切片「A 原生映像承载
+  Matha 工具链首片」/ 范围边界多选全选「只做最小可编译片段（不扩 OS 载体）+ 补多模块链接
+  （一次编入多个 `.matha`）+ 一并处理原生栈上限 + 附带收口文档漂移与勘误」/ 验证深度
+  「全量门禁 + 真原生 exe e2e」。切片序 45a → 45b → 45c（含 45d-0 序比较真化前置）→ 45d
+  (0/0b/1/2/3/4/5/6) → 45e（纯文档）→ 45f（本条）。
+  **门禁真数（逐 lane，一次通过、无红、无 flake 复跑）**：`pytest tests/` 全量口径
+  **8442 过 + 1 skip（5951.81s = 1:39:11，rc 0，收集 8443）**——本批 lane 未按
+  `scripts/check.py` 的 `--ignore=tests/test_kernel_purity.py --ignore=tests/test_ast_vm_gap.py`
+  跑，故 purity 14 与 ast_vm_gap 11 **已在 lane 内全绿**，另单跑两档复验 25 绿（16.90s）；
+  新档 `tests/test_native_selfhost_phase45.py` 在 tests lane 里为 111 项全绿，收官前追加
+  一条形状锁（45-④）后**定向复跑 112/112 绿（37.07s）**，闭合按 112 计；
+  golden **39/39**；native_parity **38/39**（0 失败，`native 已知未实现 1 例` 不计分母）；
+  dep_audit **40 内核文件 / 193 import 边 / 0 违规 / 插件越界 0**（阶段 44 时点 190 +
+  本批 45b 三处惰性 import：`kernel.exec_api → mbc.compiler`、`mbc.native → mbc.compiler`、
+  `mbc.compiler → ast_nodes`+`parser`，全在白名单内）；`docs/DEP_BASELINE.md` 按口径
+  `--write-report` **重生成**（190→193 一行，非手改，承继 44 教训②）；
+  Track B `--check` **一致**且 `docs/selfhost_matrix.json` / `docs/ast_vm_gap.json`
+  **逐字节零扰动**（本批零 `.matha` 改动、零新 opcode），快照现值 226 = 双面一致 216 /
+  differ 0 / boot_err_host_ok 0 / boot_ok_host_err 0 / both_err_equal 10 / both_err 0 /
+  timeout 0；doc_facts **18** 绿（112 落笔后复跑）。
+  **算术闭合：8522 条件 = 8521 过（tests 8418 + purity 14 + ast_vm_gap 11 + golden 39 +
+  native 38 + dep_audit 1）+ 1 skip（承继平台 skip）= 8410（阶段 44）+ 112（本批新档）**。
+  **本阶段无退役项**（45e 是勘正与登记，不消旧缺陷）。
+  **登记不修七条（逐条有锁，锁档 `tests/test_native_selfhost_phase45.py`）**：
+  ①**「能编」≠「已脱宿主」**：boot 全链链接期零拒绝，运行期仍有 **25 个 latent 宿主注入名**
+  （OS 载体 `装载根`/`执行命令`/`列目录`/`路径存在`…、异常类名 `MathaRuntimeError`/`未定义错误`、
+  链面工具 `解析_JSON`/`执行Matha`…）——名集锁 + 重复读取次数表
+  （`_to_tuple`3 / `当前目录`3 / `未定义错误`3 / `列目录`2 / `路径存在`2）；同条另锁
+  `src/mbc/native.py` 模块注「当前无此类可达名字，仅保留防御分支」**已过时**（`长度` 直调与
+  函数体内均为 latent，非防御分支不可达）。本批范围边界明文「不扩 OS 载体」，真化列 **46a**。
+  ②`use 标准库 { 名 }` 在原生面**降级为一个 latent 的 `加载模块` 调用**（同锁
+  `test_45d6_native_docstring_claim_of_no_reachable_name_is_stale`）——45b 的多源链接是替代
+  路径，但 stdlib 单文件仍走运行期装载，未在本批收口。
+  ③原生面拒绝文案取自**发射器错误表**、与宿主 Python 文案不同源：三面同判的是**消息体**
+  （`序比较不适用于该类型组合`）而非载体类名（锁 `test_45d0_mixed_type_ordering_is_rejected_by_every_face`
+  + `test_45d0_rejection_wording_shares_one_source_with_the_emitter` 的标签引用位）。
+  ④latent 名在原生 stderr 只剩「未定义变量」**消息体**，丢名字与 `MathaUndefinedNameError`
+  类前缀（新锁 `test_45d6_latent_stderr_drops_the_name_that_host_and_vm_keep`；对位面已由
+  `tests/test_native_process_phase44.py::test_44c_boot_face_reports_undefined_name` 锁住带名形）
+  ——40-③/41-③「None 参与算术的异常载体类名分歧」同族，形状差本身入锁而不是拉平。
+  ⑤原生栈守卫**只覆盖用户函数帧**：手写内建/运行期助手段不经 `_emit_stack_guard`（r12 上
+  只占 1–2 槽，由调用方帧的 `VSTACK_GUARD_SLOTS` 余量覆盖，见该常量注）——属已在源码里诚实
+  说明的口径边界，登记为边界而非缺陷，避免被读成「全指令路径都有栈守卫」。
+  ⑥`module 解释器` **两套源、三套解析序**且 boot 固定面 **60** 与宿主对位镜像静态 **44**
+  **不是等集**（交集 43 / boot 独有 17 / 镜像独有 1）——收口需二选一（改名消歧牵动三处镜像表
+  + Track B 快照 + phase42 锁档；或令两片真等集则扰动 stage2↔stage3 定点），本阶段只把读数
+  变成 `实测 == 所写` 的漂移探测器（锁 45e 两条 + `test_45e_host_face_resolution_actually_reads_the_mirror_not_the_boot_engine`）。
+  ⑦**struct 工厂不对称**：判定面 `scripts/selfhost_matrix.py:_augment_chain_ns` 补 `Token`，
+  产品链 `src/matha_chain.py` 全文无 `struct`/该函数 ⇒ `MathaChain().load("解释器")` 在产品面
+  必报「模块 '词法器' 中未找到 'Token'」（锁 `test_45e_struct_factory_gap_between_gate_and_product_is_registered`）
+  ——判定面补的缝不算产品能力，本条故意不修以免用判定面冒充链面。
+  原生面 `NATIVE_BUILTINS` **132** 名与宿主实例内建表 **3025** 名的差集是**后续清算的工作量
+  本身**（46 系列的输入），不是本批遗漏。承继 **33-⑤ + 32-⑧⑫ + 29-①⑥⑦ + 37-①②③ +
+  38-①② + 39-①②③④ + 40-①②③④ + 41-①②③ + 42-③④ + 43-①②③⑤⑥ + 44-①～⑧**（含 44-⑧
+  冻结映像未重建：本批 `dist/matha.exe` 仍是阶段 43 构建，`dist/` 是活的测试依赖故门禁期间不
+  重建，当日原生取证由 45d 产物承担）维持原登记不修。边界维持：`pyproject`
+  `dependencies = []` 不变；`src/` 新增仅惰性 import，无第三方依赖。
+
+- **2026-11 阶段 45 口径收口（45e：链面注册面计数现值 + `module 解释器` 两套源三套解析序）**：
+  本条只动文档，代码零改动；每条为取证后的勘正或登记不修，取证脚本随探针一并清理、结论落点写全。
+  **勘误一（行号）**：阶段 42 条目 42-④ 引「终端 `运行/调试` 的宿主委托臂」写作
+  `matha/interp_matha.matha:773-774`，实为 **:777-778**——43a-2 在该臂表前插了 3 行口径注
+  与 `当前目录` 一行，行号顺移；已就地改准，条目其余文字不改。
+  **勘误二（已删文件的行号引用）**：阶段 10 补充条目引 `src/plugins/ffi_sdk.py:221` 两处
+  （`src/mir_codegen.MathaLLVMGenerator` 死分支）——该文件已于阶段 22b 孤儿清算删除
+  （见阶段 22 收官条目「孤儿删除」列项），现仓内只剩 `src/plugins/__pycache__/ffi_sdk.cpython-314.pyc`。
+  引用保留为**历史落点**读数，本轮在其后加注记，不改写历史结论。
+  **口径统一（现行值）**：boot 链固定注册面 = `matha/interp_matha.matha:1432-1512` 的
+  `注册内建(空环境)` 逐条清点 **60 名**（运行时 `MathaChain().env` 同数，phase42
+  `test_42b_carriers_registered_in_chain_surface` 已锁 `len(names) == 60`）；阶段 41 时点 47
+  → 42b 后 59 → 43a-2 后 60。散在 README / ARCHITECTURE / CHANGELOG 阶段 41 段的「47 名」与
+  阶段 42 段的「47→59 名」**皆为时点值**，读作现行值即漂移（本条故意不写文档行号——
+  行号随条目插入顺移，正是本轮勘误一那类漂移的来源）。
+  对照面另计：宿主 `Interpreter` **实例内建表 3025 名**（阶段 41 时点 3020 → 阶段 44 映像族
+  显式拒绝内建 +5，见 `src/interp.py:614 PROCESS_IMAGE_BUILTINS`；`src.interp.BUILTINS` 是
+  另一张表只有 82 名，勿混读）、`src/mbc/native.py` 的 `NATIVE_BUILTINS` 面独立（现测 132 名）。
+  **登记不修一：`module 解释器` 有两套源、三套解析序**。①`matha/interp_matha.matha`
+  （1571 行、module 内 139 名，boot 链内引擎）——`src/matha_chain.py:37` `BOOT_FILES` 装的是它；
+  ②`matha/interp.matha`（module 内 106 名，宿主对位镜像）——`src/interp.py:946` `_CN2FILE`、
+  `scripts/selfhost_matrix.py:484` 镜像表、`matha/loader.matha:23` `名表` 三处皆指它；
+  ③`src/os_runtime.py:58-60` `_BOOT_CHAIN_FILES` 是又一条链序（lexer+stdlib+parser+**interp.matha**
+  +compiler_matha+vm，即文档所称「M3V 六文件链」）。同名两套声明实为不同集：module 名交集仅
+  **53 名**——`func_*` 载体壳家族与 插口注册族（`并插口`/`注册解释器插口`/`是解释器保留名` 等
+  46 名）只在 interp.matha，`应用内建`/`求值切片`/`执行模块体`/`_解构绑定` 等内部件（86 名）
+  只在 interp_matha.matha。两片的 `注册内建` 固定面亦不等集：**interp_matha 60 名 vs interp 44 名**
+  （只前者有名：`输出 print int str float log pow range factorial assert strip to_lower to_upper
+  replace split parse_JSON __公式库__` 17 名；只后者有名：`原地设置` 1 名）——interp.matha 的
+  `注册内建` 尾走 `并插口(env42, 解释器插口[0])`，`解释器插口 = [[]]` 起始空表、由 28d 运行期补名，
+  故其静态名数不可与 60 直比。文档所称「双镜像」只保证 17 条载体（含 43a-2 的 `当前目录`）+
+  `错误` 逐名臂齐全
+  （phase42 `test_42b_named_arms_exist_in_both_mirrors`），**不保证固定面等集，更不保证整个 module 等集**。
+  目前无害的原因：现存 `use 解释器 {…}` 消费者共 5 处（`bootstrap_matha.matha:20` 整模块、
+  `bootstrap_full_test.matha:20` 取 `注册内建|求值`、`bootstrap_test.matha:24` 整模块、
+  `nl_engine.matha:13` 与 `nl_engine_en.matha:12` 取 `求值|注册内建|空环境`）只用交集名；
+  宿主面实测 `use 解释器 { func_len }` 通、`use 解释器 { 应用内建 }` 落「模块 '解释器' 中未找到
+  '应用内建'」，即宿主解析确走 interp.matha。收口需二选一（本阶段不做）：改名消歧（牵动
+  `_CN2FILE` 三处镜像 + Track B 快照 + phase42 锁档）或令两片真等集（补 17/1 名 + 交集臂语义
+  对拍，扰动 stage2↔stage3 定点快照）。
+  **登记不修二：判定面补了 struct 工厂、产品链没补，`装载("解释器")` 在产品链必失败**。实测
+  `MathaChain().load("解释器")` → `MathaRuntimeError: 模块 '词法器' 中未找到 'Token'`：装载器按
+  `名表` 取 `interp.matha`，其 `use 词法器 { Token | … }`（`matha/interp.matha:17`）要的 `Token`
+  是 `matha/lexer.matha:29` 的 `struct Token` 工厂，boot VM 编译面 ns 不产该名（链面 `词法器`
+  ns 实测 48 名，AST 层同模块 49 名）；同一缝在判定面由 `scripts/selfhost_matrix.py:509`
+  `_augment_chain_ns`（30b）以 AST 合成工厂副本补齐，`src/matha_chain.py` 无对位注入 ⇒
+  **Track B 判据可过、产品链装载 解释器 必失败**。非普遍失败的对照（同一会话）：
+  `装载('装载器')` 35 名 / `('标准库')` 137 / `('终端执行器')` 58 / `('编译器')` 202 全 ok
+  （`matha/compiler_matha.matha:19` 只 `use 词法器 { tokenize }`，函数符号在位）。链模块自身的
+  `use … { Token }`（如 `matha/parser.matha:12`）无恙，是因为它们已在 `链环境` 预绑、`装依赖`
+  命中即跳；只有对外显式调 `装载(链模块名)` 才会落磁盘解析这一路。收口方向（不在本阶段）：把
+  struct 工厂注入从判定面脚本上移进 `src/matha_chain.py` 装配壳、判定面复用同一路径，并同批
+  跑 Track B `--write/--check` 零扰动验证。
+  承继 33-⑤ + 32-⑧⑫ + 29-①⑥⑦ + 37-①②③ + 38-①② + 39-①②③ + 40-①②③④ + 41-①②③ +
+  42-①②③④ + 43/44 各条维持原登记不修。边界维持：pyproject dependencies=[] 不变。
+
 - **2026-11 阶段 44 收官（原生 OS 派生面：不经 Python 的 Matha 专属 PE64 映像 +
   进程映像族五内建 + 宿主桥载体回收）**：方向拍板「退役标准：Matha 与 Python 共存，
   不再调用 Python 任何模块，直接调用系统 API……生成 Matha 自身专属的自举 exe，
@@ -2492,7 +2609,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   ③`调试` 在链面显式拒绝（VM 编译链无逐节点轨迹/环境快照，非静默降级，宿主后端为
   排障入口——test_42c_debug_is_explicit_refusal_on_chain + 子进程取证锁在档）
   ④终端 `运行/调试/扩展命令` 的嵌套程序执行仍经 `执行Matha`/`调试Matha` 臂落宿主
-  引擎（matha/interp_matha.matha:773-774 直接委托宿主内建——装载与命令逻辑已 Matha
+  引擎（matha/interp_matha.matha:777-778 直接委托宿主内建——装载与命令逻辑已 Matha
   化，被装载程序的求值引擎本体仍是宿主 Python，彻底脱宿主属后续阶段）；承继 33-⑤ +
   32-⑧⑫ + 29-①⑥⑦ + 37-①②③ + 38-①② + 39-①②③ + 40-①②③④ + 41-①②③ 维持原
   登记不修。边界维持：pyproject dependencies=[] 不变（装载器纯 Matha、

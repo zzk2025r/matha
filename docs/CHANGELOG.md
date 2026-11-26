@@ -863,6 +863,49 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   **0 违规**，并顺手重生成守门报告 `docs/DEP_BASELINE.md`（旧报告停在阶段早期的
   25 文件 / 68 边，与被它声称的现状无关）。门禁与算术闭合见
   KNOWN_ISSUES 阶段 44 收官条目。
+- 阶段 45 原生映像承载 Matha 工具链首片（方向拍板：首批切片「A 原生映像承载 Matha 工具链
+  首片」，范围边界全选「只做最小可编译片段（不扩 OS 载体）+ 补多模块链接（一次编入多个
+  `.matha`）+ 一并处理原生栈上限 + 附带收口文档漂移与勘误」，验证深度「全量门禁 + 真原生
+  exe e2e」）。**45a** `src/mbc/native.py` 的 `MAX_NATIVE_ARITY` 8→**15**——15 取调用点/
+  序言 disp8 位移可达上界（`-8*(argc+1) ≥ -128`），`apply_rt` 按 rdx 动态 `rep movsq` 本身
+  无 arity 假设；boot 链唯一越界真形 `扫描三引号续`(9)（全链另含 `_推导绑定`(9)）此前使
+  **整个词法器**在原生面编译失败，即「原生面承载工具链」的编译期唯一硬阻塞；16 参的定义位
+  与调用位取同一常量并显式拒绝（不静默错编），两处拒绝文案与常量同源入锁。**45b** 多模块
+  链接：`src/mbc/compiler.py compile_sources` 逐源解析后并入**单个** `Program`（源序即顶层
+  执行序；`use` 在编译面被忽略——符号本就落全局，故跨文件调用即同文件调用），
+  `native.compile_sources_to_exe` 与门面 `exec_api.compile_modules` / `build_exe(list[str])`
+  （+19）、CLI `原生构建` 多源位（`src/matha_main.py` +19−11）同批接线；产物一份映像、
+  默认输出取首源、次源不可读不留半成品，单源路径逐字节零扰动。**45c** 原生栈模型：操作数栈
+  迁 `.bss` 1MB（不花文件字节）+ `_stack_effect` 全操作码静态净增量表（无遗漏位入锁）+
+  `_operand_peak` 峰值/汇合/夹住/不收敛四判据 + `_stack_budget` 链接期预算 + `_start` 真填
+  `stack_floor` 与调用栈守卫标签 + PE StackReserve 与常量同源。旧形越界是**静默改写内存后
+  退出码 0**，现给可捕获的诚实异常；2 万层薄帧递归真跑给正确读数，胖帧由调用栈守卫接住，
+  `调用捕获` 接住后进程继续正常执行；全 `.matha` 语料与 boot 链在链接期零拒绝。**45d**
+  承载实证：`matha/lexer.matha` + `matha/stdlib.matha` + `matha/parser.matha` 三片编进一份
+  真 PE64——14 条输入的 token 流（类型|文本|行|列）与 9 条输入的 AST 流和宿主 hi/vm 两面
+  **逐字同判**（含只经帧内解构产得的记号作可达性正向锁），5 条不可解析输入在 `调用捕获` 下
+  三面同给同一句消息体、未捕获时 exe 非零退出且 stderr 同消息体；产物与阶段 44 同规格
+  （无导入表、三节、PE32+，字节里无 python/Cpython/site-packages 标记）。同批真修三个原生
+  发射缺陷：① `<`/`<=`/`>`/`>=` 在任一侧为指针时按 `.data` **地址序**判（`输出("b" > "a")`
+  直接反号）→ `val_cmp` 深序比较助手（字符串/列表/元组/布尔四面同判，混合类型/字典/null
+  各自诚实拒绝；`-1` 必走 REX.W 形 `48 C7 C0 FF FF FF FF` 的位形锁防 32 位零扩展把 -1 变成
+  4294967295）；② 帧内解构把局部槽写回错基址（手拼 `mov rbp,r8` 漏 REX.W）→ 统一走 `mov_rr`
+  并加编码表锁；③ 尾位置一元负返回 `is_bigint` 的 0/1 判定值而非结果 → 回读 rax。
+  **45e** 文档口径收口（**代码零改动**）：勘误 `matha/interp_matha.matha` 宿主委托臂行号
+  773-774→**777-778**、`src/plugins/ffi_sdk.py`（阶段 22b 已删）行号引用标注为历史落点；
+  统一链面固定注册面现值 **60 名**（47/59 为阶段 41/42 时点值）并登记 `module 解释器` 两套源
+  （106/139 名、交集 53、固定面 60-vs-44 不等集）三套解析序与判定面/产品面的 struct 工厂
+  不对称（`MathaChain().load("解释器")` 在产品链必失败）——两条登记不修见 KNOWN_ISSUES
+  阶段 45 口径收口条。新锁档 `tests/test_native_selfhost_phase45.py` 112 项（45e 的四个计数
+  ——boot 固定面 60 / 镜像固定面 44 / 宿主实例内建表 3025 / 原生面 `NATIVE_BUILTINS` 132——
+  一律锁成「文档所写 == 当场实测」而非写死数字，另登记 `src/mbc/native.py`「当前无此类
+  可达名字」断言已过时：`长度` 直调与 `use` 降级出的 `加载模块` 均为可达 latent 名），另把
+  `tests/test_native.py` 的 arity 越界锁改为随常量伸缩并锁文案同源；诚实边界入锁：boot 全链
+  25 个 latent 宿主注入名名集与重复读取次数表、词法器单片 latent 归零、latent 名在原生
+  运行期如实点名失败。本体量 34,099→**34,538**（+439 = `src/mbc/native.py` +398 +
+  `src/mbc/compiler.py` +22 + `src/kernel/exec_api.py` +19；`src/matha_main.py` 与
+  `src/interp.py` 不在 `core_py_lines` 口径）；指令码 36 不变（零新 opcode）、Track B 快照零扰动
+  （无 `.matha` 改动）。门禁与算术闭合见 KNOWN_ISSUES 阶段 45 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。
