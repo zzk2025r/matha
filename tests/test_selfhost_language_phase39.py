@@ -532,7 +532,11 @@ def test_39e_classify_both_err_equal_and_differ():
 
 
 def test_39e_summary_seven_keys_arithmetic_closed():
-    """summary 键形：七分类键（含 both_err_equal）+ 计数算术闭合。"""
+    """summary 键形：七分类键（含 both_err_equal）+ 计数算术闭合。
+
+    46c 起 summarize 另带**内嵌** `power` 节（both_ok_equal 的 obs/silent 分层）：
+    它不参与对 files 的闭合求和，只与 both_ok_equal 自身闭合。
+    """
     sm = _sm()
     entries = [
         {"boot": "ok", "host": "ok", "equal": True},
@@ -544,10 +548,13 @@ def test_39e_summary_seven_keys_arithmetic_closed():
         {"boot": "timeout", "host": "timeout"},
     ]
     s = sm.summarize(entries)
-    assert set(s.keys()) == {"files"} | set(sm._SUMMARY_KEYS), s
+    assert set(s.keys()) == {"files"} | set(sm._SUMMARY_KEYS) | {"power"}, s
     assert s["files"] == len(entries)
-    assert sum(v for k, v in s.items() if k != "files") == s["files"], s
+    scalar = {k: v for k, v in s.items() if not isinstance(v, dict)}
+    assert sum(v for k, v in scalar.items() if k != "files") == s["files"], s
     assert s["both_err_equal"] == 1 and s["both_err"] == 1, s
+    # entries 里那条 both_ok_equal 无 n_outs（=0）→ 全计 silent
+    assert s["power"] == {"both_ok_equal_obs": 0, "both_ok_equal_silent": 1}, s
 
 
 def test_39e_structure_check_honest_on_stale_keys(monkeypatch, tmp_path):

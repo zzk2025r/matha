@@ -50,8 +50,10 @@ boot 链中唯一的越界真形是 `扫描三引号续`(9)（全链另含 `_推
   未捕获时 exe 非零退出、stderr 给同一消息体。
 - 45d-5 反向控：承载工具链的映像与阶段 44 的小产物同规格——无导入表、三节、
   PE32+，产物字节里无 python/Cpython/site-packages 标记。
-- 45d-6 诚实边界：「能编」≠「已脱宿主」——boot 全链 25 个宿主注入名的 latent 名集
-  与重复次数锁、词法器单片 latent 归零、latent 名在运行期如实点名失败；另锁
+- 45d-6 诚实边界：「能编」≠「已脱宿主」——boot 全链 24 个宿主注入名的 latent 名集
+  与重复次数锁（阶段 45 时点 25，其中 `acc` 经 46 摸底取证为**语料级自由名缺陷**而非
+  宿主注入名，同批真修后名集 25→24，见 `test_native_selfhost_phase46.py`）、词法器单片
+  latent 归零、latent 名在运行期如实点名失败；另锁
   `src/mbc/native.py`「当前无此类可达名字」断言已过时（`长度` 直调 / 函数体内均为
   latent，`use` 形态还把 `加载模块` 自身带成 latent——45b 多源链接的存在理由）；另锁
   原生面 stderr 只剩「未定义变量」消息体（丢名字与类前缀），与宿主/vm 的带名形
@@ -338,7 +340,7 @@ def test_45a5_lexer_fragment_compiles_natively():
 def test_45a5_full_boot_chain_compiles_natively():
     """六文件全链（含装载器/解释器镜像）现已整体通过原生编译。
 
-    这条锁的是「编译期不再有阻塞」；运行期载体缺口（25 个无原生载体的宿主
+    这条锁的是「编译期不再有阻塞」；运行期载体缺口（24 个无原生载体的宿主
     注入名）另在 45d 的边界锁里如实登记，不在这里冒充已脱宿主。
     """
     from src.matha_chain import BOOT_FILES
@@ -1428,10 +1430,12 @@ def _latent_reads(mod) -> dict[str, int]:
     return hits
 
 
-# boot 全链 25 个宿主注入名：OS 载体（执行命令/输入行/列目录…）、异常类名
+# boot 全链 24 个宿主注入名：OS 载体（执行命令/输入行/列目录…）、异常类名
 # （MathaRuntimeError/未定义错误）、链面工具（解析_JSON/执行Matha…）。
+# 阶段 45 时点此表含 `acc`（25 名）——46 摸底判定它是 matha/stdlib.matha 的
+# 自由名缺陷而非宿主注入缺口，同批真修后从本表移出（`test_native_selfhost_phase46.py`）。
 _BOOT_LATENT = {
-    "MathaRuntimeError", "_to_tuple", "acc", "升级包", "当前目录", "执行Matha",
+    "MathaRuntimeError", "_to_tuple", "升级包", "当前目录", "执行Matha",
     "执行命令", "执行命令输入", "检查包更新", "改名", "列目录", "删除路径",
     "换目录", "管道结束", "管道输入", "未定义错误", "建目录",
     "装载包根们", "装载根", "装载根们", "复制文件", "调试Matha", "路径存在",
@@ -1444,7 +1448,7 @@ _BOOT_LATENT_REPEAT = {"_to_tuple": 3, "当前目录": 3, "未定义错误": 3,
 
 
 def test_45d6_boot_chain_compiles_but_still_needs_host_injected_names():
-    """链接期零拒绝的 boot 全链，运行期仍有 25 个名字没有原生载体——名集锁。
+    """链接期零拒绝的 boot 全链，运行期仍有 24 个名字没有原生载体——名集锁。
 
     45a5 的「全链编译成功」只到链接为止；不登记这一层，那条评论就会被读成
     「Matha 工具链已可脱离 Python 运行」。新增/消除 latent 名都会撞这条。
@@ -1455,7 +1459,7 @@ def test_45d6_boot_chain_compiles_but_still_needs_host_injected_names():
     assert set(latent) == _BOOT_LATENT, (
         f"latent 名集漂移：新增 {sorted(set(latent) - _BOOT_LATENT)}，"
         f"消失 {sorted(_BOOT_LATENT - set(latent))}")
-    assert len(latent) == 25, f"latent 名数：{len(latent)}"
+    assert len(latent) == 24, f"latent 名数：{len(latent)}"
     assert {k: v for k, v in latent.items() if v > 1} == _BOOT_LATENT_REPEAT
 
 
@@ -1582,7 +1586,9 @@ def test_45e_host_mirror_face_is_a_different_set_not_the_same_60():
 @pytest.mark.parametrize("rel,line,needle", [
     ("src/matha_chain.py", 37, '"matha/interp_matha.matha"'),
     ("src/interp.py", 946, '"解释器": "interp.matha"'),
-    ("scripts/selfhost_matrix.py", 484, '"解释器": "interp.matha"'),
+    # 46c 在 484 之上补了功率分层（+15 行），落点随行号漂移改指 499——
+    # 该锁的本意就是「漂移即红」，不放宽成全文搜索。
+    ("scripts/selfhost_matrix.py", 499, '"解释器": "interp.matha"'),
     ("matha/loader.matha", 23, '["解释器", "interp.matha"]'),
     ("src/os_runtime.py", 58, "_BOOT_CHAIN_FILES = ["),
     ("src/os_runtime.py", 60, '"matha/vm.matha"]'),

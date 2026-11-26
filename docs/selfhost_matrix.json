@@ -22,7 +22,11 @@
   "boot_ok_host_err": 0,
   "both_err_equal": 10,
   "both_err": 0,
-  "timeout": 0
+  "timeout": 0,
+  "power": {
+   "both_ok_equal_obs": 71,
+   "both_ok_equal_silent": 145
+  }
  },
  "files": [
   {
@@ -57,7 +61,8 @@
    "path": "matha/compiler_matha.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/examples/01_arithmetic.matha",
@@ -224,73 +229,85 @@
    "path": "matha/firewall_rules.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/frontends/codegen.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/frontends/hybrid.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/frontends/matha/frontend.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/frontends/multi_lang.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/frontends/verifier.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/generated/beam_lib.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/generated/js_lib.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/generated/rust_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/generated/代数库.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/generated/算术库.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/generated/语义分析.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/interp.matha",
@@ -303,739 +320,862 @@
    "path": "matha/knowledge/biology/cell.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/biology/ecology_human.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/biology/genetics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/chemistry/elements.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/chemistry/organic.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/chemistry/stoichiometry.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/cs/algorithms.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/cs/complexity.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/cs/data_structures.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/cs/discrete_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/engineering/civil.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/engineering/electrical.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/engineering/mechanical.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/history/chronology.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/index.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/linguistics/grammar.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/algebra.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/arithmetic.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/calculus.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/geometry.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/logic.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/number_theory.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/statistics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/math/trigonometry.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/physics/celestial.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/physics/electromagnetism.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/physics/mechanics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/physics/optics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/physics/quantum.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/knowledge/physics/thermodynamics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/algebra_simplify.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/calculus_diff.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/calculus_limit.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/calculus_series.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/collections_core.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/compat/包适配器.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/compat/命令适配器.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/core/arithmetic.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/core/geometry.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/core/trigonometry.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/core/圆柱体积.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/core/球体积.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/core/计算动能.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/core/计算球体积.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/desktop/桌面组件.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/graphics/绘画辅助.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/index.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/mcu/单片机.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/mechanics/bearing.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/mechanics/shaft.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/mechanics/stress.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/os/单元工厂.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/os/单元清单.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/os/端口协议.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/os/进程管理.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/physics/mechanics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/simulation/建模仿真.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/structural/beam.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/library/structural/column.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/loader.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/nl_dict.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/nl_engine.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/nl_engine_en.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/nl_lexer.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/nl_lexer_en.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/nl_parser.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/nl_parser_en.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/os/desktop.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/os/kernel.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/apps/education_news.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/apps/lifestyle_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/apps/media_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/apps/social_ecommerce.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/biology/genetics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/biology/molecular.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/chemistry/stoichiometry.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/cs/algorithms.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/cs/data_structures.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/cs/game_algorithms.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/cs/game_apps_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/cs/os_concepts.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/embedded/industrial_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/engineering/civil.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/engineering/mechanical.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/extended/modeling_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/finance/advanced.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/finance/math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/geography/info.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/hardware/embedded_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/hardware/system_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/index.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/linguistics/basics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/logic/advanced_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/logic/discrete_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/math/3d_transform.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/math/algebra_advanced.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/math/conic_sections.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/math/exponent_logarithm.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/math/trigonometry_advanced.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/boot_sector.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/deadlock_sync_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/filesystem_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/kernel_memory.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/kernel_process.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/kernel_syscall.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/memory_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/os_concepts_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/process_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/os/scheduling_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/physics/electromagnetism.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/physics/optics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/physics/quantum.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/physics/thermodynamics.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/platforms/emerging_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/security/crypto_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/statistics/analysis.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/statistics/probability.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/tools/utility_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/web/network_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/web/web_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/resource/航空航天/orbital_math.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/runtime/simple_test.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/runtime/test2.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/runtime/test_compile.matha",
@@ -1048,13 +1188,15 @@
    "path": "matha/runtime/test_dbg.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/runtime/test_dbg2.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/runtime/test_math.matha",
@@ -1067,7 +1209,8 @@
    "path": "matha/runtime/test_orig.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/shaft_sub.matha",
@@ -1080,7 +1223,8 @@
    "path": "matha/stdlib_symbols.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/store_engine.matha",
@@ -1107,31 +1251,36 @@
    "path": "matha/term_engine.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/term_lexer.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/term_parser.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/vm/matha_vm.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "matha/vm.matha",
    "boot": "ok",
    "host": "ok",
-   "equal": true
+   "equal": true,
+   "n_outs": 0
   },
   {
    "path": "examples/ai/ai_framework.matha",

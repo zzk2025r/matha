@@ -25,6 +25,17 @@
 31e：manifest preload 装配镜像（golden_tests/run_golden_tests.py:378 同构）——
 golden_tests/cases/<stem>.matha 按 manifest `cases.<stem>.preload` 前置拼接
 库源码后双轨跑同一文本（golden 36-39 即此形态，裸读双轨 both_err）。
+
+**46c 判定面换形（口径，不是判据）**：本脚本产出的 `equal` 是 **boot↔host 差分参照**，
+裁判是宿主 Python——`AUTHORITY = "dev-only-differential"`。它能证「两面行为未漂移」，
+不能证「行为正确」；Python 退役后这条面整体失效，故正确性判据另立（手算字面读数锁 +
+原生映像自证，见 `tests/test_judgment_face_phase46c.py` 与 KNOWN_ISSUES 阶段 46c）。
+差分面自身的功率也须如实分层：`equal=true` 里既可能是 N 行读数逐字相同，也可能
+**两侧都没产任何输出**（空==空恒真，只证「装载 + 执行没炸」）。旧快照把后者写成缺
+`n_outs` 键，读表时与「没测」不可分，故 summary 现另带 `power` 节把 `both_ok_equal`
+拆成 `both_ok_equal_obs`（有读数）/ `both_ok_equal_silent`（空对空）——
+阶段 46c 时点实测 216 = obs 71 + silent 145，即「双面一致 216」这句口径里只有
+71 条真的比过内容。
 """
 import argparse
 import json
@@ -42,6 +53,10 @@ BOOT_FILES: tuple[str, ...] = ("matha/lexer.matha", "matha/stdlib.matha",
                                "matha/runtime/matha_runtime.matha",
                                "matha/interp_matha.matha")
 _ERR_TRUNC = 240
+
+#: 46c：本判据的裁判是宿主 Python，属 dev-only 差分参照，不是正确性权威。
+#: 口径锁在 tests/test_judgment_face_phase46c.py（改值即红，逼文档同步）。
+AUTHORITY = "dev-only-differential"
 
 # 31e：golden manifest preload 装配（镜像 run_golden_tests.py:378 前置拼接）。
 _manifest_cases: dict | None = None
@@ -633,9 +648,20 @@ def _run_one(rel: str) -> dict:
             entry["first_div"] = _first_div(b_outs, h_outs)
             entry["n_boot_outs"] = len(b_outs)
             entry["n_host_outs"] = len(h_outs)
-        elif b_outs:
+        else:
+            # 46c：读数条数**无条件**记录（0 也写）。旧形只在 b_outs 非空时写，
+            # 于是「空对空」在快照里表现为缺键——与「这条没测」同形，
+            # 145/216 条被读作功率其实是恒真的相等。
             entry["n_outs"] = len(b_outs)
     return entry
+
+
+def evidence(entry: dict) -> str | None:
+    """46c：both_ok_equal 条目的判据功率——"obs"（比过 ≥1 行内容）/
+    "silent"（空==空，只证两面都没炸）；其余分类无功率可言，返回 None。"""
+    if _classify(entry) != "both_ok_equal":
+        return None
+    return "obs" if entry.get("n_outs", 0) else "silent"
 
 
 def _classify(entry: dict) -> str:
@@ -708,6 +734,10 @@ def summarize(entries: list[dict]) -> dict:
     summary = {"files": len(entries)}
     for key in _SUMMARY_KEYS:
         summary[key] = counts.get(key, 0)
+    # 46c：both_ok_equal 的功率分层（嵌套节，不动七分类的顶层闭合算术）。
+    obs = sum(1 for e in entries if evidence(e) == "obs")
+    summary["power"] = {"both_ok_equal_obs": obs,
+                        "both_ok_equal_silent": counts.get("both_ok_equal", 0) - obs}
     return summary
 
 
@@ -797,12 +827,26 @@ def structure_check() -> tuple[bool, str]:
     total = sum(s[k] for k in _SUMMARY_KEYS)
     if total != s["files"] or s["files"] != len(snap["files"]):
         return False, f"汇总算术不闭合: {s}"
+    # 46c：功率分层——both_ok_equal 必须逐条带 n_outs，且 summary 的 obs/silent
+    # 与条目实测一致（漏分层 = 把 145 条空==空读成 145 条比过内容，即旧口径的病）。
+    power = s.get("power")
+    if not isinstance(power, dict) or \
+            set(power) != {"both_ok_equal_obs", "both_ok_equal_silent"}:
+        return False, f"快照 summary 缺 46c power 节 {power}（需 --write 重生成）"
+    if power["both_ok_equal_obs"] + power["both_ok_equal_silent"] != s["both_ok_equal"]:
+        return False, f"power 分层与 both_ok_equal 不闭合: {power} vs {s['both_ok_equal']}"
     for e in snap["files"]:
         if _classify(e) == "unknown":
             return False, f"{e['path']}: 条目形态未知"
         if e["path"] in BOOT_FILES:
             return False, f"{e['path']}: boot 链文件不应入 sweep"
-    return True, f"结构闭合 files={s['files']}"
+        if evidence(e) is not None and "n_outs" not in e:
+            return False, f"{e['path']}: both_ok_equal 条目缺 n_outs（需 --write 重生成）"
+    recomputed = summarize(snap["files"])["power"]
+    if recomputed != power:
+        return False, f"power 读数与条目不一致: {power} -> {recomputed}"
+    return True, (f"结构闭合 files={s['files']} "
+                  f"obs={power['both_ok_equal_obs']}/silent={power['both_ok_equal_silent']}")
 
 
 def main(argv=None) -> int:

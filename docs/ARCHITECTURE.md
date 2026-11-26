@@ -72,6 +72,14 @@ WaitForSingleObject/GetExitCodeProcess/TerminateProcess/CloseHandle/MultiByteToW
 CLI `原生构建` 多源位（`src/matha_main.py` +19−11）与宿主解释器面 `src/interp.py` 均不在
 `core_py_lines` 口径；指令码 36 不变（零新 opcode），新锁档 test_native_selfhost_phase45（112 项）
 与 test_native.py 改锁不在口径。
+阶段 46-1（boot 链 latent 名归因 + `stdlib.to_upper` 死函数真修）**+0 行**——产品侧改动只有
+`matha/stdlib.matha` 的 1 行（`in _map(0, acc)` → `in _map(0, "")`），`src/` 零改动故本体量
+维持 34,538；新锁档 test_native_selfhost_phase46（22 项）与 test_native_selfhost_phase45
+名集读数同步（25→24）不在口径；指令码 36 不变。
+阶段 46c（判定面换形：原生自证 + 手算对拍取代 Python 差分 oracle）**+0 行**——`src/` 与
+`matha/` 零改动（只换形判定面：`scripts/selfhost_matrix.py` 功率分层 + 新锁档
+test_judgment_face_phase46c（19 项）+ phase29/phase39 两处快照键形改锁，均不在口径）；
+本体量维持 34,538、指令码 36 不变、226 语料分类零漂移。
 
 ## 二、L1 纯净内核与 import 白名单
 
@@ -530,13 +538,55 @@ functools unicodedata textwrap heapq datetime importlib`。
   1MB + 全操作码静态净增量表求峰值 + 调用栈底守卫，越界给可捕获的诚实异常而非静默改写
   内存后退出码 0）。**45d-0** 顺带收口原生序比较：`<` 一族此前按 `.data` **地址序**判，
   `输出("b" > "a")` 直接反号，现走 `val_cmp` 深序比较。
-  口径边界（诚实面）：**「能编」≠「已脱宿主」**——boot 全链仍有 25 个 latent 宿主注入名
-  （`装载根`/`执行命令`/`解析_JSON` 等），它们在原生运行期如实点名失败而非静默给假值；
+  口径边界（诚实面）：**「能编」≠「已脱宿主」**——boot 全链仍有 latent 宿主注入名
+  （阶段 45 登记 25 名，阶段 46 摸底后现行 **24** 名，见下条），它们中绝大多数是
+  `装载根`/`执行命令`/`解析_JSON` 一类宿主 Python 载体注入的名，
+  在原生运行期如实点名失败而非静默给假值；
   `use 标准库 { 名 }` 在原生面降级为一个 latent 的 `加载模块` 调用（链接期不报、运行期才炸），
   这正是 45b 多源链接的存在理由；原生错误
   文案取自发射器错误表，与宿主 Python 文案不同源（登记不修）。文档口径同阶段收口：
   链面固定注册面现值 **60 名**、宿主对位镜像固定面 44 名、宿主实例内建表 3025 名、
   `module 解释器` 两套源三套解析序，见第五节与 KNOWN_ISSUES 阶段 45 口径收口条。
+- **boot 链 latent 名逐项归因 + 一臂死函数真修（阶段 46-1）**：45-① 只登记了「有 25 个 latent
+  名」，本切片把每个名**归因到载体归属**，判据是机器可跑的：`build_boot_vm().vm.globals` 有
+  宿主 Python 载体（A 类 **20** 名）／`PluginResolver.known_symbols()` 惰性物化（B 类 **4** 名，
+  os 域）／**谁都没有**（C 类 **1** 名）。A/B 是 46a 的原生载体工作量，C 不是「脱宿主缺口」而是
+  语料自身缺陷——`matha/stdlib.matha` 的 `to_upper` 在 `let rec _map(i, acc)` 的 `in` 体里把
+  形参名当自由名读（`in _map(0, acc)`），故 `acc` 必然未绑定，`to_upper` 是一臂**任何调用都失败**
+  的死函数（修前 hi/vm/链面三面同判 `未定义变量 'acc'`）。改形与 `to_lower` 种子对称
+  （`in _map(0, "")`）：修后链面经产品分派体 `应用内建实` 给 'AB' / 'HELLO, WORLD! 123' / '' /
+  'ABC_é中'，同一语料编进真原生 PE64 逐字同判（`tests/test_native_selfhost_phase46.py` 46c），
+  把旧行回注的反控给 rc≠0 + stderr「未定义变量」（46d）——收益来自这一行而非装载环境。
+  latent 名集 25→**24**（总读位 33→32，C 类归零）。两条**判据锁**防止口径被读歪：46e 要求每个
+  latent 名都能在宿主 globals 或插件符号表里找到载体（找不到即红，即「语料自由名冒充宿主缺口」
+  不可再现）；46h 锁「24 只是下界」——boot 链 831 个 LOAD_GLOBAL 名与编译期拒绝集合
+  `native._UNRESOLVED_GLOBALS` 的交集只剩已按静态对象发射的 `None`/`_empty_dict`，说明 latent
+  名根本不在拒绝集合里（链接期不报、运行期才炸）；46j 再把四份文档里写的名数/读位数锚点交给
+  `_latent_reads` 的实测值拼出（「25 是时点读数」必须带归因指针），文档与机器脱钩即红。
+  `to_upper` 自身属链面独有注册名，`src/**.py` 全仓零载体（41-① 表差族新成员，登记不修）。
+- **判定面换形：脱 Python 前先把裁判换掉（阶段 46c）**：三面正确性判据（Track B
+  boot↔host、golden vm↔interp、native_parity host↔exe）的裁判都是 Python，退役那一刻
+  正确性判据整面消失、只剩「没崩」——阶段 41 清过的假成功温床正是这种状态，所以 46c 是
+  **退役的前置**门禁。交付三条形态（锁档 `tests/test_judgment_face_phase46c.py` 19 项，
+  Python 仅作构建种子、不作判定）：**① 自举双跑**在编译面已经成立——`matha/lexer.matha` +
+  `stdlib.matha` + `parser.matha` + `compiler_matha.matha` 四片链进原生 PE64 后
+  `编译器.编译` 在映像里跑起来了，两个**独立构建**的映像（四片链接 vs 四片文本拼接，
+  产物逐字节相同）各在自己的进程里编译同一批源，产出的 64 行字节码读数
+  （常量池／主码／函数表／模块名）逐字相同，同一映像内重复编译同判；构建面另有三组源各两次
+  独立发射逐字节相同、同一映像三跑 stdout 逐字相同。**② 手算／规范对拍**：词法器 37 行 token 流、
+  语法器 7 行 AST 流、编译面 64 行字节码逐行写死在锁档，依据指到 Matha 源行；反控两批
+  （词法面 46c26：整表顺序置换／`关键字|Int`→`标识符|Int`／`大于等于`→`大于`；编译面 46c38：
+  操作码编号／折叠结果退回左操作数／常量池顺序置换）证明字面量承重。**③ 差分面降为 dev-only**：
+  `scripts/selfhost_matrix.AUTHORITY = "dev-only-differential"` + 产品面 `src/**` 零 import
+  判定工具（有锁）。同批把差分面自身的**功率**换形：旧快照 `equal=true` 里「两侧零输出」
+  与「N 行逐字相同」同形（旧形只在有输出时写 `n_outs`，空输出表现为缺键＝与「没测」不可分），
+  现无条件记录并按其分层进 `summary.power`——快照现值 226 语料，其中
+  **双面一致 216 = 有读数 71 + 空对空 145**，全量比对读数 270 行；此前被反复当作收益证据的 52 条 `matha/resource/**`
+  语料**全为 silent**（资源库真证据在阶段 41 手算锁）。七分类对 files 的闭合与条目分类
+  零漂移，`--check` 一致，快照改动纯增量（新增 `power` 内嵌节不参与对 files 求和，
+  `test_selfhost_matrix_phase29`／`test_selfhost_language_phase39` 两处键形锁随之改）。
+  边界如实登记：boot **解释器面**（`interp_matha`/`loader`）链进映像实测在第一条驱动语句前
+  以 `不可调用的值` 退出（rc=0x1），故「映像自己编译 + 自己运行」的全链双跑仍待 46a/46b。
 - **懒加载**：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   未 `@：【加载领域】` 就引用领域符号 → 编译期诊断并列出候选插件名。
   验证：`tests/test_plugin_contract.py`（含子进程取证「只加载需要的那个」）。
@@ -566,7 +616,7 @@ functools unicodedata textwrap heapq datetime importlib`。
 
 | 门禁 | 判据 |
 |---|---|
-| `tests/` | 195 个测试文件（全量见最近一次 `make check`） |
+| `tests/` | 197 个测试文件（全量见最近一次 `make check`） |
 | `kernel_purity` | 白名单 + 核心无逃逸模块 + 插件不得碰 VM 私有面 |
 | `ast_vm_gap` | 78 个 AST 节点、59 发射 / 19 有意无码 / **0 不认识**（ListComp 已由 VM 编译为下标循环 + `append` 累加，不再静默返空）、**0 阻塞缺口**；指令码 36/36/36 |
 | `golden` | 39 例 vm ↔ interp 逐字节；`--native` 追加真 exe 对拍（已知未实现项列在 `golden_tests/manifest.json` 的 `native_known_gaps`，当前为 0） |
@@ -589,7 +639,7 @@ make check-lite     # 本机无 nasm/link 时用
 等 stdlib 家族臂），镜像独有 1 名（`原地设置`）。「双镜像」指 17 条载体原语（含 43a-2 的
 `当前目录`）+ `错误` 逐名臂齐全，**不是**固定面等集，
 也**不是**整个 `module 解释器` 等集（两套源 106/139 名、交集 53 名；三套解析序见
-`src/matha_chain.py:37` / `src/interp.py:946` + `scripts/selfhost_matrix.py:484` +
+`src/matha_chain.py:37` / `src/interp.py:946` + `scripts/selfhost_matrix.py:499` +
 `matha/loader.matha:23` / `src/os_runtime.py:58-60`）。逐条取证与两条登记不修（产品链
 `装载("解释器")` 的 struct 工厂缺口）见 [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) 阶段 45 口径收口条。
 

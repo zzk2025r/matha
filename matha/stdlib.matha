@@ -120,7 +120,7 @@ module 标准库 {
         let idx = find(c, lower) in
         if idx = -1 then _map(i + 1, acc + c)
         else _map(i + 1, acc + upper[idx])
-    in _map(0, acc)
+    in _map(0, "")
 
   (* 去除空白 *)
   func strip(s: String) -> String =

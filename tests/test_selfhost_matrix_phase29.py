@@ -5,6 +5,8 @@
   python scripts/selfhost_matrix.py --check
 结构锁判据：快照在位 + 文件清单与语料枚举一致（五目录 rglob("*.matha")，
 boot 链 5 文件排除）+ summary 七分类算术闭合（39e both_err_equal 细分）+ 条目无 unknown 形态。
+46c 起 summary 另有内嵌 `power` 节（both_ok_equal 按有无读数拆 obs/silent）：它不参与
+对 files 的闭合求和，只与 both_ok_equal 自身闭合。
 """
 import os
 import sys
@@ -34,10 +36,17 @@ def test_summary_arithmetic_closed():
     assert set(s.keys()) == {
         "files", "both_ok_equal", "both_ok_differ", "boot_err_host_ok",
         "boot_ok_host_err", "both_err_equal", "both_err",
-        "timeout"}, f"summary 键形 {set(s.keys())}"
-    total = sum(v for k, v in s.items() if k != "files")
-    assert total == s["files"], f"汇总算术不闭合: {s}"
+        "timeout", "power"}, f"summary 键形 {set(s.keys())}"
+    # 46c：power 是 both_ok_equal 的**内嵌**分层（obs + silent = both_ok_equal），
+    # 不参与七分类对 files 的闭合求和——否则同一批文件被计两次。
+    scalar = {k: v for k, v in s.items() if not isinstance(v, dict)}
+    total = sum(v for k, v in scalar.items() if k != "files")
+    assert total == s["files"], f"汇总算术不闭合: {scalar}"
     assert s["files"] == len(snap["files"]), "files 计数与条目数不一致"
+    p = s["power"]
+    assert set(p.keys()) == {"both_ok_equal_obs", "both_ok_equal_silent"}
+    assert p["both_ok_equal_obs"] + p["both_ok_equal_silent"] == s["both_ok_equal"], \
+        f"功率分层不与 both_ok_equal 闭合: {p} vs {s['both_ok_equal']}"
 
 
 if __name__ == "__main__":
