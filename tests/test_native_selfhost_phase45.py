@@ -50,14 +50,16 @@ boot 链中唯一的越界真形是 `扫描三引号续`(9)（全链另含 `_推
   未捕获时 exe 非零退出、stderr 给同一消息体。
 - 45d-5 反向控：承载工具链的映像与阶段 44 的小产物同规格——无导入表、三节、
   PE32+，产物字节里无 python/Cpython/site-packages 标记。
-- 45d-6 诚实边界：「能编」≠「已脱宿主」——boot 全链 24 个宿主注入名的 latent 名集
+- 45d-6 诚实边界：「能编」≠「已脱宿主」——boot 全链 22 个宿主注入名的 latent 名集
   与重复次数锁（阶段 45 时点 25，其中 `acc` 经 46 摸底取证为**语料级自由名缺陷**而非
-  宿主注入名，同批真修后名集 25→24，见 `test_native_selfhost_phase46.py`）、词法器单片
+  宿主注入名，同批真修后名集 25→24，见 `test_native_selfhost_phase46.py`；阶段 46a-3
+  给 `未定义错误`/`MathaRuntimeError` 落原生载体后再 24→22）、词法器单片
   latent 归零、latent 名在运行期如实点名失败；另锁
   `src/mbc/native.py`「当前无此类可达名字」断言已过时（`长度` 直调 / 函数体内均为
   latent，`use` 形态还把 `加载模块` 自身带成 latent——45b 多源链接的存在理由）；另锁
-  原生面 stderr 只剩「未定义变量」消息体（丢名字与类前缀），与宿主/vm 的带名形
-  （`test_native_process_phase44.py::test_44c_boot_face_reports_undefined_name`）成形状差。
+  原生面未定义名的 stderr **带名同判**（`未定义变量 'X'`，与 hi/vm/链面逐字一致——
+  阶段 46a-3 前原生只报无名的「未定义变量」，载体缺口无法定位）。异常**类名**载体
+  仍缺（原生无异常类型），该形状差承继 41-③ 登记。
 - 45e 文档口径收口：链面固定注册面 60 名（interp_matha）与宿主对位镜像 44 名（interp）
   双计数锁、`module 解释器` 两套源 + 三套解析序的落点锁、5 处消费者只用交集名（分歧
   目前潜伏）、struct 工厂缺口的登记锁与 KNOWN_ISSUES 行号勘误锁。第四个计数：宿主
@@ -81,7 +83,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
 
 from src import ast_nodes as ast  # noqa: E402
-from src.interp import interpret  # noqa: E402
+from src.interp import MathaUndefinedNameError, interpret  # noqa: E402
 from src.kernel import exec_api  # noqa: E402
 from src.mbc import compile_source, run_module  # noqa: E402
 from src.mbc import native  # noqa: E402
@@ -89,6 +91,7 @@ from src.mbc.compiler import Compiler, compile_sources  # noqa: E402
 from src.mbc import opcodes as OP  # noqa: E402
 from src.mbc.native import (MAX_NATIVE_ARITY, NativeNotSupported,  # noqa: E402
                            compile_sources_to_exe, compile_to_exe)
+from src.mbc.vm import VM  # noqa: E402
 from src.parser import parse as py_parse  # noqa: E402
 
 NATIVE_SRC = (_ROOT / "src" / "mbc" / "native.py").read_text(encoding="utf-8")
@@ -340,7 +343,7 @@ def test_45a5_lexer_fragment_compiles_natively():
 def test_45a5_full_boot_chain_compiles_natively():
     """六文件全链（含装载器/解释器镜像）现已整体通过原生编译。
 
-    这条锁的是「编译期不再有阻塞」；运行期载体缺口（24 个无原生载体的宿主
+    这条锁的是「编译期不再有阻塞」；运行期载体缺口（22 个无原生载体的宿主
     注入名）另在 45d 的边界锁里如实登记，不在这里冒充已脱宿主。
     """
     from src.matha_chain import BOOT_FILES
@@ -1430,25 +1433,27 @@ def _latent_reads(mod) -> dict[str, int]:
     return hits
 
 
-# boot 全链 24 个宿主注入名：OS 载体（执行命令/输入行/列目录…）、异常类名
-# （MathaRuntimeError/未定义错误）、链面工具（解析_JSON/执行Matha…）。
+# boot 全链 22 个宿主注入名：OS 载体（执行命令/输入行/列目录…）、链面工具
+# （解析_JSON/执行Matha…）。
 # 阶段 45 时点此表含 `acc`（25 名）——46 摸底判定它是 matha/stdlib.matha 的
 # 自由名缺陷而非宿主注入缺口，同批真修后从本表移出（`test_native_selfhost_phase46.py`）。
+# 阶段 46a-3 再把异常名族 `未定义错误`/`MathaRuntimeError` 落进原生载体（三者共用
+# 消息体发射器），本表随之 24→22。
 _BOOT_LATENT = {
-    "MathaRuntimeError", "_to_tuple", "升级包", "当前目录", "执行Matha",
+    "_to_tuple", "升级包", "当前目录", "执行Matha",
     "执行命令", "执行命令输入", "检查包更新", "改名", "列目录", "删除路径",
-    "换目录", "管道结束", "管道输入", "未定义错误", "建目录",
+    "换目录", "管道结束", "管道输入", "建目录",
     "装载包根们", "装载根", "装载根们", "复制文件", "调试Matha", "路径存在",
     "输入行", "解析_JSON",
 }
 # 重复读取次数 >1 的名字（其余各 1 次）——锁这份小表，使「同名多点」的载体缺口
 # 规模也能显形，而不只是名集。
-_BOOT_LATENT_REPEAT = {"_to_tuple": 3, "当前目录": 3, "未定义错误": 3,
+_BOOT_LATENT_REPEAT = {"_to_tuple": 3, "当前目录": 3,
                        "列目录": 2, "路径存在": 2}
 
 
 def test_45d6_boot_chain_compiles_but_still_needs_host_injected_names():
-    """链接期零拒绝的 boot 全链，运行期仍有 24 个名字没有原生载体——名集锁。
+    """链接期零拒绝的 boot 全链，运行期仍有 22 个名字没有原生载体——名集锁。
 
     45a5 的「全链编译成功」只到链接为止；不登记这一层，那条评论就会被读成
     「Matha 工具链已可脱离 Python 运行」。新增/消除 latent 名都会撞这条。
@@ -1459,7 +1464,7 @@ def test_45d6_boot_chain_compiles_but_still_needs_host_injected_names():
     assert set(latent) == _BOOT_LATENT, (
         f"latent 名集漂移：新增 {sorted(set(latent) - _BOOT_LATENT)}，"
         f"消失 {sorted(_BOOT_LATENT - set(latent))}")
-    assert len(latent) == 24, f"latent 名数：{len(latent)}"
+    assert len(latent) == 22, f"latent 名数：{len(latent)}"
     assert {k: v for k, v in latent.items() if v > 1} == _BOOT_LATENT_REPEAT
 
 
@@ -1504,19 +1509,46 @@ def test_45d6_native_docstring_claim_of_no_reachable_name_is_stale():
     assert "当前无此类可达名字，仅保留防御分支" in doc
 
 
-def test_45d6_latent_stderr_drops_the_name_that_host_and_vm_keep():
-    """同一条「未定义变量」在原生面**只剩消息体**——名字与异常类前缀都不在。
+def test_45d6_latent_stderr_names_the_missing_carrier():
+    """原生面未定义名 stderr **带名同判**：`未定义变量 'X'` 与 hi/vm/链面逐字一致。
 
-    宿主/vm 面带名（`test_native_process_phase44.py::test_44c_boot_face_reports_undefined_name`
-    锁 `"派生映像" in str(ei.value)`），原生发射器的错误表条目是无参的
-    `("err_undefined", "未定义变量")`。这条锁住**形状差**本身：改原生文案的人会
-    同时撞这里与 44c，不至于把两面悄悄拉成同一句而无人取证。
+    阶段 46a-3 前原生发射器只有无参条目 `("err_undefined", "未定义变量")`，报错丢名字
+    ——载体缺口因此无法定位（只知「有个未定义变量」，不知哪个）。现在 LOAD_GLOBAL 的
+    未定义位走 `err_undef_pre` + `sob:{名}` + `str_concat` + `dk_q` 拼出带名句，
+    与三面同源（消息体即 `MathaUndefinedNameError.__str__` 的返回值）。
+    异常**类名**载体仍缺（原生无异常类型），该差登记承继 41-③ 同族，不在本锁掩盖。
     """
-    assert '("err_undefined", "未定义变量")' in NATIVE_SRC
+    assert '("err_undefined", "未定义变量")' not in NATIVE_SRC, \
+        "无名的 err_undefined 条目已退役——复原它等于让原生面重新丢失缺名信息"
+    assert '("err_undef_pre", "未定义变量 \'")' in NATIVE_SRC
     rc, out, err = _aot("latent_shape", "let x = 装载根\n")
     assert rc != 0, f"无载体名竟跑通：{out}"
-    assert "未定义变量" in err, err[:200]
-    assert "装载根" not in err, f"原生面已带名，本条登记需重新取证：{err[:200]}"
+    assert err.strip() == "未定义变量 '装载根'", err[:200]
+
+
+def test_45d6_undefined_name_message_matches_host_faces():
+    """同一句缺名读数在 hi / vm / 原生三面逐字相同。
+
+    三面各自独立求值同一条源 `let x = 装载根`，读数必须字字相同（裁判面不吃 Python：
+    原生是独立映像，hi/vm 只是对位判据）。任一面改文案都会撞这里。链面的同句读数由
+    `test_native_process_phase44.py::test_44c_boot_face_reports_undefined_name` 锁住。
+    """
+    src = "let x = 装载根\n"
+    msgs = []
+    for face in ("hi", "vm"):
+        try:
+            if face == "hi":
+                interpret(src)
+            else:
+                VM(compile_sources([src])).run()
+            raise AssertionError(f"{face} 面未定义名竟跑通")
+        except MathaUndefinedNameError as e:
+            msgs.append((face, str(e)))
+    assert msgs == [("hi", "未定义变量 '装载根'"),
+                    ("vm", "未定义变量 '装载根'")], msgs
+    rc, _out, err = _aot("latent_four", src)
+    assert rc != 0
+    assert err.strip() == "未定义变量 '装载根'", (err[:200], msgs)
 
 
 # ==================== 45e 文档口径收口锁 ====================
@@ -1592,8 +1624,10 @@ def test_45e_host_mirror_face_is_a_different_set_not_the_same_60():
     ("matha/loader.matha", 23, '["解释器", "interp.matha"]'),
     ("src/os_runtime.py", 58, "_BOOT_CHAIN_FILES = ["),
     ("src/os_runtime.py", 60, '"matha/vm.matha"]'),
-    ("matha/interp_matha.matha", 1432, "func 注册内建"),
-    ("matha/interp_matha.matha", 1512, "env57"),
+    # 46a-2 把 `func 注册内建` 上方的顶层入口/载体臂注扩写（+6/+5 行），两个落点随行号
+    # 漂移改指 1438 / 1517；同理 46a-1 的 标准库.len 归一使臂表整体下移 6 行。
+    ("matha/interp_matha.matha", 1438, "func 注册内建"),
+    ("matha/interp_matha.matha", 1517, "env57"),
     ("matha/interp.matha", 17, "use 词法器 { Token"),
     ("matha/lexer.matha", 29, "struct Token {"),
 ])
@@ -1618,9 +1652,14 @@ def test_45e_interpreter_module_resolves_to_two_sources_across_three_orders():
 
 
 def test_45e_the_two_interpreter_sources_are_not_name_equal():
-    """模块名集 106 / 139、交集 53——同名 `module 解释器` 实为两套声明。"""
+    """模块名集 106 / 141、交集 53——同名 `module 解释器` 实为两套声明。
+
+    boot 侧 139 → 141 是阶段 46b 入口绑名批（代码注 46b-2）新增的
+    `绑模块名`/`绑名对` 两个 helper（`matha/interp_matha.matha:1529` 一带），
+    二者均为 boot 独有名，故交集仍 53——「两套源不等集」这一判据不受影响。
+    """
     mirror, boot = _module_names(_HOST_INTERP), _module_names(_BOOT_INTERP)
-    assert len(mirror) == 106 and len(boot) == 139, f"{len(mirror)} / {len(boot)}"
+    assert len(mirror) == 106 and len(boot) == 141, f"{len(mirror)} / {len(boot)}"
     assert len(mirror & boot) == 53, f"交集 {len(mirror & boot)} 名，两套源已变形"
     assert "func_len" in mirror and "func_len" not in boot
     assert "应用内建" in boot and "应用内建" not in mirror
@@ -1677,10 +1716,14 @@ def test_45e_struct_factory_gap_between_gate_and_product_is_registered():
 
 
 def test_45e_documented_line_reference_erratum_is_applied():
-    """勘误一（interp_matha 臂表行号 773-774 → 777-778）+ 勘误二（已删文件的行号引用）。"""
+    """勘误一（interp_matha 臂表行号 773-774 → 783-784）+ 勘误二（已删文件的行号引用）。
+
+    行号随 46a 的两批改动继续漂移：46a-1 的 `标准库.len` 归一在臂表上方净增 6 行，
+    故 777-778 → 783-784。本锁把「文档行锚 == 代码现场」钉死，漂移即红。
+    """
     lines = _BOOT_INTERP.read_text(encoding="utf-8").splitlines()
-    assert 'name = "执行Matha"' in lines[776] and 'name = "调试Matha"' in lines[777]
-    assert "matha/interp_matha.matha:777-778 直接委托宿主内建" in _KI_TXT
+    assert 'name = "执行Matha"' in lines[782] and 'name = "调试Matha"' in lines[783]
+    assert "matha/interp_matha.matha:783-784 直接委托宿主内建" in _KI_TXT
     assert _KI_TXT.count("interp_matha.matha:773-774") == 1, "勘误一的旧行号仍在别处流传"
     assert not (_ROOT / "src" / "plugins" / "ffi_sdk.py").exists()
     assert "src/plugins/ffi_sdk.py" in _KI_TXT, "历史条目引用被抹掉而非标注"
@@ -1716,8 +1759,8 @@ def test_45e_host_builtin_face_count_in_docs_is_the_live_value():
     assert len(_MODULE_TABLE) != live, "模块级基表与实例内建表被当成同一张"
     assert "另一张表只有 82 名" in ki, f"模块级 BUILTINS（实测 {len(_MODULE_TABLE)}）与实例表混读"
     assert len(_MODULE_TABLE) == 82
-    assert "NATIVE_BUILTINS 132 名" in arch or "NATIVE_BUILTINS 面独立（现测 132 名）" in ki
-    assert len(native.NATIVE_BUILTINS) == 132
+    assert "NATIVE_BUILTINS 134 名" in arch or "NATIVE_BUILTINS 面独立（现测 134 名）" in ki
+    assert len(native.NATIVE_BUILTINS) == 134
 
 
 def test_45e_new_documented_code_anchor_points_at_its_target():

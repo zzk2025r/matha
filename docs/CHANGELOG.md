@@ -892,24 +892,24 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   4294967295）；② 帧内解构把局部槽写回错基址（手拼 `mov rbp,r8` 漏 REX.W）→ 统一走 `mov_rr`
   并加编码表锁；③ 尾位置一元负返回 `is_bigint` 的 0/1 判定值而非结果 → 回读 rax。
   **45e** 文档口径收口（**代码零改动**）：勘误 `matha/interp_matha.matha` 宿主委托臂行号
-  773-774→**777-778**、`src/plugins/ffi_sdk.py`（阶段 22b 已删）行号引用标注为历史落点；
+  773-774→**777-778**（46a-1/入口绑名批后再顺移至 **783-784**）、`src/plugins/ffi_sdk.py`（阶段 22b 已删）行号引用标注为历史落点；
   统一链面固定注册面现值 **60 名**（47/59 为阶段 41/42 时点值）并登记 `module 解释器` 两套源
-  （106/139 名、交集 53、固定面 60-vs-44 不等集）三套解析序与判定面/产品面的 struct 工厂
+  （106/139 名、交集 53、固定面 60-vs-44 不等集；阶段 46b 时点 boot 侧 139→141，入口绑名批 +2）三套解析序与判定面/产品面的 struct 工厂
   不对称（`MathaChain().load("解释器")` 在产品链必失败）——两条登记不修见 KNOWN_ISSUES
   阶段 45 口径收口条。新锁档 `tests/test_native_selfhost_phase45.py` 112 项（45e 的四个计数
-  ——boot 固定面 60 / 镜像固定面 44 / 宿主实例内建表 3025 / 原生面 `NATIVE_BUILTINS` 132——
+  ——boot 固定面 60 / 镜像固定面 44 / 宿主实例内建表 3025 / 原生面 `NATIVE_BUILTINS` 132（46a-3 后现值 134）——
   一律锁成「文档所写 == 当场实测」而非写死数字，另登记 `src/mbc/native.py`「当前无此类
   可达名字」断言已过时：`长度` 直调与 `use` 降级出的 `加载模块` 均为可达 latent 名），另把
   `tests/test_native.py` 的 arity 越界锁改为随常量伸缩并锁文案同源；诚实边界入锁：boot 全链
-  25 个 latent 宿主注入名名集与重复读取次数表（**25 是阶段 45 时点值**，阶段 46 摸底后现行
-  24，见下条）、词法器单片 latent 归零、latent 名在原生
+  25 个 latent 宿主注入名名集与重复读取次数表（**25 是阶段 45 时点值**，阶段 46 摸底归因后
+  24、46a-3 异常名族落原生载体后现行 **22**，见 46b 段）、词法器单片 latent 归零、latent 名在原生
   运行期如实点名失败。本体量 34,099→**34,538**（+439 = `src/mbc/native.py` +398 +
   `src/mbc/compiler.py` +22 + `src/kernel/exec_api.py` +19；`src/matha_main.py` 与
   `src/interp.py` 不在 `core_py_lines` 口径）；指令码 36 不变（零新 opcode）、Track B 快照零扰动
   （无 `.matha` 改动）。门禁与算术闭合见 KNOWN_ISSUES 阶段 45 收官条目。
 - 阶段 46-1 boot 链 latent 名逐项归因 + `stdlib.to_upper` 死函数真修（路线形态拍板：
   「有界清算循环——每轮一条可判定判据 + 一个可回滚提交」，本切片只做 45-① 登记项的归因与其中
-  唯一的语料缺陷）。**归因判据**取名字的宿主载体归属三分：A 类 `build_boot_vm().vm.globals`
+  唯一的语料缺陷）。**归因判据**取名字的宿主载体归属三分：A 类 `build_boot_vm().globals`
   已有宿主 Python 载体（**20** 名 = terminal_builtin 的 fs/stdio 族 12（`输入行`/`管道输入`/
   `管道结束`/`列目录`/`建目录`/`删除路径`/`复制文件`/`改名`/`当前目录`/`换目录`/`路径存在`/
   `执行Matha`）+ `matha_chain` 注入 3（`装载根`/`装载根们`/`装载包根们`）+ 导出表异常类
@@ -968,13 +968,55 @@ P7 CI 面卫生·红 CI 收敛与「整文件被拒绝」修复（口径见 [KNO
   双面一致 216 = 有读数 71 + 空对空 145**，全量比对读数 270 行；此前被反复当作收益证据的
   52 条 `matha/resource/**` 语料**全为 silent**（资源库真证据在阶段 41 手算锁，46c32 把这条
   变成机器判定）。快照改动纯增量、七分类零漂移，两处键形锁随之改（`test_selfhost_matrix_phase29`
-  ／`test_selfhost_language_phase39`）。诚实边界入锁：boot **解释器面**（`interp_matha`／
-  `loader`）链进映像实测在第一条驱动语句前以 `不可调用的值` 退出（rc=0x1），故「映像自己编译
-  ＋自己运行」的全链双跑仍待 46a/46b。本体量 **34,538 不变**（`src/` 零改动，改动只在
+  ／`test_selfhost_language_phase39`）。诚实边界入锁（**46c 时点**）：boot **解释器面**（`interp_matha`／
+  `loader`）链进映像当时实测在第一条驱动语句前以 `不可调用的值` 退出（rc=0x1），故「映像自己编译
+  ＋自己运行」的全链双跑当时仍待 46a/46b——该边界已由下面的 46b/46b-3 推翻。本体量 **34,538 不变**（`src/` 零改动，改动只在
   `scripts/selfhost_matrix.py` 与测试）、指令码 36 不变、Track B 分类零扰动。附带收口本片自己
   造成的行号漂移（首跑 tests lane 唯一红，45e 行锚锁按设计报警）：镜像表行 484→**499**、
   `_augment_chain_ns` 509→**524**，锁参数表与两处文档行引用同步改指并留「45 时点」注。
   门禁与算术闭合见 KNOWN_ISSUES 阶段 46c 收官条目。
+- 阶段 46a-3 + 46b + 46b-3 全链阻塞项跑通（承继用户指令「先把 #247 与 #248 全链阻塞项跑通」；
+  46c 登记的那条边界从「解释器面进不了映像」推进到「一个映像内读完盘、自己编译、自己运行」）。
+  **46a-3 原生未定义名带名抛错**：无参条目 `("err_undefined", "未定义变量")` 退役，LOAD_GLOBAL
+  未定义位改走 `err_undef_pre` + `sob:{名}` + `str_concat` + `dk_q` 拼出 `未定义变量 'X'`，
+  与 hi/vm/链面四面**逐字同判**（异常**类名**载体仍缺，承继 41-③ 同族登记）；同批把异常名族
+  `未定义错误`/`MathaRuntimeError` 接入原生内建表（三名共用参数化后的 `_emit_builtin_error`
+  消息体发射器）。latent 名集 25→**22**（总读位 33→28：46-1 去语料自由名 `acc` 得 24/32，
+  本批去异常名族两名；现行分类 A 类宿主 `vm.globals` **18** + B 类插件惰性物化 **4** + C 类 **0**，
+  名集/读位/分类三判据分别为 `test_46f`/`test_46e`/`test_46h`，文档读数由 `test_46j` 与
+  `_latent_reads` 同源拼锚）。**46b 语料判定面从两端升三端**（新锁档
+  `tests/test_corpus_face_phase46b.py` **13 项**）：boot 六片（`lexer`/`stdlib`/`parser`/
+  `runtime/matha_runtime`/`interp_matha`/`loader`）链进**一个**无导入表 PE64，映像用 Matha
+  自己写的解释器从盘读语料、自己解析、自己执行，Python 只喂源与跑产物；判据全手算——10 份语料
+  逐份读数（7 条有判别力 + 3 条如实标退化）、A/B 双构建 PE 逐字节相同 + 读数逐字相同、同像三跑、
+  改一字即分叉的承重反控、入口绑名正负两面（缺模块仍如实 `未找到模块 'X'`，不因预绑变假成功）。
+  换行面另取证一条并补真：hi/vm 经 `Path.read_text` 的 universal-newlines **永远吃不到** `\r`，
+  故「三面同判」在 CRLF 上本是空话——`matha/lexer.matha`（+20−1，新增 `是回车码`/`扫回车`
+  CRLF 折叠，对齐宿主 `src/lexer.py:462-471`）打通 CR 通道后，由映像内现拼 `chr(13)`/`chr(10)`
+  两份源同像自证 LF≡CRLF（46b10），再把 CR 守卫置恒假重链反控（46b11：CRLF 与 LF 分叉且 LF
+  不受波及）。`matha/interp_matha.matha`（+92−64）补 `绑模块名(env)`/`绑名对(env, 对们)` 与
+  顶层入口真形；宿主对位镜像 `matha/interp.matha`（+11−2）**刻意不同动**并锁住源行依据——
+  镜像绑模块名反而把 `标准库.len(...)` 从正确读数打成 `不可调用的值: None`（46b6/46b7）。
+  **46b-3 全链同像**（新锁档 `tests/test_fullchain_face_phase46b.py` **15 项**）：五片配方
+  `matha/{lexer,stdlib,parser,compiler_matha,vm}.matha` 进**同一份**映像，在映像内完成
+  `标准库.read_file`（`matha/stdlib.matha:574`）→ `编译器.编译` → `字节码虚拟机.运行M3V` → 读数，
+  11 行手算表逐字对拍（含把 `matha/lexer.matha` 自身当语料编一遍：1590 常量／344 主码／49 函数）、
+  A/B 双构建逐字节 + 同像三跑 + 盘上内容承重 + 抽片反控两条（断 `未定义变量 '编译器'` /
+  `未定义变量 '字节码虚拟机'`）。这条路的前置阻塞是原生面 `is` 无载体（旧形直接
+  「不支持二元运算 'is'」），本片补 BINOP `is` 发射：值为 tagged raw 逐位相同，
+  **不追随 Python 的字符串/小整数 interning**（`"ab" is "ab"` 假、`1.5 is 1.5` 假），并把 `is`
+  语料走「映像内编译 + 映像内运行」双路径同判。改动面 `src/mbc/native.py` +40−8 → 本体量
+  34,538→**34,570**（`src/matha_chain.py` 装配壳与三片 `.matha` 镜像不在口径）；指令码 36 不变
+  （`is` 走既有 BINOP 发射位，零新 opcode）。三条登记不修（均有锁或有取证）：①`is` 优先级双面
+  分歧——`是中缀is` 在 boot 挂在 `解析移位_续`（`matha/parser.matha:628`）而非关系层，宿主实际在
+  `_parse_rel_expr`（`src/parser.py:1876-1884`），且 `matha/parser.matha:600-602` 的注释把宿主
+  落点写成 `_parse_set_expr` 本身即口径缺陷（实测 `1 + 1 is 2` 与 `1 + (1 is 2)` 的链面 AST
+  逐字相同、读数 `[None]`，原生直接路给 `True`）；②共像模块符号作用域未收口——MBC 把各模块
+  `func` 提升进同一张全局函数表，`matha/interp_matha.matha:508` 与 `matha/vm.matha:119` 的
+  同名 `应用运算` 后者覆盖前者，故 boot 六片 + `vm.matha` 七片共像落 `未知运算符: =`（「一像装全
+  工具链」的下一道收口项）；③原生 `_read_file` 读不到路径静默给 null，映像内读不存在的文件仍
+  `__正常__|None`，属**假成功现状锁** + 反转条件，诚实化另立一批。`tests/test_judgment_face_phase46c.py`
+  的边界段随之换形（19 项锁数不变）。门禁与算术闭合见 KNOWN_ISSUES 阶段 46b 收官条目。
 - 懒加载：`exec_api.compile_module(..., plugins="auto|strict|off")`；
   纯脚本运行时不 import 任何 `src.domains.*`；未加载即引用领域符号 →
   编译期诊断并列出候选插件名（`tests/test_plugin_contract.py` 含子进程取证）。

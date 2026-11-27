@@ -759,12 +759,21 @@ module 解释器 {
 
   (* ===== 顶层入口 ===== *)
 
+  (* 顶层入口真形（46a-2，与 interp_matha.matha 同动）：`扫描` 是柯里形，
+     单参调用只产 Partial——旧写法使本入口在任何执行面都先崩在 parse 的 len 处。
+     本镜像无捕获槽（输出直落宿主 print），故返回程序尾值而非硬编空表。
+     46b-2 不同动（取证不修）：boot 链入口已把链模块命名空间绑进 env，本镜像
+     刻意不跟——`对象取字段`（149 行）只认 struct 实例/enum 命名空间，字典一律
+     返 null，故 `标准库.len(...)` 全靠 `求值属性`（144 行）的「变量未绑定 → 平铺
+     回退」臂命中裸名内建；一旦预绑 标准库，点取改走字典臂落 null，读数由正确
+     `[3]` 退化为「不可调用的值: None」（实测）。镜像侧真正的缺口是无 导入 执行
+     臂（`use X` 报「未知表达式类型: 导入」），与本批入口绑名是两件事。 *)
   func interpret(source: String) -> List =
-    let toks = 扫描(source) in
+    let toks = 扫描(source)(0)(1)(1)([]) in
     let ast = parse(toks) in
     let env = 注册内建(空环境()) in
     let (result5, env2) = 执行语句(ast, env) in
-    []  (* 输出暂存 env 中 *)
+    [result5]
 
   func eval(expr: Dict, env: List) -> Value =
     求值(expr, env)

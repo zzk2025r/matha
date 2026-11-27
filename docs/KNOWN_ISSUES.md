@@ -2198,6 +2198,154 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   28-⑦⑧⑨（语句位 `[` 路由一致性/Dijkstra 距离桩/stdlib str 数字专用）维持原
   登记不修。
 
+- **2026-11 阶段 46a-3 + 46b + 46b-3 收官（全链阻塞项跑通：原生载体带名抛错 + boot 六片进
+  映像 + 编译器/VM 共像自证）**：拍板 = 用户指令原话「先把 #247 与 #248 全链阻塞项跑通，再
+  开始 #250 与 #251」；切片三条「① 46a-3 收口 25 名 latent 里唯一能由发射器直接落载体的
+  异常名族 ② 46b 把 boot 全链六片链进**一个**无导入表 PE64，语料判定面从 hi/vm 两端升三端
+  ③ 46b-3 再让编译器片 + VM 片共像，做成『映像自己编译 + 自己运行』」；验证深度「全量门禁 +
+  真原生 PE64 正反控」，裁判口径承继阶段 44/46c（Python 仅作构建种子，不作判定）。
+  **46a-3**（改 `src/mbc/native.py`，+40−8）：`("err_undefined", "未定义变量")` 裸文案退役，
+  未定义位改走 `err_undef_pre` + `sob:{名}` + `str_concat` + `dk_q` 拼出 `未定义变量 'X'`，与
+  hi/vm/链面四面**逐字同判**（异常**类名**载体仍缺，承继 41-③ 同族登记）；同批把异常名族
+  `未定义错误`/`MathaRuntimeError` 接入原生内建表（三名共用参数化后的 `_emit_builtin_error`
+  消息体发射器）。latent 名集 25→**22**（总读位 33→28：46-1 去语料自由名 `acc` 得 24/32，本批
+  再去异常名族两名；现行分类 A 类宿主 `vm.globals` 已有载体 **18** + B 类插件惰性物化 **4**
+  （`升级包`/`执行命令`/`执行命令输入`/`检查包更新`）+ C 类无载体 **0**，名集/读位/分类三判据
+  分别 `test_46f`/`test_46e`/`test_46h`，文档读数由 `test_46j` 与 `_latent_reads` 同源拼锚）。
+  #247 余下 22 名（OS 载体 `装载根`/`列目录`/`路径存在`… + 链面工具 `解析_JSON`/`执行Matha`…）
+  仍是本批范围边界明文「不扩 OS 载体」下的待办，真化继续挂 #247。
+  **46b 语料判定面升三端**（新锁档 `tests/test_corpus_face_phase46b.py` **13** 项）：boot 六片
+  （`lexer`/`stdlib`/`parser`/`runtime/matha_runtime`/`interp_matha`/`loader`，与
+  `src/matha_chain.BOOT_FILES` 同源，46b9 静态文本对拍防「全链」二字空话）链进同一个无导入表
+  PE64，**10 份**链面语料在映像内全 `__正常__` 且读数与手算字面逐字同判（46b1，
+  bootstrap_test_v2 的 29 项逐个点名而非合并断言，46b1c）；分类如实记账 **7 条有判别力 /
+  3 条退化**（46b1b，`02`/`04`/`lexer` 三条退化根因逐条写在 `_EXPECT` 注释，退化条不得当收益
+  引用——承继 46c32 口径）；确定性两面 = 两次独立发射 PE 逐字节相同且两产物读数逐字相同
+  （46b2，boot 六片比 46c 四片大一个量级，地址序参与摆放或表遍历序进产物都会在此露馅）+
+  同一映像三跑 stdout 逐字相同（46b3）；反控三刀（改一个数字／换一项顺序／把退化条写成意图值）
+  证明锁的是逐字逐序而非「有输出就行」（46b4）。
+  **46b-5 入口绑名批**（改 `matha/interp_matha.matha`）：旧 `注册内建(空环境())` 起 env 不含任何
+  模块名，`use 运行时引擎` 在 `导入绑定`（`matha/interp_matha.matha:1291`，抛错行 **:1294**）直接落「未找到模块」
+  ——bootstrap_test_v2 因此在原生映像里是全链唯一跑不通的一份；新增 `绑模块名` helper 后
+  `interpret` 与 `run` **两个入口**都走它（46b6 结构锁计数 `== 2`，专防「只改一个」的半截实现）。
+  镜像 `matha/interp.matha` **刻意不同动**并把依据写进源注（46b7）：镜像 `对象取字段` 只认
+  struct 实例／enum 命名空间、字典一律返 null，`标准库.len(...)` 全靠 `求值属性` 的「变量未绑定
+  → 平铺回退」臂，预绑后点取改走字典臂落 null，宿主面读数由 `[3]` 退化为「不可调用的值: None」。
+  **46a-1 CRLF 三面取证**（改 `matha/lexer.matha:447` 的 CR 分支）：这条分歧只在原生面显形——
+  宿主／VM 面经 Python `read_text` 的 universal-newlines 永远收不到 `\r`，链面此前只认码 10，
+  `\r` 落单字符分支降级成 符号、被解析为变量引用而报「未定义变量 '<CR>'」。现同一映像内用
+  `chr(13)`／`chr(10)` 现拼的两份源读数逐字相同（46b10），且把守卫改恒假后 CRLF 侧必须与 LF
+  不同判、LF 侧不受波及（46b11 反控，证明改的确实是 CR 通道而非整条流水线）。
+  **46b-3 全链共像**（新锁档 `tests/test_fullchain_face_phase46b.py` **15** 项）：五片配方
+  `matha/{lexer,stdlib,parser,compiler_matha,vm}.matha` 进**一个**映像，由映像自己
+  `标准库.read_file`（`matha/stdlib.matha:574`）读盘 → `编译器.编译` →
+  `字节码虚拟机.运行M3V`，11 行读数的五字段（读盘／字节码／模块 dict 渲染／运行／输出）与手算表
+  逐字相同，规模位与非正常路径（`F9` 的诚实拒绝 `未定义变量 '加载模块'`）一并锁（46b3-1）；
+  两次独立发射逐字节相同且全链读数相同（02）、同像三跑逐字相同（03）、同像内两次独立编译
+  模块 dict 渲染相同（11，编译器无可变状态泄漏）；反控四刀 = 手算表改一字（04）、语料副本改一字
+  读数随盘变（05，证明判据来自盘上内容）、抽掉 `compiler_matha.matha` 则 `编译器` 在映像内不存在
+  （06）、抽掉 `vm.matha` 则编译照常而 `运行M3V` 无处可寻（07）。这使 46c 登记的「『映像自己编译
+  ＋自己运行』全链双跑仍待 46a/46b」正式成立（46c 只做到四片编译面）。两档均带零 Python 裁判
+  边界锁（46b8／46b3-14 直接扫源码，防「顺手 import 一下排障」）。
+  **原生 `is` 载体**（46b3-08/09/15）：`src/mbc/native.py` 补 `elif sym == "is"` 真发射分支、
+  「不支持 'is'」拒绝文案退役（15 结构锁）；原生值模型的可判定身份 = tagged raw 逐位相同，
+  八格身份矩阵逐格锁（ID1 同对象／ID2 内容相同的两个列表／ID4 `null is null`／ID5 `1 is 1`），
+  与 Python `is` 的两处分歧是**刻意不追随**实现细节——`"ab" is "ab"` 假（每次 LOAD_CONST 重物化，
+  不跟 interning）、`1.5 is 1.5` 假（浮点每次新装箱）；同一条语料另走一遍「映像内编译 + 映像内
+  执行」路（09），两面读数各自锁死。
+  **登记不修四条**（本批判据要求「现状显式成锁、不靠改语料规避」，各条自带反转条件）：
+  ①**`is` 的优先级两条路不同判**（46b3-10 锁现状 + 源行依据）——宿主 `src/parser.py:1876-1884`
+  在 `_parse_rel_expr` **末尾**处理 `is`（左操作数来自 `_parse_set_expr` → `_parse_add_expr`），
+  故 `is` **松于** `+`、`1 + 1 is 2` = `(1+1) is 2` = True；boot 镜像 `matha/parser.matha:626-628`
+  把 `是中缀is` 分支放在 `解析移位_续` 里，左操作数来自 `解析乘除` → `is` **紧于** `+`，故
+  `1 + 1 is 2` = `1 + (1 is 2)` → None；且 `matha/parser.matha:600-602` 注释自称「对齐宿主
+  `_parse_set_expr` 内的 IsExpr 分支」，而宿主其实没有这个分支（所指在 `_parse_rel_expr`）。
+  锁住的字节码证明这不是渲染差异：`1 + 1 is 2` 与 `1 + (1 is 2)` 在映像内编出逐字相同的模块
+  dict，`(1 + 1) is 2` 才不同形。反转条件 = `是中缀is` 从移位层移到关系层（**#261**）。
+  ②**原生 FS 静默 null 假成功**（46b3-12 锁现状）——五片共像里 `标准库.read_file` 读**不存在**的
+  路径给 `__正常__|None`（`_emit_builtin_read_file` 失败走 `rf_fail` → `null_obj`，文档口径也写
+  「失败 → null」），而宿主 `src/interp.py:631` 的 `builtin_read_file` 在 **:637** 抛
+  `读文件失败: {e}`；本档刻意
+  把它锁成现状而非通过证据，46b3-1 的全链读数无一依赖该 null 形。反转条件 =
+  `read_file`/`write_file`/`append_file` 改诚实抛错后翻成同文案锁（**#262**）。
+  ③**共像模块符号串扰**（46b3-13 锁现状）——`matha/interp_matha.matha:508` 与 `matha/vm.matha:119`
+  **都**定义内部函数 `应用运算`，MBC 编译单元把各模块 `func` 提升进同一张全局函数表，链接面即
+  「后片覆盖前片」；boot 六片单独成像 → 解释面 `__正常__|[14, True, True]`，加 `vm.matha` 后落
+  `__异常__|未知运算符: =`（vm 面的 `应用运算` 没有 `op = "="` 臂）。同一破坏在 Python VM 面
+  （`src/mbc/vm.py` 跑同一份链接产物）同样复现，属「链接面就是拼接」（46c2-3 已登记）的产物层
+  缺陷、非原生专属——正因如此 46b-3 的全链配方刻意用五片（不含解释面）。反转条件 = 链接面按
+  模块收口符号作用域后本条翻成正面锁（**#260**）。
+  ④**原生 `===`/`!==` 载体缺位**（44b 探针实测登记）——`src/mbc/compiler.py:99-115` 的 `_BIN_OPS`
+  共 **31 键 / 29 个不同值**（`is` 不在表内，另走 IsExpr 发射位），原生发射臂（`_CC`／`_BIT_BINOPS`／
+  `_SET_BINOPS`／`_BIGINT_BINOPS`／`sym ==` 分支 + `is` 分支）逐键实测后只剩严格等/不等两名无臂：
+  当场 `compile_to_exe("输出(1 === 1)")` 抛 `NativeNotSupported: 原生后端暂不支持二元运算 '==='`，
+  `!==` 同判，`输出('a' === 'a')` 亦同。单元族（`_UNARY_OPS` 16 键 / 10 值 + `angle`）
+  实测**零缺位**。附带取证一条（不是缺陷，是符号口径）：**ASCII `~`** 在词法器被
+  `src/lexer.py:33` 的 `~`→`OP_BIT_NOT` 先占，`OP_SET_COMP`（`src/lexer.py:175`）取不到该字符，
+  故二元补集须写 `¬`／`～`／`〜`（`src/lexer.py:99-100,132`）——三名实测均解析成功且原生可发射，
+  `_SET_BINOPS` 的 `~` 臂并非死码。这是**诚实拒绝**（非零退出 + 不留产物，
+  `tests/test_native_process_phase44.py::test_44b_cli_native_build_unsupported_source_rc1_no_artifact`
+  锁的判据形状），不是假成功；该档 46b 改锁时曾写下「全部运算符已可发射」，2026-11-27 收尾复测
+  证伪并就地订正为本文档串现形。**本批探针无判别力缺口说明**：44b 探针换到 arity 上限形（16 参
+  函数）后已在本轮全量门禁跑绿，再换回 `===` 会使该读数失效，故留待 #263 载体落地时一并换源并
+  翻成四面同判锁（反转条件 = **#263**）。
+  **46c-① 边界换形**：46c 收官条目里「boot **解释器面**（`interp_matha`/`loader`）链进映像实测
+  在第一条驱动语句前以 `不可调用的值` 退出（rc=0x1），故全链双跑仍待 46a/46b」是 **46c 时点**
+  读数，已被本批 46b（六片含解释面全链跑通）与 46b-3（编译器/VM 共像）推翻，原文不改写、只按
+  46c 条目内的时点限定读取；现行全链边界改指上面③的共像符号作用域未收口。
+  本体量 **34,538→34,570**（+32 全部来自 `src/mbc/native.py` +40−8；`matha/` 三片
+  （`interp_matha`/`interp`/`lexer`）改动不计入本体量口径）、测试文件现值 **199**（本批新增
+  `tests/test_corpus_face_phase46b.py` + `tests/test_fullchain_face_phase46b.py` 两档）、
+  指令码 36
+  不变、`pyproject` `dependencies=[]` 边界不变。承继 33-⑤ + 32-⑧⑫ + 29-①⑥⑦ + 37-①②③ +
+  38-①② + 39-①②③ + 40-①②③④ + 41-①②③ + 45-①②③ + 46c 各条维持原登记不修。
+  **门禁真数（逐 lane，均当场实测）**：tests lane **首跑读数作废登记**——8489 项 = 4 红 + 8484 过
+  + 1 skip（5337.12s = 1:28:57），四条红全部是**本片自己的修复使旧判据失效**（非环境伪影），按
+  「修复引入的判据失效要改锁而不是放宽判据」处置：①
+  `test_44b_cli_native_build_unsupported_source_rc1_no_artifact` 用 `输出(1 is 1)` 作「超出原生子集」
+  探针，46b-3 给 BINOP `is` 落了真原生载体后该源**能编**（rc 0 + 产物 70,144 字节），探针换 16 参
+  `MAX_NATIVE_ARITY` 上限（rc=1 / 「超出原生子集」/ 不留产物 / 库面同判四判据形状不变，反转条件已写进锁）；
+  ② `test_45e_the_two_interpreter_sources_are_not_name_equal` 实测 106/**141** 对锁死 139——入口绑名批
+  新增 `绑模块名`/`绑名对` 两名（均 boot 独有，交集仍 53）；③
+  `test_45e_documented_line_reference_erratum_is_applied` 要求文档写 `interp_matha.matha:783-784`，
+  而文档仍停在 45 时点的 777-778；④ `test_45e_host_builtin_face_count_in_docs_is_the_live_value`
+  要求「文档口径 == 当场实测 134」，四文档写的是 132。四处一律按**机器现值 → 文档**单向同步。
+  改锁后定向复跑 `test_native_process_phase44` + `test_native_selfhost_phase45` + `test_doc_facts` +
+  `test_native_selfhost_phase46` = **190 绿（91.08s）**，再跑全量 tests lane 二跑得最终读数：
+  收集 **8489 = 8488 过 + 1 skip（19675.61s = 5:27:55）**，唯一 skip 承继 socket 域的 Windows 平台
+  skip（`SO_REUSEADDR` 那条，不计分母）。二跑墙钟是首跑的 3.7 倍，排查后**无可归因的产品侧改动**
+  （两跑工作树差异仅文档数字与两处判据）：父进程 CPU 3,674s 仅占墙钟 20%、11 个 `grep.exe` 的 CPU
+  计数在多次采样间静止（阻塞而非抢占）、无 `matha.exe` 残留、整机负载 ~12%——只登记为**环境观察**，
+  不影响该跑的过/败读数。lane 外单跑：kernel_purity **14 绿（5.73s）**、ast_vm_gap **11 绿（8.24s）**、
+  golden **39/39（0 失败）**、native_parity **38/39**（0 失败，`native 已知未实现 1 例` 不计分母）、
+  dep_audit **40 内核文件 / 193 import 边 / 0 违规 / 插件越界 0**（`src/` 只动 `src/mbc/native.py`，
+  import 边结构不变，`docs/DEP_BASELINE.md` 无需重生成）；新锁三档合跑取证
+  `test_judgment_face_phase46c` 19 + `test_corpus_face_phase46b` 13 + `test_fullchain_face_phase46b`
+  15 = **47 绿（160.92s）**、`test_native_selfhost_phase46` **22 绿（7.87s）**、doc_facts **18 绿
+  （1.01s）**。Track B `--write` **226 语料 = 双面一致 216 / differ 0 / both_err_equal 10 / both_err 0 /
+  boot_err 0 / host_err 0 / timeout 0**（功率分层：有读数 71 / 空对空 145）+ `--check` **一致**——
+  本批改了 `matha/interp_matha.matha`、`matha/interp.matha`、`matha/lexer.matha` 三份**语料本体**而
+  226 语料逐条分类零漂移（快照相对 46c 时点无变动），这就是「入口绑名批与 CR 分支不动判定面」的
+  实证锁；`scripts/ast_vm_matrix.py --write` 快照重生成**只有 `generated_at` 一行变**（节点 78 /
+  VM 发射 59 / 无码 19 / 不认识 0 / 阻塞缺口 0 / 指令码 **36** 结构不变——46a-3 与 46b-3 只扩原生
+  发射，AST 节点集与 VM 指令码集零新增）。
+  **算术闭合：8592 条件 = 8591 过（tests 8488 + purity 14 + ast_vm_gap 11 + golden 39 + native 38 +
+  dep_audit 1）+ 1 skip（承继 socket 平台 skip）= 阶段 46c 的 8562 + 本批 29**；29 条逐项归因 =
+  `tests/test_corpus_face_phase46b.py` **13** + `tests/test_fullchain_face_phase46b.py` **15** +
+  `tests/test_native_selfhost_phase45.py` 新增的 1 条 `test_45d6_undefined_name_message_matches_host_faces`
+  （同句缺名读数 hi/vm/原生三面逐字同判）——本批其余改动全是判据替换、文档同步与注释，收集数零增减：
+  8489 = 46c 收口时点 8460（= 8459 过 + 1 skip，46c 条目里的 8459 是**过数**不是收集数，本批据实修正）
+  + 29（口径承继 46c：purity 与 ast_vm_gap 在 lane 外单跑计入、不重复计数）。
+  **二跑之后的唯一 tracked 改动**：`tests/test_native_process_phase44.py` 的**文档串 prose 订正**——
+  46b 改锁时在该档写下的「同批实测全部二元/一元运算符在原生面均已可发射」经复测证伪（缺位剩
+  `===`/`!==` 两名，见登记不修④），订正只改注释文字、测试体零改动，故二跑的全量读数仍成立；
+  另把「运算符逐名可发射」这一说法换成**当场 sweep 实测**（一次性只读探针，跑完即删）：
+  31 个 `_BIN_OPS` 键 + `is` 共 32 形逐形 `compile_to_exe` → **29 形发射成功**（28 个键 + `is`）、
+  `===`/`!==` 抛 `NativeNotSupported`、ASCII `~` 形落宿主 ParseError（换 `¬`／`～`／`〜` 即发射成功，
+  见④的符号口径），`_UNARY_OPS` 16 键 + `angle` 全部发射成功；收尾复跑 `test_native_process_phase44` +
+  `test_doc_facts` + `test_native_selfhost_phase45` + `test_native_selfhost_phase46` + 本批两新档 =
+  **218 绿（238.89s）**，证明 prose 改动不破任何判据。
+
 - **2026-11 阶段 46c 收官（判定面换形：Python 退役的前置门禁——三面裁判换为原生自证 +
   手算对拍 + dev-only 差分）**：拍板三条 = 任务 #249 原形「脱 Python 后『与宿主对拍』这条
   oracle 会失效，必须先换形再退役，否则失去正确性判据、退化为假成功温床（阶段 41 清过的那
@@ -2248,11 +2396,15 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   **499**、`_augment_chain_ns` 由 509 移到 **524** ⇒ `test_45e_documented_line_anchors…` 的参数表
   改指 499（复跑 10/10 绿），`docs/ARCHITECTURE.md` 与 `docs/KNOWN_ISSUES.md` 阶段 45 条里的两处
   行引用同步改指并留「45 时点」注——**不放宽成全文搜索**，那正是这条锁要防的事。
-  **登记不修四条（均有锁或有取证）**：①**boot 解释器面仍进不了映像**——把 `interp_matha` /
-  `loader` 链进原生 PE64，实测在第一条驱动语句前以 `不可调用的值` 退出（rc=0x1），故 ① 的原形
-  「映像自己编译 + 自己运行」全链双跑待 **46a（24 个 latent 宿主注入名归零，承继 45-①/46-1）+
+  **登记不修四条（均有锁或有取证）**：①**46c 时点：boot 解释器面当时进不了映像**——把 `interp_matha` /
+  `loader` 链进原生 PE64，当时实测在第一条驱动语句前以 `不可调用的值` 退出（rc=0x1），故 ① 的原形
+  「映像自己编译 + 自己运行」全链双跑当时待 **46a（latent 宿主注入名归零，承继 45-①/46-1）+
   46b**；本片交付的是**编译面** A/B 双跑，口径已写进锁档 docstring 边界段，不许在文档里被引用成
-  「全链自举已成」。②链接面与拼接面今日产物**逐字节相同**是 45b「链接即按源序拼接后一次发射」
+  「全链自举已成」。【**本条已在阶段 46b/46b-3 换形**：boot 六片单独成像可跑真语料
+  （`tests/test_corpus_face_phase46b.py`），五片配方的「读盘 → 编译器 → VM」全链同像已在一个
+  映像内跑通（`tests/test_fullchain_face_phase46b.py`）；现行边界不再是「解释器面进不了映像」，
+  而是**共像时模块符号作用域未收口**（`matha/interp_matha.matha:508` 与 `matha/vm.matha:119`
+  同名 `应用运算`，扁平链接面后者覆盖前者），详见下面阶段 46b 收官条目。】②链接面与拼接面今日产物**逐字节相同**是 45b「链接即按源序拼接后一次发射」
   的投影，不是独立的正确性证据——46c23 的力气在「分叉即红」，届时改写而非删锁。③差分面**不退役**：
   它仍是 dev 工具（研发期最有信息量），换形只是把它从「唯一裁判」降级为「dev-only 参照」并进
   边界锁；`AUTHORITY` 是字符串声明，真正的隔离由 46c30 的全仓 import 扫描承重。④46c31 的
@@ -2284,7 +2436,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   判据入锁）**：拍板三条 = 路线形态「有界清算循环——每轮一条可判定判据 + 一次可回滚提交」/
   本切片「先收 46 摸底取证出的**真缺陷**，再进 46a 原生 OS 载体族」/ 验证深度「全量门禁 +
   真原生 PE64 正反控」。**摸底结论（逐项当场实测，非读文档）**：阶段 45 登记的「boot 全链 25 个
-  latent 宿主注入名」按**载体归属**三分——A 类 **20** 名已在 `build_boot_vm().vm.globals`
+  latent 宿主注入名」按**载体归属**三分——A 类 **20** 名已在 `build_boot_vm().globals`
   （terminal_builtin fs/stdio 族 12 + `matha_chain` 装载根族 3 + 导出表异常类 1 + 内核计算 3 +
   宿主内部能力 `调试Matha` 1）、B 类 **4** 名由 os 域插件 `PluginResolver.known_symbols()`
   惰性物化、C 类 **1** 名**谁都没有**。C 类那一名 `acc` 不是宿主注入名，而是
@@ -2378,8 +2530,10 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   函数体内均为 latent，非防御分支不可达）。本批范围边界明文「不扩 OS 载体」，真化列 **46a**。
   【阶段 46 摸底取证，不改写本条 25 名的时点读数：其中 `acc` 经逐项归因判定为
   `matha/stdlib.matha` 的自由名缺陷（`to_upper` 一臂必然失败）而非宿主注入缺口，同批真修后
-  **现行 24 名**（总读位 33→32）；其余 24 名按载体归属为 A 宿主 `vm.globals` 已有载体 20 /
-  B 插件惰性物化 4 / C 无载体 0，见阶段 46 收官条目。】
+  24 名（总读位 33→32）；46a-3 再把异常类名两名 `未定义错误`/`MathaRuntimeError` 落进原生载体，
+  **现行 22 名**（总读位 33→28，重复读位表随之去掉 `未定义错误`3）；现行 22 名按载体归属为
+  A 宿主 `vm.globals` 已有载体 **18** / B 插件惰性物化 **4** / C 无载体 0，见阶段 46 摸底与
+  阶段 46b 收官条目。】
   ②`use 标准库 { 名 }` 在原生面**降级为一个 latent 的 `加载模块` 调用**（同锁
   `test_45d6_native_docstring_claim_of_no_reachable_name_is_stale`）——45b 的多源链接是替代
   路径，但 stdlib 单文件仍走运行期装载，未在本批收口。
@@ -2401,7 +2555,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   产品链 `src/matha_chain.py` 全文无 `struct`/该函数 ⇒ `MathaChain().load("解释器")` 在产品面
   必报「模块 '词法器' 中未找到 'Token'」（锁 `test_45e_struct_factory_gap_between_gate_and_product_is_registered`）
   ——判定面补的缝不算产品能力，本条故意不修以免用判定面冒充链面。
-  原生面 `NATIVE_BUILTINS` **132** 名与宿主实例内建表 **3025** 名的差集是**后续清算的工作量
+  原生面 `NATIVE_BUILTINS` **134** 名与宿主实例内建表 **3025** 名的差集是**后续清算的工作量
   本身**（46 系列的输入），不是本批遗漏。承继 **33-⑤ + 32-⑧⑫ + 29-①⑥⑦ + 37-①②③ +
   38-①② + 39-①②③④ + 40-①②③④ + 41-①②③ + 42-③④ + 43-①②③⑤⑥ + 44-①～⑧**（含 44-⑧
   冻结映像未重建：本批 `dist/matha.exe` 仍是阶段 43 构建，`dist/` 是活的测试依赖故门禁期间不
@@ -2412,12 +2566,14 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   本条只动文档，代码零改动；每条为取证后的勘正或登记不修，取证脚本随探针一并清理、结论落点写全。
   **勘误一（行号）**：阶段 42 条目 42-④ 引「终端 `运行/调试` 的宿主委托臂」写作
   `matha/interp_matha.matha:773-774`，实为 **:777-778**——43a-2 在该臂表前插了 3 行口径注
-  与 `当前目录` 一行，行号顺移；已就地改准，条目其余文字不改。
+  与 `当前目录` 一行，行号顺移；已就地改准，条目其余文字不改。【阶段 46b 时点再漂移：
+  46a-1 的 `标准库.len` 归一在臂表上方净增 6 行，现为 **:783-784**（42-④ 落点已同步），
+  `test_45e_documented_line_reference_erratum_is_applied` 把「文档行锚 == 代码现场」钉死。】
   **勘误二（已删文件的行号引用）**：阶段 10 补充条目引 `src/plugins/ffi_sdk.py:221` 两处
   （`src/mir_codegen.MathaLLVMGenerator` 死分支）——该文件已于阶段 22b 孤儿清算删除
   （见阶段 22 收官条目「孤儿删除」列项），现仓内只剩 `src/plugins/__pycache__/ffi_sdk.cpython-314.pyc`。
   引用保留为**历史落点**读数，本轮在其后加注记，不改写历史结论。
-  **口径统一（现行值）**：boot 链固定注册面 = `matha/interp_matha.matha:1432-1512` 的
+  **口径统一（现行值）**：boot 链固定注册面 = `matha/interp_matha.matha:1438-1518` 的
   `注册内建(空环境)` 逐条清点 **60 名**（运行时 `MathaChain().env` 同数，phase42
   `test_42b_carriers_registered_in_chain_surface` 已锁 `len(names) == 60`）；阶段 41 时点 47
   → 42b 后 59 → 43a-2 后 60。散在 README / ARCHITECTURE / CHANGELOG 阶段 41 段的「47 名」与
@@ -2425,9 +2581,11 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   行号随条目插入顺移，正是本轮勘误一那类漂移的来源）。
   对照面另计：宿主 `Interpreter` **实例内建表 3025 名**（阶段 41 时点 3020 → 阶段 44 映像族
   显式拒绝内建 +5，见 `src/interp.py:614 PROCESS_IMAGE_BUILTINS`；`src.interp.BUILTINS` 是
-  另一张表只有 82 名，勿混读）、`src/mbc/native.py` 的 `NATIVE_BUILTINS` 面独立（现测 132 名）。
+  另一张表只有 82 名，勿混读）、`src/mbc/native.py` 的 `NATIVE_BUILTINS` 面独立（现测 134 名：
+  阶段 45 时点 132 → 46a-3 把异常名族 `未定义错误`/`MathaRuntimeError` 接入原生内建表 +2）。
   **登记不修一：`module 解释器` 有两套源、三套解析序**。①`matha/interp_matha.matha`
-  （1571 行、module 内 139 名，boot 链内引擎）——`src/matha_chain.py:37` `BOOT_FILES` 装的是它；
+  （现值 1599 行、module 内 141 名，boot 链内引擎；阶段 45 时点 1571 行/139 名，入口绑名批
+  （代码注 46b-2 / 锁 `test_46b5`）新增 `绑模块名`/`绑名对` 使 module 名集 +2）——`src/matha_chain.py:37` `BOOT_FILES` 装的是它；
   ②`matha/interp.matha`（module 内 106 名，宿主对位镜像）——`src/interp.py:946` `_CN2FILE`、
   `scripts/selfhost_matrix.py:499` 镜像表（45 时点 484，阶段 46c 在该行之上补功率分层后漂移）、
   `matha/loader.matha:23` `名表` 三处皆指它；
@@ -2761,7 +2919,7 @@ P2 定位决策（2026-10）：以下通道**一律不入 `make check` 门禁**�
   ③`调试` 在链面显式拒绝（VM 编译链无逐节点轨迹/环境快照，非静默降级，宿主后端为
   排障入口——test_42c_debug_is_explicit_refusal_on_chain + 子进程取证锁在档）
   ④终端 `运行/调试/扩展命令` 的嵌套程序执行仍经 `执行Matha`/`调试Matha` 臂落宿主
-  引擎（matha/interp_matha.matha:777-778 直接委托宿主内建——装载与命令逻辑已 Matha
+  引擎（matha/interp_matha.matha:783-784 直接委托宿主内建——装载与命令逻辑已 Matha
   化，被装载程序的求值引擎本体仍是宿主 Python，彻底脱宿主属后续阶段）；承继 33-⑤ +
   32-⑧⑫ + 29-①⑥⑦ + 37-①②③ + 38-①② + 39-①②③ + 40-①②③④ + 41-①②③ 维持原
   登记不修。边界维持：pyproject dependencies=[] 不变（装载器纯 Matha、

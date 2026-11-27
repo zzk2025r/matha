@@ -34,12 +34,26 @@ Track B 的 `equal` 是 boot↔host 差分（裁判 = 宿主 Python），golden 
   字节码读数逐字相同；同一映像内重复编译同判；读数另与本档手算字面量对拍
   （依据到编译器源行），并用三刀反控证明字面量承重。
 
-**边界（本档自证的到哪一步为止）**：任务 #249 的 ① 原形是「原生映像 A 编译出的
-产物 == 原生映像 B」。今天交付的是**编译面**的 A/B 双跑（四片链）；把 boot 的
-**解释器面**（`interp_matha` / `loader`）也链进映像，实测在第一条驱动语句前就
-以 `不可调用的值` 退出（rc=0x1），即 46a（24 个 latent 宿主注入名归零）+ 46b
-的边界；那之后 ① 才扩到「映像自己编译 + 自己运行」的全链双跑。登记见
-KNOWN_ISSUES 阶段 46c。
+**边界（本档自证的到哪一步为止，阶段 46b-3 换形）**：任务 #249 的 ① 原形是「原生
+映像 A 编译出的产物 == 原生映像 B」。本档交付**编译面**的 A/B 双跑（四片链）；
+「读盘 → 自己编译 → 自己运行」的**全链**双跑已另档落地
+（`tests/test_fullchain_face_phase46b.py`，五片配方）。
+
+**为什么 46c 的四片里曾有「解释面进不了映像」这句话**：那是阶段 46c 时点的实测
+（boot 链源里仍有 25 个 latent 宿主注入名，第一条驱动语句前就 `不可调用的值`
+退出 rc=0x1）。46a 的载体族真化 + 46b 把 boot 六片链进原生映像跑真语料之后，
+这句话**已经过时**：boot 六片（含 `interp_matha` / `loader`）单独成像是跑得通的，
+判据在 `tests/test_corpus_face_phase46b.py`。
+
+现行边界是**共像时的模块符号作用域未收口**，不是「某面进不了像」：
+`matha/interp_matha.matha:508` 与 `matha/vm.matha:119` 各自定义同名内部函数
+`应用运算`，MBC 编译单元把各模块的 `func` 提升进**同一张**全局函数表（boot 六片
+里 `globals` 就有 `应用运算`），扁平链接产物层后者覆盖前者——`interp_matha` 与
+`vm.matha` 共像时，解释面读数被 `vm.matha` 的 `应用运算`（无 `op = "="` 臂）接管，
+`golden_tests/cases/01_arithmetic_and_relations.matha` 从 `[14, True, True]` 变成
+`未知运算符: =`。取证锁 = `test_46b3_13_flat_link_face_clobbers_same_named_module_funcs`，
+所以 46b-3 的全链配方刻意只取五片（不含解释面）。收口项（链接面按模块分命名空间）
+另立任务。登记见 KNOWN_ISSUES 阶段 46c + 46b-3。
 """
 import os
 import re
@@ -279,7 +293,9 @@ def test_46c27_literals_agree_with_the_matha_source_not_with_memory():
 _COMPILER_TXT = (_ROOT / "matha" / "compiler_matha.matha").read_text(encoding="utf-8")
 # 编译面四片：词法 → 标准库 → 语法 → 编译（`matha/compiler_matha.matha` 顶部
 # `use 词法器 / 语法器 / 标准库`，缺任一片在链接期即拒）。解释器面
-# （interp_matha / loader）仍进不了映像——见本档末尾的边界段。
+# （interp_matha / loader）刻意不进这份四片配方——它与 `matha/vm.matha` 有同名
+# 内部函数 `应用运算`，共像时扁平链接面会让后者覆盖前者（见本档末尾的边界段；
+# 全链五片配方的取证在 tests/test_fullchain_face_phase46b.py）。
 _BC_SRC = [_LEXER_TXT, _STDLIB_TXT, _PARSER_TXT, _COMPILER_TXT]
 
 # 驱动在**映像内**调用 Matha 自己写的编译器（`编译器.编译`），将字节码模块的

@@ -336,9 +336,30 @@ def test_44b_cli_native_build_missing_source_rc2(tmp_path):
 
 
 def test_44b_cli_native_build_unsupported_source_rc1_no_artifact(tmp_path):
-    """超出原生子集 → NativeNotSupported 如实非零退出，且不留半成品产物。"""
+    """超出原生子集 → NativeNotSupported 如实非零退出，且不留半成品产物。
+
+    **46b 改锁（本批自己的修复使旧探针失效，非环境伪影）**：44b 时点用
+    `输出(1 is 1)` 作「原生无发射」探针，阶段 46b-3 给 BINOP `is` 落了真原生载体
+    （`src/mbc/native.py` 的 `elif sym == "is"` 分支，见
+    `tests/test_fullchain_face_phase46b.py::test_46b3_15`），该源现在**能编**。
+    探针因此换到仍然成立的容量边界：函数参数上限 `MAX_NATIVE_ARITY`（45a 收口形 8→15），
+    16 参函数仍属诚实拒绝，判据形状（rc=1 + 「超出原生子集」文案 + 不留产物 + 库面同判）不变。
+    **运算符缺位族并未清空**（本条文档串曾写「全部运算符已可发射」，2026-11-27 收尾复测证伪并
+    就地订正）：`src/mbc/compiler.py:99-115` 的 `_BIN_OPS` 共 31 键／29 个不同值（`is` 不在表内，
+    另走 IsExpr 发射位），逐键实测后只剩 **`===` / `!==`** 两名在原生面无发射臂，
+    `compile_to_exe("输出(1 === 1)")` 当场抛 `原生后端暂不支持二元运算 '==='`
+    （字符串操作数同判）；其余 `+ - * / // % ** ^ == != < <= > >= in is and or << >> & | ⊕
+    ∪ ∩ ⊖ × ⊆ ¬ not neg sqrt ∑ ∏ angle` 逐名实测可发射（二元补集写 `¬`／`～`／`〜`——ASCII `~`
+    被 `src/lexer.py:33` 的位取反先占，`src/lexer.py:175` 的 `OP_SET_COMP` 取不到该字符）。之所以不把本
+    探针换回 `===`：它已在本轮全量门禁里以 arity 形跑绿，换源会使该读数失效——`===`/`!==` 的载体与
+    探针换形一并挂任务 #263（反转条件见下）。
+    **反转条件**：① 若扩 arity 上限或改拒绝文案，本条需重新取证，不许放宽成「非零即可」；
+    ② #263 给 `===`/`!==` 落载体后，本探针应换回运算符缺位族（另找仍缺位的形或改判据）。
+    """
     src = tmp_path / "unsupp.matha.txt"
-    src.write_text("输出(1 is 1)\n", encoding="utf-8")      # 'is' 无原生发射
+    args = ",".join(f"a{i}" for i in range(16))
+    call = ",".join(str(i) for i in range(16))
+    src.write_text(f"func f({args}) -> Int = a0\n输出(f({call}))\n", encoding="utf-8")
     exe = tmp_path / "unsupp.exe"
     r = _cli("原生构建", str(src), "-o", str(exe))
     txt = r.stdout.decode("utf-8", "replace")
@@ -346,7 +367,7 @@ def test_44b_cli_native_build_unsupported_source_rc1_no_artifact(tmp_path):
     assert "超出原生子集" in txt, txt
     assert not exe.exists(), "发射失败不得留下产物"
     with pytest.raises(NativeNotSupported):            # 库面同判，非仅 CLI 包装
-        compile_to_exe("输出(1 is 1)\n")
+        compile_to_exe(src.read_text(encoding="utf-8"))
 
 
 def test_44b_cli_build_help_no_longer_advertises_standalone_exe():

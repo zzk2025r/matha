@@ -5037,9 +5037,16 @@ def _emit_builtin_get(em: _Emitter):
     _emit_epilogue(em)
 
 
-def _emit_builtin_error(em: _Emitter):
-    """内建 错误(msg)：抛出 msg（等价 VM 的 OP.RAISE(str(msg))）。"""
-    em.label_here("fn:错误")
+def _emit_builtin_error(em: _Emitter, name: str = "错误"):
+    """内建 错误/未定义错误/MathaRuntimeError(msg)：抛出 msg（等价 VM 的 OP.RAISE(str(msg))）。
+
+    宿主面三者只有异常类不同（`错误`/`MathaRuntimeError` → MathaRuntimeError，
+    `未定义错误` → MathaUndefinedNameError），而两者 `__str__` 都只返回消息本体
+    （`MathaUndefinedNameError` 显式绕开 KeyError 的加引号版本，见
+    src/kernel/errors.py），故原生面单消息体与宿主/VM/链面逐字同判。类名差仍
+    是原生面结构性缺口（无异常类型载体），登记见 KNOWN_ISSUES 41-③ 同族。
+    """
+    em.label_here(f"fn:{name}")
     _emit_prologue(em, 1, 1)
     em.mov_rd_mem(0, 5, -8)                         # mov rax,[rbp-8]（arg0）
     em.call_rel32("raise_rt")                       # 不返回
@@ -7937,7 +7944,8 @@ def _emit_builtin_decode_decimal(em: _Emitter):
 
 
 NATIVE_BUILTINS = (
-    "len", "输出", "print", "get", "错误", "调用捕获", "MathaIOError",
+    "len", "输出", "print", "get", "错误", "未定义错误", "MathaRuntimeError",
+    "调用捕获", "MathaIOError",
     # 砖块 16 阶段一：数值 + 转换核心
     "abs", "sign",
     "sin", "cos", "tan", "asin", "acos", "atan",
@@ -8000,6 +8008,7 @@ NATIVE_BUILTINS = (
 # 分配一条 [TYPE_CLOSURE][fn][env=0][arity] 记录，指针存入数据槽 bclo:{name}。
 _BUILTIN_ARITY = {
     "len": 1, "输出": 1, "print": 1, "get": 2, "错误": 1, "调用捕获": 2,
+    "未定义错误": 1, "MathaRuntimeError": 1,
     "MathaIOError": 1,
     # 砖块 16 阶段一
     "abs": 1, "sign": 1,
@@ -8061,7 +8070,9 @@ _BUILTIN_EMITTERS: dict = {
     "len": _emit_builtin_len,
     "输出": _emit_builtin_print,
     "get": _emit_builtin_get,
-    "错误": _emit_builtin_error,
+    "错误": lambda em: _emit_builtin_error(em, "错误"),
+    "未定义错误": lambda em: _emit_builtin_error(em, "未定义错误"),
+    "MathaRuntimeError": lambda em: _emit_builtin_error(em, "MathaRuntimeError"),
     "调用捕获": _emit_builtin_guard,
     "MathaIOError": _emit_builtin_matha_io_error,
     "abs": _emit_builtin_abs,
@@ -8387,8 +8398,15 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
             if declared_globals is not None and name in declared_globals:
                 em.load_global(f"cell:{name}")
             else:
-                em.lea_rip(0, "err_undefined")
-                em.call_rel32("raise_rt")             # 不返回
+                # 消息带名（`未定义变量 'X'`）：宿主/VM/链面三面同名同判，原生
+                # 此前只报无名的「未定义变量」——载体缺口因此无法定位（阶段 46 收）。
+                # 名串就是本模块常量池里的静态 STR 对象，两接 str_concat 成形。
+                em.lea_rip(0, "err_undef_pre")          # rax="未定义变量 '"
+                em.lea_rip(1, f"sob:{ins[1]}")          # rcx=名
+                em.call_rel32("str_concat")             # rax=前缀+名
+                em.lea_rip(1, "dk_q")                   # rcx="'"
+                em.call_rel32("str_concat")             # rax=前缀+名+"'"
+                em.call_rel32("raise_rt")               # 不返回
                 em.emit(b"\x0F\x0B")                   # ud2
     elif op == OP.STORE_GLOBAL:
         em.store_global(f"cell:{consts[ins[1]]}")
@@ -8941,6 +8959,20 @@ def _emit_one(em: _Emitter, ins: tuple, consts: list, fn_names: set[str],
                 em.emit(b"\x0F\xB6\xC0")            # movzx eax,al
                 _emit_rax_to_bool(em, tag, f"{idx}o")
                 em.label_here(ldone)
+        elif sym == "is":
+            # 身份比较 `l is r`（宿主 src/interp.py:3691 `l is r`、src/mbc/vm.py:220
+            # `lambda a,b: a is b`，发射位 src/mbc/compiler.py:1839 IsExpr）。原生值
+            # 模型里唯一可判定的身份 = **tagged 原始字面量逐位相同**：堆对象
+            # （str/list/dict/tuple/closure/函数/浮点/大整数）的 raw 就是指针，逐位
+            # 相同 ⟺ 同一对象，与宿主 `is` 同判；裸整数/布尔/null 的 raw 即值本身。
+            # 口径分歧（阶段 46b-3 登记，不追随 interning）：Python 对不可变标量的
+            # `is` 不保证——常量复用与 intern 使 `"ab" is "ab"`、`1.5 is 1.5` 在宿主
+            # 面常为真，原生每次 LOAD_CONST 重物化 → 假。宿主那侧的真值来自实现
+            # 细节而非语言定义，故本面以「同一对象」为准。
+            em.emit(b"\x48\x39\xC8")                # cmp（相等置 ZF）
+            em.emit(b"\x0F\x94\xC0")                # sete al
+            em.emit(b"\x0F\xB6\xC0")                # movzx eax,al
+            _emit_rax_to_bool(em, tag, f"{idx}is")
         elif sym == "/":
             pass                                    # 恒浮点，已跳 fp
         else:
@@ -11316,7 +11348,7 @@ def _emit_data_section(mod, labels: dict, ec: _Emitter, user_names: set):
                     ("tag_ioerror", "MathaIOError"),
                     ("err_divzero", "division by zero"),
                     ("err_powzero", "zero to a negative power"),
-                    ("err_undefined", "未定义变量"),
+                    ("err_undef_pre", "未定义变量 '"),
                     ("err_sub_type", "- 不适用于字符串/列表"),
                     ("err_bitand", "& 操作数需为整数"),
                     ("err_bitor", "| 操作数需为整数"),

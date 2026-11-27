@@ -21,17 +21,18 @@
   运行期 rc≠0 + stderr「未定义变量」——证明收益来自这次改动而非调用形偶然不同。
 - 46e **分类判据**：boot 全链每个 latent 名都必须有 A 或 B 类载体归属。这条把摸底
   的分类动作固化成机器判定，此后语料级自由名再也无法冒充「宿主注入缺口」。
-- 46f 名集/计数与阶段 45 锁档同源（`_BOOT_LATENT` 去掉 `acc`、24 名、读位 32）。
+- 46f 名集/计数与阶段 45 锁档同源（`_BOOT_LATENT` 去掉 `acc` 与 46a-3 的异常名族两名、
+  22 名、读位 28）。
 - 46g stdlib 单片 latent 归零（与 45d-6 词法器单片同规格）。
 - 46h 口径锁：boot 链 LOAD_GLOBAL 名与 `_UNRESOLVED_GLOBALS` 的交集只落在**特殊发射
-  位**（`None` / `_empty_dict` 在编译期拒绝分支之前已处理），即「24 是下界」这句口径
-  本身成立——不锁它，24 就会被读成「宿主注入缺口的上界」，而真正的下界含义是
-  「至少还差这 24 个载体」。
+  位**（`None` / `_empty_dict` 在编译期拒绝分支之前已处理），即「22 是下界」这句口径
+  本身成立——不锁它，22 就会被读成「宿主注入缺口的上界」，而真正的下界含义是
+  「至少还差这 22 个载体」。
 - 46i 面分歧如实登记：`to_upper` 只在链面注册面（宿主 `src/**` 零载体），hi 面仍
   「未定义变量 'to_upper'」——41-① 表差族的新成员，本片不扩宿主表。
 - 46j 文档口径与机器读数同源：四份文档的 latent 名数/读位数锚点由 `_latent_reads` 的
   实测值动态拼出（附「25 是时点读数 ⇒ 必须有归因指针」的条件锁），把「文档写 25、
-  代码给 24」这类漂移变成门禁失败而不是下一次摸底的发现。
+  代码给 22」这类漂移变成门禁失败而不是下一次摸底的发现。
 """
 from __future__ import annotations
 
@@ -185,14 +186,14 @@ def test_46e_every_latent_name_has_a_host_carrier_or_a_domain_owner(boot_vm, boo
     assert _DOMAIN_INERT <= set(boot_latent), "os 域惰性名集变化，本条口径需重新取证"
 
 
-def test_46f_latent_set_is_the_documented_24_with_phase45_table_minus_acc(boot_latent):
-    """名集锁：现行 24 名 = 阶段 45 的 25 名去掉 `acc`；读位总数 32。"""
+def test_46f_latent_set_is_the_documented_22_with_phase45_table_minus_acc(boot_latent):
+    """名集锁：现行 22 名 = 阶段 45 的 25 名去掉 `acc` 与异常名族两名；读位总数 28。"""
     assert "acc" not in _BOOT_LATENT, "阶段 45 名集应已随本片收口去掉 acc（见其 _BOOT_LATENT 注）"
     assert set(boot_latent) == _BOOT_LATENT, (
         f"名集漂移：新增 {sorted(set(boot_latent) - _BOOT_LATENT)}，"
         f"消失 {sorted(_BOOT_LATENT - set(boot_latent))}")
-    assert len(boot_latent) == 24, f"latent 名数：{len(boot_latent)}"
-    assert sum(boot_latent.values()) == 32, boot_latent
+    assert len(boot_latent) == 22, f"latent 名数：{len(boot_latent)}"
+    assert sum(boot_latent.values()) == 28, boot_latent
 
 
 def test_46g_stdlib_fragment_alone_has_no_latent_name():
@@ -246,7 +247,7 @@ def _flat(rel: str) -> str:
 @pytest.mark.parametrize("rel", sorted(_DOC_LATENT_ANCHORS))
 def test_46j_docs_state_latent_counts_that_match_the_machine(rel, boot_latent):
     n, g = len(boot_latent), sum(boot_latent.values())
-    assert (n, g) == (24, 32), "46f 的名集口径变了，本条锚点需同步取证"
+    assert (n, g) == (22, 28), "46f 的名集口径变了，本条锚点需同步取证"
     flat = _flat(rel)
     for tmpl in _DOC_LATENT_ANCHORS[rel]:
         assert tmpl.format(n=n, g=g) in flat, f"{rel} 的 latent 口径与实测不符：{tmpl}"

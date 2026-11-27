@@ -42,6 +42,9 @@ module 词法器 {
 
   func 是换行码(c: Int) -> Bool = (c) => (c = 10) ? 真 : 假
 
+  (* 回车码：宿主 src/lexer.py:463 有独立的 \r 分支，链面此前只认 10。 *)
+  func 是回车码(c: Int) -> Bool = (c) => (c = 13) ? 真 : 假
+
   func 是空白码(c: Int) -> Bool = (c) =>
     ((c = 32) or (c = 9)) ? 真 : 假
 
@@ -420,6 +423,14 @@ module 词法器 {
         扫描注释(src)(pos + 2)(line)(col + 2)(1)(toks) :
         扫描主体(src)(pos)(line)(col)(toks))
 
+  (* CRLF 折叠（宿主 lexer.py:463-481 同判）：\r 后紧跟 \n → 只跳过 \r，
+     换行 Token 由 \n 分支出面；单独 \r → 就地出一条换行。 *)
+  func 扫回车(src: String, pos: Int, line: Int, col: Int, toks: List) -> List =
+    (src, pos, line, col, toks) =>
+      (pos + 1 < len(src) and 是换行码(ord(get(src)(pos + 1)))) ?
+        扫描(src)(pos + 1)(line)(col + 1)(toks) :
+        扫描(src)(pos + 1)(line + 1)(1)(append(toks)(做Token(换行, "\n", line, col)))
+
   func 扫描主体(src: String, pos: Int, line: Int, col: Int, toks: List) -> List =
     (src, pos, line, col, toks) =>
       (pos >= len(src)) ?
@@ -427,6 +438,14 @@ module 词法器 {
       (* 换行 *)
       (是换行码(ord(get(src)(pos))) ?
         扫描(src)(pos + 1)(line + 1)(1)(append(toks)(做Token(换行, "\n", line, col))) :
+      (* 回车（CR，13）——宿主 src/lexer.py:462-471 有独立 \r 分支：CRLF 只出
+         1 条换行（\r 原地跳过、紧随的 \n 出面），单独 \r 直接算换行。链面此前
+         只认 10，\r 落到单字符分支降级成 符号 → 被解析为变量引用而报
+         「未定义变量 '<CR>'」；宿主/VM 面经 Python read_text 的 universal-newlines
+         归一永远收不到 \r，故该分歧只在原生载体（标准库.read_file 保原文）下
+         显形（阶段 46 收）。 *)
+      (是回车码(ord(get(src)(pos))) ?
+        扫回车(src)(pos)(line)(col)(toks) :
       (* 空白跳过 *)
       (是空白码(ord(get(src)(pos))) ?
         扫描(src)(pos + 1)(line)(col + 1)(toks) :
@@ -456,7 +475,7 @@ module 词法器 {
          t = 双省略号) ?
           扫描(src)(pos + 2)(line)(col + 2)(append(toks)(做Token(t, txt, line, col))) :
       (* 单字符 *)
-        扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(映射单符(get(src)(pos)), get(src)(pos), line, col))))))))
+        扫描(src)(pos + 1)(line)(col + 1)(append(toks)(做Token(映射单符(get(src)(pos)), get(src)(pos), line, col)))))))))
 
   (* ===== 公共入口 ===== *)
   func tokenize(src: String) -> List = 扫描(src)(0)(1)(1)([])
